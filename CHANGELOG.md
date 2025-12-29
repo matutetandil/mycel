@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 2.5)
+- **TCP Connector** (`internal/connector/tcp/`)
+  - **TCP Server**: Listen for incoming TCP connections
+    - Length-prefixed message framing (4-byte big-endian header)
+    - Message routing by `type` field in JSON
+    - Configurable max connections, read/write timeouts
+    - TLS support (optional)
+    - Graceful shutdown with connection draining
+  - **TCP Client**: Connect to remote TCP servers
+    - Connection pooling with configurable size
+    - Automatic retry with configurable count and delay
+    - Request-Response and Fire-and-forget patterns
+    - TLS support with custom CA certificates
+  - **Protocol codecs**: JSON, msgpack, raw
+  - **Wire protocol**: `[4-byte length][payload]`
+- **TCP Example** (`examples/tcp/`)
+  - Complete example with TCP server + SQLite
+  - Python and netcat testing scripts
+
 ### Added (Phase 2)
 - **HTTP Client connector** (`internal/connector/http/`)
   - Call external REST APIs from flows

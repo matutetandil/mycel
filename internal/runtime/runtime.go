@@ -18,6 +18,7 @@ import (
 	"github.com/mycel-labs/mycel/internal/connector/database/sqlite"
 	connhttp "github.com/mycel-labs/mycel/internal/connector/http"
 	"github.com/mycel-labs/mycel/internal/connector/rest"
+	"github.com/mycel-labs/mycel/internal/connector/tcp"
 	"github.com/mycel-labs/mycel/internal/parser"
 	"github.com/mycel-labs/mycel/internal/transform"
 	"github.com/mycel-labs/mycel/internal/validate"
@@ -122,12 +123,8 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 	registry.RegisterFactory(sqlite.NewFactory(logger))
 	registry.RegisterFactory(postgres.NewFactory())
 
-	// Future connectors:
-	// - MySQL connector factory
-	// - Redis connector factory
-	// - Kafka connector factory
-	// - TCP connector factory
-	// - etc.
+	// TCP connector for raw TCP communication (server + client)
+	registry.RegisterFactory(tcp.NewFactory(logger))
 }
 
 // Start initializes all connectors, registers flows, and starts the HTTP server.
@@ -224,6 +221,27 @@ func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
 		if baseURL, ok := cfg.Properties["base_url"]; ok {
 			return fmt.Sprintf("→ %v", baseURL)
 		}
+	case "tcp":
+		host := "0.0.0.0"
+		if h, ok := cfg.Properties["host"].(string); ok {
+			host = h
+		}
+		port := 9000
+		if p, ok := cfg.Properties["port"].(int); ok {
+			port = p
+		}
+		protocol := "json"
+		if p, ok := cfg.Properties["protocol"].(string); ok {
+			protocol = p
+		}
+		driver := cfg.Driver
+		if driver == "" {
+			driver = "server"
+		}
+		if driver == "server" {
+			return fmt.Sprintf("listening on %s:%d [%s]", host, port, protocol)
+		}
+		return fmt.Sprintf("→ %s:%d [%s]", host, port, protocol)
 	}
 	return ""
 }
@@ -258,12 +276,26 @@ func (r *Runtime) registerFlows() error {
 		r.flows.Register(cfg.Name, handler)
 
 		// Parse operation to get method and path
-		method, path := parseOperationString(cfg.From.Operation)
+		method, path := r.parseFlowOperation(cfg.From.Connector, cfg.From.Operation)
 		target := cfg.To.Connector + ":" + cfg.To.Target
 		banner.PrintFlow(method, path, target)
 	}
 
 	return nil
+}
+
+// parseFlowOperation parses a flow operation based on the connector type.
+func (r *Runtime) parseFlowOperation(connectorName, operation string) (method, path string) {
+	// Check if this is a TCP connector
+	for _, cfg := range r.config.Connectors {
+		if cfg.Name == connectorName && cfg.Type == "tcp" {
+			// For TCP, the operation is the message type
+			return "TCP", operation
+		}
+	}
+
+	// For REST connectors, parse "METHOD /path"
+	return parseOperationString(operation)
 }
 
 // parseOperationString splits "METHOD /path" into method and path.

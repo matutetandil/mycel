@@ -131,7 +131,7 @@ func PrintError(msg string) {
 	fmt.Printf("    %s %s\n", color(BrightMagenta, "✗"), color(BrightMagenta, msg))
 }
 
-// methodToColor returns the appropriate color for an HTTP method.
+// methodToColor returns the appropriate color for an HTTP/TCP method.
 func methodToColor(method string) string {
 	switch method {
 	case "GET":
@@ -142,6 +142,8 @@ func methodToColor(method string) string {
 		return BrightBlue
 	case "DELETE":
 		return BrightMagenta
+	case "TCP":
+		return BrightCyan
 	default:
 		return White
 	}

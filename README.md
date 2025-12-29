@@ -60,6 +60,7 @@ Mycel connects **anything to anything**:
 
 ✅ **Phase 1 Complete** - Core runtime is functional!
 ✅ **Phase 2 Complete** - Extended connectors and features!
+✅ **Phase 2.5 Complete** - TCP Server + Client!
 
 ### Connector Support
 
@@ -68,7 +69,7 @@ Mycel connects **anything to anything**:
 | REST      | ✅ Phase 1             | ✅ Phase 2              |
 | SQLite    | ✅ Phase 1             | ✅ Phase 1              |
 | PostgreSQL| ✅ Phase 2             | ✅ Phase 2              |
-| TCP       | 🔜 Phase 2.5           | 🔜 Phase 2.5            |
+| TCP       | ✅ Phase 2.5           | ✅ Phase 2.5            |
 | GraphQL   | 🔜 Phase 3             | 🔜 Phase 3              |
 | Queues    | 🔜 Phase 3             | 🔜 Phase 3              |
 | gRPC      | 🔜 Phase 3             | 🔜 Phase 3              |
@@ -93,10 +94,12 @@ Mycel connects **anything to anything**:
 - [x] Type validation on flows (input/output validation)
 - [x] Environment variables support (env(), file(), base64decode(), etc.)
 
-**Phase 2.5 - TCP**
-- [ ] TCP Server
-- [ ] TCP Client
-- [ ] Configurable protocols (JSON, protobuf, msgpack, raw)
+**Phase 2.5 - TCP** ✅
+- [x] TCP Server with length-prefixed framing
+- [x] TCP Client with connection pooling
+- [x] Configurable protocols (JSON, msgpack, raw)
+- [x] Request-Response and Fire-and-forget patterns
+- [x] Message routing by type field
 
 **Phase 3 - Extended Protocols**
 - [ ] GraphQL (server + client)
@@ -294,6 +297,7 @@ make lint
 ## Documentation
 
 - [Transformations Guide](docs/transformations.md) - Complete CEL transformation reference
+- [TCP Example](examples/tcp/README.md) - TCP connector usage guide
 
 ## Requirements
 
