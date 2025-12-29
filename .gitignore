@@ -1,0 +1,54 @@
+# Binaries
+/bin/
+/mycel
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+
+# Local environment files
+.env
+.env.local
+*.local.hcl
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+
+# Local data (databases, etc)
+data/
+
+# Private local instructions
+CLAUDE.local.md
