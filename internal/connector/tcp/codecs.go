@@ -26,6 +26,8 @@ func NewCodec(name string) (Codec, error) {
 		return &RawCodec{}, nil
 	case "msgpack":
 		return &MsgpackCodec{}, nil
+	case "nestjs":
+		return &NestJSCodec{}, nil
 	default:
 		return nil, fmt.Errorf("unknown codec: %s", name)
 	}

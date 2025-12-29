@@ -20,8 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Automatic retry with configurable count and delay
     - Request-Response and Fire-and-forget patterns
     - TLS support with custom CA certificates
-  - **Protocol codecs**: JSON, msgpack, raw
-  - **Wire protocol**: `[4-byte length][payload]`
+  - **Protocol codecs**: JSON, msgpack, raw, **nestjs**
+  - **Wire protocols**:
+    - Mycel: `[4-byte length][payload]`
+    - NestJS: `{length}#{json}` (compatible with @nestjs/microservices TCP transport)
+  - **NestJS Protocol Support** (`internal/connector/tcp/nestjs.go`)
+    - Full compatibility with NestJS TCP microservices
+    - Wire format: `{length}#{json}` where json is `{"pattern":"...", "data":{...}, "id":"..."}`
+    - Handles NestJS patterns (string or `{cmd: "..."}` objects)
+    - Automatic conversion between Mycel and NestJS message formats
+    - Support for NestJS response format with `response`, `err`, and `isDisposed` fields
 - **TCP Example** (`examples/tcp/`)
   - Complete example with TCP server + SQLite
   - Python and netcat testing scripts

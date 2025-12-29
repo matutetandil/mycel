@@ -139,3 +139,61 @@ curl http://localhost:3000/users
 | `create_user` | Create a new user |
 | `get_user` | Get user by ID (pass `id` in data) |
 | `list_users` | List all users |
+
+## NestJS Protocol Support
+
+Mycel supports the NestJS TCP protocol, allowing you to connect to existing NestJS microservices!
+
+### NestJS Wire Format
+
+NestJS uses a different wire format: `{length}#{json}`
+
+```
+75#{"pattern":"cache","data":{"key":"foo"},"id":"uuid-here"}
+```
+
+### Connecting to NestJS Microservices
+
+```hcl
+connector "cache_service" {
+  type     = "tcp"
+  driver   = "client"
+  host     = "localhost"
+  port     = 3001
+  protocol = "nestjs"  # Use NestJS protocol!
+}
+```
+
+### NestJS Message Format
+
+```json
+{
+  "pattern": "cache",
+  "data": {
+    "action": "get",
+    "key": "mykey"
+  },
+  "id": "request-uuid"
+}
+```
+
+### NestJS Response Format
+
+```json
+{
+  "id": "request-uuid",
+  "response": {
+    "value": "cached_data"
+  },
+  "isDisposed": true
+}
+```
+
+### Pattern Types
+
+NestJS supports two pattern formats:
+
+1. **String pattern**: `"cache"` → Routes to `@MessagePattern('cache')`
+2. **Object pattern**: `{"cmd": "sum"}` → Routes to `@MessagePattern({cmd: 'sum'})`
+
+Both are automatically handled by Mycel.

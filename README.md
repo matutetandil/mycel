@@ -97,9 +97,10 @@ Mycel connects **anything to anything**:
 **Phase 2.5 - TCP** ✅
 - [x] TCP Server with length-prefixed framing
 - [x] TCP Client with connection pooling
-- [x] Configurable protocols (JSON, msgpack, raw)
+- [x] Configurable protocols (JSON, msgpack, raw, nestjs)
 - [x] Request-Response and Fire-and-forget patterns
 - [x] Message routing by type field
+- [x] **NestJS TCP protocol compatibility** - Connect to existing NestJS microservices!
 
 **Phase 3 - Extended Protocols**
 - [ ] GraphQL (server + client)

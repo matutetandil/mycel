@@ -617,6 +617,7 @@ func TestNewCodec(t *testing.T) {
 		{"", "json", false}, // default
 		{"raw", "raw", false},
 		{"msgpack", "msgpack", false},
+		{"nestjs", "nestjs", false},
 		{"unknown", "", true},
 	}
 
@@ -637,4 +638,473 @@ func TestNewCodec(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ============================================================================
+// NestJS Protocol Tests
+// ============================================================================
+
+func TestNestJSCodec(t *testing.T) {
+	codec := &NestJSCodec{}
+
+	if codec.Name() != "nestjs" {
+		t.Errorf("Name() = %v, want nestjs", codec.Name())
+	}
+
+	t.Run("encode Mycel message to NestJS", func(t *testing.T) {
+		msg := &Message{
+			Type: "cache",
+			ID:   "req-123",
+			Data: map[string]interface{}{"key": "test"},
+		}
+
+		data, err := codec.Encode(msg)
+		if err != nil {
+			t.Fatalf("encode error: %v", err)
+		}
+
+		// Verify it's valid JSON with NestJS structure
+		var nestMsg NestJSMessage
+		if err := json.Unmarshal(data, &nestMsg); err != nil {
+			t.Fatalf("decode error: %v", err)
+		}
+
+		if nestMsg.Pattern != "cache" {
+			t.Errorf("Pattern = %v, want cache", nestMsg.Pattern)
+		}
+		if nestMsg.ID != "req-123" {
+			t.Errorf("ID = %v, want req-123", nestMsg.ID)
+		}
+	})
+
+	t.Run("decode NestJS message to Mycel", func(t *testing.T) {
+		nestData := `{"pattern":"cache","data":{"key":"value"},"id":"req-456"}`
+
+		var msg Message
+		if err := codec.Decode([]byte(nestData), &msg); err != nil {
+			t.Fatalf("decode error: %v", err)
+		}
+
+		if msg.Type != "cache" {
+			t.Errorf("Type = %v, want cache", msg.Type)
+		}
+		if msg.ID != "req-456" {
+			t.Errorf("ID = %v, want req-456", msg.ID)
+		}
+	})
+
+	t.Run("decode NestJS response", func(t *testing.T) {
+		nestData := `{"id":"req-789","response":{"value":"cached"},"isDisposed":true}`
+
+		var msg Message
+		if err := codec.Decode([]byte(nestData), &msg); err != nil {
+			t.Fatalf("decode error: %v", err)
+		}
+
+		if msg.ID != "req-789" {
+			t.Errorf("ID = %v, want req-789", msg.ID)
+		}
+		// Response data should be in Data field
+		if msg.Data["value"] != "cached" {
+			t.Errorf("Data[value] = %v, want cached", msg.Data["value"])
+		}
+	})
+
+	t.Run("decode NestJS error response", func(t *testing.T) {
+		nestData := `{"id":"req-err","err":"key not found","isDisposed":true}`
+
+		var msg Message
+		if err := codec.Decode([]byte(nestData), &msg); err != nil {
+			t.Fatalf("decode error: %v", err)
+		}
+
+		if msg.Error != "key not found" {
+			t.Errorf("Error = %v, want key not found", msg.Error)
+		}
+	})
+
+	t.Run("handle cmd pattern object", func(t *testing.T) {
+		nestData := `{"pattern":{"cmd":"sum"},"data":{"numbers":[1,2,3]},"id":"req-cmd"}`
+
+		var msg Message
+		if err := codec.Decode([]byte(nestData), &msg); err != nil {
+			t.Fatalf("decode error: %v", err)
+		}
+
+		// Pattern {cmd: "sum"} should be converted to "sum"
+		if msg.Type != "sum" {
+			t.Errorf("Type = %v, want sum", msg.Type)
+		}
+	})
+}
+
+func TestNestJSFramer(t *testing.T) {
+	// Create a pair of connected sockets
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	serverFramer := NewNestJSFramer(server)
+	clientFramer := NewNestJSFramer(client)
+
+	t.Run("write and read NestJS message", func(t *testing.T) {
+		msg := &NestJSMessage{
+			Pattern: "cache",
+			Data:    map[string]interface{}{"key": "test"},
+			ID:      "req-123",
+		}
+
+		// Write from client
+		go func() {
+			if err := clientFramer.WriteMessage(msg); err != nil {
+				t.Errorf("write error: %v", err)
+			}
+		}()
+
+		// Read from server
+		received, err := serverFramer.ReadMessage()
+		if err != nil {
+			t.Fatalf("read error: %v", err)
+		}
+
+		if received.Pattern != "cache" {
+			t.Errorf("Pattern = %v, want cache", received.Pattern)
+		}
+		if received.ID != "req-123" {
+			t.Errorf("ID = %v, want req-123", received.ID)
+		}
+	})
+}
+
+func TestNestJSMessageConversion(t *testing.T) {
+	t.Run("FromMycelMessage", func(t *testing.T) {
+		mycelMsg := &Message{
+			Type: "cache",
+			ID:   "req-123",
+			Data: map[string]interface{}{"key": "value"},
+		}
+
+		nestMsg := FromMycelMessage(mycelMsg)
+
+		if nestMsg.Pattern != "cache" {
+			t.Errorf("Pattern = %v, want cache", nestMsg.Pattern)
+		}
+		if nestMsg.ID != "req-123" {
+			t.Errorf("ID = %v, want req-123", nestMsg.ID)
+		}
+		if nestMsg.Data["key"] != "value" {
+			t.Errorf("Data[key] = %v, want value", nestMsg.Data["key"])
+		}
+	})
+
+	t.Run("ToMycelMessage", func(t *testing.T) {
+		nestMsg := &NestJSMessage{
+			Pattern: "cache",
+			ID:      "req-456",
+			Data:    map[string]interface{}{"key": "value"},
+		}
+
+		mycelMsg := nestMsg.ToMycelMessage()
+
+		if mycelMsg.Type != "cache" {
+			t.Errorf("Type = %v, want cache", mycelMsg.Type)
+		}
+		if mycelMsg.ID != "req-456" {
+			t.Errorf("ID = %v, want req-456", mycelMsg.ID)
+		}
+	})
+
+	t.Run("ToMycelMessage with response", func(t *testing.T) {
+		nestMsg := &NestJSMessage{
+			ID:         "req-789",
+			Response:   map[string]interface{}{"value": "cached"},
+			IsDisposed: true,
+		}
+
+		mycelMsg := nestMsg.ToMycelMessage()
+
+		if mycelMsg.Data["value"] != "cached" {
+			t.Errorf("Data[value] = %v, want cached", mycelMsg.Data["value"])
+		}
+	})
+
+	t.Run("ToMycelMessage with error", func(t *testing.T) {
+		nestMsg := &NestJSMessage{
+			ID:         "req-err",
+			Err:        "something went wrong",
+			IsDisposed: true,
+		}
+
+		mycelMsg := nestMsg.ToMycelMessage()
+
+		if mycelMsg.Error != "something went wrong" {
+			t.Errorf("Error = %v, want something went wrong", mycelMsg.Error)
+		}
+	})
+
+	t.Run("NewNestJSRequest", func(t *testing.T) {
+		req := NewNestJSRequest("cache", map[string]interface{}{"key": "test"})
+
+		if req.Pattern != "cache" {
+			t.Errorf("Pattern = %v, want cache", req.Pattern)
+		}
+		if req.ID == "" {
+			t.Error("ID should not be empty")
+		}
+	})
+
+	t.Run("NewNestJSResponse", func(t *testing.T) {
+		resp := NewNestJSResponse("req-123", map[string]interface{}{"value": "ok"}, nil)
+
+		if resp.ID != "req-123" {
+			t.Errorf("ID = %v, want req-123", resp.ID)
+		}
+		if !resp.IsDisposed {
+			t.Error("IsDisposed should be true")
+		}
+	})
+}
+
+func TestPatternToString(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern interface{}
+		want    string
+	}{
+		{"string pattern", "cache", "cache"},
+		{"cmd object", map[string]interface{}{"cmd": "sum"}, "sum"},
+		{"complex object", map[string]interface{}{"service": "users"}, `{"service":"users"}`},
+		{"number pattern", 42, "42"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := patternToString(tt.pattern)
+			if got != tt.want {
+				t.Errorf("patternToString(%v) = %v, want %v", tt.pattern, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIntegration_NestJSProtocol(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	ctx := context.Background()
+
+	// Find a free port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+
+	// Create and start NestJS protocol server
+	server, err := NewServer("nestjs-server", "127.0.0.1", port, "nestjs",
+		WithMaxConnections(10),
+	)
+	if err != nil {
+		t.Fatalf("NewServer error: %v", err)
+	}
+
+	// Register cache handler (simulating NestJS microservice)
+	server.RegisterRoute("cache", func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		action := input["action"]
+		key := input["key"]
+
+		switch action {
+		case "get":
+			return map[string]interface{}{
+				"key":   key,
+				"value": "cached_value_for_" + key.(string),
+			}, nil
+		case "set":
+			return map[string]interface{}{
+				"success": true,
+			}, nil
+		default:
+			return nil, fmt.Errorf("unknown action: %v", action)
+		}
+	})
+
+	if err := server.Start(ctx); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	defer server.Close(ctx)
+
+	// Give server time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Create NestJS protocol client
+	client, err := NewClient("nestjs-client", "127.0.0.1", port, "nestjs",
+		WithPoolSize(5),
+	)
+	if err != nil {
+		t.Fatalf("NewClient error: %v", err)
+	}
+
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("Connect error: %v", err)
+	}
+	defer client.Close(ctx)
+
+	t.Run("cache get request", func(t *testing.T) {
+		result, err := client.Write(ctx, &connector.Data{
+			Target: "cache",
+			Payload: map[string]interface{}{
+				"action": "get",
+				"key":    "mykey",
+			},
+		})
+		if err != nil {
+			t.Fatalf("Write error: %v", err)
+		}
+
+		if len(result.Rows) == 0 {
+			t.Fatal("expected response data")
+		}
+
+		data := result.Rows[0]
+		if data["value"] != "cached_value_for_mykey" {
+			t.Errorf("value = %v, want cached_value_for_mykey", data["value"])
+		}
+	})
+
+	t.Run("cache set request", func(t *testing.T) {
+		result, err := client.Write(ctx, &connector.Data{
+			Target: "cache",
+			Payload: map[string]interface{}{
+				"action": "set",
+				"key":    "newkey",
+				"value":  "newvalue",
+			},
+		})
+		if err != nil {
+			t.Fatalf("Write error: %v", err)
+		}
+
+		if len(result.Rows) == 0 {
+			t.Fatal("expected response data")
+		}
+
+		data := result.Rows[0]
+		if success, ok := data["success"].(bool); !ok || !success {
+			t.Errorf("success = %v, want true", data["success"])
+		}
+	})
+
+	t.Run("concurrent NestJS requests", func(t *testing.T) {
+		var wg sync.WaitGroup
+		errors := make(chan error, 10)
+
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func(n int) {
+				defer wg.Done()
+				_, err := client.Write(ctx, &connector.Data{
+					Target: "cache",
+					Payload: map[string]interface{}{
+						"action": "get",
+						"key":    fmt.Sprintf("key-%d", n),
+					},
+				})
+				if err != nil {
+					errors <- err
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		close(errors)
+
+		for err := range errors {
+			t.Errorf("concurrent request error: %v", err)
+		}
+	})
+}
+
+func TestNestJSWireFormat(t *testing.T) {
+	// Test that we can correctly parse NestJS wire format: {length}#{json}
+	t.Run("parse wire format", func(t *testing.T) {
+		server, client := net.Pipe()
+		defer server.Close()
+		defer client.Close()
+
+		// Simulate NestJS client sending message
+		go func() {
+			msg := `{"pattern":"cache","data":{"key":"test"},"id":"req-wire"}`
+			wire := fmt.Sprintf("%d#%s", len(msg), msg)
+			client.Write([]byte(wire))
+		}()
+
+		framer := NewNestJSFramer(server)
+		received, err := framer.ReadMessage()
+		if err != nil {
+			t.Fatalf("ReadMessage error: %v", err)
+		}
+
+		if received.Pattern != "cache" {
+			t.Errorf("Pattern = %v, want cache", received.Pattern)
+		}
+		if received.ID != "req-wire" {
+			t.Errorf("ID = %v, want req-wire", received.ID)
+		}
+	})
+
+	t.Run("write wire format", func(t *testing.T) {
+		server, client := net.Pipe()
+		defer server.Close()
+		defer client.Close()
+
+		// Write NestJS message
+		go func() {
+			framer := NewNestJSFramer(server)
+			msg := &NestJSMessage{
+				Pattern: "cache",
+				Data:    map[string]interface{}{"key": "test"},
+				ID:      "req-write",
+			}
+			framer.WriteMessage(msg)
+		}()
+
+		// Read raw wire format
+		buf := make([]byte, 1024)
+		n, err := client.Read(buf)
+		if err != nil {
+			t.Fatalf("Read error: %v", err)
+		}
+
+		wire := string(buf[:n])
+		// Should be in format: {length}#{json}
+		if wire[0] < '0' || wire[0] > '9' {
+			t.Errorf("Wire format should start with length, got: %s", wire)
+		}
+
+		// Find the # delimiter
+		hashIdx := -1
+		for i, c := range wire {
+			if c == '#' {
+				hashIdx = i
+				break
+			}
+		}
+
+		if hashIdx == -1 {
+			t.Errorf("Wire format should contain #, got: %s", wire)
+		}
+
+		// Parse JSON after #
+		jsonPart := wire[hashIdx+1:]
+		var nestMsg NestJSMessage
+		if err := json.Unmarshal([]byte(jsonPart), &nestMsg); err != nil {
+			t.Fatalf("JSON unmarshal error: %v", err)
+		}
+
+		if nestMsg.Pattern != "cache" {
+			t.Errorf("Pattern = %v, want cache", nestMsg.Pattern)
+		}
+	})
 }

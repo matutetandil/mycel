@@ -297,6 +297,11 @@ func (c *ClientConnector) doSendAndReceive(ctx context.Context, msg *Message) (*
 		return nil, fmt.Errorf("failed to get connection: %w", err)
 	}
 
+	// Use NestJS framer for NestJS protocol
+	if c.protocol == "nestjs" {
+		return c.doSendAndReceiveNestJS(conn, msg)
+	}
+
 	framer := NewFramer(conn, c.codec)
 
 	// Set write deadline
@@ -326,6 +331,43 @@ func (c *ClientConnector) doSendAndReceive(ctx context.Context, msg *Message) (*
 	c.returnConn(conn)
 
 	return &response, nil
+}
+
+// doSendAndReceiveNestJS handles NestJS protocol communication.
+func (c *ClientConnector) doSendAndReceiveNestJS(conn net.Conn, msg *Message) (*Message, error) {
+	framer := NewNestJSFramer(conn)
+
+	// Set write deadline
+	if c.writeTimeout > 0 {
+		framer.SetWriteDeadline(time.Now().Add(c.writeTimeout))
+	}
+
+	// Convert Mycel message to NestJS message
+	nestMsg := FromMycelMessage(msg)
+
+	// Send message
+	if err := framer.WriteMessage(nestMsg); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to send NestJS message: %w", err)
+	}
+
+	// Set read deadline
+	if c.readTimeout > 0 {
+		framer.SetReadDeadline(time.Now().Add(c.readTimeout))
+	}
+
+	// Read response
+	nestResp, err := framer.ReadMessage()
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to read NestJS response: %w", err)
+	}
+
+	// Return connection to pool
+	c.returnConn(conn)
+
+	// Convert NestJS response to Mycel message
+	return nestResp.ToMycelMessage(), nil
 }
 
 // sendOnly sends a message without waiting for a response.
@@ -359,6 +401,11 @@ func (c *ClientConnector) doSendOnly(ctx context.Context, msg *Message) error {
 		return fmt.Errorf("failed to get connection: %w", err)
 	}
 
+	// Use NestJS framer for NestJS protocol
+	if c.protocol == "nestjs" {
+		return c.doSendOnlyNestJS(conn, msg)
+	}
+
 	framer := NewFramer(conn, c.codec)
 
 	// Set write deadline
@@ -370,6 +417,30 @@ func (c *ClientConnector) doSendOnly(ctx context.Context, msg *Message) error {
 	if err := framer.WriteMessage(msg); err != nil {
 		conn.Close()
 		return fmt.Errorf("failed to send message: %w", err)
+	}
+
+	// Return connection to pool
+	c.returnConn(conn)
+
+	return nil
+}
+
+// doSendOnlyNestJS handles NestJS protocol fire-and-forget.
+func (c *ClientConnector) doSendOnlyNestJS(conn net.Conn, msg *Message) error {
+	framer := NewNestJSFramer(conn)
+
+	// Set write deadline
+	if c.writeTimeout > 0 {
+		framer.SetWriteDeadline(time.Now().Add(c.writeTimeout))
+	}
+
+	// Convert Mycel message to NestJS message
+	nestMsg := FromMycelMessage(msg)
+
+	// Send message
+	if err := framer.WriteMessage(nestMsg); err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to send NestJS message: %w", err)
 	}
 
 	// Return connection to pool

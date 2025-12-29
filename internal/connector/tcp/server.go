@@ -272,10 +272,16 @@ func (s *ServerConnector) handleConnection(conn net.Conn) {
 		conn.Close()
 	}()
 
-	framer := NewFramer(conn, s.codec)
 	remoteAddr := conn.RemoteAddr().String()
-
 	s.logger.Debug("client connected", "remote", remoteAddr)
+
+	// Use NestJS handler for NestJS protocol
+	if s.protocol == "nestjs" {
+		s.handleConnectionNestJS(conn, remoteAddr)
+		return
+	}
+
+	framer := NewFramer(conn, s.codec)
 
 	for {
 		select {
@@ -307,6 +313,102 @@ func (s *ServerConnector) handleConnection(conn net.Conn) {
 			defer s.wg.Done()
 			s.processMessage(framer, &msg)
 		}(msg)
+	}
+}
+
+// handleConnectionNestJS handles a connection using NestJS protocol.
+func (s *ServerConnector) handleConnectionNestJS(conn net.Conn, remoteAddr string) {
+	framer := NewNestJSFramer(conn)
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		default:
+		}
+
+		// Set read deadline
+		if s.readTimeout > 0 {
+			framer.SetReadDeadline(time.Now().Add(s.readTimeout))
+		}
+
+		// Read NestJS message
+		nestMsg, err := framer.ReadMessage()
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				// Read timeout - client may still be active
+				continue
+			}
+			// Connection closed or error
+			s.logger.Debug("client disconnected", "remote", remoteAddr, "reason", err)
+			return
+		}
+
+		// Process message
+		s.wg.Add(1)
+		go func(msg *NestJSMessage) {
+			defer s.wg.Done()
+			s.processNestJSMessage(framer, msg)
+		}(nestMsg)
+	}
+}
+
+// processNestJSMessage processes a NestJS message.
+func (s *ServerConnector) processNestJSMessage(framer *NestJSFramer, msg *NestJSMessage) {
+	// Get the pattern as string for routing
+	pattern := patternToString(msg.Pattern)
+
+	// Find handler
+	s.mu.RLock()
+	handler, ok := s.handlers[pattern]
+	s.mu.RUnlock()
+
+	if !ok {
+		s.logger.Warn("no handler for message pattern", "pattern", pattern)
+		s.sendNestJSErrorResponse(framer, msg.ID, fmt.Sprintf("unknown message pattern: %s", pattern))
+		return
+	}
+
+	// Build input from message data
+	input := msg.Data
+	if input == nil {
+		input = make(map[string]interface{})
+	}
+
+	// Execute handler
+	ctx, cancel := context.WithTimeout(s.ctx, s.readTimeout)
+	defer cancel()
+
+	result, err := handler(ctx, input)
+	if err != nil {
+		s.sendNestJSErrorResponse(framer, msg.ID, err.Error())
+		return
+	}
+
+	// Send response
+	s.sendNestJSSuccessResponse(framer, msg.ID, result)
+}
+
+// sendNestJSSuccessResponse sends a NestJS success response.
+func (s *ServerConnector) sendNestJSSuccessResponse(framer *NestJSFramer, requestID string, result interface{}) {
+	response := NewNestJSResponse(requestID, result, nil)
+	s.sendNestJSResponse(framer, response)
+}
+
+// sendNestJSErrorResponse sends a NestJS error response.
+func (s *ServerConnector) sendNestJSErrorResponse(framer *NestJSFramer, requestID, errMsg string) {
+	response := NewNestJSResponse(requestID, nil, errMsg)
+	s.sendNestJSResponse(framer, response)
+}
+
+// sendNestJSResponse sends a NestJS response message.
+func (s *ServerConnector) sendNestJSResponse(framer *NestJSFramer, msg *NestJSMessage) {
+	if s.writeTimeout > 0 {
+		framer.SetWriteDeadline(time.Now().Add(s.writeTimeout))
+	}
+
+	if err := framer.WriteMessage(msg); err != nil {
+		s.logger.Error("failed to send NestJS response", "error", err)
 	}
 }
 
