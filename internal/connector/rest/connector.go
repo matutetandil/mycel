@@ -90,7 +90,6 @@ func (c *Connector) RegisterRoute(operation string, handler func(ctx context.Con
 	defer c.mu.Unlock()
 
 	c.handlers[operation] = handler
-	c.logger.Info("Route registered", slog.String("operation", operation))
 }
 
 // Start starts the HTTP server.
@@ -116,11 +115,6 @@ func (c *Connector) Start(ctx context.Context) error {
 
 	// Start server in goroutine
 	go func() {
-		c.logger.Info("HTTP server starting",
-			slog.String("connector", c.name),
-			slog.Int("port", c.port),
-		)
-
 		if err := c.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			c.logger.Error("HTTP server error", slog.Any("error", err))
 		}
@@ -153,13 +147,6 @@ func (c *Connector) setupRoutes() {
 		c.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			c.handleRequest(w, r, handlers)
 		})
-
-		for method := range methods {
-			c.logger.Info("Route configured",
-				slog.String("method", method),
-				slog.String("path", path),
-			)
-		}
 	}
 
 	// Health check endpoint

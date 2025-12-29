@@ -12,18 +12,23 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mycel-labs/mycel/internal/banner"
 	"github.com/mycel-labs/mycel/internal/connector"
 	"github.com/mycel-labs/mycel/internal/connector/database/sqlite"
 	"github.com/mycel-labs/mycel/internal/connector/rest"
 	"github.com/mycel-labs/mycel/internal/parser"
 )
 
+// Version is the current version of Mycel.
+const Version = "0.1.0"
+
 // Runtime orchestrates the lifecycle of a Mycel service.
 type Runtime struct {
-	config     *parser.Configuration
-	connectors *connector.Registry
-	flows      *FlowRegistry
-	logger     *slog.Logger
+	config      *parser.Configuration
+	connectors  *connector.Registry
+	flows       *FlowRegistry
+	logger      *slog.Logger
+	environment string
 
 	// shutdownTimeout is the maximum time to wait for graceful shutdown.
 	shutdownTimeout time.Duration
@@ -70,11 +75,17 @@ func New(opts Options) (*Runtime, error) {
 	// Register built-in connector factories
 	registerBuiltinFactories(registry, opts.Logger)
 
+	env := opts.Environment
+	if env == "" {
+		env = "development"
+	}
+
 	return &Runtime{
 		config:          config,
 		connectors:      registry,
 		flows:           NewFlowRegistry(),
 		logger:          opts.Logger,
+		environment:     env,
 		shutdownTimeout: opts.ShutdownTimeout,
 	}, nil
 }
@@ -98,33 +109,12 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 // Start initializes all connectors, registers flows, and starts the HTTP server.
 // It blocks until a shutdown signal is received or the context is cancelled.
 func (r *Runtime) Start(ctx context.Context) error {
-	r.printBanner()
+	// Print ASCII banner
+	banner.Print(Version)
 
-	// Initialize connectors
-	if err := r.initConnectors(ctx); err != nil {
-		return fmt.Errorf("failed to initialize connectors: %w", err)
-	}
-
-	// Register flows
-	if err := r.registerFlows(); err != nil {
-		return fmt.Errorf("failed to register flows: %w", err)
-	}
-
-	// Start REST connectors (HTTP servers)
-	if err := r.startServers(ctx); err != nil {
-		return fmt.Errorf("failed to start servers: %w", err)
-	}
-
-	r.logger.Info("Ready! Press Ctrl+C to stop.")
-
-	// Wait for shutdown signal
-	return r.waitForShutdown(ctx)
-}
-
-// printBanner prints the startup banner.
-func (r *Runtime) printBanner() {
+	// Print service info
 	serviceName := "mycel-service"
-	serviceVersion := "0.1.0"
+	serviceVersion := "0.0.0"
 	if r.config.ServiceConfig != nil {
 		if r.config.ServiceConfig.Name != "" {
 			serviceName = r.config.ServiceConfig.Name
@@ -133,27 +123,58 @@ func (r *Runtime) printBanner() {
 			serviceVersion = r.config.ServiceConfig.Version
 		}
 	}
+	banner.PrintServiceInfo(serviceName, serviceVersion, r.environment, r.getRESTPort())
 
-	fmt.Println()
-	fmt.Printf("  ╭─────────────────────────────────────╮\n")
-	fmt.Printf("  │  %s v%s\n", serviceName, serviceVersion)
-	fmt.Printf("  ╰─────────────────────────────────────╯\n")
-	fmt.Println()
+	// Initialize connectors
+	if err := r.initConnectors(ctx); err != nil {
+		banner.PrintError(err.Error())
+		return fmt.Errorf("failed to initialize connectors: %w", err)
+	}
+
+	// Register flows
+	if err := r.registerFlows(); err != nil {
+		banner.PrintError(err.Error())
+		return fmt.Errorf("failed to register flows: %w", err)
+	}
+
+	// Start REST connectors (HTTP servers)
+	if err := r.startServers(ctx); err != nil {
+		banner.PrintError(err.Error())
+		return fmt.Errorf("failed to start servers: %w", err)
+	}
+
+	banner.PrintReady()
+
+	// Wait for shutdown signal
+	return r.waitForShutdown(ctx)
+}
+
+// getRESTPort returns the port of the first REST connector, or 0 if none.
+func (r *Runtime) getRESTPort() int {
+	for _, cfg := range r.config.Connectors {
+		if cfg.Type == "rest" {
+			if port, ok := cfg.Properties["port"]; ok {
+				if p, ok := port.(int); ok {
+					return p
+				}
+			}
+		}
+	}
+	return 0
 }
 
 // initConnectors creates and connects all configured connectors.
 func (r *Runtime) initConnectors(ctx context.Context) error {
-	r.logger.Info("Initializing connectors...")
+	fmt.Println("    Connectors:")
 
 	for _, cfg := range r.config.Connectors {
 		if err := r.connectors.Register(ctx, cfg); err != nil {
 			return fmt.Errorf("failed to register connector %s: %w", cfg.Name, err)
 		}
 
-		r.logger.Info("Connector initialized",
-			slog.String("name", cfg.Name),
-			slog.String("type", cfg.Type),
-		)
+		// Build details string based on connector type
+		details := r.getConnectorDetails(cfg)
+		banner.PrintConnector(cfg.Name, cfg.Type, details)
 	}
 
 	// Connect all connectors
@@ -164,9 +185,25 @@ func (r *Runtime) initConnectors(ctx context.Context) error {
 	return nil
 }
 
+// getConnectorDetails returns a details string for a connector.
+func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
+	switch cfg.Type {
+	case "rest":
+		if port, ok := cfg.Properties["port"]; ok {
+			return fmt.Sprintf("listening on :%v", port)
+		}
+	case "database":
+		if db, ok := cfg.Properties["database"]; ok {
+			return fmt.Sprintf("→ %v", db)
+		}
+	}
+	return ""
+}
+
 // registerFlows builds flow handlers from configuration.
 func (r *Runtime) registerFlows() error {
-	r.logger.Info("Registering flows...")
+	fmt.Println()
+	fmt.Println("    Flows:")
 
 	for _, cfg := range r.config.Flows {
 		// Get source connector
@@ -190,20 +227,27 @@ func (r *Runtime) registerFlows() error {
 
 		r.flows.Register(cfg.Name, handler)
 
-		r.logger.Info("Flow registered",
-			slog.String("name", cfg.Name),
-			slog.String("operation", cfg.From.Operation),
-			slog.String("target", cfg.To.Target),
-		)
+		// Parse operation to get method and path
+		method, path := parseOperationString(cfg.From.Operation)
+		target := cfg.To.Connector + ":" + cfg.To.Target
+		banner.PrintFlow(method, path, target)
 	}
 
 	return nil
 }
 
+// parseOperationString splits "METHOD /path" into method and path.
+func parseOperationString(op string) (method, path string) {
+	for i, c := range op {
+		if c == ' ' {
+			return op[:i], op[i+1:]
+		}
+	}
+	return "GET", op
+}
+
 // startServers starts all REST connector HTTP servers.
 func (r *Runtime) startServers(ctx context.Context) error {
-	r.logger.Info("Starting servers...")
-
 	// Find REST connectors and start their servers
 	for _, name := range r.connectors.List() {
 		conn, _ := r.connectors.Get(name)
@@ -227,17 +271,12 @@ func (r *Runtime) startServers(ctx context.Context) error {
 func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Connector) {
 	router, ok := conn.(RouteRegistrar)
 	if !ok {
-		r.logger.Debug("Connector does not support route registration", slog.String("connector", connectorName))
 		return
 	}
 
 	// Find flows that use this connector as source
-	for name, handler := range r.flows.handlers {
+	for _, handler := range r.flows.handlers {
 		if handler.Config.From.Connector == connectorName {
-			r.logger.Info("Registering HTTP route",
-				slog.String("flow", name),
-				slog.String("operation", handler.Config.From.Operation),
-			)
 			router.RegisterRoute(handler.Config.From.Operation, handler.HandleRequest)
 		}
 	}
@@ -251,10 +290,10 @@ func (r *Runtime) waitForShutdown(ctx context.Context) error {
 
 	// Wait for signal or context cancellation
 	select {
-	case sig := <-sigChan:
-		r.logger.Info("Received signal, shutting down...", slog.String("signal", sig.String()))
+	case <-sigChan:
+		// Signal received
 	case <-ctx.Done():
-		r.logger.Info("Context cancelled, shutting down...")
+		// Context cancelled
 	}
 
 	return r.Shutdown()
@@ -265,14 +304,14 @@ func (r *Runtime) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), r.shutdownTimeout)
 	defer cancel()
 
-	r.logger.Info("Shutting down gracefully...")
+	banner.PrintShutdown()
 
 	// Close all connectors
 	if err := r.connectors.CloseAll(ctx); err != nil {
-		r.logger.Error("Error closing connectors", slog.Any("error", err))
+		banner.PrintError("Error closing connectors: " + err.Error())
 	}
 
-	r.logger.Info("Goodbye!")
+	banner.PrintGoodbye()
 	return nil
 }
 

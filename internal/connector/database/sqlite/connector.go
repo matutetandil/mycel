@@ -74,11 +74,6 @@ func (c *Connector) Connect(ctx context.Context) error {
 	}
 
 	c.db = db
-	c.logger.Info("SQLite connected",
-		slog.String("connector", c.name),
-		slog.String("path", c.path),
-	)
-
 	return nil
 }
 

@@ -7,12 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **ASCII art banner** with colored terminal output
+  - New `internal/banner/` package for styled console output
+  - ANSI color support with automatic detection (respects NO_COLOR env var)
+  - Color-coded HTTP methods (GET=green, POST=yellow, DELETE=magenta)
+  - Clean startup display with service info, connectors, and flows
+
 ### Fixed
 - **GET with path parameters** now correctly filters results
   - Operations like `GET /users/:id` automatically extract path params as query filters
   - `extractPathParams()` helper function added to flow registry
 
-### Added
+### Added (Phase 1)
 - **`mycel start` command is now functional!**
   - Full runtime orchestration: parse config → init connectors → register flows → start HTTP server
   - Graceful shutdown with SIGINT/SIGTERM handling
