@@ -31,6 +31,7 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "password"},
 			{Name: "base_url"},
 			{Name: "timeout"},
+			{Name: "retry_count"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "pool"},
@@ -38,6 +39,7 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Type: "auth"},
 			{Type: "retry"},
 			{Type: "mock"},
+			{Type: "headers"},
 		},
 	}
 
@@ -111,6 +113,13 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 				return nil, fmt.Errorf("mock block error: %w", err)
 			}
 			config.Properties["mock"] = mock
+
+		case "headers":
+			headers, err := parseHeadersBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("headers block error: %w", err)
+			}
+			config.Properties["headers"] = headers
 		}
 	}
 
@@ -175,8 +184,22 @@ func parseAuthBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interfac
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "type"},
+			// Bearer token
 			{Name: "token"},
 			{Name: "header"},
+			// OAuth2
+			{Name: "refresh_token"},
+			{Name: "token_url"},
+			{Name: "client_id"},
+			{Name: "client_secret"},
+			{Name: "scopes"},
+			// API Key
+			{Name: "api_key"},
+			{Name: "api_key_header"},
+			{Name: "api_key_query"},
+			// Basic auth
+			{Name: "username"},
+			{Name: "password"},
 		},
 	}
 
@@ -195,6 +218,26 @@ func parseAuthBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interfac
 	}
 
 	return auth, nil
+}
+
+// parseHeadersBlock parses a headers configuration block.
+func parseHeadersBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interface{}, error) {
+	// Headers block uses dynamic attributes
+	attrs, diags := block.Body.JustAttributes()
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("headers block content error: %s", diags.Error())
+	}
+
+	headers := make(map[string]interface{})
+	for name, attr := range attrs {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("header %s error: %s", name, diags.Error())
+		}
+		headers[name] = ctyValueToGo(val)
+	}
+
+	return headers, nil
 }
 
 // parseRetryBlock parses a retry configuration block.

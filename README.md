@@ -2,36 +2,115 @@
 
 **Declarative Microservice Framework**
 
-Mycel is an open-source framework for creating declarative microservices through HCL configuration, without writing code. It works as a single runtime (similar to nginx or Apache) that interprets configuration files and exposes services.
+Mycel is an open-source framework for creating microservices through HCL configuration, without writing code. It works as a single runtime (like nginx or Docker) that interprets configuration files and exposes services.
 
 > **Philosophy:** Configuration, not code. You define WHAT you want, Mycel handles HOW.
+
+## The Vision
+
+Instead of programming each microservice in NestJS, Go, Python, etc., you:
+
+1. Create HCL configuration files
+2. Deploy Mycel with that configuration
+3. Done - you have a microservice
+
+```
+Production Environment:
+
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│     mycel       │  │     mycel       │  │     mycel       │
+│  + customers/   │  │  + products/    │  │  + orders/      │
+│    *.hcl        │  │    *.hcl        │  │    *.hcl        │
+├─────────────────┤  ├─────────────────┤  ├─────────────────┤
+│ customers-svc   │  │ products-svc    │  │ orders-svc      │
+│ :3001           │  │ :3002           │  │ :3003           │
+└─────────────────┘  └─────────────────┘  └─────────────────┘
+```
+
+Same binary, different configuration = different microservice.
+
+## What Can You Connect?
+
+Mycel connects **anything to anything**:
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   SOURCE    │     │    MYCEL    │     │    TARGET   │
+├─────────────┤     │             │     ├─────────────┤
+│ REST API    │────▶│  validate   │────▶│ Database    │
+│ Database    │     │  transform  │     │ REST API    │
+│ Queue       │     │  route      │     │ Queue       │
+│ TCP         │     │             │     │ TCP         │
+│ GraphQL     │     │             │     │ GraphQL     │
+│ Files       │     │             │     │ Files       │
+│ gRPC        │     │             │     │ gRPC        │
+└─────────────┘     └─────────────┘     └─────────────┘
+```
+
+**Example Use Cases:**
+- `REST API → Database` - Classic CRUD microservice
+- `Queue → Database` - Process messages and persist
+- `REST → Queue` - Receive requests and enqueue for processing
+- `Database → REST` - Sync data between systems
+- `Queue → Queue` - Transform and route messages
+- `File → Database` - Import legacy data
+- `TCP → REST` - Protocol bridge
 
 ## Status
 
 ✅ **Phase 1 Complete** - Core runtime is functional!
+✅ **Phase 2 Complete** - Extended connectors and features!
 
-### Phase 1 Progress
+### Connector Support
 
-- [x] Project structure
-- [x] CLI scaffolding (start, validate, check)
-- [x] Error handling
-- [x] Core interfaces (connector, flow, validate, transform)
+| Connector | Input (Server/Consumer) | Output (Client/Producer) |
+|-----------|------------------------|-------------------------|
+| REST      | ✅ Phase 1             | ✅ Phase 2              |
+| SQLite    | ✅ Phase 1             | ✅ Phase 1              |
+| PostgreSQL| ✅ Phase 2             | ✅ Phase 2              |
+| TCP       | 🔜 Phase 2.5           | 🔜 Phase 2.5            |
+| GraphQL   | 🔜 Phase 3             | 🔜 Phase 3              |
+| Queues    | 🔜 Phase 3             | 🔜 Phase 3              |
+| gRPC      | 🔜 Phase 3             | 🔜 Phase 3              |
+| Files     | 🔜 Phase 3             | 🔜 Phase 3              |
+
+### Roadmap
+
+**Phase 1 - Core Runtime** ✅
+- [x] Project structure & CLI
 - [x] HCL parser
+- [x] REST connector (server)
 - [x] SQLite connector
-- [x] REST connector & HTTP server
+- [x] Flow executor
 - [x] Validation system
 - [x] Transform system
-- [x] Flow executor
 - [x] Runtime orchestration
 
-### Coming Next (Phase 2)
+**Phase 2 - Core Connectors** ✅
+- [x] REST Client (call external APIs with OAuth2, API Key, Bearer)
+- [x] PostgreSQL connector
+- [x] Transforms (inline + reusable named transforms)
+- [x] Type validation on flows (input/output validation)
+- [x] Environment variables support (env(), file(), base64decode(), etc.)
 
-- [ ] PostgreSQL connector
-- [ ] Transforms (inline + reusable)
-- [ ] Type validation on flows
-- [ ] Environments support
+**Phase 2.5 - TCP**
+- [ ] TCP Server
+- [ ] TCP Client
+- [ ] Configurable protocols (JSON, protobuf, msgpack, raw)
+
+**Phase 3 - Extended Protocols**
+- [ ] GraphQL (server + client)
+- [ ] gRPC (server + client)
+- [ ] Message Queues (RabbitMQ, Kafka, SQS)
+- [ ] File connector (read/write)
+
+**Phase 4 - Production Ready**
 - [ ] Hot reload
-- [ ] Metrics & health checks
+- [ ] Metrics & observability
+- [ ] Rate limiting
+- [ ] Circuit breaker
+- [ ] Authentication & authorization (auth/)
+- [ ] Aspects / AOP (logging, caching, retry policies)
 
 ## Quick Start
 
@@ -101,10 +180,14 @@ flow "create_user" {
     input = "type.user"
   }
 
+  # CEL-powered transforms (Google Common Expression Language)
+  # See docs/transformations.md for full documentation
   transform {
-    output.id         = uuid()
-    output.email      = lower(input.email)
-    output.created_at = now()
+    id         = "uuid()"
+    email      = "lower(trim(input.email))"
+    created_at = "now()"
+    is_active  = "true"
+    status     = "input.age >= 18 ? 'active' : 'pending'"
   }
 
   to {
@@ -129,8 +212,6 @@ Then run:
 mycel start --config ./my-service
 ```
 
-Mycel generates a standard microservice that speaks standard protocols (REST, GraphQL, gRPC). A microservice built with Mycel is indistinguishable from one built in NestJS, Go, or any other language.
-
 ## Directory Structure
 
 ```
@@ -140,10 +221,10 @@ my-service/
 ├── types/                # Data schemas
 ├── transforms/           # Reusable transformations
 ├── validators/           # Custom validators
-├── aspects/              # Cross-cutting concerns (AOP)
-├── auth/                 # Authentication config
+├── aspects/              # Cross-cutting concerns (logging, caching, etc.)
+├── auth/                 # Authentication & authorization config
 ├── environments/         # Environment-specific variables
-└── config.hcl            # Global configuration
+└── config.hcl            # Service configuration (name, version)
 ```
 
 ## CLI
@@ -209,6 +290,10 @@ make fmt
 # Run linter
 make lint
 ```
+
+## Documentation
+
+- [Transformations Guide](docs/transformations.md) - Complete CEL transformation reference
 
 ## Requirements
 

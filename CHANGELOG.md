@@ -7,7 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Added (Phase 2)
+- **HTTP Client connector** (`internal/connector/http/`)
+  - Call external REST APIs from flows
+  - Authentication support: Bearer, OAuth2 (with refresh tokens), API Key, Basic
+  - Configurable timeout and retry settings
+  - Custom headers support
+- **PostgreSQL connector** (`internal/connector/database/postgres/`)
+  - Full CRUD operations with parameterized queries
+  - Connection pooling configuration
+  - SSL mode support
+- **Transform system powered by CEL** (`internal/transform/`)
+  - Google's Common Expression Language (CEL) for powerful, safe transformations
+  - Full expression support: operators (`+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `>`, `&&`, `||`)
+  - Ternary expressions: `age >= 18 ? "adult" : "minor"`
+  - List operations: `filter()`, `map()`, `exists()`, `all()`, `size()`, `in`
+  - Custom Mycel functions: `uuid()`, `now()`, `now_unix()`, `lower()`, `upper()`, `trim()`, `replace()`, `substring()`, `len()`, `default()`, `coalesce()`, `split()`, `join()`, `hash_sha256()`, `format_date()`
+  - **CEL Standard Extensions enabled:**
+    - `ext.Strings()`: charAt, indexOf, lastIndexOf, join, quote, replace, split, substring, trim, upperAscii, lowerAscii, reverse
+    - `ext.Encoders()`: base64.encode, base64.decode
+    - `ext.Math()`: math.abs, math.ceil, math.floor, math.round, math.sign, math.greatest, math.least, math.isNaN, math.isInf
+    - `ext.Lists()`: lists.range, slice, flatten
+    - `ext.Sets()`: sets.contains, sets.equivalent, sets.intersects
+  - Expression validation at startup (early error detection)
+  - Program caching for optimal runtime performance
+  - Named/reusable transforms in separate HCL files
+  - Inline transforms in flow definitions
+- **Transformations documentation** (`docs/transformations.md`)
+  - Complete CEL reference guide with examples
+  - All available functions documented
+  - Real-world transformation examples
+- **Type validation on flows**
+  - Input and output validation with type schemas
+  - Built-in constraints: min, max, min_length, max_length, format, pattern, enum
+  - Format validators: email, url, uuid, date, datetime
+- **Environment support** - Enhanced HCL functions:
+  - `env("VAR_NAME", "default")` - Environment variable with optional default
+  - `file("./path/to/secret")` - Read file contents
+  - `base64encode()` / `base64decode()` - Base64 encoding/decoding
+  - `abspath()` - Convert relative paths to absolute
+  - `coalesce()` - Return first non-empty value
+
+### Added (Phase 1.5)
 - **ASCII art banner** with colored terminal output
   - New `internal/banner/` package for styled console output
   - ANSI color support with automatic detection (respects NO_COLOR env var)

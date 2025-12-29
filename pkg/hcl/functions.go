@@ -2,7 +2,9 @@
 package hcl
 
 import (
+	"encoding/base64"
 	"os"
+	"path/filepath"
 
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
@@ -11,8 +13,12 @@ import (
 // Functions returns the custom HCL functions available in Mycel configs.
 func Functions() map[string]function.Function {
 	return map[string]function.Function{
-		"env":     EnvFunc,
-		"coalesce": CoalesceFunc,
+		"env":        EnvFunc,
+		"coalesce":   CoalesceFunc,
+		"file":       FileFunc,
+		"base64decode": Base64DecodeFunc,
+		"base64encode": Base64EncodeFunc,
+		"abspath":    AbsPathFunc,
 	}
 }
 
@@ -66,5 +72,90 @@ var CoalesceFunc = function.New(&function.Spec{
 			}
 		}
 		return cty.StringVal(""), nil
+	},
+})
+
+// FileFunc reads a file and returns its contents as a string.
+// Usage: file("./secrets/db-password.txt")
+var FileFunc = function.New(&function.Spec{
+	Description: "Reads a file and returns its contents",
+	Params: []function.Parameter{
+		{
+			Name:        "path",
+			Description: "Path to the file",
+			Type:        cty.String,
+		},
+	},
+	Type: function.StaticReturnType(cty.String),
+	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+		path := args[0].AsString()
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return cty.StringVal(""), err
+		}
+		return cty.StringVal(string(content)), nil
+	},
+})
+
+// Base64DecodeFunc decodes a base64-encoded string.
+// Usage: base64decode("SGVsbG8gV29ybGQ=")
+var Base64DecodeFunc = function.New(&function.Spec{
+	Description: "Decodes a base64-encoded string",
+	Params: []function.Parameter{
+		{
+			Name:        "encoded",
+			Description: "Base64-encoded string",
+			Type:        cty.String,
+		},
+	},
+	Type: function.StaticReturnType(cty.String),
+	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+		encoded := args[0].AsString()
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil {
+			return cty.StringVal(""), err
+		}
+		return cty.StringVal(string(decoded)), nil
+	},
+})
+
+// Base64EncodeFunc encodes a string to base64.
+// Usage: base64encode("Hello World")
+var Base64EncodeFunc = function.New(&function.Spec{
+	Description: "Encodes a string to base64",
+	Params: []function.Parameter{
+		{
+			Name:        "value",
+			Description: "String to encode",
+			Type:        cty.String,
+		},
+	},
+	Type: function.StaticReturnType(cty.String),
+	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+		value := args[0].AsString()
+		encoded := base64.StdEncoding.EncodeToString([]byte(value))
+		return cty.StringVal(encoded), nil
+	},
+})
+
+// AbsPathFunc converts a relative path to an absolute path.
+// Usage: abspath("./data/db.sqlite")
+var AbsPathFunc = function.New(&function.Spec{
+	Description: "Converts a relative path to absolute",
+	Params: []function.Parameter{
+		{
+			Name:        "path",
+			Description: "Path to convert",
+			Type:        cty.String,
+		},
+	},
+	Type: function.StaticReturnType(cty.String),
+	Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+		path := args[0].AsString()
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			return cty.StringVal(path), err
+		}
+		return cty.StringVal(absPath), nil
 	},
 })

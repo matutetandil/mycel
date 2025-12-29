@@ -7,6 +7,8 @@ import (
 
 	"github.com/mycel-labs/mycel/internal/connector"
 	"github.com/mycel-labs/mycel/internal/flow"
+	"github.com/mycel-labs/mycel/internal/transform"
+	"github.com/mycel-labs/mycel/internal/validate"
 )
 
 // FlowRegistry manages flow handlers.
@@ -62,10 +64,27 @@ type FlowHandler struct {
 
 	// Executor is the flow pipeline executor.
 	Executor *flow.Executor
+
+	// Transformer handles data transformations for this flow (CEL-based).
+	Transformer *transform.CELTransformer
+
+	// NamedTransforms allows lookup of reusable transforms.
+	NamedTransforms map[string]*transform.Config
+
+	// Types allows lookup of type schemas for validation.
+	Types map[string]*validate.TypeSchema
+
+	// Validator handles input/output validation.
+	Validator *validate.TypeValidator
 }
 
 // HandleRequest processes an incoming request through the flow.
 func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+	// Validate input if schema is configured
+	if err := h.validateInput(ctx, input); err != nil {
+		return nil, err
+	}
+
 	// Get the destination as a reader/writer
 	dest, ok := h.Dest.(connector.ReadWriter)
 	if !ok {
@@ -128,10 +147,16 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 
 // handleCreate handles POST requests.
 func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interface{}, dest connector.Writer) (interface{}, error) {
+	// Apply transforms if configured
+	payload, err := h.applyTransforms(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("transform error: %w", err)
+	}
+
 	data := &connector.Data{
 		Target:    h.Config.To.Target,
 		Operation: "INSERT",
-		Payload:   input,
+		Payload:   payload,
 	}
 
 	result, err := dest.Write(ctx, data)
@@ -147,17 +172,29 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 
 // handleUpdate handles PUT/PATCH requests.
 func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interface{}, dest connector.Writer) (interface{}, error) {
+	// Extract ID before transform
+	var id interface{}
+	if v, ok := input["id"]; ok {
+		id = v
+		delete(input, "id")
+	}
+
+	// Apply transforms if configured
+	payload, err := h.applyTransforms(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("transform error: %w", err)
+	}
+
 	data := &connector.Data{
 		Target:    h.Config.To.Target,
 		Operation: "UPDATE",
-		Payload:   input,
+		Payload:   payload,
 		Filters:   make(map[string]interface{}),
 	}
 
-	// Get ID from input for filter
-	if id, ok := input["id"]; ok {
+	// Set ID filter
+	if id != nil {
 		data.Filters["id"] = id
-		delete(input, "id") // Remove ID from payload
 	}
 
 	result, err := dest.Write(ctx, data)
@@ -275,4 +312,127 @@ func splitPath(path string) []string {
 	}
 
 	return parts
+}
+
+// applyTransforms applies configured transformations to the input data.
+func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	// No transform configured - return input as-is
+	if h.Config.Transform == nil {
+		return input, nil
+	}
+
+	// Initialize CEL transformer if needed
+	if h.Transformer == nil {
+		var err error
+		h.Transformer, err = transform.NewCELTransformer()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create CEL transformer: %w", err)
+		}
+	}
+
+	// Build transform rules from config
+	var rules []transform.Rule
+
+	// Check if using a named transform
+	if h.Config.Transform.Use != "" {
+		named, ok := h.NamedTransforms[h.Config.Transform.Use]
+		if !ok {
+			return nil, fmt.Errorf("named transform not found: %s", h.Config.Transform.Use)
+		}
+		for target, expr := range named.Mappings {
+			rules = append(rules, transform.Rule{
+				Target:     target,
+				Expression: expr,
+			})
+		}
+	}
+
+	// Add inline mappings (can extend named transform)
+	for target, expr := range h.Config.Transform.Mappings {
+		rules = append(rules, transform.Rule{
+			Target:     target,
+			Expression: expr,
+		})
+	}
+
+	// No rules to apply
+	if len(rules) == 0 {
+		return input, nil
+	}
+
+	// Apply transforms using CEL
+	return h.Transformer.Transform(ctx, input, rules)
+}
+
+// validateInput validates input data against the configured input type schema.
+func (h *FlowHandler) validateInput(ctx context.Context, input map[string]interface{}) error {
+	// Skip if no validation configured
+	if h.Config.Validate == nil || h.Config.Validate.Input == "" {
+		return nil
+	}
+
+	// Get the type schema
+	schema, ok := h.Types[h.Config.Validate.Input]
+	if !ok {
+		return fmt.Errorf("type schema not found: %s", h.Config.Validate.Input)
+	}
+
+	// Initialize validator if needed
+	if h.Validator == nil {
+		h.Validator = validate.NewTypeValidator(validate.NewConstraintRegistry())
+	}
+
+	// Validate
+	result := h.Validator.Validate(ctx, input, schema)
+	if !result.Valid {
+		// Build error message from all validation errors
+		if len(result.Errors) > 0 {
+			return &ValidationError{Errors: result.Errors}
+		}
+		return fmt.Errorf("validation failed")
+	}
+
+	return nil
+}
+
+// validateOutput validates output data against the configured output type schema.
+func (h *FlowHandler) validateOutput(ctx context.Context, output map[string]interface{}) error {
+	// Skip if no validation configured
+	if h.Config.Validate == nil || h.Config.Validate.Output == "" {
+		return nil
+	}
+
+	// Get the type schema
+	schema, ok := h.Types[h.Config.Validate.Output]
+	if !ok {
+		return fmt.Errorf("output type schema not found: %s", h.Config.Validate.Output)
+	}
+
+	// Initialize validator if needed
+	if h.Validator == nil {
+		h.Validator = validate.NewTypeValidator(validate.NewConstraintRegistry())
+	}
+
+	// Validate
+	result := h.Validator.Validate(ctx, output, schema)
+	if !result.Valid {
+		if len(result.Errors) > 0 {
+			return &ValidationError{Errors: result.Errors}
+		}
+		return fmt.Errorf("output validation failed")
+	}
+
+	return nil
+}
+
+// ValidationError represents validation failures.
+type ValidationError struct {
+	Errors []validate.Error
+}
+
+func (e *ValidationError) Error() string {
+	if len(e.Errors) == 0 {
+		return "validation failed"
+	}
+	return e.Errors[0].Error()
 }

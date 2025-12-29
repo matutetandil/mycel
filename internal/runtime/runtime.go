@@ -14,9 +14,13 @@ import (
 
 	"github.com/mycel-labs/mycel/internal/banner"
 	"github.com/mycel-labs/mycel/internal/connector"
+	"github.com/mycel-labs/mycel/internal/connector/database/postgres"
 	"github.com/mycel-labs/mycel/internal/connector/database/sqlite"
+	connhttp "github.com/mycel-labs/mycel/internal/connector/http"
 	"github.com/mycel-labs/mycel/internal/connector/rest"
 	"github.com/mycel-labs/mycel/internal/parser"
+	"github.com/mycel-labs/mycel/internal/transform"
+	"github.com/mycel-labs/mycel/internal/validate"
 )
 
 // Version is the current version of Mycel.
@@ -27,6 +31,8 @@ type Runtime struct {
 	config      *parser.Configuration
 	connectors  *connector.Registry
 	flows       *FlowRegistry
+	transforms  map[string]*transform.Config
+	types       map[string]*validate.TypeSchema
 	logger      *slog.Logger
 	environment string
 
@@ -80,10 +86,24 @@ func New(opts Options) (*Runtime, error) {
 		env = "development"
 	}
 
+	// Build transforms map for fast lookup
+	transforms := make(map[string]*transform.Config)
+	for _, t := range config.Transforms {
+		transforms[t.Name] = t
+	}
+
+	// Build types map for fast lookup
+	types := make(map[string]*validate.TypeSchema)
+	for _, t := range config.Types {
+		types[t.Name] = t
+	}
+
 	return &Runtime{
 		config:          config,
 		connectors:      registry,
 		flows:           NewFlowRegistry(),
+		transforms:      transforms,
+		types:           types,
 		logger:          opts.Logger,
 		environment:     env,
 		shutdownTimeout: opts.ShutdownTimeout,
@@ -92,17 +112,21 @@ func New(opts Options) (*Runtime, error) {
 
 // registerBuiltinFactories registers the built-in connector factories.
 func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger) {
-	// REST connector for exposing HTTP endpoints
+	// REST connector for exposing HTTP endpoints (server)
 	registry.RegisterFactory(rest.NewFactory(logger))
 
-	// SQLite database connector
+	// HTTP connector for calling external APIs (client)
+	registry.RegisterFactory(connhttp.NewFactory())
+
+	// Database connectors
 	registry.RegisterFactory(sqlite.NewFactory(logger))
+	registry.RegisterFactory(postgres.NewFactory())
 
 	// Future connectors:
-	// - PostgreSQL connector factory
 	// - MySQL connector factory
 	// - Redis connector factory
 	// - Kafka connector factory
+	// - TCP connector factory
 	// - etc.
 }
 
@@ -196,6 +220,10 @@ func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
 		if db, ok := cfg.Properties["database"]; ok {
 			return fmt.Sprintf("→ %v", db)
 		}
+	case "http":
+		if baseURL, ok := cfg.Properties["base_url"]; ok {
+			return fmt.Sprintf("→ %v", baseURL)
+		}
 	}
 	return ""
 }
@@ -220,9 +248,11 @@ func (r *Runtime) registerFlows() error {
 
 		// Register the flow
 		handler := &FlowHandler{
-			Config: cfg,
-			Source: source,
-			Dest:   dest,
+			Config:          cfg,
+			Source:          source,
+			Dest:            dest,
+			NamedTransforms: r.transforms,
+			Types:           r.types,
 		}
 
 		r.flows.Register(cfg.Name, handler)

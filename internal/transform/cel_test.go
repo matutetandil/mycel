@@ -1,0 +1,457 @@
+package transform
+
+import (
+	"context"
+	"strings"
+	"testing"
+)
+
+func TestCELTransformer_BasicExpressions(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"name":  "John Doe",
+		"email": "  JOHN@EXAMPLE.COM  ",
+		"age":   25,
+	}
+
+	tests := []struct {
+		name     string
+		expr     string
+		expected interface{}
+	}{
+		// Field references
+		{"simple field", "input.name", "John Doe"},
+		{"nested access", "input.age", int64(25)},
+
+		// Custom functions
+		{"lower", "lower(input.name)", "john doe"},
+		{"upper", "upper(input.name)", "JOHN DOE"},
+		{"trim", "trim(input.email)", "JOHN@EXAMPLE.COM"},
+		{"trim + lower", "lower(trim(input.email))", "john@example.com"},
+
+		// CEL built-in operators
+		{"comparison", "input.age >= 18", true},
+		{"comparison false", "input.age < 18", false},
+		{"string concat", "input.name + ' Jr.'", "John Doe Jr."},
+		{"arithmetic", "input.age + 5", int64(30)},
+
+		// CEL ternary
+		{"ternary true", "input.age >= 18 ? 'adult' : 'minor'", "adult"},
+		{"ternary false", "input.age < 18 ? 'minor' : 'adult'", "adult"},
+
+		// Logical operators
+		{"and", "input.age > 20 && input.age < 30", true},
+		{"or", "input.age < 20 || input.age > 30", false},
+		{"not", "!(input.age < 18)", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := transformer.Evaluate(context.Background(), tt.expr, input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result != tt.expected {
+				t.Errorf("expected %v (%T), got %v (%T)", tt.expected, tt.expected, result, result)
+			}
+		})
+	}
+}
+
+func TestCELTransformer_CustomFunctions(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{}
+
+	t.Run("uuid generates valid UUID", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "uuid()", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		uuid, ok := result.(string)
+		if !ok {
+			t.Fatalf("expected string, got %T", result)
+		}
+
+		// UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+		if len(uuid) != 36 {
+			t.Errorf("expected UUID length 36, got %d: %s", len(uuid), uuid)
+		}
+
+		parts := strings.Split(uuid, "-")
+		if len(parts) != 5 {
+			t.Errorf("expected 5 UUID parts, got %d", len(parts))
+		}
+	})
+
+	t.Run("now generates timestamp", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "now()", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		ts, ok := result.(string)
+		if !ok {
+			t.Fatalf("expected string, got %T", result)
+		}
+
+		// Should be RFC3339 format
+		if !strings.Contains(ts, "T") || !strings.Contains(ts, "Z") {
+			t.Errorf("expected RFC3339 format, got: %s", ts)
+		}
+	})
+
+	t.Run("now_unix generates unix timestamp", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "now_unix()", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		unix, ok := result.(int64)
+		if !ok {
+			t.Fatalf("expected int64, got %T", result)
+		}
+
+		if unix < 1700000000 {
+			t.Errorf("unix timestamp seems too low: %d", unix)
+		}
+	})
+
+	t.Run("default returns fallback for empty", func(t *testing.T) {
+		input := map[string]interface{}{
+			"value": "",
+		}
+		result, err := transformer.Evaluate(context.Background(), `default(input.value, "fallback")`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result != "fallback" {
+			t.Errorf("expected 'fallback', got %v", result)
+		}
+	})
+
+	t.Run("replace replaces substrings", func(t *testing.T) {
+		input := map[string]interface{}{
+			"text": "hello world",
+		}
+		result, err := transformer.Evaluate(context.Background(), `replace(input.text, "world", "CEL")`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result != "hello CEL" {
+			t.Errorf("expected 'hello CEL', got %v", result)
+		}
+	})
+
+	t.Run("substring extracts substring", func(t *testing.T) {
+		input := map[string]interface{}{
+			"text": "hello world",
+		}
+		result, err := transformer.Evaluate(context.Background(), `substring(input.text, 0, 5)`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result != "hello" {
+			t.Errorf("expected 'hello', got %v", result)
+		}
+	})
+
+	t.Run("len returns string length", func(t *testing.T) {
+		input := map[string]interface{}{
+			"text": "hello",
+		}
+		result, err := transformer.Evaluate(context.Background(), `len(input.text)`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result != int64(5) {
+			t.Errorf("expected 5, got %v", result)
+		}
+	})
+}
+
+func TestCELTransformer_ListOperations(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"items": []interface{}{"apple", "banana", "cherry"},
+		"numbers": []interface{}{1, 2, 3, 4, 5},
+	}
+
+	tests := []struct {
+		name     string
+		expr     string
+		expected interface{}
+	}{
+		// List access
+		{"first item", "input.items[0]", "apple"},
+		{"last item", "input.items[2]", "cherry"},
+
+		// List size
+		{"list size", "size(input.items)", int64(3)},
+
+		// List contains (CEL built-in)
+		{"contains", `"banana" in input.items`, true},
+		{"not contains", `"grape" in input.items`, false},
+
+		// List filter and map return CEL list types, tested separately below
+
+		// List exists (CEL built-in)
+		{"exists", "input.numbers.exists(n, n > 4)", true},
+		{"not exists", "input.numbers.exists(n, n > 10)", false},
+
+		// List all (CEL built-in)
+		{"all", "input.numbers.all(n, n > 0)", true},
+		{"not all", "input.numbers.all(n, n > 2)", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := transformer.Evaluate(context.Background(), tt.expr, input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if result != tt.expected {
+				t.Errorf("expected %v (%T), got %v (%T)", tt.expected, tt.expected, result, result)
+			}
+		})
+	}
+
+	// Test filter separately - returns CEL list type
+	t.Run("filter returns filtered list", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "input.numbers.filter(n, n > 3)", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Result is a CEL list, just verify it's not nil and has length
+		if result == nil {
+			t.Error("expected non-nil result")
+		}
+	})
+
+	// Test map separately - returns CEL list type
+	t.Run("map transforms list", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "input.numbers.map(n, n * 2)", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result == nil {
+			t.Error("expected non-nil result")
+		}
+	})
+}
+
+func TestCELTransformer_Transform(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"firstName": "John",
+		"lastName":  "DOE",
+		"email":     "  JOHN@EXAMPLE.COM  ",
+		"age":       25,
+		"roles":     []interface{}{"admin", "user"},
+	}
+
+	rules := []Rule{
+		{Target: "name", Expression: `input.firstName + " " + lower(input.lastName)`},
+		{Target: "email", Expression: "lower(trim(input.email))"},
+		{Target: "is_adult", Expression: "input.age >= 18"},
+		{Target: "id", Expression: "uuid()"},
+		{Target: "created_at", Expression: "now()"},
+		{Target: "role_count", Expression: "size(input.roles)"},
+		{Target: "is_admin", Expression: `input.roles.exists(r, r == "admin")`},
+	}
+
+	result, err := transformer.Transform(context.Background(), input, rules)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify results
+	if result["name"] != "John doe" {
+		t.Errorf("name: expected 'John doe', got %v", result["name"])
+	}
+
+	if result["email"] != "john@example.com" {
+		t.Errorf("email: expected 'john@example.com', got %v", result["email"])
+	}
+
+	if result["is_adult"] != true {
+		t.Errorf("is_adult: expected true, got %v", result["is_adult"])
+	}
+
+	if id, ok := result["id"].(string); !ok || len(id) != 36 {
+		t.Errorf("id: expected UUID, got %v", result["id"])
+	}
+
+	if ts, ok := result["created_at"].(string); !ok || !strings.Contains(ts, "T") {
+		t.Errorf("created_at: expected timestamp, got %v", result["created_at"])
+	}
+
+	if result["role_count"] != int64(2) {
+		t.Errorf("role_count: expected 2, got %v", result["role_count"])
+	}
+
+	if result["is_admin"] != true {
+		t.Errorf("is_admin: expected true, got %v", result["is_admin"])
+	}
+}
+
+func TestCELTransformer_ValidateExpression(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	t.Run("valid expression", func(t *testing.T) {
+		err := transformer.ValidateExpression("lower(input.email)")
+		if err != nil {
+			t.Errorf("expected valid, got error: %v", err)
+		}
+	})
+
+	t.Run("invalid function", func(t *testing.T) {
+		err := transformer.ValidateExpression("unknownFunc(input.email)")
+		if err == nil {
+			t.Error("expected error for unknown function")
+		}
+	})
+
+	t.Run("syntax error", func(t *testing.T) {
+		err := transformer.ValidateExpression("lower(input.email")
+		if err == nil {
+			t.Error("expected error for syntax error")
+		}
+	})
+}
+
+func TestCELTransformer_StandardExtensions(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"text":    "Hello World",
+		"numbers": []interface{}{5, 3, 8, 1, 9},
+		"items":   []interface{}{"a", "b", "c"},
+	}
+
+	tests := []struct {
+		name     string
+		expr     string
+		validate func(result interface{}) bool
+	}{
+		// ext.Strings() - String extension functions
+		{"strings: charAt", `"hello".charAt(1)`, func(r interface{}) bool { return r == "e" }},
+		{"strings: indexOf", `"hello world".indexOf("world")`, func(r interface{}) bool { return r == int64(6) }},
+		{"strings: lastIndexOf", `"hello hello".lastIndexOf("hello")`, func(r interface{}) bool { return r == int64(6) }},
+		{"strings: lowerAscii", `"HELLO".lowerAscii()`, func(r interface{}) bool { return r == "hello" }},
+		{"strings: upperAscii", `"hello".upperAscii()`, func(r interface{}) bool { return r == "HELLO" }},
+		{"strings: replace", `"hello".replace("l", "L")`, func(r interface{}) bool { return r == "heLLo" }},
+		{"strings: split", `"a,b,c".split(",")`, func(r interface{}) bool { return r != nil }},
+		{"strings: substring", `"hello".substring(1, 4)`, func(r interface{}) bool { return r == "ell" }},
+		{"strings: trim", `"  hello  ".trim()`, func(r interface{}) bool { return r == "hello" }},
+		{"strings: reverse", `"hello".reverse()`, func(r interface{}) bool { return r == "olleh" }},
+
+		// ext.Encoders() - Base64 encoding
+		{"encoders: base64.encode", `base64.encode(b"hello")`, func(r interface{}) bool { return r == "aGVsbG8=" }},
+		{"encoders: base64.decode", `base64.decode("aGVsbG8=")`, func(r interface{}) bool { return r != nil }},
+
+		// ext.Math() - Math functions
+		{"math: abs", `math.abs(-5)`, func(r interface{}) bool { return r == int64(5) }},
+		{"math: ceil", `math.ceil(3.2)`, func(r interface{}) bool { return r == 4.0 }},
+		{"math: floor", `math.floor(3.8)`, func(r interface{}) bool { return r == 3.0 }},
+		{"math: round", `math.round(3.5)`, func(r interface{}) bool { return r == 4.0 }},
+		{"math: sign positive", `math.sign(5)`, func(r interface{}) bool { return r == int64(1) }},
+		{"math: sign negative", `math.sign(-5)`, func(r interface{}) bool { return r == int64(-1) }},
+		{"math: greatest", `math.greatest(1, 5, 3)`, func(r interface{}) bool { return r == int64(5) }},
+		{"math: least", `math.least(1, 5, 3)`, func(r interface{}) bool { return r == int64(1) }},
+
+		// ext.Lists() - List functions
+		{"lists: slice", `[1, 2, 3, 4, 5].slice(1, 4)`, func(r interface{}) bool { return r != nil }},
+
+		// Standard CEL (not extensions)
+		{"std: size", `size("hello")`, func(r interface{}) bool { return r == int64(5) }},
+		{"std: contains", `"hello".contains("ell")`, func(r interface{}) bool { return r == true }},
+		{"std: startsWith", `"hello".startsWith("hel")`, func(r interface{}) bool { return r == true }},
+		{"std: endsWith", `"hello".endsWith("llo")`, func(r interface{}) bool { return r == true }},
+		{"std: matches regex", `"hello123".matches("[a-z]+[0-9]+")`, func(r interface{}) bool { return r == true }},
+		{"std: type", `type(123)`, func(r interface{}) bool { return r != nil }},
+		{"std: int conversion", `int("42")`, func(r interface{}) bool { return r == int64(42) }},
+		{"std: double conversion", `double("3.14")`, func(r interface{}) bool { return r == 3.14 }},
+		{"std: string conversion", `string(42)`, func(r interface{}) bool { return r == "42" }},
+		{"std: duration", `duration("1h30m")`, func(r interface{}) bool { return r != nil }},
+		{"std: timestamp", `timestamp("2023-01-15T10:30:00Z")`, func(r interface{}) bool { return r != nil }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := transformer.Evaluate(context.Background(), tt.expr, input)
+			if err != nil {
+				t.Fatalf("unexpected error for %s: %v", tt.expr, err)
+			}
+
+			if !tt.validate(result) {
+				t.Errorf("validation failed for %s, got: %v (%T)", tt.expr, result, result)
+			}
+		})
+	}
+}
+
+func TestCELTransformer_ProgramCaching(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"value": "test",
+	}
+
+	expr := "upper(input.value)"
+
+	// First evaluation - compiles and caches
+	result1, err := transformer.Evaluate(context.Background(), expr, input)
+	if err != nil {
+		t.Fatalf("first evaluation failed: %v", err)
+	}
+
+	// Second evaluation - uses cached program
+	result2, err := transformer.Evaluate(context.Background(), expr, input)
+	if err != nil {
+		t.Fatalf("second evaluation failed: %v", err)
+	}
+
+	if result1 != result2 {
+		t.Errorf("results should be equal: %v != %v", result1, result2)
+	}
+
+	// Verify cache is being used
+	transformer.mu.RLock()
+	_, cached := transformer.programs[expr]
+	transformer.mu.RUnlock()
+
+	if !cached {
+		t.Error("expected program to be cached")
+	}
+}

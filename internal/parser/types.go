@@ -151,19 +151,19 @@ func createConstraint(key string, value interface{}) validate.Constraint {
 	switch key {
 	case "format":
 		if s, ok := value.(string); ok {
-			return &FormatConstraint{format: s}
+			return &validate.FormatConstraint{Format: s}
 		}
 	case "min":
-		return &MinConstraint{min: toFloat64(value)}
+		return &validate.MinConstraint{Min: toFloat64(value)}
 	case "max":
-		return &MaxConstraint{max: toFloat64(value)}
+		return &validate.MaxConstraint{Max: toFloat64(value)}
 	case "min_length":
-		return &MinLengthConstraint{minLength: toInt(value)}
+		return &validate.MinLengthConstraint{MinLength: toInt(value)}
 	case "max_length":
-		return &MaxLengthConstraint{maxLength: toInt(value)}
+		return &validate.MaxLengthConstraint{MaxLength: toInt(value)}
 	case "pattern":
 		if s, ok := value.(string); ok {
-			return &PatternConstraint{pattern: s}
+			return &validate.PatternConstraint{Pattern: s}
 		}
 	case "enum":
 		if arr, ok := value.([]interface{}); ok {
@@ -173,7 +173,7 @@ func createConstraint(key string, value interface{}) validate.Constraint {
 					values = append(values, s)
 				}
 			}
-			return &EnumConstraint{values: values}
+			return &validate.EnumConstraint{Values: values}
 		}
 	}
 	return nil
@@ -205,128 +205,4 @@ func toInt(v interface{}) int {
 	default:
 		return 0
 	}
-}
-
-// Built-in constraints
-
-// FormatConstraint validates string formats.
-type FormatConstraint struct {
-	format string
-}
-
-func (c *FormatConstraint) Name() string { return "format" }
-func (c *FormatConstraint) Validate(value interface{}) error {
-	s, ok := value.(string)
-	if !ok {
-		return nil // Type checking is done separately
-	}
-
-	switch c.format {
-	case "email":
-		if !strings.Contains(s, "@") || !strings.Contains(s, ".") {
-			return fmt.Errorf("invalid email format")
-		}
-	case "url":
-		if !strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://") {
-			return fmt.Errorf("invalid URL format")
-		}
-	case "uuid":
-		// Simple UUID format check
-		if len(s) != 36 {
-			return fmt.Errorf("invalid UUID format")
-		}
-	}
-	return nil
-}
-
-// MinConstraint validates minimum numeric values.
-type MinConstraint struct {
-	min float64
-}
-
-func (c *MinConstraint) Name() string { return "min" }
-func (c *MinConstraint) Validate(value interface{}) error {
-	n := toFloat64(value)
-	if n < c.min {
-		return fmt.Errorf("value must be at least %v", c.min)
-	}
-	return nil
-}
-
-// MaxConstraint validates maximum numeric values.
-type MaxConstraint struct {
-	max float64
-}
-
-func (c *MaxConstraint) Name() string { return "max" }
-func (c *MaxConstraint) Validate(value interface{}) error {
-	n := toFloat64(value)
-	if n > c.max {
-		return fmt.Errorf("value must be at most %v", c.max)
-	}
-	return nil
-}
-
-// MinLengthConstraint validates minimum string length.
-type MinLengthConstraint struct {
-	minLength int
-}
-
-func (c *MinLengthConstraint) Name() string { return "min_length" }
-func (c *MinLengthConstraint) Validate(value interface{}) error {
-	s, ok := value.(string)
-	if !ok {
-		return nil
-	}
-	if len(s) < c.minLength {
-		return fmt.Errorf("string must be at least %d characters", c.minLength)
-	}
-	return nil
-}
-
-// MaxLengthConstraint validates maximum string length.
-type MaxLengthConstraint struct {
-	maxLength int
-}
-
-func (c *MaxLengthConstraint) Name() string { return "max_length" }
-func (c *MaxLengthConstraint) Validate(value interface{}) error {
-	s, ok := value.(string)
-	if !ok {
-		return nil
-	}
-	if len(s) > c.maxLength {
-		return fmt.Errorf("string must be at most %d characters", c.maxLength)
-	}
-	return nil
-}
-
-// PatternConstraint validates string patterns.
-type PatternConstraint struct {
-	pattern string
-}
-
-func (c *PatternConstraint) Name() string { return "pattern" }
-func (c *PatternConstraint) Validate(value interface{}) error {
-	// A full implementation would use regexp
-	return nil
-}
-
-// EnumConstraint validates that a value is one of allowed values.
-type EnumConstraint struct {
-	values []string
-}
-
-func (c *EnumConstraint) Name() string { return "enum" }
-func (c *EnumConstraint) Validate(value interface{}) error {
-	s, ok := value.(string)
-	if !ok {
-		return nil
-	}
-	for _, allowed := range c.values {
-		if s == allowed {
-			return nil
-		}
-	}
-	return fmt.Errorf("value must be one of: %v", c.values)
 }

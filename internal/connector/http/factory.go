@@ -1,0 +1,148 @@
+package http
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/mycel-labs/mycel/internal/connector"
+)
+
+// Factory creates HTTP client connectors.
+type Factory struct{}
+
+// NewFactory creates a new HTTP connector factory.
+func NewFactory() *Factory {
+	return &Factory{}
+}
+
+// Type returns the connector type this factory handles.
+func (f *Factory) Type() string {
+	return "http"
+}
+
+// Supports returns true if this factory can create the given connector type.
+func (f *Factory) Supports(connType, driver string) bool {
+	return connType == "http"
+}
+
+// Create creates a new HTTP client connector from config.
+func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.Connector, error) {
+	// Get base URL (required)
+	baseURL, ok := cfg.Properties["base_url"].(string)
+	if !ok || baseURL == "" {
+		return nil, fmt.Errorf("http connector requires base_url")
+	}
+
+	// Get timeout (optional, default 30s)
+	timeout := 30 * time.Second
+	if t, ok := cfg.Properties["timeout"].(string); ok {
+		parsed, err := time.ParseDuration(t)
+		if err == nil {
+			timeout = parsed
+		}
+	} else if t, ok := cfg.Properties["timeout"].(int); ok {
+		timeout = time.Duration(t) * time.Second
+	}
+
+	// Get retry count (optional, default 1)
+	retryCount := 1
+	if r, ok := cfg.Properties["retry_count"].(int); ok {
+		retryCount = r
+	}
+	// Also check nested retry block
+	if retry, ok := cfg.Properties["retry"].(map[string]interface{}); ok {
+		if attempts, ok := retry["attempts"].(int); ok {
+			retryCount = attempts
+		}
+	}
+
+	// Get custom headers (optional)
+	headers := make(map[string]string)
+	if h, ok := cfg.Properties["headers"].(map[string]interface{}); ok {
+		for k, v := range h {
+			if s, ok := v.(string); ok {
+				headers[k] = s
+			}
+		}
+	}
+
+	// Parse auth config (optional)
+	var auth *AuthConfig
+	if authCfg, ok := cfg.Properties["auth"].(map[string]interface{}); ok {
+		auth = parseAuthConfig(authCfg)
+	}
+
+	// Create connector
+	conn := New(cfg.Name, baseURL, timeout, auth, headers, retryCount)
+
+	return conn, nil
+}
+
+// parseAuthConfig parses authentication configuration from HCL.
+func parseAuthConfig(cfg map[string]interface{}) *AuthConfig {
+	auth := &AuthConfig{
+		Type: AuthTypeNone,
+	}
+
+	// Get auth type
+	if t, ok := cfg["type"].(string); ok {
+		switch t {
+		case "bearer":
+			auth.Type = AuthTypeBearer
+		case "oauth2":
+			auth.Type = AuthTypeOAuth2
+		case "apikey", "api_key":
+			auth.Type = AuthTypeAPIKey
+		case "basic":
+			auth.Type = AuthTypeBasic
+		}
+	}
+
+	// Bearer token
+	if token, ok := cfg["token"].(string); ok {
+		auth.Token = token
+	}
+
+	// OAuth2 settings
+	if refreshToken, ok := cfg["refresh_token"].(string); ok {
+		auth.RefreshToken = refreshToken
+	}
+	if tokenURL, ok := cfg["token_url"].(string); ok {
+		auth.TokenURL = tokenURL
+	}
+	if clientID, ok := cfg["client_id"].(string); ok {
+		auth.ClientID = clientID
+	}
+	if clientSecret, ok := cfg["client_secret"].(string); ok {
+		auth.ClientSecret = clientSecret
+	}
+	if scopes, ok := cfg["scopes"].([]interface{}); ok {
+		for _, s := range scopes {
+			if str, ok := s.(string); ok {
+				auth.Scopes = append(auth.Scopes, str)
+			}
+		}
+	}
+
+	// API Key settings
+	if apiKey, ok := cfg["api_key"].(string); ok {
+		auth.APIKey = apiKey
+	}
+	if header, ok := cfg["api_key_header"].(string); ok {
+		auth.APIKeyHeader = header
+	}
+	if query, ok := cfg["api_key_query"].(string); ok {
+		auth.APIKeyQuery = query
+	}
+
+	// Basic auth
+	if username, ok := cfg["username"].(string); ok {
+		auth.Username = username
+	}
+	if password, ok := cfg["password"].(string); ok {
+		auth.Password = password
+	}
+
+	return auth
+}

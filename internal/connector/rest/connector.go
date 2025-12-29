@@ -249,9 +249,16 @@ func (c *Connector) writeJSON(w http.ResponseWriter, status int, data interface{
 func (c *Connector) writeError(w http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 
-	// Could check for specific error types here
+	// Check for specific error types
+	errStr := err.Error()
+	if strings.Contains(errStr, "validation") ||
+		strings.Contains(errStr, "required") ||
+		strings.Contains(errStr, "invalid") {
+		status = http.StatusBadRequest
+	}
+
 	c.writeJSON(w, status, map[string]string{
-		"error": err.Error(),
+		"error": errStr,
 	})
 }
 

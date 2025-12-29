@@ -2,11 +2,13 @@ package parser
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 
 	"github.com/mycel-labs/mycel/internal/flow"
+	"github.com/mycel-labs/mycel/internal/transform"
 )
 
 // parseFlowBlock parses a flow block from HCL.
@@ -241,23 +243,31 @@ func parseTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Transfor
 	}
 
 	for name, attr := range attrs {
+		// First try to evaluate as a simple value (for quoted strings)
 		val, diags := attr.Expr.Value(ctx)
-		if diags.HasErrors() {
-			// If we can't evaluate, store the expression as string
-			// This handles cases like uuid() or lower(input.email)
-			transform.Mappings[name] = extractExpressionString(attr.Expr)
+
+		if name == "use" {
+			if !diags.HasErrors() {
+				transform.Use = parseTransformReference(val.AsString())
+			}
 			continue
 		}
 
-		if name == "use" {
-			// Reference to a named transform
-			transform.Use = parseTransformReference(val.AsString())
-		} else if strings.HasPrefix(name, "output.") {
-			// Inline transformation mapping
-			field := strings.TrimPrefix(name, "output.")
-			transform.Mappings[field] = val.AsString()
-		} else {
+		// For transform mappings:
+		// - Quoted strings like email = "lower(input.email)" are evaluated by HCL
+		//   and we get the string content (lower(input.email)) which we then
+		//   evaluate at runtime with our transform engine
+		// - Unquoted expressions are extracted as raw text
+		if !diags.HasErrors() {
+			// HCL evaluated it successfully - use the string value
+			// This handles quoted strings: "lower(input.email)" -> lower(input.email)
 			transform.Mappings[name] = val.AsString()
+		} else {
+			// Try to extract raw expression for unquoted expressions
+			exprStr := extractExpressionText(attr.Expr)
+			if exprStr != "" {
+				transform.Mappings[name] = exprStr
+			}
 		}
 	}
 
@@ -272,11 +282,64 @@ func parseTransformReference(ref string) string {
 	return ref
 }
 
-// extractExpressionString attempts to extract the source text of an expression.
-func extractExpressionString(expr hcl.Expression) string {
-	// Get the expression range and return a placeholder
-	// A full implementation would reconstruct the expression
-	return fmt.Sprintf("${%s}", expr.Range().String())
+// extractExpressionText extracts the raw text from an HCL expression.
+func extractExpressionText(expr hcl.Expression) string {
+	// Get the expression range
+	rng := expr.Range()
+
+	// For simple expressions, we can get the raw bytes from the file
+	// However, since we don't have direct access to file bytes here,
+	// we'll use expression traversal to reconstruct simple cases
+
+	// Try to get variables from the expression
+	vars := expr.Variables()
+
+	// If it's a simple variable reference, construct the path
+	if len(vars) == 1 {
+		var parts []string
+		for _, t := range vars[0] {
+			switch tt := t.(type) {
+			case hcl.TraverseRoot:
+				parts = append(parts, tt.Name)
+			case hcl.TraverseAttr:
+				parts = append(parts, tt.Name)
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, ".")
+		}
+	}
+
+	// For function calls and complex expressions,
+	// we need to extract from the source file
+	// The filename contains the path
+	filename := rng.Filename
+	if filename != "" {
+		content, err := readFileRange(filename, rng)
+		if err == nil && content != "" {
+			return content
+		}
+	}
+
+	return ""
+}
+
+// readFileRange reads a specific range from a file.
+func readFileRange(filename string, rng hcl.Range) (string, error) {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return "", err
+	}
+
+	// Convert byte offsets
+	start := rng.Start.Byte
+	end := rng.End.Byte
+
+	if start >= 0 && end <= len(content) && start < end {
+		return string(content[start:end]), nil
+	}
+
+	return "", fmt.Errorf("invalid range")
 }
 
 // parseRequireBlock parses a require block.
@@ -396,4 +459,47 @@ func parseRetryConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryC
 	}
 
 	return retry, nil
+}
+
+// parseNamedTransformBlock parses a named transform block.
+// Example:
+//
+//	transform "user_input" {
+//	  id        = "uuid()"
+//	  email     = "lower(trim(input.email))"
+//	  name      = "concat(input.first_name, \" \", input.last_name)"
+//	  createdAt = "now()"
+//	}
+func parseNamedTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transform.Config, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("transform block requires a name label")
+	}
+
+	cfg := &transform.Config{
+		Name:     block.Labels[0],
+		Mappings: make(map[string]string),
+	}
+
+	// Get all attributes as transform mappings
+	attrs, diags := block.Body.JustAttributes()
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("transform block attributes error: %s", diags.Error())
+	}
+
+	for name, attr := range attrs {
+		// Try to evaluate as simple value (for quoted strings)
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			// HCL evaluated it - use the string value
+			cfg.Mappings[name] = val.AsString()
+		} else {
+			// Extract raw expression text for unquoted expressions
+			exprStr := extractExpressionText(attr.Expr)
+			if exprStr != "" {
+				cfg.Mappings[name] = exprStr
+			}
+		}
+	}
+
+	return cfg, nil
 }

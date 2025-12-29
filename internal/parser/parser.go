@@ -13,6 +13,7 @@ import (
 
 	"github.com/mycel-labs/mycel/internal/connector"
 	"github.com/mycel-labs/mycel/internal/flow"
+	"github.com/mycel-labs/mycel/internal/transform"
 	"github.com/mycel-labs/mycel/internal/validate"
 	myhcl "github.com/mycel-labs/mycel/pkg/hcl"
 )
@@ -37,6 +38,9 @@ type Configuration struct {
 	// Types are all type schemas.
 	Types []*validate.TypeSchema
 
+	// Transforms are reusable transform configurations.
+	Transforms []*transform.Config
+
 	// ServiceConfig is the global service configuration.
 	ServiceConfig *ServiceConfig
 }
@@ -53,6 +57,7 @@ func NewConfiguration() *Configuration {
 		Connectors: make([]*connector.Config, 0),
 		Flows:      make([]*flow.Config, 0),
 		Types:      make([]*validate.TypeSchema, 0),
+		Transforms: make([]*transform.Config, 0),
 	}
 }
 
@@ -61,6 +66,7 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.Connectors = append(c.Connectors, other.Connectors...)
 	c.Flows = append(c.Flows, other.Flows...)
 	c.Types = append(c.Types, other.Types...)
+	c.Transforms = append(c.Transforms, other.Transforms...)
 	if other.ServiceConfig != nil {
 		c.ServiceConfig = other.ServiceConfig
 	}
@@ -158,6 +164,13 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 			}
 			config.Types = append(config.Types, t)
 
+		case "transform":
+			tr, err := parseNamedTransformBlock(block, p.evalCtx)
+			if err != nil {
+				return nil, fmt.Errorf("transform parse error: %w", err)
+			}
+			config.Transforms = append(config.Transforms, tr)
+
 		case "service":
 			svc, err := parseServiceBlock(block, p.evalCtx)
 			if err != nil {
@@ -177,6 +190,7 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "connector", LabelNames: []string{"name"}},
 			{Type: "flow", LabelNames: []string{"name"}},
 			{Type: "type", LabelNames: []string{"name"}},
+			{Type: "transform", LabelNames: []string{"name"}},
 			{Type: "service"},
 		},
 	}
