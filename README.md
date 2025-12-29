@@ -61,6 +61,7 @@ Mycel connects **anything to anything**:
 ✅ **Phase 1 Complete** - Core runtime is functional!
 ✅ **Phase 2 Complete** - Extended connectors and features!
 ✅ **Phase 2.5 Complete** - TCP Server + Client!
+✅ **Phase 3.1 Complete** - Message Queues (RabbitMQ)!
 
 ### Connector Support
 
@@ -70,8 +71,9 @@ Mycel connects **anything to anything**:
 | SQLite    | ✅ Phase 1             | ✅ Phase 1              |
 | PostgreSQL| ✅ Phase 2             | ✅ Phase 2              |
 | TCP       | ✅ Phase 2.5           | ✅ Phase 2.5            |
+| RabbitMQ  | ✅ Phase 3.1           | ✅ Phase 3.1            |
 | GraphQL   | 🔜 Phase 3             | 🔜 Phase 3              |
-| Queues    | 🔜 Phase 3             | 🔜 Phase 3              |
+| Kafka     | 🔜 Phase 3             | 🔜 Phase 3              |
 | gRPC      | 🔜 Phase 3             | 🔜 Phase 3              |
 | Files     | 🔜 Phase 3             | 🔜 Phase 3              |
 
@@ -102,10 +104,17 @@ Mycel connects **anything to anything**:
 - [x] Message routing by type field
 - [x] **NestJS TCP protocol compatibility** - Connect to existing NestJS microservices!
 
-**Phase 3 - Extended Protocols**
+**Phase 3.1 - Message Queues** ✅
+- [x] RabbitMQ connector (consumer + publisher)
+- [x] AMQP topic pattern matching (`*` and `#` wildcards)
+- [x] Queue/Exchange declaration and binding
+- [x] Manual acknowledgment support
+- [x] Concurrent consumers with prefetch
+
+**Phase 3 - Extended Protocols** (In Progress)
 - [ ] GraphQL (server + client)
 - [ ] gRPC (server + client)
-- [ ] Message Queues (RabbitMQ, Kafka, SQS)
+- [ ] Kafka connector
 - [ ] File connector (read/write)
 
 **Phase 4 - Production Ready**
@@ -299,6 +308,7 @@ make lint
 
 - [Transformations Guide](docs/transformations.md) - Complete CEL transformation reference
 - [TCP Example](examples/tcp/README.md) - TCP connector usage guide
+- [Message Queue Example](examples/mq/README.md) - RabbitMQ integration guide
 
 ## Requirements
 

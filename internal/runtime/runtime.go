@@ -17,6 +17,7 @@ import (
 	"github.com/mycel-labs/mycel/internal/connector/database/postgres"
 	"github.com/mycel-labs/mycel/internal/connector/database/sqlite"
 	connhttp "github.com/mycel-labs/mycel/internal/connector/http"
+	"github.com/mycel-labs/mycel/internal/connector/mq"
 	"github.com/mycel-labs/mycel/internal/connector/rest"
 	"github.com/mycel-labs/mycel/internal/connector/tcp"
 	"github.com/mycel-labs/mycel/internal/parser"
@@ -125,6 +126,9 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 
 	// TCP connector for raw TCP communication (server + client)
 	registry.RegisterFactory(tcp.NewFactory(logger))
+
+	// Message Queue connector (RabbitMQ, Kafka, etc.)
+	registry.RegisterFactory(mq.NewFactory(logger))
 }
 
 // Start initializes all connectors, registers flows, and starts the HTTP server.
@@ -242,6 +246,31 @@ func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
 			return fmt.Sprintf("listening on %s:%d [%s]", host, port, protocol)
 		}
 		return fmt.Sprintf("→ %s:%d [%s]", host, port, protocol)
+	case "mq":
+		host := "localhost"
+		if h, ok := cfg.Properties["host"].(string); ok {
+			host = h
+		}
+		port := 5672
+		if p, ok := cfg.Properties["port"].(int); ok {
+			port = p
+		}
+		driver := cfg.Driver
+		if driver == "" {
+			driver = "rabbitmq"
+		}
+		// Check if consumer or publisher
+		if queueCfg, ok := cfg.Properties["queue"].(map[string]interface{}); ok {
+			if queueName, ok := queueCfg["name"].(string); ok {
+				return fmt.Sprintf("consuming from %s [%s]", queueName, driver)
+			}
+		}
+		if pubCfg, ok := cfg.Properties["publisher"].(map[string]interface{}); ok {
+			if exchange, ok := pubCfg["exchange"].(string); ok {
+				return fmt.Sprintf("publishing to %s [%s]", exchange, driver)
+			}
+		}
+		return fmt.Sprintf("→ %s:%d [%s]", host, port, driver)
 	}
 	return ""
 }
@@ -286,11 +315,17 @@ func (r *Runtime) registerFlows() error {
 
 // parseFlowOperation parses a flow operation based on the connector type.
 func (r *Runtime) parseFlowOperation(connectorName, operation string) (method, path string) {
-	// Check if this is a TCP connector
+	// Check connector type
 	for _, cfg := range r.config.Connectors {
-		if cfg.Name == connectorName && cfg.Type == "tcp" {
-			// For TCP, the operation is the message type
-			return "TCP", operation
+		if cfg.Name == connectorName {
+			switch cfg.Type {
+			case "tcp":
+				// For TCP, the operation is the message type
+				return "TCP", operation
+			case "mq":
+				// For MQ, the operation is the routing key pattern
+				return "MQ", operation
+			}
 		}
 	}
 

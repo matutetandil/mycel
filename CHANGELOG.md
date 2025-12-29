@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 3.1)
+- **Message Queue Connector** (`internal/connector/mq/`)
+  - **RabbitMQ Support**: Full producer and consumer implementation
+    - Connection management with automatic reconnection
+    - Queue and exchange declaration with binding support
+    - Topic pattern matching (`*` matches one word, `#` matches zero or more)
+    - Manual acknowledgment for reliable message processing
+    - Concurrent consumers with configurable prefetch (QoS)
+    - Publisher confirms for guaranteed delivery
+  - **Message types** (`internal/connector/mq/types/`)
+    - Generic Message struct with headers, routing key, exchange
+    - DeliveryMode (transient/persistent)
+    - AckMode (auto/manual/none)
+  - **Exchange types**: direct, fanout, topic, headers
+  - **Consumer features**:
+    - Routing key pattern matching for topic exchanges
+    - Prefetch/QoS configuration
+    - Concurrent worker goroutines
+    - Graceful shutdown with message draining
+  - **Publisher features**:
+    - Exchange and routing key configuration
+    - Persistent message delivery
+    - Publisher confirms support
+    - Batch publishing
+- **MQ Example** (`examples/mq/`)
+  - RabbitMQ consumer and publisher configuration
+  - Order processing with pub/sub pattern
+  - Topic routing examples
+
 ### Added (Phase 2.5)
 - **TCP Connector** (`internal/connector/tcp/`)
   - **TCP Server**: Listen for incoming TCP connections
