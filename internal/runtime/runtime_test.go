@@ -1856,3 +1856,237 @@ flow "delete_user" {
 }
 `)
 }
+
+// TestIntegration_RawSQL tests raw SQL query support in flows.
+func TestIntegration_RawSQL(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-rawsql-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+	db, err := setupRawSQLTestDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("failed to setup database: %v", err)
+	}
+	defer db.Close()
+
+	port := 3950
+	createRawSQLTestConfig(t, tmpDir, dbPath, port)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt, err := startTestRuntime(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("failed to start runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	waitForServer(t, port)
+
+	// Test: Raw SQL SELECT with JOIN
+	t.Run("GET with raw SQL JOIN query", func(t *testing.T) {
+		resp, body := doRequest(t, "GET", fmt.Sprintf("http://localhost:%d/orders/1", port), nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		var results []map[string]interface{}
+		if err := json.Unmarshal([]byte(body), &results); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+
+		order := results[0]
+		// Verify JOIN worked - should have user_name from users table
+		if order["user_name"] == nil {
+			t.Error("expected user_name from JOIN")
+		}
+		if order["user_name"] != "John Doe" {
+			t.Errorf("expected user_name 'John Doe', got '%v'", order["user_name"])
+		}
+	})
+
+	// Test: Raw SQL with multiple parameters
+	t.Run("GET with raw SQL and multiple named params", func(t *testing.T) {
+		resp, body := doRequest(t, "GET", fmt.Sprintf("http://localhost:%d/orders-by-user/1", port), nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		var results []map[string]interface{}
+		if err := json.Unmarshal([]byte(body), &results); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		// Should return orders for user 1
+		if len(results) < 1 {
+			t.Fatalf("expected at least 1 order for user 1, got %d", len(results))
+		}
+	})
+
+	// Test: Raw SQL INSERT (alternative syntax)
+	t.Run("POST with raw SQL insert", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"user_id": 2,
+			"product": "Keyboard",
+			"amount":  79.99,
+		}
+
+		resp, body := doRequest(t, "POST", fmt.Sprintf("http://localhost:%d/orders-raw", port), payload)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		// Verify the order was created
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM orders WHERE product = 'Keyboard'").Scan(&count)
+		if err != nil {
+			t.Fatalf("failed to query: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("expected 1 order with 'Keyboard', got %d", count)
+		}
+	})
+}
+
+func setupRawSQLTestDatabase(dbPath string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create users table
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			email TEXT NOT NULL,
+			name TEXT NOT NULL
+		)
+	`)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	// Create orders table with foreign key
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS orders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			product TEXT NOT NULL,
+			amount REAL NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id)
+		)
+	`)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	// Insert test data
+	_, err = db.Exec(`
+		INSERT INTO users (email, name) VALUES
+			('john@example.com', 'John Doe'),
+			('jane@example.com', 'Jane Smith')
+	`)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	_, err = db.Exec(`
+		INSERT INTO orders (user_id, product, amount) VALUES
+			(1, 'Laptop', 999.99),
+			(1, 'Mouse', 29.99),
+			(2, 'Monitor', 349.99)
+	`)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	return db, nil
+}
+
+func createRawSQLTestConfig(t *testing.T, tmpDir, dbPath string, port int) {
+	t.Helper()
+
+	os.MkdirAll(filepath.Join(tmpDir, "connectors"), 0755)
+	os.MkdirAll(filepath.Join(tmpDir, "flows"), 0755)
+
+	writeFile(t, filepath.Join(tmpDir, "config.hcl"), `
+service {
+  name    = "rawsql-test"
+  version = "1.0.0"
+}
+`)
+
+	writeFile(t, filepath.Join(tmpDir, "connectors", "api.hcl"), fmt.Sprintf(`
+connector "api" {
+  type = "rest"
+  port = %d
+}
+`, port))
+
+	writeFile(t, filepath.Join(tmpDir, "connectors", "database.hcl"), fmt.Sprintf(`
+connector "sqlite" {
+  type     = "database"
+  driver   = "sqlite"
+  database = "%s"
+}
+`, dbPath))
+
+	// Flows with raw SQL queries
+	writeFile(t, filepath.Join(tmpDir, "flows", "orders.hcl"), `
+# GET order with JOIN - using raw SQL
+flow "get_order_with_user" {
+  from {
+    connector = "api"
+    operation = "GET /orders/:id"
+  }
+
+  to {
+    connector = "sqlite"
+    query     = <<-SQL
+      SELECT o.*, u.name as user_name, u.email as user_email
+      FROM orders o
+      JOIN users u ON u.id = o.user_id
+      WHERE o.id = :id
+    SQL
+  }
+}
+
+# GET orders by user - multiple params
+flow "get_orders_by_user" {
+  from {
+    connector = "api"
+    operation = "GET /orders-by-user/:user_id"
+  }
+
+  to {
+    connector = "sqlite"
+    query     = "SELECT * FROM orders WHERE user_id = :user_id ORDER BY created_at DESC"
+  }
+}
+
+# POST with raw SQL insert
+flow "create_order_raw" {
+  from {
+    connector = "api"
+    operation = "POST /orders-raw"
+  }
+
+  to {
+    connector = "sqlite"
+    query     = "INSERT INTO orders (user_id, product, amount) VALUES (:user_id, :product, :amount)"
+  }
+}
+`)
+}

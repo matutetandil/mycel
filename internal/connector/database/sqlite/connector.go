@@ -95,16 +95,23 @@ func (c *Connector) Health(ctx context.Context) error {
 
 // Read executes a SELECT query.
 func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector.Result, error) {
-	// Build SELECT query
-	sql, args := c.buildSelectQuery(query)
+	var sqlQuery string
+	var args []interface{}
+
+	// Use raw SQL if provided, otherwise build query automatically
+	if query.RawSQL != "" {
+		sqlQuery, args = c.parseNamedParams(query.RawSQL, query.Filters)
+	} else {
+		sqlQuery, args = c.buildSelectQuery(query)
+	}
 
 	c.logger.Debug("Executing query",
-		slog.String("sql", sql),
+		slog.String("sql", sqlQuery),
 		slog.Any("args", args),
 	)
 
 	// Execute query
-	rows, err := c.db.QueryContext(ctx, sql, args...)
+	rows, err := c.db.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query failed: %w", err)
 	}
@@ -149,26 +156,45 @@ func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector
 
 // Write executes INSERT, UPDATE, or DELETE operations.
 func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
-	var sql string
+	var sqlQuery string
 	var args []interface{}
 
-	switch data.Operation {
-	case "INSERT":
-		sql, args = c.buildInsertQuery(data)
-	case "UPDATE":
-		sql, args = c.buildUpdateQuery(data)
-	case "DELETE":
-		sql, args = c.buildDeleteQuery(data)
-	default:
-		return nil, fmt.Errorf("unsupported operation: %s", data.Operation)
+	// Use raw SQL if provided
+	if data.RawSQL != "" {
+		// Merge payload and filters for parameter substitution
+		params := make(map[string]interface{})
+		for k, v := range data.Filters {
+			params[k] = v
+		}
+		for k, v := range data.Payload {
+			params[k] = v
+		}
+		sqlQuery, args = c.parseNamedParams(data.RawSQL, params)
+	} else {
+		// Build query automatically based on operation
+		switch data.Operation {
+		case "INSERT":
+			sqlQuery, args = c.buildInsertQuery(data)
+		case "UPDATE":
+			sqlQuery, args = c.buildUpdateQuery(data)
+		case "DELETE":
+			sqlQuery, args = c.buildDeleteQuery(data)
+		default:
+			return nil, fmt.Errorf("unsupported operation: %s", data.Operation)
+		}
 	}
 
 	c.logger.Debug("Executing write",
-		slog.String("sql", sql),
+		slog.String("sql", sqlQuery),
 		slog.Any("args", args),
 	)
 
-	result, err := c.db.ExecContext(ctx, sql, args...)
+	// Check if the query is a SELECT (for RETURNING clauses or raw SELECT in write context)
+	if isSelectQuery(sqlQuery) {
+		return c.executeQueryWithResults(ctx, sqlQuery, args)
+	}
+
+	result, err := c.db.ExecContext(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("write failed: %w", err)
 	}
@@ -179,6 +205,56 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	return &connector.Result{
 		Affected: affected,
 		LastID:   lastID,
+	}, nil
+}
+
+// isSelectQuery checks if a SQL query is a SELECT statement.
+func isSelectQuery(sql string) bool {
+	// Trim whitespace and check first word
+	trimmed := strings.TrimSpace(sql)
+	upper := strings.ToUpper(trimmed)
+	return strings.HasPrefix(upper, "SELECT") || strings.HasPrefix(upper, "WITH")
+}
+
+// executeQueryWithResults executes a query that returns rows (for raw SQL SELECT or RETURNING).
+func (c *Connector) executeQueryWithResults(ctx context.Context, sqlQuery string, args []interface{}) (*connector.Result, error) {
+	rows, err := c.db.QueryContext(ctx, sqlQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get columns: %w", err)
+	}
+
+	var results []map[string]interface{}
+	for rows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := rows.Scan(valuePtrs...); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		row := make(map[string]interface{})
+		for i, col := range columns {
+			row[col] = values[i]
+		}
+		results = append(results, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows iteration error: %w", err)
+	}
+
+	return &connector.Result{
+		Rows:     results,
+		Affected: int64(len(results)),
 	}, nil
 }
 
@@ -323,4 +399,85 @@ func (c *Connector) Exec(ctx context.Context, sql string, args ...interface{}) e
 // DB returns the underlying database connection for advanced use cases.
 func (c *Connector) DB() *sql.DB {
 	return c.db
+}
+
+// parseNamedParams replaces named parameters (:name) with positional parameters (?)
+// and returns the modified SQL along with the ordered argument values.
+// Example: "SELECT * FROM users WHERE id = :id AND status = :status"
+// With params {"id": 1, "status": "active"}
+// Returns: "SELECT * FROM users WHERE id = ? AND status = ?", [1, "active"]
+func (c *Connector) parseNamedParams(sql string, params map[string]interface{}) (string, []interface{}) {
+	if params == nil || len(params) == 0 {
+		return sql, nil
+	}
+
+	var result strings.Builder
+	var args []interface{}
+	i := 0
+	sqlBytes := []byte(sql)
+	n := len(sqlBytes)
+
+	for i < n {
+		// Check for named parameter starting with :
+		if sqlBytes[i] == ':' {
+			// Find the end of the parameter name
+			j := i + 1
+			for j < n && isParamChar(sqlBytes[j]) {
+				j++
+			}
+
+			if j > i+1 {
+				// Extract parameter name (without the colon)
+				paramName := string(sqlBytes[i+1 : j])
+
+				// Look up the value in params
+				if val, ok := params[paramName]; ok {
+					result.WriteByte('?')
+					args = append(args, val)
+				} else {
+					// Parameter not found - keep the original text
+					// This allows for PostgreSQL-style casts like ::int
+					result.Write(sqlBytes[i:j])
+				}
+				i = j
+				continue
+			}
+		}
+
+		// Check for string literals - don't replace inside them
+		if sqlBytes[i] == '\'' {
+			// Copy until the closing quote
+			result.WriteByte(sqlBytes[i])
+			i++
+			for i < n {
+				result.WriteByte(sqlBytes[i])
+				if sqlBytes[i] == '\'' {
+					// Check for escaped quote
+					if i+1 < n && sqlBytes[i+1] == '\'' {
+						i++
+						result.WriteByte(sqlBytes[i])
+					} else {
+						i++
+						break
+					}
+				}
+				i++
+			}
+			continue
+		}
+
+		// Regular character - just copy it
+		result.WriteByte(sqlBytes[i])
+		i++
+	}
+
+	return result.String(), args
+}
+
+// isParamChar returns true if the character is valid in a parameter name.
+func isParamChar(c byte) bool {
+	return (c >= 'a' && c <= 'z') ||
+		(c >= 'A' && c <= 'Z') ||
+		(c >= '0' && c <= '9') ||
+		c == '_'
 }

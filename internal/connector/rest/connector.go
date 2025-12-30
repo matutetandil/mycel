@@ -24,9 +24,10 @@ type Connector struct {
 	cors   *CORSConfig
 	logger *slog.Logger
 
-	mu       sync.Mutex
-	handlers map[string]HandlerFunc
-	started  bool
+	mu         sync.Mutex
+	handlers   map[string]HandlerFunc
+	pathParams map[string][]string // maps path pattern to param names
+	started    bool
 }
 
 // CORSConfig holds CORS configuration.
@@ -43,12 +44,13 @@ func New(name string, port int, cors *CORSConfig, logger *slog.Logger) *Connecto
 	}
 
 	return &Connector{
-		name:     name,
-		port:     port,
-		mux:      http.NewServeMux(),
-		cors:     cors,
-		logger:   logger,
-		handlers: make(map[string]HandlerFunc),
+		name:       name,
+		port:       port,
+		mux:        http.NewServeMux(),
+		cors:       cors,
+		logger:     logger,
+		handlers:   make(map[string]HandlerFunc),
+		pathParams: make(map[string][]string),
 	}
 }
 
@@ -130,10 +132,16 @@ func (c *Connector) setupRoutes() {
 	pathHandlers := make(map[string]map[string]HandlerFunc)
 
 	for operation, handler := range c.handlers {
-		method, path := parseOperation(operation)
+		method, origPath := parseOperation(operation)
+
+		// Extract param names from original path (e.g., :id, :user_id)
+		paramNames := extractParamNames(origPath)
 
 		// Convert :param to {param} for Go 1.22+ mux
-		path = convertPathParams(path)
+		path := convertPathParams(origPath)
+
+		// Store param names for this path
+		c.pathParams[path] = paramNames
 
 		if _, ok := pathHandlers[path]; !ok {
 			pathHandlers[path] = make(map[string]HandlerFunc)
@@ -144,8 +152,9 @@ func (c *Connector) setupRoutes() {
 	// Register combined handlers for each path
 	for path, methods := range pathHandlers {
 		handlers := methods // capture for closure
+		paramNames := c.pathParams[path]
 		c.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			c.handleRequest(w, r, handlers)
+			c.handleRequest(w, r, handlers, paramNames)
 		})
 	}
 
@@ -157,7 +166,7 @@ func (c *Connector) setupRoutes() {
 }
 
 // handleRequest processes an HTTP request.
-func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handlers map[string]HandlerFunc) {
+func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handlers map[string]HandlerFunc, paramNames []string) {
 	handler, ok := handlers[r.Method]
 	if !ok {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -165,7 +174,7 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 	}
 
 	// Build input from request
-	input := c.buildInput(r)
+	input := c.buildInput(r, paramNames)
 
 	// Execute flow handler
 	result, err := handler(r.Context(), input)
@@ -184,15 +193,15 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 }
 
 // buildInput extracts input data from the HTTP request.
-func (c *Connector) buildInput(r *http.Request) map[string]interface{} {
+func (c *Connector) buildInput(r *http.Request, paramNames []string) map[string]interface{} {
 	input := make(map[string]interface{})
 
 	// Path parameters (from Go 1.22+ pattern matching)
-	// Note: Go 1.22 ServeMux supports {param} patterns
-	// For now, we'll extract them manually from the path
-	pathParams := extractPathParams(r)
-	for k, v := range pathParams {
-		input[k] = v
+	// Extract all named path parameters based on the route definition
+	for _, name := range paramNames {
+		if val := r.PathValue(name); val != "" {
+			input[name] = val
+		}
 	}
 
 	// Query parameters
@@ -220,17 +229,17 @@ func (c *Connector) buildInput(r *http.Request) map[string]interface{} {
 	return input
 }
 
-// extractPathParams extracts path parameters from the request.
-// This is a simple implementation that works with Go 1.22+ PathValue.
-func extractPathParams(r *http.Request) map[string]interface{} {
-	params := make(map[string]interface{})
-
-	// Try to get 'id' from path (common pattern)
-	if id := r.PathValue("id"); id != "" {
-		params["id"] = id
+// extractParamNames extracts parameter names from a path pattern.
+// Example: "/orders/:id/:user_id" returns ["id", "user_id"]
+func extractParamNames(path string) []string {
+	var names []string
+	parts := strings.Split(path, "/")
+	for _, part := range parts {
+		if len(part) > 0 && part[0] == ':' {
+			names = append(names, part[1:])
+		}
 	}
-
-	return params
+	return names
 }
 
 // writeJSON writes a JSON response.

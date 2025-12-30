@@ -120,8 +120,14 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 		Filters:   make(map[string]interface{}),
 	}
 
-	// Check if this is a GraphQL operation (Query.fieldName or Mutation.fieldName)
-	if isGraphQLOperation(h.Config.From.Operation) {
+	// Use raw SQL query if configured
+	if h.Config.To.Query != "" {
+		query.RawSQL = h.Config.To.Query
+		// Pass all input as filters/params for named parameter substitution
+		for key, val := range input {
+			query.Filters[key] = val
+		}
+	} else if isGraphQLOperation(h.Config.From.Operation) {
 		// For GraphQL, use all input arguments as filters
 		// This supports queries like Query.user(id: 1) -> filters by id
 		for key, val := range input {
@@ -180,9 +186,22 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		Payload:   payload,
 	}
 
+	// Use raw SQL query if configured
+	if h.Config.To.Query != "" {
+		data.RawSQL = h.Config.To.Query
+	}
+
 	result, err := dest.Write(ctx, data)
 	if err != nil {
 		return nil, err
+	}
+
+	// If raw SQL returned rows (e.g., INSERT ... RETURNING), return those
+	if len(result.Rows) > 0 {
+		if len(result.Rows) == 1 {
+			return result.Rows[0], nil
+		}
+		return result.Rows, nil
 	}
 
 	// For GraphQL operations, return the created object instead of {id, affected}
@@ -236,9 +255,22 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 		data.Filters["id"] = id
 	}
 
+	// Use raw SQL query if configured
+	if h.Config.To.Query != "" {
+		data.RawSQL = h.Config.To.Query
+	}
+
 	result, err := dest.Write(ctx, data)
 	if err != nil {
 		return nil, err
+	}
+
+	// If raw SQL returned rows (e.g., UPDATE ... RETURNING), return those
+	if len(result.Rows) > 0 {
+		if len(result.Rows) == 1 {
+			return result.Rows[0], nil
+		}
+		return result.Rows, nil
 	}
 
 	return map[string]interface{}{
@@ -259,9 +291,26 @@ func (h *FlowHandler) handleDelete(ctx context.Context, input map[string]interfa
 		data.Filters["id"] = id
 	}
 
+	// Use raw SQL query if configured
+	if h.Config.To.Query != "" {
+		data.RawSQL = h.Config.To.Query
+		// Pass all input as params for named parameter substitution
+		for key, val := range input {
+			data.Filters[key] = val
+		}
+	}
+
 	result, err := dest.Write(ctx, data)
 	if err != nil {
 		return nil, err
+	}
+
+	// If raw SQL returned rows, return those
+	if len(result.Rows) > 0 {
+		if len(result.Rows) == 1 {
+			return result.Rows[0], nil
+		}
+		return result.Rows, nil
 	}
 
 	return map[string]interface{}{

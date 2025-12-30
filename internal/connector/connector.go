@@ -54,7 +54,12 @@ type Query struct {
 	// Operation is the type of read operation (SELECT, GET, CONSUME, etc.).
 	Operation string
 
+	// RawSQL is a raw SQL query string. When set, overrides automatic query building.
+	// Supports named parameters like :id, :user_id that are replaced from Filters.
+	RawSQL string
+
 	// Filters are conditions to apply (WHERE clauses, query params, etc.).
+	// Also used to provide values for named parameters in RawSQL.
 	Filters map[string]interface{}
 
 	// Fields are specific fields to retrieve (empty means all).
@@ -77,6 +82,10 @@ type Data struct {
 
 	// Operation is the type of write operation (INSERT, POST, PUBLISH, etc.).
 	Operation string
+
+	// RawSQL is a raw SQL query string. When set, overrides automatic query building.
+	// Supports named parameters like :id, :name that are replaced from Payload and Filters.
+	RawSQL string
 
 	// Payload is the data to write.
 	Payload map[string]interface{}

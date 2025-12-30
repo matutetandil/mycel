@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Raw SQL Query Support
+- **Custom SQL queries** for complex database operations (JOINs, subqueries, multi-table operations)
+  - Named parameter substitution with `:param` syntax
+  - Automatic conversion to database-specific placeholders (`?` for SQLite, `$1, $2` for PostgreSQL)
+  - Support for SELECT, INSERT, UPDATE, DELETE with raw SQL
+  - Handles RETURNING clauses for INSERT/UPDATE operations
+- **Updated connector interfaces** (`internal/connector/connector.go`)
+  - Added `RawSQL` field to `Query` struct
+  - Added `RawSQL` field to `Data` struct
+- **SQLite connector** (`internal/connector/database/sqlite/connector.go`)
+  - `parseNamedParams()` function for parameter substitution
+  - String literal handling to avoid replacing `:param` inside strings
+- **PostgreSQL connector** (`internal/connector/database/postgres/connector.go`)
+  - Same features as SQLite but with PostgreSQL-style `$N` placeholders
+- **REST connector improvements** (`internal/connector/rest/connector.go`)
+  - Dynamic path parameter extraction for any route (not just `:id`)
+  - New `extractParamNames()` function for parsing route definitions
+- **HCL Syntax**:
+  ```hcl
+  # Using heredoc syntax for multi-line SQL
+  flow "get_order_with_user" {
+    from {
+      connector = "api"
+      operation = "GET /orders/:id"
+    }
+    to {
+      connector = "sqlite"
+      query = <<-SQL
+        SELECT o.*, u.name as user_name, u.email as user_email
+        FROM orders o
+        JOIN users u ON u.id = o.user_id
+        WHERE o.id = :id
+      SQL
+    }
+  }
+
+  # Using inline SQL with named parameters
+  flow "get_orders_by_user" {
+    from {
+      connector = "api"
+      operation = "GET /orders-by-user/:user_id"
+    }
+    to {
+      connector = "sqlite"
+      query = "SELECT * FROM orders WHERE user_id = :user_id AND status = :status"
+    }
+  }
+  ```
+- **Integration tests** (`internal/runtime/runtime_test.go`)
+  - `TestIntegration_RawSQL` with 3 test cases:
+    - JOIN query with path parameter
+    - Multiple named parameters
+    - Raw SQL INSERT
+
 ### Added - GraphQL Dual-Approach Schema Generation
 - **Schema-first mode**: Define types in SDL file (`.graphql`), Mycel auto-connects flows
   - Full SDL parser with AST using `graphql-go/language/parser`
