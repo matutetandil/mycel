@@ -85,6 +85,11 @@ type Config struct {
 	// To defines the destination of the flow.
 	To *ToConfig
 
+	// Returns specifies the GraphQL return type for this flow.
+	// Used in HCL-first mode to define typed responses.
+	// Supports formats: "User", "User[]", "[User!]!", "User!"
+	Returns string
+
 	// Validate defines validation rules.
 	Validate *ValidateConfig
 
@@ -121,6 +126,9 @@ type ToConfig struct {
 
 	// Filter is an optional filter expression for the destination.
 	Filter string
+
+	// Query is an optional raw SQL query for database connectors.
+	Query string
 }
 
 // ValidateConfig holds validation configuration.

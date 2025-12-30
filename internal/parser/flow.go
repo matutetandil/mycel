@@ -22,6 +22,9 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 	}
 
 	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "returns"}, // GraphQL return type for HCL-first mode
+		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "from"},
 			{Type: "to"},
@@ -36,6 +39,14 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 	content, diags := block.Body.Content(schema)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("flow content error: %s", diags.Error())
+	}
+
+	// Parse returns attribute (for GraphQL HCL-first mode)
+	if attr, ok := content.Attributes["returns"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			config.Returns = val.AsString()
+		}
 	}
 
 	// Parse nested blocks
@@ -152,8 +163,9 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "connector", Required: true},
-			{Name: "target", Required: true},
+			{Name: "target"},
 			{Name: "filter"},
+			{Name: "query"},
 		},
 	}
 
@@ -186,6 +198,14 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 			return nil, fmt.Errorf("to filter error: %s", diags.Error())
 		}
 		to.Filter = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["query"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("to query error: %s", diags.Error())
+		}
+		to.Query = val.AsString()
 	}
 
 	if to.Connector == "" {
