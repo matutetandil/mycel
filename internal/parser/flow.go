@@ -26,6 +26,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			{Type: "from"},
 			{Type: "to"},
 			{Type: "validate"},
+			{Type: "enrich", LabelNames: []string{"name"}},
 			{Type: "transform"},
 			{Type: "require"},
 			{Type: "error_handling"},
@@ -60,6 +61,13 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 				return nil, fmt.Errorf("validate block error: %w", err)
 			}
 			config.Validate = validate
+
+		case "enrich":
+			enrich, err := parseEnrichBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("enrich block error: %w", err)
+			}
+			config.Enrichments = append(config.Enrichments, enrich)
 
 		case "transform":
 			transform, err := parseTransformBlock(nestedBlock, ctx)
@@ -229,6 +237,107 @@ func parseTypeReference(ref string) string {
 		return strings.TrimPrefix(ref, "type.")
 	}
 	return ref
+}
+
+// parseEnrichBlock parses an enrich block.
+// Example:
+//
+//	enrich "pricing" {
+//	  connector = "pricing_service"
+//	  operation = "getPrice"
+//	  params {
+//	    product_id = "input.id"
+//	  }
+//	}
+func parseEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.EnrichConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("enrich block requires a name label")
+	}
+
+	enrich := &flow.EnrichConfig{
+		Name:   block.Labels[0],
+		Params: make(map[string]string),
+	}
+
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "connector", Required: true},
+			{Name: "operation", Required: true},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "params"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("enrich block content error: %s", diags.Error())
+	}
+
+	// Parse connector attribute
+	if attr, ok := content.Attributes["connector"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("enrich connector error: %s", diags.Error())
+		}
+		enrich.Connector = parseConnectorReference(val.AsString())
+	}
+
+	// Parse operation attribute
+	if attr, ok := content.Attributes["operation"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("enrich operation error: %s", diags.Error())
+		}
+		enrich.Operation = val.AsString()
+	}
+
+	// Parse params block
+	for _, nestedBlock := range content.Blocks {
+		if nestedBlock.Type == "params" {
+			params, err := parseParamsBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("enrich params error: %w", err)
+			}
+			enrich.Params = params
+		}
+	}
+
+	return enrich, nil
+}
+
+// parseConnectorReference parses a connector reference (e.g., "connector.pricing" -> "pricing").
+func parseConnectorReference(ref string) string {
+	if strings.HasPrefix(ref, "connector.") {
+		return strings.TrimPrefix(ref, "connector.")
+	}
+	return ref
+}
+
+// parseParamsBlock parses a params block inside enrich.
+func parseParamsBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]string, error) {
+	params := make(map[string]string)
+
+	attrs, diags := block.Body.JustAttributes()
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("params block attributes error: %s", diags.Error())
+	}
+
+	for name, attr := range attrs {
+		// Try to evaluate as a simple value (for quoted strings)
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			params[name] = val.AsString()
+		} else {
+			// Extract raw expression text for unquoted expressions
+			exprStr := extractExpressionText(attr.Expr)
+			if exprStr != "" {
+				params[name] = exprStr
+			}
+		}
+	}
+
+	return params, nil
 }
 
 // parseTransformBlock parses a transform block.
@@ -465,10 +574,15 @@ func parseRetryConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryC
 // Example:
 //
 //	transform "user_input" {
+//	  enrich "pricing" {
+//	    connector = "pricing_service"
+//	    operation = "getPrice"
+//	    params { product_id = "input.id" }
+//	  }
+//
 //	  id        = "uuid()"
 //	  email     = "lower(trim(input.email))"
-//	  name      = "concat(input.first_name, \" \", input.last_name)"
-//	  createdAt = "now()"
+//	  price     = "enriched.pricing.value"
 //	}
 func parseNamedTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transform.Config, error) {
 	if len(block.Labels) < 1 {
@@ -480,8 +594,31 @@ func parseNamedTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfor
 		Mappings: make(map[string]string),
 	}
 
-	// Get all attributes as transform mappings
-	attrs, diags := block.Body.JustAttributes()
+	// Use PartialContent to allow both attributes and enrich blocks
+	schema := &hcl.BodySchema{
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "enrich", LabelNames: []string{"name"}},
+		},
+	}
+
+	content, remain, diags := block.Body.PartialContent(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("transform block content error: %s", diags.Error())
+	}
+
+	// Parse enrich blocks
+	for _, nestedBlock := range content.Blocks {
+		if nestedBlock.Type == "enrich" {
+			enrich, err := parseTransformEnrichBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("enrich block error: %w", err)
+			}
+			cfg.Enrichments = append(cfg.Enrichments, enrich)
+		}
+	}
+
+	// Parse remaining attributes as transform mappings
+	attrs, diags := remain.JustAttributes()
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("transform block attributes error: %s", diags.Error())
 	}
@@ -502,4 +639,63 @@ func parseNamedTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfor
 	}
 
 	return cfg, nil
+}
+
+// parseTransformEnrichBlock parses an enrich block inside a named transform.
+// Returns transform.EnrichConfig to avoid circular imports.
+func parseTransformEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transform.EnrichConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("enrich block requires a name label")
+	}
+
+	enrich := &transform.EnrichConfig{
+		Name:   block.Labels[0],
+		Params: make(map[string]string),
+	}
+
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "connector", Required: true},
+			{Name: "operation", Required: true},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "params"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("enrich block content error: %s", diags.Error())
+	}
+
+	// Parse connector attribute
+	if attr, ok := content.Attributes["connector"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("enrich connector error: %s", diags.Error())
+		}
+		enrich.Connector = parseConnectorReference(val.AsString())
+	}
+
+	// Parse operation attribute
+	if attr, ok := content.Attributes["operation"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("enrich operation error: %s", diags.Error())
+		}
+		enrich.Operation = val.AsString()
+	}
+
+	// Parse params block
+	for _, nestedBlock := range content.Blocks {
+		if nestedBlock.Type == "params" {
+			params, err := parseParamsBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("enrich params error: %w", err)
+			}
+			enrich.Params = params
+		}
+	}
+
+	return enrich, nil
 }

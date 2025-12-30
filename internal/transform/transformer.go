@@ -34,6 +34,27 @@ type Config struct {
 	// Mappings are the transformation rules.
 	// Keys are output field paths, values are expressions.
 	Mappings map[string]string
+
+	// Enrichments are data lookups from external sources.
+	// These are executed before mappings and results are available as enriched.*
+	Enrichments []*EnrichConfig
+}
+
+// EnrichConfig holds configuration for enriching data from external sources.
+// This is a copy of flow.EnrichConfig to avoid circular imports.
+type EnrichConfig struct {
+	// Name is the identifier for this enrichment (used as enriched.<name>).
+	Name string
+
+	// Connector is the connector to use for the lookup.
+	Connector string
+
+	// Operation is the operation to perform on the connector.
+	Operation string
+
+	// Params are the parameters to pass to the operation.
+	// Keys are parameter names, values are CEL expressions.
+	Params map[string]string
 }
 
 // Function represents a transform function.

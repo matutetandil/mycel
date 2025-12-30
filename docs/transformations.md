@@ -44,6 +44,7 @@ flow "create_user" {
 | `input` | The incoming request data (map) |
 | `output` | Already-set output fields (for referencing previous transforms) |
 | `ctx` | Request context (headers, path params, etc.) |
+| `enriched` | Data fetched from external services via `enrich` blocks |
 
 ## Operators
 
@@ -311,6 +312,190 @@ flow "create_user" {
     connector = "database"
     target    = "users"
   }
+}
+```
+
+## Data Enrichment from External Services
+
+The `enrich` block allows you to fetch data from other microservices (via TCP, HTTP, database, etc.) and use it in your transformations. This is essential for building distributed systems where data lives across multiple services.
+
+### Flow-Level Enrich
+
+Add enrichments directly in a flow for specific use cases:
+
+```hcl
+flow "get_product_with_price" {
+  from {
+    connector = "api"
+    operation = "GET /products/:id"
+  }
+
+  # Fetch price from pricing microservice
+  enrich "pricing" {
+    connector = "pricing_service"    # TCP, HTTP, or any connector
+    operation = "getPrice"           # Operation/endpoint to call
+    params {
+      product_id = "input.id"        # CEL expression for params
+    }
+  }
+
+  # Fetch inventory from stock service
+  enrich "inventory" {
+    connector = "inventory_api"
+    operation = "GET /stock"
+    params {
+      sku = "input.sku"
+    }
+  }
+
+  # Use enriched data in transform
+  transform {
+    id       = "input.id"
+    name     = "input.name"
+    price    = "enriched.pricing.price"         # Access enriched data
+    currency = "enriched.pricing.currency"
+    stock    = "enriched.inventory.available"
+    in_stock = "enriched.inventory.available > 0"
+
+    # Combine input with enriched data
+    total_value = "double(enriched.inventory.available) * enriched.pricing.price"
+  }
+
+  to {
+    connector = "database"
+    target    = "products"
+  }
+}
+```
+
+### Transform-Level Enrich (Reusable)
+
+Put enrichments inside named transforms to reuse them across multiple flows:
+
+```hcl
+# transforms/with_pricing.hcl
+transform "with_pricing" {
+  # This enrichment runs for any flow using this transform
+  enrich "pricing" {
+    connector = "pricing_service"
+    operation = "getPrice"
+    params {
+      product_id = "input.id"
+    }
+  }
+
+  # Mappings that use the enriched data
+  id       = "input.id"
+  name     = "input.name"
+  price    = "enriched.pricing.price"
+  currency = "enriched.pricing.currency"
+}
+```
+
+Use it in any flow:
+
+```hcl
+flow "get_product" {
+  from {
+    connector = "api"
+    operation = "GET /products/:id"
+  }
+
+  transform {
+    use = "transform.with_pricing"
+    # Add additional fields
+    fetched_at = "now()"
+  }
+
+  to {
+    connector = "database"
+    target    = "products"
+  }
+}
+```
+
+### Multiple Enrichments in Named Transforms
+
+Combine multiple enrichments for comprehensive data:
+
+```hcl
+transform "with_full_product_data" {
+  enrich "pricing" {
+    connector = "pricing_service"
+    operation = "getPrice"
+    params { product_id = "input.id" }
+  }
+
+  enrich "inventory" {
+    connector = "inventory_service"
+    operation = "getStock"
+    params { sku = "input.sku" }
+  }
+
+  enrich "reviews" {
+    connector = "reviews_api"
+    operation = "GET /products/reviews"
+    params { product_id = "input.id" }
+  }
+
+  # Build complete product response
+  id             = "input.id"
+  name           = "upper(input.name)"
+  price          = "enriched.pricing.price"
+  currency       = "enriched.pricing.currency"
+  stock          = "enriched.inventory.available"
+  in_stock       = "enriched.inventory.available > 0"
+  review_count   = "enriched.reviews.count"
+  average_rating = "enriched.reviews.average"
+}
+```
+
+### Connector Types for Enrichment
+
+Enrichments work with any connector type:
+
+| Connector Type | How it works |
+|----------------|--------------|
+| **Database** (SQLite, PostgreSQL) | Uses `Read()` to query data |
+| **TCP** | Uses `Call()` for RPC-style requests |
+| **HTTP** | Uses `Call()` to make HTTP requests |
+| **gRPC** (coming soon) | Uses `Call()` for gRPC methods |
+
+### Accessing Enriched Data
+
+The `enriched` variable is a map where each key is the name you gave to the enrich block:
+
+```cel
+enriched.pricing.price           // From enrich "pricing" block
+enriched.inventory.available     // From enrich "inventory" block
+enriched.user.email              // From enrich "user" block
+```
+
+You can access nested data:
+
+```cel
+enriched.product.category.name   // Nested object access
+enriched.pricing.tiers[0].price  // Array access
+```
+
+### Combining Input and Enriched Data
+
+```hcl
+transform {
+  # Simple assignment from enriched
+  price = "enriched.pricing.price"
+
+  # Calculate using both input and enriched
+  total = "double(input.quantity) * enriched.pricing.unit_price"
+
+  # Conditional based on enriched data
+  discount = "enriched.customer.is_premium ? 0.15 : 0"
+
+  # String operations
+  full_address = "enriched.address.street + ', ' + enriched.address.city"
+
+  # Check availability
+  can_fulfill = "input.quantity <= enriched.inventory.available"
 }
 ```
 

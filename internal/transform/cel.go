@@ -45,6 +45,9 @@ func NewCELTransformer() (*CELTransformer, error) {
 		// Context variable - for request context (headers, path params, etc.)
 		cel.Variable("ctx", cel.MapType(cel.StringType, cel.DynType)),
 
+		// Enriched variable - for data fetched from external sources
+		cel.Variable("enriched", cel.MapType(cel.StringType, cel.DynType)),
+
 		// Custom Mycel functions
 		cel.Function("uuid",
 			cel.Overload("uuid_generate",
@@ -387,4 +390,76 @@ func goTimeFormat(format string) string {
 		result = strings.ReplaceAll(result, k, v)
 	}
 	return result
+}
+
+// EvaluateExpression evaluates a single CEL expression with input and enriched data.
+// This is used for evaluating enrich params before making the enrichment call.
+func (t *CELTransformer) EvaluateExpression(ctx context.Context, input map[string]interface{}, enriched map[string]interface{}, expr string) (interface{}, error) {
+	prog, err := t.Compile(expr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build activation
+	if enriched == nil {
+		enriched = make(map[string]interface{})
+	}
+
+	activation := map[string]interface{}{
+		"input":    input,
+		"output":   make(map[string]interface{}),
+		"ctx":      make(map[string]interface{}),
+		"enriched": enriched,
+	}
+
+	// Evaluate
+	result, _, err := prog.Eval(activation)
+	if err != nil {
+		return nil, fmt.Errorf("CEL eval error: %w", err)
+	}
+
+	return result.Value(), nil
+}
+
+// TransformWithEnriched applies transformation rules with enriched data available.
+func (t *CELTransformer) TransformWithEnriched(ctx context.Context, input map[string]interface{}, enriched map[string]interface{}, rules []Rule) (map[string]interface{}, error) {
+	output := make(map[string]interface{})
+
+	// Ensure enriched is not nil
+	if enriched == nil {
+		enriched = make(map[string]interface{})
+	}
+
+	// Build activation with input, output, and enriched data
+	activation := map[string]interface{}{
+		"input":    input,
+		"output":   output,
+		"ctx":      make(map[string]interface{}),
+		"enriched": enriched,
+	}
+
+	for _, rule := range rules {
+		// Compile/get cached program
+		prog, err := t.Compile(rule.Expression)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compile expression for '%s': %w", rule.Target, err)
+		}
+
+		// Evaluate with current activation (output grows with each rule)
+		result, _, err := prog.Eval(activation)
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate expression for '%s': %w", rule.Target, err)
+		}
+
+		// Set the result in output
+		value := result.Value()
+		if err := setNestedValue(output, rule.Target, value); err != nil {
+			return nil, fmt.Errorf("failed to set '%s': %w", rule.Target, err)
+		}
+
+		// Update activation with new output value
+		activation["output"] = output
+	}
+
+	return output, nil
 }

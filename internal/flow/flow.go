@@ -88,6 +88,10 @@ type Config struct {
 	// Validate defines validation rules.
 	Validate *ValidateConfig
 
+	// Enrichments are data lookups from other connectors (flow-level).
+	// These are executed before transform and results are available as enriched.*
+	Enrichments []*EnrichConfig
+
 	// Transform defines transformation rules.
 	Transform *TransformConfig
 
@@ -130,12 +134,32 @@ type ValidateConfig struct {
 
 // TransformConfig holds transformation configuration.
 type TransformConfig struct {
-	// Use is a reference to a named transform.
+	// Use is a reference to a named transform (or list of transforms).
 	Use string
 
 	// Mappings are inline transformation rules.
 	// Keys are output field paths, values are expressions.
 	Mappings map[string]string
+
+	// Enrichments are data lookups from other connectors.
+	// These are executed before mappings and results are available as enriched.*
+	Enrichments []*EnrichConfig
+}
+
+// EnrichConfig holds configuration for enriching data from external sources.
+type EnrichConfig struct {
+	// Name is the identifier for this enrichment (used as enriched.<name>).
+	Name string
+
+	// Connector is the connector to use for the lookup.
+	Connector string
+
+	// Operation is the operation to perform on the connector.
+	Operation string
+
+	// Params are the parameters to pass to the operation.
+	// Keys are parameter names, values are CEL expressions.
+	Params map[string]string
 }
 
 // RequireConfig holds authorization requirements.

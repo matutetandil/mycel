@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Enrich System (Data Enrichment)
+- **Enrich blocks** for fetching data from external services during transformation
+  - Flow-level enrich: Specific to a single flow
+  - Transform-level enrich: Reusable across multiple flows (inside named transforms)
+  - Multiple enrichments per flow/transform
+- **`enriched.*` namespace** available in CEL expressions
+  - Access enriched data: `enriched.pricing.price`, `enriched.inventory.stock`
+  - Combine with input: `input.quantity * enriched.pricing.unit_price`
+- **CEL transformer enhancements** (`internal/transform/cel.go`)
+  - `EvaluateExpression()`: Evaluate single expressions with input and enriched data
+  - `TransformWithEnriched()`: Full transformation with enriched context
+- **Connector support for enrichment**
+  - Database connectors: Uses `Read()` for data lookup
+  - TCP/HTTP connectors: Uses `Call()` interface for RPC-style calls
+- **Enrich Example** (`examples/enrich/`)
+  - Flow-level enrichment with pricing service
+  - Multiple enrichments (pricing + inventory)
+  - Reusable transforms with built-in enrichment
+- **HCL Syntax**:
+  ```hcl
+  # Flow-level enrich
+  flow "get_product" {
+    enrich "pricing" {
+      connector = "pricing_service"
+      operation = "getPrice"
+      params { product_id = "input.id" }
+    }
+    transform {
+      price = "enriched.pricing.price"
+    }
+  }
+
+  # Transform-level enrich (reusable)
+  transform "with_pricing" {
+    enrich "pricing" { ... }
+    price = "enriched.pricing.price"
+  }
+  ```
+
 ### Added (Phase 3.1)
 - **Message Queue Connector** (`internal/connector/mq/`)
   - **RabbitMQ Support**: Full producer and consumer implementation

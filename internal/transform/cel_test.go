@@ -455,3 +455,204 @@ func TestCELTransformer_ProgramCaching(t *testing.T) {
 		t.Error("expected program to be cached")
 	}
 }
+
+func TestCELTransformer_EvaluateExpression(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"product_id": "prod-123",
+		"quantity":   5,
+	}
+
+	t.Run("access input field", func(t *testing.T) {
+		result, err := transformer.EvaluateExpression(context.Background(), input, nil, "input.product_id")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != "prod-123" {
+			t.Errorf("expected 'prod-123', got %v", result)
+		}
+	})
+
+	t.Run("access enriched data", func(t *testing.T) {
+		enriched := map[string]interface{}{
+			"pricing": map[string]interface{}{
+				"price":    99.99,
+				"currency": "USD",
+			},
+		}
+
+		result, err := transformer.EvaluateExpression(context.Background(), input, enriched, "enriched.pricing.price")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != 99.99 {
+			t.Errorf("expected 99.99, got %v", result)
+		}
+	})
+
+	t.Run("combine input and enriched", func(t *testing.T) {
+		enriched := map[string]interface{}{
+			"pricing": map[string]interface{}{
+				"unit_price": 10.0,
+			},
+		}
+
+		// Calculate total: quantity * unit_price
+		result, err := transformer.EvaluateExpression(context.Background(), input, enriched, "double(input.quantity) * enriched.pricing.unit_price")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != 50.0 {
+			t.Errorf("expected 50.0, got %v", result)
+		}
+	})
+
+	t.Run("enriched can be nil", func(t *testing.T) {
+		result, err := transformer.EvaluateExpression(context.Background(), input, nil, "input.quantity")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != int64(5) {
+			t.Errorf("expected 5, got %v", result)
+		}
+	})
+}
+
+func TestCELTransformer_TransformWithEnriched(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"id":       "prod-123",
+		"name":     "Widget",
+		"quantity": 3,
+	}
+
+	enriched := map[string]interface{}{
+		"pricing": map[string]interface{}{
+			"unit_price": 25.0,
+			"currency":   "USD",
+		},
+		"inventory": map[string]interface{}{
+			"stock":    100,
+			"reserved": 10,
+		},
+	}
+
+	rules := []Rule{
+		{Target: "id", Expression: "input.id"},
+		{Target: "name", Expression: "upper(input.name)"},
+		{Target: "price", Expression: "enriched.pricing.unit_price"},
+		{Target: "currency", Expression: "enriched.pricing.currency"},
+		{Target: "total", Expression: "double(input.quantity) * enriched.pricing.unit_price"},
+		{Target: "available_stock", Expression: "enriched.inventory.stock - enriched.inventory.reserved"},
+	}
+
+	result, err := transformer.TransformWithEnriched(context.Background(), input, enriched, rules)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify results
+	if result["id"] != "prod-123" {
+		t.Errorf("id: expected 'prod-123', got %v", result["id"])
+	}
+
+	if result["name"] != "WIDGET" {
+		t.Errorf("name: expected 'WIDGET', got %v", result["name"])
+	}
+
+	if result["price"] != 25.0 {
+		t.Errorf("price: expected 25.0, got %v", result["price"])
+	}
+
+	if result["currency"] != "USD" {
+		t.Errorf("currency: expected 'USD', got %v", result["currency"])
+	}
+
+	if result["total"] != 75.0 {
+		t.Errorf("total: expected 75.0, got %v", result["total"])
+	}
+
+	if result["available_stock"] != int64(90) {
+		t.Errorf("available_stock: expected 90, got %v", result["available_stock"])
+	}
+}
+
+func TestCELTransformer_TransformWithEnriched_NilEnriched(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"name": "test",
+	}
+
+	rules := []Rule{
+		{Target: "name", Expression: "upper(input.name)"},
+	}
+
+	// Should work even with nil enriched
+	result, err := transformer.TransformWithEnriched(context.Background(), input, nil, rules)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result["name"] != "TEST" {
+		t.Errorf("expected 'TEST', got %v", result["name"])
+	}
+}
+
+func TestCELTransformer_TransformWithEnriched_NestedEnriched(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"product_id": "prod-123",
+	}
+
+	// Simulate nested enriched data from multiple sources
+	enriched := map[string]interface{}{
+		"product": map[string]interface{}{
+			"name":        "Super Widget",
+			"description": "A really great widget",
+			"category": map[string]interface{}{
+				"id":   "cat-1",
+				"name": "Electronics",
+			},
+		},
+		"pricing": map[string]interface{}{
+			"tiers": []interface{}{
+				map[string]interface{}{"min_qty": 1, "price": 100.0},
+				map[string]interface{}{"min_qty": 10, "price": 90.0},
+			},
+		},
+	}
+
+	rules := []Rule{
+		{Target: "name", Expression: "enriched.product.name"},
+		{Target: "category", Expression: "enriched.product.category.name"},
+	}
+
+	result, err := transformer.TransformWithEnriched(context.Background(), input, enriched, rules)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result["name"] != "Super Widget" {
+		t.Errorf("name: expected 'Super Widget', got %v", result["name"])
+	}
+
+	if result["category"] != "Electronics" {
+		t.Errorf("category: expected 'Electronics', got %v", result["category"])
+	}
+}

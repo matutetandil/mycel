@@ -339,6 +339,7 @@ func (r *Runtime) registerFlows() error {
 			Dest:            dest,
 			NamedTransforms: r.transforms,
 			Types:           r.types,
+			Connectors:      r.connectors,
 		}
 
 		r.flows.Register(cfg.Name, handler)

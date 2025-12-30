@@ -76,6 +76,9 @@ type FlowHandler struct {
 
 	// Validator handles input/output validation.
 	Validator *validate.TypeValidator
+
+	// Connectors registry for enrichment lookups.
+	Connectors *connector.Registry
 }
 
 // HandleRequest processes an incoming request through the flow.
@@ -314,10 +317,81 @@ func splitPath(path string) []string {
 	return parts
 }
 
+// executeEnrichments fetches data from external connectors for enrichment.
+// Returns a map of enrichment names to their fetched data.
+func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]interface{}, enrichments []*flow.EnrichConfig) (map[string]interface{}, error) {
+	if len(enrichments) == 0 {
+		return make(map[string]interface{}), nil
+	}
+
+	enriched := make(map[string]interface{})
+
+	for _, enrich := range enrichments {
+		// Get the connector for this enrichment
+		conn, err := h.Connectors.Get(enrich.Connector)
+		if err != nil {
+			return nil, fmt.Errorf("enrich %s: connector not found: %w", enrich.Name, err)
+		}
+
+		// Build params by evaluating CEL expressions
+		params := make(map[string]interface{})
+		if h.Transformer != nil && len(enrich.Params) > 0 {
+			for key, expr := range enrich.Params {
+				// Evaluate the param expression using CEL
+				result, err := h.Transformer.EvaluateExpression(ctx, input, nil, expr)
+				if err != nil {
+					return nil, fmt.Errorf("enrich %s: failed to evaluate param %s: %w", enrich.Name, key, err)
+				}
+				params[key] = result
+			}
+		} else {
+			// Simple param copy without CEL evaluation
+			for key, val := range enrich.Params {
+				params[key] = val
+			}
+		}
+
+		// Execute the enrichment based on connector capabilities
+		var result interface{}
+
+		// Try as a Reader first
+		if reader, ok := conn.(connector.Reader); ok {
+			query := connector.Query{
+				Target:    enrich.Operation,
+				Operation: "SELECT",
+				Filters:   params,
+			}
+			readResult, err := reader.Read(ctx, query)
+			if err != nil {
+				return nil, fmt.Errorf("enrich %s: read failed: %w", enrich.Name, err)
+			}
+			// Return single row if only one result, otherwise return all
+			if len(readResult.Rows) == 1 {
+				result = readResult.Rows[0]
+			} else {
+				result = readResult.Rows
+			}
+		} else if caller, ok := conn.(Caller); ok {
+			// Try as a Caller (for TCP, HTTP, etc.)
+			callResult, err := caller.Call(ctx, enrich.Operation, params)
+			if err != nil {
+				return nil, fmt.Errorf("enrich %s: call failed: %w", enrich.Name, err)
+			}
+			result = callResult
+		} else {
+			return nil, fmt.Errorf("enrich %s: connector %s does not support read or call operations", enrich.Name, enrich.Connector)
+		}
+
+		enriched[enrich.Name] = result
+	}
+
+	return enriched, nil
+}
+
 // applyTransforms applies configured transformations to the input data.
 func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
 	// No transform configured - return input as-is
-	if h.Config.Transform == nil {
+	if h.Config.Transform == nil && len(h.Config.Enrichments) == 0 {
 		return input, nil
 	}
 
@@ -328,6 +402,42 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 		if err != nil {
 			return nil, fmt.Errorf("failed to create CEL transformer: %w", err)
 		}
+	}
+
+	// Collect all enrichments (flow-level + transform-level)
+	var allEnrichments []*flow.EnrichConfig
+	allEnrichments = append(allEnrichments, h.Config.Enrichments...)
+
+	// Add enrichments from named transform if using one
+	if h.Config.Transform != nil && h.Config.Transform.Use != "" {
+		named, ok := h.NamedTransforms[h.Config.Transform.Use]
+		if ok && len(named.Enrichments) > 0 {
+			// Convert transform.EnrichConfig to flow.EnrichConfig
+			for _, e := range named.Enrichments {
+				allEnrichments = append(allEnrichments, &flow.EnrichConfig{
+					Name:      e.Name,
+					Connector: e.Connector,
+					Operation: e.Operation,
+					Params:    e.Params,
+				})
+			}
+		}
+	}
+
+	// Add inline enrichments from transform block
+	if h.Config.Transform != nil {
+		allEnrichments = append(allEnrichments, h.Config.Transform.Enrichments...)
+	}
+
+	// Execute enrichments
+	enriched, err := h.executeEnrichments(ctx, input, allEnrichments)
+	if err != nil {
+		return nil, fmt.Errorf("enrichment failed: %w", err)
+	}
+
+	// No transform configured, just return input (enrichments were for side effects)
+	if h.Config.Transform == nil {
+		return input, nil
 	}
 
 	// Build transform rules from config
@@ -360,8 +470,8 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 		return input, nil
 	}
 
-	// Apply transforms using CEL
-	return h.Transformer.Transform(ctx, input, rules)
+	// Apply transforms using CEL with enriched data
+	return h.Transformer.TransformWithEnriched(ctx, input, enriched, rules)
 }
 
 // validateInput validates input data against the configured input type schema.
@@ -435,4 +545,11 @@ func (e *ValidationError) Error() string {
 		return "validation failed"
 	}
 	return e.Errors[0].Error()
+}
+
+// Caller is implemented by connectors that can make RPC-style calls.
+// This is used for enrichments with TCP, HTTP client, gRPC, etc.
+type Caller interface {
+	// Call invokes an operation on the connector with the given parameters.
+	Call(ctx context.Context, operation string, params map[string]interface{}) (interface{}, error)
 }

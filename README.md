@@ -55,6 +55,7 @@ Mycel connects **anything to anything**:
 - `Queue → Queue` - Transform and route messages
 - `File → Database` - Import legacy data
 - `TCP → REST` - Protocol bridge
+- `REST + TCP enrichment → Database` - Aggregate data from multiple services
 
 ## Status
 
@@ -95,6 +96,7 @@ Mycel connects **anything to anything**:
 - [x] Transforms (inline + reusable named transforms)
 - [x] Type validation on flows (input/output validation)
 - [x] Environment variables support (env(), file(), base64decode(), etc.)
+- [x] **Data Enrichment** - Fetch data from other microservices during transformation (TCP, HTTP, Database)
 
 **Phase 2.5 - TCP** ✅
 - [x] TCP Server with length-prefixed framing
@@ -211,6 +213,36 @@ flow "create_user" {
     target    = "users"
   }
 }
+
+# Enrich data from external services
+flow "get_product_with_price" {
+  from {
+    connector = "api"
+    operation = "GET /products/:id"
+  }
+
+  # Fetch price from external pricing microservice
+  enrich "pricing" {
+    connector = "pricing_service"
+    operation = "getPrice"
+    params {
+      product_id = "input.id"
+    }
+  }
+
+  # Combine input with enriched data
+  transform {
+    id       = "input.id"
+    name     = "input.name"
+    price    = "enriched.pricing.price"
+    currency = "enriched.pricing.currency"
+  }
+
+  to {
+    connector = "postgres"
+    target    = "products"
+  }
+}
 ```
 
 ```hcl
@@ -309,9 +341,10 @@ make lint
 
 ## Documentation
 
-- [Transformations Guide](docs/transformations.md) - Complete CEL transformation reference
+- [Transformations Guide](docs/transformations.md) - Complete CEL transformation reference (includes data enrichment)
+- [Data Enrichment Example](examples/enrich/) - Fetch data from external services
 - [TCP Example](examples/tcp/README.md) - TCP connector usage guide
-- [Message Queue Example](examples/mq/README.md) - RabbitMQ integration guide
+- [Message Queue Example](examples/mq/README.md) - RabbitMQ/Kafka integration guide
 
 ## Requirements
 

@@ -23,6 +23,10 @@ type StageData struct {
 	// Output is the accumulated output data.
 	Output map[string]interface{}
 
+	// Enriched holds data fetched from external sources via enrich blocks.
+	// Keys are enrichment names, values are the fetched data.
+	Enriched map[string]interface{}
+
 	// Context is the flow execution context.
 	Context *Context
 
@@ -38,6 +42,7 @@ func NewStageData(input *Input, flowCtx *Context) *StageData {
 	return &StageData{
 		Input:    input,
 		Output:   make(map[string]interface{}),
+		Enriched: make(map[string]interface{}),
 		Context:  flowCtx,
 		Errors:   make([]error, 0),
 		Metadata: make(map[string]interface{}),
