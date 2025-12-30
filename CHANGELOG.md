@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Integration Patterns Documentation
+- **New guide:** `docs/integration-patterns.md` with complete, copy-paste ready examples for:
+  - GraphQL API → Database (CRUD)
+  - REST → GraphQL passthrough
+  - GraphQL → REST passthrough
+  - RabbitMQ → Database (message processing)
+  - REST/GraphQL → RabbitMQ (async processing)
+  - Raw SQL queries (JOINs, subqueries, aggregations)
+- Quick reference for connector types and flow structure
+- Common CEL functions reference
+
 ### Added - Raw SQL Query Support
 - **Custom SQL queries** for complex database operations (JOINs, subqueries, multi-table operations)
   - Named parameter substitution with `:param` syntax

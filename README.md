@@ -373,7 +373,17 @@ make lint
 
 ## Documentation
 
+### Guides
+- [Integration Patterns](docs/integration-patterns.md) - **Start here!** Common use cases with complete examples:
+  - GraphQL API → Database
+  - REST → GraphQL passthrough
+  - GraphQL → REST passthrough
+  - RabbitMQ → Database
+  - REST/GraphQL → RabbitMQ
+  - Raw SQL queries (JOINs, subqueries)
 - [Transformations Guide](docs/transformations.md) - Complete CEL transformation reference (includes data enrichment)
+
+### Examples
 - [GraphQL Example](examples/graphql/README.md) - GraphQL connector with schema-first and HCL-first approaches
 - [Data Enrichment Example](examples/enrich/) - Fetch data from external services
 - [TCP Example](examples/tcp/README.md) - TCP connector usage guide
