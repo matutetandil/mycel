@@ -63,6 +63,7 @@ Mycel connects **anything to anything**:
 ✅ **Phase 2 Complete** - Extended connectors and features!
 ✅ **Phase 2.5 Complete** - TCP Server + Client!
 ✅ **Phase 3.1 Complete** - Message Queues (RabbitMQ + Kafka)!
+✅ **Phase 3.2 Complete** - Exec Connector (local + SSH)!
 
 ### Connector Support
 
@@ -74,6 +75,7 @@ Mycel connects **anything to anything**:
 | TCP       | ✅ Phase 2.5           | ✅ Phase 2.5            |
 | RabbitMQ  | ✅ Phase 3.1           | ✅ Phase 3.1            |
 | Kafka     | ✅ Phase 3.1           | ✅ Phase 3.1            |
+| Exec      | ✅ Phase 3.2           | ✅ Phase 3.2            |
 | GraphQL   | 🔜 Phase 3             | 🔜 Phase 3              |
 | gRPC      | 🔜 Phase 3             | 🔜 Phase 3              |
 | Files     | 🔜 Phase 3             | 🔜 Phase 3              |
@@ -116,6 +118,15 @@ Mycel connects **anything to anything**:
 - [x] Consumer groups with auto-commit
 - [x] SASL authentication (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
 - [x] Compression support (gzip, snappy, lz4, zstd)
+
+**Phase 3.2 - Exec Connector** ✅
+- [x] Local shell command execution
+- [x] SSH remote command execution
+- [x] Multiple output formats (text, json, lines)
+- [x] Multiple input formats (args, stdin, json)
+- [x] Shell wrapper support (bash -c, etc.)
+- [x] Environment variables and working directory
+- [x] Timeout handling
 
 **Phase 3 - Extended Protocols** (In Progress)
 - [ ] GraphQL (server + client)
@@ -345,6 +356,7 @@ make lint
 - [Data Enrichment Example](examples/enrich/) - Fetch data from external services
 - [TCP Example](examples/tcp/README.md) - TCP connector usage guide
 - [Message Queue Example](examples/mq/README.md) - RabbitMQ/Kafka integration guide
+- [Exec Example](examples/exec/README.md) - External command execution (local + SSH)
 
 ## Requirements
 

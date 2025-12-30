@@ -16,6 +16,7 @@ import (
 	"github.com/mycel-labs/mycel/internal/connector"
 	"github.com/mycel-labs/mycel/internal/connector/database/postgres"
 	"github.com/mycel-labs/mycel/internal/connector/database/sqlite"
+	"github.com/mycel-labs/mycel/internal/connector/exec"
 	connhttp "github.com/mycel-labs/mycel/internal/connector/http"
 	"github.com/mycel-labs/mycel/internal/connector/mq"
 	"github.com/mycel-labs/mycel/internal/connector/rest"
@@ -129,6 +130,9 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 
 	// Message Queue connector (RabbitMQ, Kafka, etc.)
 	registry.RegisterFactory(mq.NewFactory(logger))
+
+	// Exec connector for executing external commands (local + SSH)
+	registry.RegisterFactory(exec.NewFactory(logger))
 }
 
 // Start initializes all connectors, registers flows, and starts the HTTP server.
@@ -310,6 +314,25 @@ func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
 			}
 		}
 		return fmt.Sprintf("→ %s:%d [%s]", host, port, driver)
+	case "exec":
+		cmd := ""
+		if c, ok := cfg.Properties["command"].(string); ok {
+			cmd = c
+		}
+		driver := cfg.Driver
+		if driver == "" {
+			driver = "local"
+		}
+		if driver == "ssh" {
+			sshHost := ""
+			if ssh, ok := cfg.Properties["ssh"].(map[string]interface{}); ok {
+				if h, ok := ssh["host"].(string); ok {
+					sshHost = h
+				}
+			}
+			return fmt.Sprintf("→ ssh://%s [%s]", sshHost, cmd)
+		}
+		return fmt.Sprintf("→ %s [%s]", cmd, driver)
 	}
 	return ""
 }

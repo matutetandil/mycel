@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Exec Connector (Phase 3.2)
+- **Exec Connector** (`internal/connector/exec/`)
+  - Execute external commands locally or on remote servers
+  - **Local driver**: Shell command execution on the local machine
+    - Direct command execution with arguments
+    - Shell wrapper support (`bash -c`, etc.) for pipes and shell features
+    - Environment variables injection
+    - Working directory configuration
+    - Timeout handling with context cancellation
+  - **SSH driver**: Remote command execution via SSH
+    - Key-based authentication (recommended)
+    - Password authentication (supported but not recommended)
+    - Custom SSH port configuration
+    - Known hosts verification
+  - **Input formats**:
+    - `args`: Pass input as command-line arguments (`--key=value`)
+    - `stdin` / `json`: Send JSON-encoded input via stdin
+  - **Output formats**:
+    - `text`: Raw output as single string `{"output": "..."}`
+    - `json`: Parse output as JSON object/array
+    - `lines`: Split output by newlines with line numbers
+  - **Use cases**:
+    - Execute local scripts and CLI tools
+    - Remote server monitoring and management
+    - Data enrichment via external APIs (curl, etc.)
+    - Process data through external programs (jq, awk, etc.)
+    - Integration with existing shell scripts
+- **Exec Example** (`examples/exec/`)
+  - Local command execution examples
+  - Shell command with pipes
+  - JSON output parsing
+  - Data enrichment using exec connector
+- **HCL Syntax**:
+  ```hcl
+  # Local execution
+  connector "my_script" {
+    type   = "exec"
+    driver = "local"
+
+    command       = "echo"
+    args          = ["hello", "world"]
+    timeout       = "10s"
+    output_format = "text"
+  }
+
+  # SSH remote execution
+  connector "remote_server" {
+    type   = "exec"
+    driver = "ssh"
+
+    command = "uptime"
+    ssh {
+      host     = "server.example.com"
+      user     = "admin"
+      key_file = "/path/to/key"
+    }
+  }
+  ```
+
 ### Added - Enrich System (Data Enrichment)
 - **Enrich blocks** for fetching data from external services during transformation
   - Flow-level enrich: Specific to a single flow

@@ -1,0 +1,4 @@
+service {
+  name    = "exec-example"
+  version = "1.0.0"
+}
