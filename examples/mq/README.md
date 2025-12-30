@@ -1,6 +1,6 @@
 # Message Queue Example
 
-This example demonstrates Mycel's integration with RabbitMQ for event-driven architecture patterns.
+This example demonstrates Mycel's integration with message queues (RabbitMQ and Kafka) for event-driven architecture patterns.
 
 ## Features
 
@@ -187,9 +187,104 @@ RabbitMQ topic exchanges support pattern matching:
 
 ## Environment Variables
 
+### RabbitMQ
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RABBITMQ_HOST` | localhost | RabbitMQ server host |
 | `RABBITMQ_PORT` | 5672 | RabbitMQ server port |
 | `RABBITMQ_USER` | guest | RabbitMQ username |
 | `RABBITMQ_PASS` | guest | RabbitMQ password |
+
+---
+
+## Kafka Configuration
+
+Mycel also supports Apache Kafka as a message queue driver.
+
+### Kafka Consumer
+
+```hcl
+connector "events" {
+  type   = "mq"
+  driver = "kafka"
+
+  brokers = ["localhost:9092"]
+
+  consumer {
+    group_id          = "mycel-consumer"
+    topics            = ["events", "orders"]
+    auto_offset_reset = "earliest"  # earliest, latest
+    auto_commit       = true
+    concurrency       = 2
+  }
+}
+```
+
+### Kafka Producer
+
+```hcl
+connector "notifications" {
+  type   = "mq"
+  driver = "kafka"
+
+  brokers = ["localhost:9092"]
+
+  producer {
+    topic       = "notifications"
+    acks        = "all"       # none, one, all
+    retries     = 3
+    compression = "snappy"    # none, gzip, snappy, lz4, zstd
+  }
+}
+```
+
+### Kafka with SASL Authentication
+
+```hcl
+connector "secure_kafka" {
+  type   = "mq"
+  driver = "kafka"
+
+  brokers = ["kafka.example.com:9093"]
+
+  sasl {
+    mechanism = "SCRAM-SHA-256"  # PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
+    username  = env("KAFKA_USER")
+    password  = env("KAFKA_PASS")
+  }
+
+  tls {
+    enabled = true
+    ca_cert = "./ca.pem"
+  }
+
+  consumer {
+    group_id = "secure-consumer"
+    topics   = ["secure-topic"]
+  }
+}
+```
+
+### Running Kafka Locally
+
+```bash
+# Using Docker (KRaft mode - no Zookeeper)
+docker run -d --name kafka \
+  -p 9092:9092 \
+  -e KAFKA_CFG_NODE_ID=0 \
+  -e KAFKA_CFG_PROCESS_ROLES=controller,broker \
+  -e KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
+  -e KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092 \
+  -e KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@localhost:9093 \
+  -e KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+  bitnami/kafka:latest
+```
+
+### Kafka Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KAFKA_BROKERS` | localhost:9092 | Comma-separated broker list |
+| `KAFKA_USER` | - | SASL username |
+| `KAFKA_PASS` | - | SASL password |

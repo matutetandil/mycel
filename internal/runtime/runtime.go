@@ -247,6 +247,49 @@ func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
 		}
 		return fmt.Sprintf("→ %s:%d [%s]", host, port, protocol)
 	case "mq":
+		driver := cfg.Driver
+		if driver == "" {
+			driver = "rabbitmq"
+		}
+
+		// Handle Kafka
+		if driver == "kafka" {
+			// Check if consumer
+			if consumerCfg, ok := cfg.Properties["consumer"].(map[string]interface{}); ok {
+				groupID := ""
+				if g, ok := consumerCfg["group_id"].(string); ok {
+					groupID = g
+				}
+				topics := "?"
+				if t, ok := consumerCfg["topics"].([]interface{}); ok && len(t) > 0 {
+					if topicStr, ok := t[0].(string); ok {
+						topics = topicStr
+						if len(t) > 1 {
+							topics += fmt.Sprintf(" (+%d)", len(t)-1)
+						}
+					}
+				}
+				return fmt.Sprintf("consuming %s [group: %s]", topics, groupID)
+			}
+			// Check if producer
+			if producerCfg, ok := cfg.Properties["producer"].(map[string]interface{}); ok {
+				topic := ""
+				if t, ok := producerCfg["topic"].(string); ok {
+					topic = t
+				}
+				return fmt.Sprintf("producing to %s", topic)
+			}
+			// Default Kafka info
+			brokers := "localhost:9092"
+			if b, ok := cfg.Properties["brokers"].([]interface{}); ok && len(b) > 0 {
+				if brokerStr, ok := b[0].(string); ok {
+					brokers = brokerStr
+				}
+			}
+			return fmt.Sprintf("→ %s [kafka]", brokers)
+		}
+
+		// Handle RabbitMQ
 		host := "localhost"
 		if h, ok := cfg.Properties["host"].(string); ok {
 			host = h
@@ -254,10 +297,6 @@ func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
 		port := 5672
 		if p, ok := cfg.Properties["port"].(int); ok {
 			port = p
-		}
-		driver := cfg.Driver
-		if driver == "" {
-			driver = "rabbitmq"
 		}
 		// Check if consumer or publisher
 		if queueCfg, ok := cfg.Properties["queue"].(map[string]interface{}); ok {

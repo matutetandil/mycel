@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mycel-labs/mycel/internal/connector"
+	"github.com/mycel-labs/mycel/internal/connector/mq/kafka"
 	"github.com/mycel-labs/mycel/internal/connector/mq/rabbitmq"
 )
 
@@ -31,7 +32,9 @@ func (f *Factory) Supports(connType, driver string) bool {
 	switch driver {
 	case "rabbitmq", "":
 		return true
-	// Future: "kafka", "sqs", "nats"
+	case "kafka":
+		return true
+	// Future: "sqs", "nats"
 	default:
 		return false
 	}
@@ -47,6 +50,8 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 	switch driver {
 	case "rabbitmq":
 		return f.createRabbitMQ(cfg)
+	case "kafka":
+		return f.createKafka(cfg)
 	default:
 		return nil, fmt.Errorf("unsupported MQ driver: %s", driver)
 	}
@@ -214,4 +219,86 @@ func getMap(props map[string]interface{}, key string) map[string]interface{} {
 		}
 	}
 	return nil
+}
+
+func getStringSlice(props map[string]interface{}, key string, defaultVal []string) []string {
+	if props == nil {
+		return defaultVal
+	}
+	if v, ok := props[key]; ok {
+		switch s := v.(type) {
+		case []string:
+			return s
+		case []interface{}:
+			result := make([]string, 0, len(s))
+			for _, item := range s {
+				if str, ok := item.(string); ok {
+					result = append(result, str)
+				}
+			}
+			if len(result) > 0 {
+				return result
+			}
+		}
+	}
+	return defaultVal
+}
+
+// createKafka creates a Kafka connector from configuration.
+func (f *Factory) createKafka(cfg *connector.Config) (*kafka.Connector, error) {
+	config := kafka.DefaultConfig()
+
+	// Broker addresses
+	config.Brokers = getStringSlice(cfg.Properties, "brokers", []string{"localhost:9092"})
+	config.ClientID = getString(cfg.Properties, "client_id", cfg.Name)
+
+	// TLS configuration
+	if tlsCfg := getMap(cfg.Properties, "tls"); tlsCfg != nil {
+		if getBool(tlsCfg, "enabled", false) {
+			config.TLS = &kafka.TLSConfig{
+				Enabled:            true,
+				CertFile:           getString(tlsCfg, "cert", ""),
+				KeyFile:            getString(tlsCfg, "key", ""),
+				CAFile:             getString(tlsCfg, "ca_cert", ""),
+				InsecureSkipVerify: getBool(tlsCfg, "insecure_skip_verify", false),
+			}
+		}
+	}
+
+	// SASL configuration
+	if saslCfg := getMap(cfg.Properties, "sasl"); saslCfg != nil {
+		config.SASL = &kafka.SASLConfig{
+			Mechanism: getString(saslCfg, "mechanism", "PLAIN"),
+			Username:  getString(saslCfg, "username", ""),
+			Password:  getString(saslCfg, "password", ""),
+		}
+	}
+
+	// Consumer configuration
+	if consumerCfg := getMap(cfg.Properties, "consumer"); consumerCfg != nil {
+		config.Consumer = &kafka.ConsumerConfig{
+			GroupID:         getString(consumerCfg, "group_id", ""),
+			Topics:          getStringSlice(consumerCfg, "topics", nil),
+			AutoOffsetReset: getString(consumerCfg, "auto_offset_reset", "earliest"),
+			AutoCommit:      getBool(consumerCfg, "auto_commit", true),
+			MinBytes:        getInt(consumerCfg, "min_bytes", 1),
+			MaxBytes:        getInt(consumerCfg, "max_bytes", 10*1024*1024),
+			MaxWaitTime:     getDuration(consumerCfg, "max_wait_time", 500*time.Millisecond),
+			Concurrency:     getInt(consumerCfg, "concurrency", 1),
+		}
+	}
+
+	// Producer configuration
+	if producerCfg := getMap(cfg.Properties, "producer"); producerCfg != nil {
+		config.Producer = &kafka.ProducerConfig{
+			Topic:       getString(producerCfg, "topic", ""),
+			Acks:        getString(producerCfg, "acks", "all"),
+			Retries:     getInt(producerCfg, "retries", 3),
+			BatchSize:   getInt(producerCfg, "batch_size", 16384),
+			LingerMs:    getInt(producerCfg, "linger_ms", 5),
+			Compression: getString(producerCfg, "compression", "none"),
+		}
+	}
+
+	return kafka.NewConnector(cfg.Name, config, f.logger)
 }

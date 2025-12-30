@@ -61,7 +61,7 @@ Mycel connects **anything to anything**:
 ✅ **Phase 1 Complete** - Core runtime is functional!
 ✅ **Phase 2 Complete** - Extended connectors and features!
 ✅ **Phase 2.5 Complete** - TCP Server + Client!
-✅ **Phase 3.1 Complete** - Message Queues (RabbitMQ)!
+✅ **Phase 3.1 Complete** - Message Queues (RabbitMQ + Kafka)!
 
 ### Connector Support
 
@@ -72,8 +72,8 @@ Mycel connects **anything to anything**:
 | PostgreSQL| ✅ Phase 2             | ✅ Phase 2              |
 | TCP       | ✅ Phase 2.5           | ✅ Phase 2.5            |
 | RabbitMQ  | ✅ Phase 3.1           | ✅ Phase 3.1            |
+| Kafka     | ✅ Phase 3.1           | ✅ Phase 3.1            |
 | GraphQL   | 🔜 Phase 3             | 🔜 Phase 3              |
-| Kafka     | 🔜 Phase 3             | 🔜 Phase 3              |
 | gRPC      | 🔜 Phase 3             | 🔜 Phase 3              |
 | Files     | 🔜 Phase 3             | 🔜 Phase 3              |
 
@@ -110,11 +110,14 @@ Mycel connects **anything to anything**:
 - [x] Queue/Exchange declaration and binding
 - [x] Manual acknowledgment support
 - [x] Concurrent consumers with prefetch
+- [x] **Kafka connector** (consumer + producer)
+- [x] Consumer groups with auto-commit
+- [x] SASL authentication (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
+- [x] Compression support (gzip, snappy, lz4, zstd)
 
 **Phase 3 - Extended Protocols** (In Progress)
 - [ ] GraphQL (server + client)
 - [ ] gRPC (server + client)
-- [ ] Kafka connector
 - [ ] File connector (read/write)
 
 **Phase 4 - Production Ready**

@@ -16,20 +16,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Manual acknowledgment for reliable message processing
     - Concurrent consumers with configurable prefetch (QoS)
     - Publisher confirms for guaranteed delivery
+  - **Kafka Support** (`internal/connector/mq/kafka/`): Full producer and consumer implementation
+    - Consumer groups with auto-commit or manual offset management
+    - Multiple topic subscription
+    - SASL authentication (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
+    - TLS support
+    - Compression (gzip, snappy, lz4, zstd)
+    - Configurable acks (none, one, all) for delivery guarantees
+    - Batch publishing with configurable batch size and linger time
+    - Concurrent consumers
   - **Message types** (`internal/connector/mq/types/`)
     - Generic Message struct with headers, routing key, exchange
     - DeliveryMode (transient/persistent)
     - AckMode (auto/manual/none)
-  - **Exchange types**: direct, fanout, topic, headers
+  - **Exchange types** (RabbitMQ): direct, fanout, topic, headers
   - **Consumer features**:
-    - Routing key pattern matching for topic exchanges
+    - Routing key pattern matching for topic exchanges (RabbitMQ)
+    - Consumer groups (Kafka)
     - Prefetch/QoS configuration
     - Concurrent worker goroutines
     - Graceful shutdown with message draining
-  - **Publisher features**:
-    - Exchange and routing key configuration
+  - **Publisher/Producer features**:
+    - Exchange and routing key configuration (RabbitMQ)
+    - Topic and partition key configuration (Kafka)
     - Persistent message delivery
-    - Publisher confirms support
+    - Publisher confirms support (RabbitMQ)
     - Batch publishing
 - **MQ Example** (`examples/mq/`)
   - RabbitMQ consumer and publisher configuration
