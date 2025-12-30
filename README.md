@@ -79,6 +79,10 @@ Mycel connects **anything to anything**:
 | GraphQL   | 🔜 Phase 3             | 🔜 Phase 3              |
 | gRPC      | 🔜 Phase 3             | 🔜 Phase 3              |
 | Files     | 🔜 Phase 3             | 🔜 Phase 3              |
+| Slack     | -                      | 🔜 Phase 6              |
+| Discord   | -                      | 🔜 Phase 6              |
+| Email     | -                      | 🔜 Phase 6              |
+| Webhooks  | 🔜 Phase 6             | 🔜 Phase 6              |
 
 ### Roadmap
 
@@ -140,6 +144,20 @@ Mycel connects **anything to anything**:
 - [ ] Circuit breaker
 - [ ] Authentication & authorization (auth/)
 - [ ] Aspects / AOP (logging, caching, retry policies)
+
+**Phase 5 - Advanced Features**
+- [ ] Custom validators (WASM)
+- [ ] Plugins system
+- [ ] Mocks/Testing framework
+- [ ] Documentation generation (OpenAPI, GraphQL schema)
+
+**Phase 6 - Notifications & Integrations**
+- [ ] Slack connector (send messages, post to channels)
+- [ ] Discord connector (send messages, embeds)
+- [ ] Email connector (SMTP, templates)
+- [ ] Webhooks connector (incoming + outgoing)
+- [ ] SMS connector (Twilio, etc.)
+- [ ] Push notifications (Firebase, APNs)
 
 ## Quick Start
 
