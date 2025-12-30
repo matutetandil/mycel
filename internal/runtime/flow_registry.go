@@ -2,10 +2,14 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/mycel-labs/mycel/internal/connector"
+	"github.com/mycel-labs/mycel/internal/connector/cache"
 	"github.com/mycel-labs/mycel/internal/flow"
 	"github.com/mycel-labs/mycel/internal/transform"
 	"github.com/mycel-labs/mycel/internal/validate"
@@ -79,6 +83,12 @@ type FlowHandler struct {
 
 	// Connectors registry for enrichment lookups.
 	Connectors *connector.Registry
+
+	// CacheConnector is the cache connector for this flow (if configured).
+	CacheConnector cache.Cache
+
+	// NamedCaches allows lookup of named cache definitions.
+	NamedCaches map[string]*flow.NamedCacheConfig
 }
 
 // HandleRequest processes an incoming request through the flow.
@@ -88,28 +98,61 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		return nil, err
 	}
 
-	// Get the destination as a reader/writer
-	dest, ok := h.Dest.(connector.ReadWriter)
-	if !ok {
-		// Try just reader or writer based on operation
-		return h.handleSimpleRequest(ctx, input)
-	}
-
 	// Determine operation type from the flow config
 	operation := parseOperation(h.Config.From.Operation)
 
-	switch operation.Method {
-	case "GET":
-		return h.handleRead(ctx, input, dest)
-	case "POST":
-		return h.handleCreate(ctx, input, dest)
-	case "PUT", "PATCH":
-		return h.handleUpdate(ctx, input, dest)
-	case "DELETE":
-		return h.handleDelete(ctx, input, dest)
-	default:
-		return nil, fmt.Errorf("unsupported operation: %s", operation.Method)
+	// For read operations, check cache first
+	if operation.Method == "GET" && h.hasCacheConfig() {
+		cacheKey := h.buildCacheKey(input)
+		if cacheKey != "" {
+			cached, hit, err := h.checkCache(ctx, cacheKey)
+			if err == nil && hit {
+				return cached, nil
+			}
+		}
 	}
+
+	// Get the destination as a reader/writer
+	dest, ok := h.Dest.(connector.ReadWriter)
+	var result interface{}
+	var err error
+
+	if !ok {
+		// Try just reader or writer based on operation
+		result, err = h.handleSimpleRequest(ctx, input)
+	} else {
+		switch operation.Method {
+		case "GET":
+			result, err = h.handleRead(ctx, input, dest)
+		case "POST":
+			result, err = h.handleCreate(ctx, input, dest)
+		case "PUT", "PATCH":
+			result, err = h.handleUpdate(ctx, input, dest)
+		case "DELETE":
+			result, err = h.handleDelete(ctx, input, dest)
+		default:
+			return nil, fmt.Errorf("unsupported operation: %s", operation.Method)
+		}
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// For read operations, store result in cache
+	if operation.Method == "GET" && h.hasCacheConfig() {
+		cacheKey := h.buildCacheKey(input)
+		if cacheKey != "" {
+			_ = h.storeInCache(ctx, cacheKey, result)
+		}
+	}
+
+	// For write operations, execute invalidation if configured
+	if operation.Method != "GET" && h.Config.After != nil && h.Config.After.Invalidate != nil {
+		_ = h.executeInvalidation(ctx, input, result)
+	}
+
+	return result, nil
 }
 
 // handleRead handles GET requests.
@@ -713,4 +756,255 @@ func (e *ValidationError) Error() string {
 type Caller interface {
 	// Call invokes an operation on the connector with the given parameters.
 	Call(ctx context.Context, operation string, params map[string]interface{}) (interface{}, error)
+}
+
+// ===== Cache Helper Methods =====
+
+// hasCacheConfig returns true if the flow has cache configuration.
+func (h *FlowHandler) hasCacheConfig() bool {
+	if h.Config.Cache == nil {
+		return false
+	}
+	// Must have either storage or use reference
+	return h.Config.Cache.Storage != "" || h.Config.Cache.Use != ""
+}
+
+// buildCacheKey builds the cache key by interpolating variables from input.
+// Supports ${input.params.id}, ${input.query.page}, ${input.data.field}, etc.
+func (h *FlowHandler) buildCacheKey(input map[string]interface{}) string {
+	if h.Config.Cache == nil {
+		return ""
+	}
+
+	// Get key template from cache config or named cache
+	keyTemplate := h.Config.Cache.Key
+	if keyTemplate == "" && h.Config.Cache.Use != "" {
+		// If using named cache, build default key from flow name
+		if named, ok := h.NamedCaches[h.Config.Cache.Use]; ok {
+			if named.Prefix != "" {
+				keyTemplate = named.Prefix + ":" + h.Config.Name
+			} else {
+				keyTemplate = h.Config.Name
+			}
+		}
+	}
+
+	if keyTemplate == "" {
+		// Default key format: flow_name:param1=val1:param2=val2
+		keyTemplate = h.Config.Name
+		for k, v := range input {
+			keyTemplate += fmt.Sprintf(":%s=%v", k, v)
+		}
+		return keyTemplate
+	}
+
+	// Interpolate variables in key template
+	return h.interpolateKey(keyTemplate, input)
+}
+
+// interpolateKey replaces ${input.xxx} placeholders with actual values.
+func (h *FlowHandler) interpolateKey(template string, input map[string]interface{}) string {
+	result := template
+
+	// Find and replace all ${...} patterns
+	for {
+		start := strings.Index(result, "${")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(result[start:], "}")
+		if end == -1 {
+			break
+		}
+		end += start
+
+		placeholder := result[start : end+1]
+		path := result[start+2 : end] // Remove ${ and }
+
+		value := h.resolveInputPath(path, input)
+		result = strings.Replace(result, placeholder, fmt.Sprintf("%v", value), 1)
+	}
+
+	return result
+}
+
+// resolveInputPath resolves a path like "input.params.id" from the input map.
+func (h *FlowHandler) resolveInputPath(path string, input map[string]interface{}) interface{} {
+	// Remove "input." prefix if present
+	path = strings.TrimPrefix(path, "input.")
+
+	// Handle nested paths like "params.id" or "query.page"
+	parts := strings.Split(path, ".")
+	var current interface{} = input
+
+	for _, part := range parts {
+		switch v := current.(type) {
+		case map[string]interface{}:
+			current = v[part]
+		case map[string]string:
+			current = v[part]
+		default:
+			return ""
+		}
+		if current == nil {
+			return ""
+		}
+	}
+
+	return current
+}
+
+// checkCache attempts to retrieve a value from the cache.
+func (h *FlowHandler) checkCache(ctx context.Context, key string) (interface{}, bool, error) {
+	cacheConn := h.getCacheConnector()
+	if cacheConn == nil {
+		return nil, false, nil
+	}
+
+	data, found, err := cacheConn.Get(ctx, key)
+	if err != nil || !found {
+		return nil, false, err
+	}
+
+	// Deserialize from JSON
+	var result interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, false, err
+	}
+
+	return result, true, nil
+}
+
+// storeInCache stores a value in the cache with configured TTL.
+func (h *FlowHandler) storeInCache(ctx context.Context, key string, value interface{}) error {
+	cacheConn := h.getCacheConnector()
+	if cacheConn == nil {
+		return nil
+	}
+
+	// Serialize to JSON
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+
+	// Get TTL
+	ttl := h.getCacheTTL()
+
+	return cacheConn.Set(ctx, key, data, ttl)
+}
+
+// getCacheConnector returns the cache connector for this flow.
+func (h *FlowHandler) getCacheConnector() cache.Cache {
+	// If already resolved, return it
+	if h.CacheConnector != nil {
+		return h.CacheConnector
+	}
+
+	if h.Config.Cache == nil {
+		return nil
+	}
+
+	// Get storage name (from cache.storage or from named cache)
+	storageName := h.Config.Cache.Storage
+	if storageName == "" && h.Config.Cache.Use != "" {
+		if named, ok := h.NamedCaches[h.Config.Cache.Use]; ok {
+			storageName = named.Storage
+		}
+	}
+
+	if storageName == "" || h.Connectors == nil {
+		return nil
+	}
+
+	// Get connector from registry
+	conn, err := h.Connectors.Get(storageName)
+	if err != nil {
+		return nil
+	}
+
+	// Cast to cache interface
+	h.CacheConnector = cache.GetCache(conn)
+	return h.CacheConnector
+}
+
+// getCacheTTL returns the TTL for cache entries.
+func (h *FlowHandler) getCacheTTL() time.Duration {
+	if h.Config.Cache == nil {
+		return 0
+	}
+
+	// First check flow-level TTL
+	if h.Config.Cache.TTL != "" {
+		if ttl, err := time.ParseDuration(h.Config.Cache.TTL); err == nil {
+			return ttl
+		}
+	}
+
+	// Fall back to named cache TTL
+	if h.Config.Cache.Use != "" {
+		if named, ok := h.NamedCaches[h.Config.Cache.Use]; ok && named.TTL != "" {
+			if ttl, err := time.ParseDuration(named.TTL); err == nil {
+				return ttl
+			}
+		}
+	}
+
+	return 0 // Will use connector default
+}
+
+// executeInvalidation executes cache invalidation after write operations.
+func (h *FlowHandler) executeInvalidation(ctx context.Context, input map[string]interface{}, result interface{}) error {
+	if h.Config.After == nil || h.Config.After.Invalidate == nil {
+		return nil
+	}
+
+	inv := h.Config.After.Invalidate
+
+	// Get invalidation cache connector
+	var cacheConn cache.Cache
+	if inv.Storage != "" {
+		conn, err := h.Connectors.Get(inv.Storage)
+		if err != nil {
+			return err
+		}
+		cacheConn = cache.GetCache(conn)
+	} else {
+		cacheConn = h.getCacheConnector()
+	}
+
+	if cacheConn == nil {
+		return nil
+	}
+
+	// Build context for interpolation (merge input and result)
+	interpolationCtx := make(map[string]interface{})
+	for k, v := range input {
+		interpolationCtx[k] = v
+	}
+	if resultMap, ok := result.(map[string]interface{}); ok {
+		interpolationCtx["result"] = resultMap
+	}
+
+	// Invalidate specific keys
+	if len(inv.Keys) > 0 {
+		keys := make([]string, 0, len(inv.Keys))
+		for _, keyTemplate := range inv.Keys {
+			key := h.interpolateKey(keyTemplate, interpolationCtx)
+			keys = append(keys, key)
+		}
+		if err := cacheConn.Delete(ctx, keys...); err != nil {
+			return err
+		}
+	}
+
+	// Invalidate patterns
+	for _, patternTemplate := range inv.Patterns {
+		pattern := h.interpolateKey(patternTemplate, interpolationCtx)
+		if err := cacheConn.DeletePattern(ctx, pattern); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

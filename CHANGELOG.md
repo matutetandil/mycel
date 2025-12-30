@@ -7,6 +7,186 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Cache Connector (Phase 3.3)
+- **Cache Connector** (`internal/connector/cache/`)
+  - In-memory and Redis caching for flow responses
+  - Automatic cache lookup before flow execution (cache-aside pattern)
+  - Cache storage after successful GET operations
+  - Cache invalidation after write operations (POST/PUT/DELETE)
+- **Memory Cache Driver** (`internal/connector/cache/memory/`)
+  - LRU eviction policy with configurable max items
+  - TTL-based expiration with background cleanup
+  - Pattern-based key deletion with wildcard support (`*`)
+  - Thread-safe operations with RWMutex
+- **Redis Cache Driver** (`internal/connector/cache/redis/`)
+  - Connection pooling with configurable settings
+  - TTL support via Redis native expiration
+  - Pattern deletion using SCAN (safe for large datasets)
+  - Key prefix support for namespace isolation
+- **Named Cache Definitions**
+  - Reusable cache configurations (`cache "name" { ... }`)
+  - Reference in flows with `cache { use = "name" }`
+  - Shared TTL and prefix settings
+- **Cache Invalidation**
+  - `after { invalidate { ... } }` block for post-write invalidation
+  - Specific key invalidation: `keys = ["products:${input.id}"]`
+  - Pattern invalidation: `patterns = ["products:*", "lists:*"]`
+  - Variable interpolation in keys and patterns
+- **Cache Key Interpolation**
+  - Path parameters: `${input.id}`
+  - Query parameters: `${input.query.page}`
+  - Request body: `${input.data.field}`
+  - Result data: `${result.id}` (in invalidation)
+- **Cache Example** (`examples/cache/`)
+  - Memory cache with product and user caching
+  - Inline and named cache configurations
+  - Cache invalidation patterns
+- **Dependencies**:
+  - `github.com/hashicorp/golang-lru/v2` - LRU cache implementation
+  - `github.com/redis/go-redis/v9` - Redis client
+- **HCL Syntax**:
+  ```hcl
+  # Memory Cache Connector
+  connector "cache" {
+    type   = "cache"
+    driver = "memory"
+    max_items   = 10000
+    eviction    = "lru"
+    default_ttl = "5m"
+  }
+
+  # Redis Cache Connector
+  connector "redis_cache" {
+    type   = "cache"
+    driver = "redis"
+    url    = "redis://localhost:6379"
+    prefix = "myapp"
+    pool {
+      max_connections = 10
+      min_idle       = 2
+    }
+  }
+
+  # Named Cache Definition
+  cache "products" {
+    storage = "cache"
+    ttl     = "10m"
+    prefix  = "products"
+  }
+
+  # Flow with Inline Cache
+  flow "get_product" {
+    from { connector = "api", operation = "GET /products/:id" }
+    to   { connector = "db", target = "products" }
+    cache {
+      storage = "cache"
+      ttl     = "5m"
+      key     = "products:${input.id}"
+    }
+  }
+
+  # Flow with Named Cache
+  flow "get_user" {
+    from { connector = "api", operation = "GET /users/:id" }
+    to   { connector = "db", target = "users" }
+    cache {
+      use = "products"
+      key = "user:${input.id}"
+    }
+  }
+
+  # Flow with Cache Invalidation
+  flow "update_product" {
+    from { connector = "api", operation = "PUT /products/:id" }
+    to   { connector = "db", target = "products" }
+    after {
+      invalidate {
+        storage  = "cache"
+        keys     = ["products:${input.id}"]
+        patterns = ["lists:products:*"]
+      }
+    }
+  }
+  ```
+
+### Added - MySQL and MongoDB Connectors (Phase 3.2)
+- **MySQL Connector** (`internal/connector/database/mysql/`)
+  - Full CRUD operations (SELECT, INSERT, UPDATE, DELETE)
+  - Connection pooling configurable (max_open, max_idle, max_lifetime)
+  - Named parameter support (`:param` syntax converted to `?` placeholders)
+  - DSN auto-generation from HCL config
+  - SSL/TLS support
+  - **HCL Syntax**:
+    ```hcl
+    connector "mysql_db" {
+      type     = "database"
+      driver   = "mysql"
+      host     = env("MYSQL_HOST")
+      port     = 3306
+      database = "myapp"
+      user     = env("MYSQL_USER")
+      password = env("MYSQL_PASSWORD")
+      charset  = "utf8mb4"
+
+      pool {
+        max          = 100
+        min          = 10
+        max_lifetime = 300
+      }
+    }
+    ```
+- **MongoDB Connector** (`internal/connector/database/mongodb/`)
+  - Full NoSQL CRUD operations
+  - Operations: INSERT_ONE/MANY, UPDATE_ONE/MANY, DELETE_ONE/MANY, REPLACE_ONE
+  - Automatic ObjectID handling (string ↔ ObjectID conversion)
+  - BSON to Map conversion with timestamp handling
+  - MongoDB operators support (`$set`, `$gte`, `$lt`, `$in`, etc.)
+  - Connection pooling configurable
+  - **HCL Syntax**:
+    ```hcl
+    connector "mongo_db" {
+      type     = "database"
+      driver   = "mongodb"
+      uri      = env("MONGO_URI")
+      database = "myapp"
+
+      pool {
+        max             = 200
+        min             = 10
+        connect_timeout = 30
+      }
+    }
+    ```
+- **NoSQL Query Support**
+  - New `RawQuery` field in `connector.Query` for NoSQL filters
+  - New `Update` field in `connector.Data` for MongoDB update operations
+  - New `query_filter` and `update` attributes in HCL flows
+  - Parser function `ctyValueToMap` for HCL → Go map conversion
+  - **HCL Syntax for MongoDB queries**:
+    ```hcl
+    flow "get_active_users" {
+      from { connector = "api", operation = "GET /users/active" }
+      to {
+        connector    = "mongo_db"
+        target       = "users"
+        query_filter = { status = "active", age = { "$gte" = 18 } }
+      }
+    }
+
+    flow "update_user_status" {
+      from { connector = "api", operation = "PUT /users/:id/status" }
+      to {
+        connector    = "mongo_db"
+        target       = "users"
+        query_filter = { "_id" = ":id" }
+        update       = { "$set" = { status = "input.status" } }
+      }
+    }
+    ```
+- **Dependencies**:
+  - `github.com/go-sql-driver/mysql` - MySQL driver
+  - `go.mongodb.org/mongo-driver` - MongoDB driver
+
 ### Added - Integration Patterns Documentation
 - **New guide:** `docs/integration-patterns.md` with complete, copy-paste ready examples for:
   - GraphQL API → Database (CRUD)

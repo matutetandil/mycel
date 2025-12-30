@@ -48,27 +48,35 @@ type ReadWriter interface {
 
 // Query represents a read operation specification.
 type Query struct {
-	// Target is the resource to query (table name, endpoint, topic, etc.).
+	// Target is the resource to query (table name, collection, endpoint, topic, etc.).
 	Target string
 
-	// Operation is the type of read operation (SELECT, GET, CONSUME, etc.).
+	// Operation is the type of read operation (SELECT, GET, CONSUME, FIND, etc.).
 	Operation string
 
-	// RawSQL is a raw SQL query string. When set, overrides automatic query building.
+	// RawSQL is a raw SQL query string for SQL databases.
+	// When set, overrides automatic query building.
 	// Supports named parameters like :id, :user_id that are replaced from Filters.
 	RawSQL string
 
-	// Filters are conditions to apply (WHERE clauses, query params, etc.).
+	// RawQuery is a query document for NoSQL databases (MongoDB, etc.).
+	// When set, overrides automatic query building.
+	// Example for MongoDB: {"status": "active", "age": {"$gte": 18}}
+	RawQuery map[string]interface{}
+
+	// Filters are conditions to apply (WHERE clauses, query params, MongoDB filter, etc.).
 	// Also used to provide values for named parameters in RawSQL.
 	Filters map[string]interface{}
 
 	// Fields are specific fields to retrieve (empty means all).
+	// For MongoDB, this becomes the projection.
 	Fields []string
 
 	// Pagination settings for paginated results.
 	Pagination *Pagination
 
 	// OrderBy clauses for sorting results.
+	// For MongoDB, this becomes the sort document.
 	OrderBy []OrderClause
 
 	// Params are additional operation-specific parameters.
@@ -77,23 +85,30 @@ type Query struct {
 
 // Data represents a write operation specification.
 type Data struct {
-	// Target is the resource to write to (table name, endpoint, topic, etc.).
+	// Target is the resource to write to (table name, collection, endpoint, topic, etc.).
 	Target string
 
-	// Operation is the type of write operation (INSERT, POST, PUBLISH, etc.).
+	// Operation is the type of write operation (INSERT, POST, PUBLISH, INSERT_ONE, UPDATE_ONE, etc.).
 	Operation string
 
-	// RawSQL is a raw SQL query string. When set, overrides automatic query building.
+	// RawSQL is a raw SQL query string for SQL databases.
+	// When set, overrides automatic query building.
 	// Supports named parameters like :id, :name that are replaced from Payload and Filters.
 	RawSQL string
 
-	// Payload is the data to write.
+	// Update is an update document for NoSQL databases (MongoDB, etc.).
+	// Example for MongoDB: {"$set": {"status": "active"}, "$inc": {"count": 1}}
+	Update map[string]interface{}
+
+	// Payload is the data to write (document for NoSQL, row for SQL).
 	Payload map[string]interface{}
 
 	// Filters are conditions for UPDATE/DELETE operations.
+	// For MongoDB, this is the filter document.
 	Filters map[string]interface{}
 
 	// Params are additional operation-specific parameters.
+	// For MongoDB: upsert, arrayFilters, etc.
 	Params map[string]interface{}
 }
 

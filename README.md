@@ -63,6 +63,8 @@ Mycel connects **anything to anything**:
 ✅ **Phase 2 Complete** - Extended connectors and features!
 ✅ **Phase 2.5 Complete** - TCP Server + Client!
 ✅ **Phase 3 Complete** - GraphQL + Exec Connectors!
+✅ **Phase 3.2 Complete** - MySQL + MongoDB!
+✅ **Phase 3.3 Complete** - Cache Connector (Memory + Redis)!
 
 ### Connector Support
 
@@ -71,11 +73,14 @@ Mycel connects **anything to anything**:
 | REST      | ✅ Phase 1             | ✅ Phase 2              |
 | SQLite    | ✅ Phase 1             | ✅ Phase 1              |
 | PostgreSQL| ✅ Phase 2             | ✅ Phase 2              |
+| MySQL     | ✅ Phase 3.2           | ✅ Phase 3.2            |
+| MongoDB   | ✅ Phase 3.2           | ✅ Phase 3.2            |
 | TCP       | ✅ Phase 2.5           | ✅ Phase 2.5            |
 | RabbitMQ  | ✅ Phase 3             | ✅ Phase 3              |
 | Kafka     | ✅ Phase 3             | ✅ Phase 3              |
 | Exec      | ✅ Phase 3             | ✅ Phase 3              |
 | GraphQL   | ✅ Phase 3             | ✅ Phase 3              |
+| Cache     | ✅ Phase 3.3           | ✅ Phase 3.3            |
 | gRPC      | 🔜 Phase 4             | 🔜 Phase 4              |
 | Files     | 🔜 Phase 4             | 🔜 Phase 4              |
 | Slack     | -                      | 🔜 Phase 6              |
@@ -137,6 +142,25 @@ Mycel connects **anything to anything**:
 - [x] GraphQL Variables support
 - [x] GraphQL Client with auth (Bearer, API Key, OAuth2)
 - [x] Retry with exponential backoff
+
+**Phase 3.2 - Additional Databases** ✅
+- [x] **MySQL connector** - Full CRUD with connection pooling
+- [x] Named parameter support (`:param` syntax)
+- [x] **MongoDB connector** - Full NoSQL CRUD operations
+- [x] ObjectID handling and BSON conversion
+- [x] MongoDB operators support (`$set`, `$gte`, etc.)
+- [x] Multiple operation types: INSERT_ONE/MANY, UPDATE_ONE/MANY, DELETE_ONE/MANY, REPLACE_ONE
+- [x] NoSQL query filter support in HCL (`query_filter` attribute)
+
+**Phase 3.3 - Caching System** ✅
+- [x] **Memory Cache** - In-memory LRU cache with configurable max items
+- [x] **Redis Cache** - Distributed cache with connection pooling
+- [x] **Inline cache configuration** in flows
+- [x] **Named cache definitions** for reusability (`cache "name" { }`)
+- [x] **Cache key interpolation** with `${input.id}`, `${input.query.*}`
+- [x] **Cache invalidation** after write operations
+- [x] **Pattern-based invalidation** with wildcards (`products:*`)
+- [x] Automatic cache-aside pattern (check before, store after)
 
 **Phase 4 - Production Ready**
 - [ ] gRPC (server + client)
@@ -389,6 +413,7 @@ make lint
 - [TCP Example](examples/tcp/README.md) - TCP connector usage guide
 - [Message Queue Example](examples/mq/README.md) - RabbitMQ/Kafka integration guide
 - [Exec Example](examples/exec/README.md) - External command execution (local + SSH)
+- [Cache Example](examples/cache/README.md) - Memory and Redis caching with invalidation patterns
 
 ## Requirements
 

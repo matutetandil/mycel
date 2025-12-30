@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/mycel-labs/mycel/internal/flow"
 	"github.com/mycel-labs/mycel/internal/transform"
@@ -24,14 +25,17 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "returns"}, // GraphQL return type for HCL-first mode
+			{Name: "cache"},   // Reference to named cache (cache.name)
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "from"},
 			{Type: "to"},
+			{Type: "cache"},
 			{Type: "validate"},
 			{Type: "enrich", LabelNames: []string{"name"}},
 			{Type: "transform"},
 			{Type: "require"},
+			{Type: "after"},
 			{Type: "error_handling"},
 		},
 	}
@@ -46,6 +50,16 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
 			config.Returns = val.AsString()
+		}
+	}
+
+	// Parse cache attribute (reference to named cache)
+	if attr, ok := content.Attributes["cache"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			config.Cache = &flow.CacheConfig{
+				Use: parseCacheReference(val.AsString()),
+			}
 		}
 	}
 
@@ -65,6 +79,13 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 				return nil, fmt.Errorf("to block error: %w", err)
 			}
 			config.To = to
+
+		case "cache":
+			cache, err := parseCacheBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("cache block error: %w", err)
+			}
+			config.Cache = cache
 
 		case "validate":
 			validate, err := parseValidateBlock(nestedBlock, ctx)
@@ -93,6 +114,13 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 				return nil, fmt.Errorf("require block error: %w", err)
 			}
 			config.Require = require
+
+		case "after":
+			after, err := parseAfterBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("after block error: %w", err)
+			}
+			config.After = after
 
 		case "error_handling":
 			eh, err := parseErrorHandlingBlock(nestedBlock, ctx)
@@ -158,6 +186,9 @@ func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, e
 //	  connector = "postgres"
 //	  target    = "users"
 //	  filter    = "user_id = ${context.user_id}"  // optional
+//	  query     = "SELECT * FROM users WHERE id = :id"  // optional, for SQL
+//	  query_filter = { status = "active" }  // optional, for NoSQL (MongoDB)
+//	  update    = { "$set" = { status = "active" } }  // optional, for NoSQL updates
 //	}
 func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error) {
 	schema := &hcl.BodySchema{
@@ -166,6 +197,8 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 			{Name: "target"},
 			{Name: "filter"},
 			{Name: "query"},
+			{Name: "query_filter"},
+			{Name: "update"},
 		},
 	}
 
@@ -206,6 +239,24 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 			return nil, fmt.Errorf("to query error: %s", diags.Error())
 		}
 		to.Query = val.AsString()
+	}
+
+	// Parse query_filter for NoSQL (MongoDB)
+	if attr, ok := content.Attributes["query_filter"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("to query_filter error: %s", diags.Error())
+		}
+		to.QueryFilter = ctyValueToMap(val)
+	}
+
+	// Parse update for NoSQL (MongoDB)
+	if attr, ok := content.Attributes["update"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("to update error: %s", diags.Error())
+		}
+		to.Update = ctyValueToMap(val)
 	}
 
 	if to.Connector == "" {
@@ -718,4 +769,329 @@ func parseTransformEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfo
 	}
 
 	return enrich, nil
+}
+
+// ctyValueToMap converts a cty.Value to map[string]interface{}.
+// Used for parsing NoSQL query filters and update documents from HCL.
+func ctyValueToMap(val cty.Value) map[string]interface{} {
+	if val.IsNull() {
+		return nil
+	}
+
+	// Handle object/map types
+	if val.Type().IsObjectType() || val.Type().IsMapType() {
+		result := make(map[string]interface{})
+		for it := val.ElementIterator(); it.Next(); {
+			key, v := it.Element()
+			result[key.AsString()] = ctyValueToInterface(v)
+		}
+		return result
+	}
+
+	return nil
+}
+
+// ctyValueToInterface converts a cty.Value to interface{}.
+// Handles all cty types recursively.
+func ctyValueToInterface(val cty.Value) interface{} {
+	if val.IsNull() {
+		return nil
+	}
+
+	valType := val.Type()
+
+	// Handle primitives
+	if valType == cty.String {
+		return val.AsString()
+	}
+	if valType == cty.Number {
+		bf := val.AsBigFloat()
+		// Try to return as int64 if it's a whole number
+		if bf.IsInt() {
+			i, _ := bf.Int64()
+			return i
+		}
+		// Otherwise return as float64
+		f, _ := bf.Float64()
+		return f
+	}
+	if valType == cty.Bool {
+		return val.True()
+	}
+
+	// Handle lists/tuples
+	if valType.IsListType() || valType.IsTupleType() || valType.IsSetType() {
+		var result []interface{}
+		for it := val.ElementIterator(); it.Next(); {
+			_, v := it.Element()
+			result = append(result, ctyValueToInterface(v))
+		}
+		return result
+	}
+
+	// Handle objects/maps
+	if valType.IsObjectType() || valType.IsMapType() {
+		result := make(map[string]interface{})
+		for it := val.ElementIterator(); it.Next(); {
+			key, v := it.Element()
+			result[key.AsString()] = ctyValueToInterface(v)
+		}
+		return result
+	}
+
+	// Fallback: try to get string representation
+	return val.GoString()
+}
+
+// parseCacheReference parses a cache reference (e.g., "cache.products" -> "products").
+func parseCacheReference(ref string) string {
+	if strings.HasPrefix(ref, "cache.") {
+		return strings.TrimPrefix(ref, "cache.")
+	}
+	return ref
+}
+
+// parseCacheBlock parses a cache block in a flow.
+// Supports format:
+//
+//	cache {
+//	  storage = "redis_cache"
+//	  ttl     = "5m"
+//	  key     = "products:${input.params.id}"
+//	  invalidate_on = ["products:updated:${input.params.id}"]
+//	}
+func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "storage", Required: true},
+			{Name: "ttl"},
+			{Name: "key"},
+			{Name: "invalidate_on"},
+			{Name: "use"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("cache block content error: %s", diags.Error())
+	}
+
+	cache := &flow.CacheConfig{}
+
+	if attr, ok := content.Attributes["storage"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("cache storage error: %s", diags.Error())
+		}
+		cache.Storage = parseConnectorReference(val.AsString())
+	}
+
+	if attr, ok := content.Attributes["ttl"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("cache ttl error: %s", diags.Error())
+		}
+		cache.TTL = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["key"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("cache key error: %s", diags.Error())
+		}
+		cache.Key = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["invalidate_on"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("cache invalidate_on error: %s", diags.Error())
+		}
+		if val.Type().IsListType() || val.Type().IsTupleType() {
+			for it := val.ElementIterator(); it.Next(); {
+				_, v := it.Element()
+				cache.InvalidateOn = append(cache.InvalidateOn, v.AsString())
+			}
+		}
+	}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("cache use error: %s", diags.Error())
+		}
+		cache.Use = parseCacheReference(val.AsString())
+	}
+
+	return cache, nil
+}
+
+// parseAfterBlock parses an after block in a flow.
+// Supports format:
+//
+//	after {
+//	  invalidate {
+//	    storage = "redis_cache"
+//	    keys    = ["products:${input.params.id}"]
+//	    patterns = ["products:list:*"]
+//	  }
+//	}
+func parseAfterBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.AfterConfig, error) {
+	schema := &hcl.BodySchema{
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "invalidate"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("after block content error: %s", diags.Error())
+	}
+
+	after := &flow.AfterConfig{}
+
+	for _, nestedBlock := range content.Blocks {
+		if nestedBlock.Type == "invalidate" {
+			inv, err := parseInvalidateBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("invalidate block error: %w", err)
+			}
+			after.Invalidate = inv
+		}
+	}
+
+	return after, nil
+}
+
+// parseInvalidateBlock parses an invalidate block.
+// Supports format:
+//
+//	invalidate {
+//	  storage  = "redis_cache"
+//	  keys     = ["products:${input.params.id}"]
+//	  patterns = ["products:list:*"]
+//	}
+func parseInvalidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.InvalidateConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "storage", Required: true},
+			{Name: "keys"},
+			{Name: "patterns"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("invalidate block content error: %s", diags.Error())
+	}
+
+	inv := &flow.InvalidateConfig{}
+
+	if attr, ok := content.Attributes["storage"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("invalidate storage error: %s", diags.Error())
+		}
+		inv.Storage = parseConnectorReference(val.AsString())
+	}
+
+	if attr, ok := content.Attributes["keys"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("invalidate keys error: %s", diags.Error())
+		}
+		if val.Type().IsListType() || val.Type().IsTupleType() {
+			for it := val.ElementIterator(); it.Next(); {
+				_, v := it.Element()
+				inv.Keys = append(inv.Keys, v.AsString())
+			}
+		}
+	}
+
+	if attr, ok := content.Attributes["patterns"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("invalidate patterns error: %s", diags.Error())
+		}
+		if val.Type().IsListType() || val.Type().IsTupleType() {
+			for it := val.ElementIterator(); it.Next(); {
+				_, v := it.Element()
+				inv.Patterns = append(inv.Patterns, v.AsString())
+			}
+		}
+	}
+
+	return inv, nil
+}
+
+// parseNamedCacheBlock parses a named cache block.
+// Supports format:
+//
+//	cache "products_cache" {
+//	  storage       = "redis_cache"
+//	  ttl           = "10m"
+//	  prefix        = "products"
+//	  invalidate_on = ["product.created", "product.updated"]
+//	}
+func parseNamedCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.NamedCacheConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("cache block requires a name label")
+	}
+
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "storage", Required: true},
+			{Name: "ttl"},
+			{Name: "prefix"},
+			{Name: "invalidate_on"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("cache block content error: %s", diags.Error())
+	}
+
+	cache := &flow.NamedCacheConfig{
+		Name: block.Labels[0],
+	}
+
+	if attr, ok := content.Attributes["storage"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("cache storage error: %s", diags.Error())
+		}
+		cache.Storage = parseConnectorReference(val.AsString())
+	}
+
+	if attr, ok := content.Attributes["ttl"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("cache ttl error: %s", diags.Error())
+		}
+		cache.TTL = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["prefix"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("cache prefix error: %s", diags.Error())
+		}
+		cache.Prefix = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["invalidate_on"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("cache invalidate_on error: %s", diags.Error())
+		}
+		if val.Type().IsListType() || val.Type().IsTupleType() {
+			for it := val.ElementIterator(); it.Next(); {
+				_, v := it.Element()
+				cache.InvalidateOn = append(cache.InvalidateOn, v.AsString())
+			}
+		}
+	}
+
+	return cache, nil
 }

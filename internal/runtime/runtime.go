@@ -14,6 +14,9 @@ import (
 
 	"github.com/mycel-labs/mycel/internal/banner"
 	"github.com/mycel-labs/mycel/internal/connector"
+	"github.com/mycel-labs/mycel/internal/connector/cache"
+	"github.com/mycel-labs/mycel/internal/connector/database/mongodb"
+	"github.com/mycel-labs/mycel/internal/connector/database/mysql"
 	"github.com/mycel-labs/mycel/internal/connector/database/postgres"
 	"github.com/mycel-labs/mycel/internal/connector/database/sqlite"
 	"github.com/mycel-labs/mycel/internal/connector/exec"
@@ -22,6 +25,7 @@ import (
 	"github.com/mycel-labs/mycel/internal/connector/mq"
 	"github.com/mycel-labs/mycel/internal/connector/rest"
 	"github.com/mycel-labs/mycel/internal/connector/tcp"
+	"github.com/mycel-labs/mycel/internal/flow"
 	"github.com/mycel-labs/mycel/internal/parser"
 	"github.com/mycel-labs/mycel/internal/transform"
 	"github.com/mycel-labs/mycel/internal/validate"
@@ -37,6 +41,7 @@ type Runtime struct {
 	flows       *FlowRegistry
 	transforms  map[string]*transform.Config
 	types       map[string]*validate.TypeSchema
+	namedCaches map[string]*flow.NamedCacheConfig
 	logger      *slog.Logger
 	environment string
 
@@ -102,12 +107,19 @@ func New(opts Options) (*Runtime, error) {
 		types[t.Name] = t
 	}
 
+	// Build named caches map for fast lookup
+	namedCaches := make(map[string]*flow.NamedCacheConfig)
+	for _, c := range config.NamedCaches {
+		namedCaches[c.Name] = c
+	}
+
 	return &Runtime{
 		config:          config,
 		connectors:      registry,
 		flows:           NewFlowRegistry(),
 		transforms:      transforms,
 		types:           types,
+		namedCaches:     namedCaches,
 		logger:          opts.Logger,
 		environment:     env,
 		shutdownTimeout: opts.ShutdownTimeout,
@@ -122,9 +134,13 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 	// HTTP connector for calling external APIs (client)
 	registry.RegisterFactory(connhttp.NewFactory())
 
-	// Database connectors
+	// Database connectors (SQL)
 	registry.RegisterFactory(sqlite.NewFactory(logger))
 	registry.RegisterFactory(postgres.NewFactory())
+	registry.RegisterFactory(mysql.NewFactory())
+
+	// Database connectors (NoSQL)
+	registry.RegisterFactory(mongodb.NewFactory())
 
 	// TCP connector for raw TCP communication (server + client)
 	registry.RegisterFactory(tcp.NewFactory(logger))
@@ -137,6 +153,9 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 
 	// GraphQL connector for exposing/consuming GraphQL APIs
 	registry.RegisterFactory(graphql.NewFactory(logger))
+
+	// Cache connector (Redis, Memory)
+	registry.RegisterFactory(cache.NewFactory())
 }
 
 // Start initializes all connectors, registers flows, and starts the HTTP server.
@@ -355,6 +374,23 @@ func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
 		// Client
 		endpoint := getString(cfg.Properties, "endpoint", "")
 		return fmt.Sprintf("→ %s", endpoint)
+	case "cache":
+		driver := cfg.Driver
+		if driver == "" {
+			driver = "memory"
+		}
+		if driver == "redis" {
+			url := getString(cfg.Properties, "url", "redis://localhost:6379")
+			prefix := getString(cfg.Properties, "prefix", "")
+			if prefix != "" {
+				return fmt.Sprintf("→ %s [prefix: %s]", url, prefix)
+			}
+			return fmt.Sprintf("→ %s", url)
+		}
+		// Memory cache
+		maxItems := getInt(cfg.Properties, "max_items", 10000)
+		eviction := getString(cfg.Properties, "eviction", "lru")
+		return fmt.Sprintf("in-memory [%s, max: %d]", eviction, maxItems)
 	}
 	return ""
 }
@@ -385,6 +421,7 @@ func (r *Runtime) registerFlows() error {
 			NamedTransforms: r.transforms,
 			Types:           r.types,
 			Connectors:      r.connectors,
+			NamedCaches:     r.namedCaches,
 		}
 
 		r.flows.Register(cfg.Name, handler)

@@ -41,6 +41,9 @@ type Configuration struct {
 	// Transforms are reusable transform configurations.
 	Transforms []*transform.Config
 
+	// NamedCaches are reusable cache configurations.
+	NamedCaches []*flow.NamedCacheConfig
+
 	// ServiceConfig is the global service configuration.
 	ServiceConfig *ServiceConfig
 }
@@ -54,10 +57,11 @@ type ServiceConfig struct {
 // NewConfiguration creates an empty configuration.
 func NewConfiguration() *Configuration {
 	return &Configuration{
-		Connectors: make([]*connector.Config, 0),
-		Flows:      make([]*flow.Config, 0),
-		Types:      make([]*validate.TypeSchema, 0),
-		Transforms: make([]*transform.Config, 0),
+		Connectors:  make([]*connector.Config, 0),
+		Flows:       make([]*flow.Config, 0),
+		Types:       make([]*validate.TypeSchema, 0),
+		Transforms:  make([]*transform.Config, 0),
+		NamedCaches: make([]*flow.NamedCacheConfig, 0),
 	}
 }
 
@@ -67,6 +71,7 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.Flows = append(c.Flows, other.Flows...)
 	c.Types = append(c.Types, other.Types...)
 	c.Transforms = append(c.Transforms, other.Transforms...)
+	c.NamedCaches = append(c.NamedCaches, other.NamedCaches...)
 	if other.ServiceConfig != nil {
 		c.ServiceConfig = other.ServiceConfig
 	}
@@ -171,6 +176,13 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 			}
 			config.Transforms = append(config.Transforms, tr)
 
+		case "cache":
+			cache, err := parseNamedCacheBlock(block, p.evalCtx)
+			if err != nil {
+				return nil, fmt.Errorf("cache parse error: %w", err)
+			}
+			config.NamedCaches = append(config.NamedCaches, cache)
+
 		case "service":
 			svc, err := parseServiceBlock(block, p.evalCtx)
 			if err != nil {
@@ -191,6 +203,7 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "flow", LabelNames: []string{"name"}},
 			{Type: "type", LabelNames: []string{"name"}},
 			{Type: "transform", LabelNames: []string{"name"}},
+			{Type: "cache", LabelNames: []string{"name"}},
 			{Type: "service"},
 		},
 	}

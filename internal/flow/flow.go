@@ -90,6 +90,9 @@ type Config struct {
 	// Supports formats: "User", "User[]", "[User!]!", "User!"
 	Returns string
 
+	// Cache defines caching behavior for this flow.
+	Cache *CacheConfig
+
 	// Validate defines validation rules.
 	Validate *ValidateConfig
 
@@ -102,6 +105,9 @@ type Config struct {
 
 	// Require defines authorization requirements.
 	Require *RequireConfig
+
+	// After defines post-execution actions (cache invalidation, notifications, etc.)
+	After *AfterConfig
 
 	// ErrorHandling defines error handling behavior.
 	ErrorHandling *ErrorHandlingConfig
@@ -121,14 +127,23 @@ type ToConfig struct {
 	// Connector is the destination connector name.
 	Connector string
 
-	// Target is the destination target (e.g., table name, endpoint).
+	// Target is the destination target (e.g., table name, collection, endpoint).
 	Target string
 
 	// Filter is an optional filter expression for the destination.
 	Filter string
 
-	// Query is an optional raw SQL query for database connectors.
+	// Query is an optional raw SQL query for SQL database connectors.
+	// Example: "SELECT * FROM users WHERE id = :id"
 	Query string
+
+	// QueryFilter is an optional query filter for NoSQL database connectors (MongoDB).
+	// Example: {"status": "active", "age": {"$gte": 18}}
+	QueryFilter map[string]interface{}
+
+	// Update is an optional update document for NoSQL UPDATE operations (MongoDB).
+	// Example: {"$set": {"status": "active"}, "$inc": {"count": 1}}
+	Update map[string]interface{}
 }
 
 // ValidateConfig holds validation configuration.
@@ -195,6 +210,64 @@ type RetryConfig struct {
 
 	// Backoff is the backoff strategy (linear, exponential).
 	Backoff string
+}
+
+// CacheConfig holds caching configuration for a flow.
+type CacheConfig struct {
+	// Storage is the cache connector name (e.g., "redis_cache", "memory_cache").
+	Storage string
+
+	// TTL is the time-to-live for cached entries (e.g., "5m", "1h").
+	TTL string
+
+	// Key is the cache key template with variable interpolation.
+	// Supports ${input.params.id}, ${input.query.page}, etc.
+	Key string
+
+	// InvalidateOn is a list of event patterns that invalidate this cache entry.
+	// Example: ["products:updated:${input.params.id}"]
+	InvalidateOn []string
+
+	// Use references a named cache definition (cache.name).
+	Use string
+}
+
+// AfterConfig holds post-execution actions.
+type AfterConfig struct {
+	// Invalidate defines cache invalidation rules to run after the flow.
+	Invalidate *InvalidateConfig
+}
+
+// InvalidateConfig holds cache invalidation settings.
+type InvalidateConfig struct {
+	// Storage is the cache connector name.
+	Storage string
+
+	// Keys are specific keys to invalidate.
+	// Supports variable interpolation: ${input.params.id}
+	Keys []string
+
+	// Patterns are key patterns to invalidate (with * wildcards).
+	// Example: ["products:*", "categories:${input.data.category_id}:*"]
+	Patterns []string
+}
+
+// NamedCacheConfig holds a reusable cache definition.
+type NamedCacheConfig struct {
+	// Name is the cache definition name.
+	Name string
+
+	// Storage is the cache connector name.
+	Storage string
+
+	// TTL is the default TTL for this cache.
+	TTL string
+
+	// Prefix is prepended to all cache keys.
+	Prefix string
+
+	// InvalidateOn is a list of events that invalidate entries in this cache.
+	InvalidateOn []string
 }
 
 // Context holds runtime context for flow execution.
