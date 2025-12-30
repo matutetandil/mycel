@@ -120,23 +120,36 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 		Filters:   make(map[string]interface{}),
 	}
 
-	// Extract path parameters from operation and use as filters
-	// For operations like "GET /users/:id", extract :id as a filter
-	operation := parseOperation(h.Config.From.Operation)
-	pathParams := extractPathParams(operation.Path)
-
-	for _, param := range pathParams {
-		if val, ok := input[param]; ok {
-			query.Filters[param] = val
+	// Check if this is a GraphQL operation (Query.fieldName or Mutation.fieldName)
+	if isGraphQLOperation(h.Config.From.Operation) {
+		// For GraphQL, use all input arguments as filters
+		// This supports queries like Query.user(id: 1) -> filters by id
+		for key, val := range input {
+			// Skip special keys that aren't filters
+			if key == "parent_id" || hasPrefix(key, "parent_") {
+				continue
+			}
+			query.Filters[key] = val
 		}
-	}
+	} else {
+		// For REST, extract path parameters from operation and use as filters
+		// For operations like "GET /users/:id", extract :id as a filter
+		operation := parseOperation(h.Config.From.Operation)
+		pathParams := extractPathParams(operation.Path)
 
-	// Also apply explicit filter if present
-	if h.Config.To.Filter != "" {
-		// Parse filter expression and add to query
-		// For now, we'll handle simple ID-based filters
-		if id, ok := input["id"]; ok {
-			query.Filters["id"] = id
+		for _, param := range pathParams {
+			if val, ok := input[param]; ok {
+				query.Filters[param] = val
+			}
+		}
+
+		// Also apply explicit filter if present
+		if h.Config.To.Filter != "" {
+			// Parse filter expression and add to query
+			// For now, we'll handle simple ID-based filters
+			if id, ok := input["id"]; ok {
+				query.Filters["id"] = id
+			}
 		}
 	}
 
@@ -146,6 +159,11 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 	}
 
 	return result.Rows, nil
+}
+
+// isGraphQLOperation checks if an operation string is a GraphQL operation.
+func isGraphQLOperation(op string) bool {
+	return hasPrefix(op, "Query.") || hasPrefix(op, "Mutation.") || hasPrefix(op, "Subscription.")
 }
 
 // handleCreate handles POST requests.
@@ -167,6 +185,24 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		return nil, err
 	}
 
+	// For GraphQL operations, return the created object instead of {id, affected}
+	// This allows mutations like `createUser(input: {...}) { id email name }` to work
+	if isGraphQLOperation(h.Config.From.Operation) && result.LastID != 0 {
+		// Try to read back the created record
+		if reader, ok := dest.(connector.Reader); ok {
+			query := connector.Query{
+				Target:    h.Config.To.Target,
+				Operation: "SELECT",
+				Filters:   map[string]interface{}{"id": result.LastID},
+			}
+			readResult, err := reader.Read(ctx, query)
+			if err == nil && len(readResult.Rows) > 0 {
+				return readResult.Rows[0], nil
+			}
+		}
+	}
+
+	// Default: return insert metadata
 	return map[string]interface{}{
 		"id":       result.LastID,
 		"affected": result.Affected,
@@ -263,9 +299,14 @@ type Operation struct {
 	Path   string
 }
 
-// parseOperation parses an operation string like "GET /users/:id".
+// parseOperation parses an operation string like "GET /users/:id" or "Query.users".
 func parseOperation(op string) Operation {
-	// Split by first space
+	// Check for GraphQL operation format: "Query.fieldName" or "Mutation.fieldName"
+	if len(op) > 6 && (op[:6] == "Query." || (len(op) > 9 && op[:9] == "Mutation.")) {
+		return parseGraphQLOperation(op)
+	}
+
+	// Split by first space for REST operations
 	for i, c := range op {
 		if c == ' ' {
 			return Operation{
@@ -279,6 +320,77 @@ func parseOperation(op string) Operation {
 		Method: "GET",
 		Path:   op,
 	}
+}
+
+// parseGraphQLOperation parses GraphQL operations like "Query.users" or "Mutation.createUser".
+func parseGraphQLOperation(op string) Operation {
+	// Query operations are read operations
+	if len(op) > 6 && op[:6] == "Query." {
+		return Operation{
+			Method: "GET",
+			Path:   op,
+		}
+	}
+
+	// Mutation operations - determine method based on field name
+	if len(op) > 9 && op[:9] == "Mutation." {
+		fieldName := op[9:]
+		lowerField := toLower(fieldName)
+
+		// Create operations
+		if hasPrefix(lowerField, "create") || hasPrefix(lowerField, "add") ||
+			hasPrefix(lowerField, "insert") || hasPrefix(lowerField, "new") {
+			return Operation{
+				Method: "POST",
+				Path:   op,
+			}
+		}
+
+		// Update operations
+		if hasPrefix(lowerField, "update") || hasPrefix(lowerField, "edit") ||
+			hasPrefix(lowerField, "modify") || hasPrefix(lowerField, "set") {
+			return Operation{
+				Method: "PUT",
+				Path:   op,
+			}
+		}
+
+		// Delete operations
+		if hasPrefix(lowerField, "delete") || hasPrefix(lowerField, "remove") ||
+			hasPrefix(lowerField, "destroy") {
+			return Operation{
+				Method: "DELETE",
+				Path:   op,
+			}
+		}
+
+		// Default mutations to POST
+		return Operation{
+			Method: "POST",
+			Path:   op,
+		}
+	}
+
+	return Operation{
+		Method: "GET",
+		Path:   op,
+	}
+}
+
+// toLower converts a string to lowercase without importing strings package.
+func toLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + 32
+		}
+	}
+	return string(b)
+}
+
+// hasPrefix checks if s starts with prefix (case-insensitive already handled).
+func hasPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
 // extractPathParams extracts parameter names from a path like "/users/:id".

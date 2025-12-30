@@ -1,0 +1,38 @@
+# GraphQL Schema Definition
+# This schema is automatically loaded when using schema.path in connector config
+
+type User {
+  id: Int!
+  email: String!
+  name: String!
+  created_at: String
+}
+
+input UserInput {
+  email: String!
+  name: String!
+}
+
+input UpdateUserInput {
+  name: String
+  email: String
+}
+
+type Query {
+  # Get all users
+  users: [User!]!
+
+  # Get a single user by ID
+  user(id: Int!): User
+}
+
+type Mutation {
+  # Create a new user
+  createUser(input: UserInput!): User!
+
+  # Update an existing user
+  updateUser(id: Int!, input: UpdateUserInput!): User
+
+  # Delete a user
+  deleteUser(id: Int!): Boolean!
+}

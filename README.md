@@ -62,8 +62,7 @@ Mycel connects **anything to anything**:
 ✅ **Phase 1 Complete** - Core runtime is functional!
 ✅ **Phase 2 Complete** - Extended connectors and features!
 ✅ **Phase 2.5 Complete** - TCP Server + Client!
-✅ **Phase 3.1 Complete** - Message Queues (RabbitMQ + Kafka)!
-✅ **Phase 3.2 Complete** - Exec Connector (local + SSH)!
+✅ **Phase 3 Complete** - GraphQL + Exec Connectors!
 
 ### Connector Support
 
@@ -73,12 +72,12 @@ Mycel connects **anything to anything**:
 | SQLite    | ✅ Phase 1             | ✅ Phase 1              |
 | PostgreSQL| ✅ Phase 2             | ✅ Phase 2              |
 | TCP       | ✅ Phase 2.5           | ✅ Phase 2.5            |
-| RabbitMQ  | ✅ Phase 3.1           | ✅ Phase 3.1            |
-| Kafka     | ✅ Phase 3.1           | ✅ Phase 3.1            |
-| Exec      | ✅ Phase 3.2           | ✅ Phase 3.2            |
-| GraphQL   | 🔜 Phase 3             | 🔜 Phase 3              |
-| gRPC      | 🔜 Phase 3             | 🔜 Phase 3              |
-| Files     | 🔜 Phase 3             | 🔜 Phase 3              |
+| RabbitMQ  | ✅ Phase 3             | ✅ Phase 3              |
+| Kafka     | ✅ Phase 3             | ✅ Phase 3              |
+| Exec      | ✅ Phase 3             | ✅ Phase 3              |
+| GraphQL   | ✅ Phase 3             | ✅ Phase 3              |
+| gRPC      | 🔜 Phase 4             | 🔜 Phase 4              |
+| Files     | 🔜 Phase 4             | 🔜 Phase 4              |
 | Slack     | -                      | 🔜 Phase 6              |
 | Discord   | -                      | 🔜 Phase 6              |
 | Email     | -                      | 🔜 Phase 6              |
@@ -112,7 +111,7 @@ Mycel connects **anything to anything**:
 - [x] Message routing by type field
 - [x] **NestJS TCP protocol compatibility** - Connect to existing NestJS microservices!
 
-**Phase 3.1 - Message Queues** ✅
+**Phase 3 - Extended Connectors** ✅
 - [x] RabbitMQ connector (consumer + publisher)
 - [x] AMQP topic pattern matching (`*` and `#` wildcards)
 - [x] Queue/Exchange declaration and binding
@@ -122,22 +121,26 @@ Mycel connects **anything to anything**:
 - [x] Consumer groups with auto-commit
 - [x] SASL authentication (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
 - [x] Compression support (gzip, snappy, lz4, zstd)
-
-**Phase 3.2 - Exec Connector** ✅
-- [x] Local shell command execution
-- [x] SSH remote command execution
+- [x] **Exec Connector** - Execute local/remote shell commands
+- [x] Local shell execution with shell wrapper support
+- [x] SSH remote command execution with key/password auth
 - [x] Multiple output formats (text, json, lines)
-- [x] Multiple input formats (args, stdin, json)
-- [x] Shell wrapper support (bash -c, etc.)
-- [x] Environment variables and working directory
-- [x] Timeout handling
-
-**Phase 3 - Extended Protocols** (In Progress)
-- [ ] GraphQL (server + client)
-- [ ] gRPC (server + client)
-- [ ] File connector (read/write)
+- [x] **GraphQL Connector** (server + client)
+- [x] **Dual-approach schema generation:**
+  - **Schema-first**: Define types in SDL file, Mycel auto-connects flows
+  - **HCL-first**: Define types in HCL with `returns` attribute, Mycel generates schema
+- [x] GraphQL Server with Playground UI
+- [x] Full SDL parser with AST (types, inputs, enums, interfaces)
+- [x] Smart resolver with auto-unwrap for non-list types
+- [x] Column mapping (snake_case → camelCase)
+- [x] Custom scalars (DateTime, Date, Time, JSON)
+- [x] GraphQL Variables support
+- [x] GraphQL Client with auth (Bearer, API Key, OAuth2)
+- [x] Retry with exponential backoff
 
 **Phase 4 - Production Ready**
+- [ ] gRPC (server + client)
+- [ ] File connector (read/write)
 - [ ] Hot reload
 - [ ] Metrics & observability
 - [ ] Rate limiting
@@ -371,6 +374,7 @@ make lint
 ## Documentation
 
 - [Transformations Guide](docs/transformations.md) - Complete CEL transformation reference (includes data enrichment)
+- [GraphQL Example](examples/graphql/README.md) - GraphQL connector with schema-first and HCL-first approaches
 - [Data Enrichment Example](examples/enrich/) - Fetch data from external services
 - [TCP Example](examples/tcp/README.md) - TCP connector usage guide
 - [Message Queue Example](examples/mq/README.md) - RabbitMQ/Kafka integration guide

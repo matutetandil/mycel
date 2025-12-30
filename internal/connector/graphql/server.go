@@ -12,7 +12,11 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/mycel-labs/mycel/internal/connector"
+	"github.com/mycel-labs/mycel/internal/validate"
 )
+
+// TypeSchema is an alias for validate.TypeSchema for use in HCL-first mode.
+type TypeSchema = validate.TypeSchema
 
 // ServerConnector exposes a GraphQL API endpoint.
 type ServerConnector struct {
@@ -94,6 +98,50 @@ func (c *ServerConnector) Connect(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// LoadHCLTypes loads type schemas from HCL for HCL-first mode.
+// This converts HCL type definitions to GraphQL types.
+func (c *ServerConnector) LoadHCLTypes(types map[string]*TypeSchema) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if len(types) == 0 {
+		return nil
+	}
+
+	if err := c.schemaBuilder.LoadHCLTypes(types); err != nil {
+		return fmt.Errorf("failed to load HCL types: %w", err)
+	}
+
+	c.logger.Info("loaded HCL types for GraphQL",
+		"count", len(types),
+		"connector", c.name,
+	)
+
+	return nil
+}
+
+// RegisterRouteWithReturnType registers a handler with a specific return type.
+// Use this for HCL-first mode where the return type is specified in the flow config.
+func (c *ServerConnector) RegisterRouteWithReturnType(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error), returnType string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if err := c.schemaBuilder.RegisterHandlerWithReturnType(operation, handler, returnType); err != nil {
+		c.logger.Error("failed to register GraphQL handler with return type",
+			"operation", operation,
+			"returnType", returnType,
+			"error", err,
+		)
+		return
+	}
+
+	c.logger.Debug("registered GraphQL handler with return type",
+		"operation", operation,
+		"returnType", returnType,
+		"connector", c.name,
+	)
 }
 
 // RegisterEntity registers a federated entity for resolution by this subgraph.

@@ -32,6 +32,26 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "base_url"},
 			{Name: "timeout"},
 			{Name: "retry_count"},
+			// GraphQL specific
+			{Name: "endpoint"},
+			{Name: "playground"},
+			{Name: "playground_path"},
+			// TCP specific
+			{Name: "protocol"},
+			{Name: "max_connections"},
+			{Name: "read_timeout"},
+			{Name: "write_timeout"},
+			// MQ specific
+			{Name: "brokers"},
+			// Exec specific
+			{Name: "command"},
+			{Name: "args"},
+			{Name: "shell"},
+			{Name: "env"},
+			{Name: "working_dir"},
+			{Name: "input_format"},
+			{Name: "output_format"},
+			{Name: "retry_delay"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "pool"},
@@ -40,6 +60,13 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Type: "retry"},
 			{Type: "mock"},
 			{Type: "headers"},
+			{Type: "schema"},
+			{Type: "ssh"},
+			{Type: "queue"},
+			{Type: "publisher"},
+			{Type: "consumer"},
+			{Type: "producer"},
+			{Type: "federation"},
 		},
 	}
 
@@ -120,10 +147,108 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 				return nil, fmt.Errorf("headers block error: %w", err)
 			}
 			config.Properties["headers"] = headers
+
+		case "schema":
+			schema, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("schema block error: %w", err)
+			}
+			config.Properties["schema"] = schema
+
+		case "ssh":
+			ssh, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("ssh block error: %w", err)
+			}
+			config.Properties["ssh"] = ssh
+
+		case "queue":
+			queue, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("queue block error: %w", err)
+			}
+			config.Properties["queue"] = queue
+
+		case "publisher":
+			pub, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("publisher block error: %w", err)
+			}
+			config.Properties["publisher"] = pub
+
+		case "consumer":
+			consumer, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("consumer block error: %w", err)
+			}
+			config.Properties["consumer"] = consumer
+
+		case "producer":
+			producer, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("producer block error: %w", err)
+			}
+			config.Properties["producer"] = producer
+
+		case "federation":
+			federation, err := parseFederationBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("federation block error: %w", err)
+			}
+			config.Properties["federation"] = federation
 		}
 	}
 
 	return config, nil
+}
+
+// parseFederationBlock parses a GraphQL Federation configuration block.
+func parseFederationBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interface{}, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "enabled"},
+			{Name: "version"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("federation block content error: %s", diags.Error())
+	}
+
+	federation := make(map[string]interface{})
+
+	// Default enabled to true if block exists
+	federation["enabled"] = true
+
+	for name, attr := range content.Attributes {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("federation %s error: %s", name, diags.Error())
+		}
+		federation[name] = ctyValueToGo(val)
+	}
+
+	return federation, nil
+}
+
+// parseGenericBlock parses a block with arbitrary attributes.
+func parseGenericBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interface{}, error) {
+	attrs, diags := block.Body.JustAttributes()
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("block content error: %s", diags.Error())
+	}
+
+	result := make(map[string]interface{})
+	for name, attr := range attrs {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("attribute %s error: %s", name, diags.Error())
+		}
+		result[name] = ctyValueToGo(val)
+	}
+
+	return result, nil
 }
 
 // parsePoolBlock parses a pool configuration block.

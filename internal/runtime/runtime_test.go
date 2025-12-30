@@ -513,16 +513,19 @@ func doRequest(t *testing.T, method, url string, payload interface{}) (*http.Res
 	return resp, string(respBody)
 }
 
-// TestIntegration_GraphQL tests GraphQL server with SQLite database.
-func TestIntegration_GraphQL(t *testing.T) {
-	// Create temp directory for test config
-	tmpDir, err := os.MkdirTemp("", "mycel-graphql-test-*")
+// =============================================================================
+// GraphQL Integration Tests - Dynamic Mode (Basic)
+// =============================================================================
+
+// TestIntegration_GraphQL_Dynamic tests GraphQL server with dynamic schema generation.
+// This is the simplest mode where types are created automatically as JSON.
+func TestIntegration_GraphQL_Dynamic(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-graphql-dynamic-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	// Setup SQLite database
 	dbPath := filepath.Join(tmpDir, "test.db")
 	db, err := setupTestDatabase(dbPath)
 	if err != nil {
@@ -536,11 +539,9 @@ func TestIntegration_GraphQL(t *testing.T) {
 		t.Fatalf("failed to insert test data: %v", err)
 	}
 
-	// Create GraphQL test configuration
 	gqlPort := 4901
-	createGraphQLTestConfig(t, tmpDir, dbPath, gqlPort)
+	createGraphQLDynamicConfig(t, tmpDir, dbPath, gqlPort)
 
-	// Start the runtime
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -550,149 +551,45 @@ func TestIntegration_GraphQL(t *testing.T) {
 	}
 	defer rt.Shutdown()
 
-	// Wait for GraphQL server to be ready
 	waitForGraphQLServer(t, gqlPort)
 
-	// Test: Query all users
-	// Note: The generic GraphQL schema returns [JSON], so we query without sub-selection
-	t.Run("Query.users returns all users", func(t *testing.T) {
+	t.Run("Query.users returns all users as JSON array", func(t *testing.T) {
 		query := `{ "query": "{ users }" }`
 		resp, body := doGraphQLRequest(t, gqlPort, query)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(body), &result); err != nil {
-			t.Fatalf("failed to parse response: %v", err)
-		}
-
-		// Check for errors
-		if errs, ok := result["errors"]; ok {
-			t.Fatalf("GraphQL errors: %v", errs)
-		}
-
-		// Check data
-		data, ok := result["data"].(map[string]interface{})
-		if !ok {
-			t.Fatalf("expected data in response, got: %s", body)
-		}
-
-		users, ok := data["users"].([]interface{})
-		if !ok {
-			t.Fatalf("expected users array in data, got: %v", data)
-		}
+		result := parseGraphQLResponse(t, body)
+		users := result["users"].([]interface{})
 
 		if len(users) < 2 {
 			t.Errorf("expected at least 2 users, got %d", len(users))
 		}
 	})
 
-	// Test: Query single user by ID
-	// Uses the generic "input" argument that accepts JSON
-	t.Run("Query.user returns single user", func(t *testing.T) {
-		query := `{ "query": "{ user(input: {id: 1}) }" }`
+	t.Run("Mutation.createUser creates user with transforms", func(t *testing.T) {
+		query := `{ "query": "mutation { createUser(input: { email: \"DYNAMIC@TEST.COM\", name: \"  Dynamic User  \" }) }" }`
 		resp, body := doGraphQLRequest(t, gqlPort, query)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(body), &result); err != nil {
-			t.Fatalf("failed to parse response: %v", err)
-		}
-
-		if errs, ok := result["errors"]; ok {
-			t.Fatalf("GraphQL errors: %v", errs)
-		}
-
-		data, ok := result["data"].(map[string]interface{})
-		if !ok {
-			t.Fatalf("expected data in response")
-		}
-
-		// The result is an array of JSON values
-		users, ok := data["user"].([]interface{})
-		if !ok || len(users) == 0 {
-			t.Fatalf("expected user array in data, got: %v", data)
-		}
-
-		user, ok := users[0].(map[string]interface{})
-		if !ok {
-			t.Fatalf("expected user object, got: %v", users[0])
-		}
-
-		if user["email"] != "john@example.com" {
-			t.Errorf("expected email 'john@example.com', got '%v'", user["email"])
-		}
-	})
-
-	// Test: Create user mutation
-	t.Run("Mutation.createUser creates a new user", func(t *testing.T) {
-		query := `{ "query": "mutation { createUser(input: { email: \"NEW@EXAMPLE.COM\", name: \"  New User  \" }) }" }`
-		resp, body := doGraphQLRequest(t, gqlPort, query)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
-		}
-
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(body), &result); err != nil {
-			t.Fatalf("failed to parse response: %v", err)
-		}
-
-		if errs, ok := result["errors"]; ok {
-			t.Fatalf("GraphQL errors: %v", errs)
-		}
-
-		// Verify the user was created in the database with transforms applied
+		// Verify in database
 		var email, name string
 		err := db.QueryRow("SELECT email, name FROM users ORDER BY id DESC LIMIT 1").Scan(&email, &name)
 		if err != nil {
 			t.Fatalf("failed to query database: %v", err)
 		}
 
-		// Email should be lowercased by transform
-		if email != "new@example.com" {
-			t.Errorf("expected email to be lowercased 'new@example.com', got '%s'", email)
+		if email != "dynamic@test.com" {
+			t.Errorf("expected email 'dynamic@test.com', got '%s'", email)
 		}
-
-		// Name should be trimmed by transform
-		if name != "New User" {
-			t.Errorf("expected name to be trimmed 'New User', got '%s'", name)
+		if name != "Dynamic User" {
+			t.Errorf("expected name 'Dynamic User', got '%s'", name)
 		}
 	})
 
-	// Test: Delete user mutation
-	t.Run("Mutation.deleteUser deletes a user", func(t *testing.T) {
-		// First, count users
-		var countBefore int
-		db.QueryRow("SELECT COUNT(*) FROM users").Scan(&countBefore)
-
-		query := `{ "query": "mutation { deleteUser(input: {id: 1}) }" }`
-		resp, body := doGraphQLRequest(t, gqlPort, query)
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
-		}
-
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(body), &result); err != nil {
-			t.Fatalf("failed to parse response: %v", err)
-		}
-
-		if errs, ok := result["errors"]; ok {
-			t.Fatalf("GraphQL errors: %v", errs)
-		}
-
-		// Verify user was deleted
-		var countAfter int
-		db.QueryRow("SELECT COUNT(*) FROM users").Scan(&countAfter)
-
-		if countAfter >= countBefore {
-			t.Errorf("expected user count to decrease, before: %d, after: %d", countBefore, countAfter)
-		}
-	})
-
-	// Test: GraphQL Playground is accessible
 	t.Run("Playground is accessible", func(t *testing.T) {
 		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/playground", gqlPort))
 		if err != nil {
@@ -711,33 +608,29 @@ func TestIntegration_GraphQL(t *testing.T) {
 	})
 }
 
-func createGraphQLTestConfig(t *testing.T, tmpDir, dbPath string, port int) {
+func createGraphQLDynamicConfig(t *testing.T, tmpDir, dbPath string, port int) {
 	t.Helper()
 
 	os.MkdirAll(filepath.Join(tmpDir, "connectors"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "flows"), 0755)
 
-	// Main config
 	writeFile(t, filepath.Join(tmpDir, "config.hcl"), `
 service {
-  name    = "graphql-test"
+  name    = "graphql-dynamic-test"
   version = "1.0.0"
 }
 `)
 
-	// GraphQL connector
 	writeFile(t, filepath.Join(tmpDir, "connectors", "graphql.hcl"), fmt.Sprintf(`
 connector "gql" {
   type   = "graphql"
   driver = "server"
-
   port       = %d
   endpoint   = "/graphql"
   playground = true
 }
 `, port))
 
-	// SQLite connector
 	writeFile(t, filepath.Join(tmpDir, "connectors", "database.hcl"), fmt.Sprintf(`
 connector "sqlite" {
   type     = "database"
@@ -746,59 +639,27 @@ connector "sqlite" {
 }
 `, dbPath))
 
-	// GraphQL flows
 	writeFile(t, filepath.Join(tmpDir, "flows", "graphql.hcl"), `
-# Query: Get all users
 flow "get_users" {
   from {
     connector = "gql"
     operation = "Query.users"
   }
-
   to {
     connector = "sqlite"
     target    = "users"
   }
 }
 
-# Query: Get single user by ID
-flow "get_user" {
-  from {
-    connector = "gql"
-    operation = "Query.user"
-  }
-
-  to {
-    connector = "sqlite"
-    target    = "users"
-  }
-}
-
-# Mutation: Create user with transforms
 flow "create_user" {
   from {
     connector = "gql"
     operation = "Mutation.createUser"
   }
-
   transform {
     email = "lower(input.email)"
     name  = "trim(input.name)"
   }
-
-  to {
-    connector = "sqlite"
-    target    = "users"
-  }
-}
-
-# Mutation: Delete user
-flow "delete_user" {
-  from {
-    connector = "gql"
-    operation = "Mutation.deleteUser"
-  }
-
   to {
     connector = "sqlite"
     target    = "users"
@@ -807,12 +668,15 @@ flow "delete_user" {
 `)
 }
 
+// =============================================================================
+// GraphQL Helper Functions
+// =============================================================================
+
 func waitForGraphQLServer(t *testing.T, port int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 
 	for time.Now().Before(deadline) {
-		// Try to access the GraphQL health endpoint
 		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/health", port))
 		if err == nil && resp.StatusCode == http.StatusOK {
 			resp.Body.Close()
@@ -852,10 +716,36 @@ func doGraphQLRequest(t *testing.T, port int, query string) (*http.Response, str
 	return resp, string(body)
 }
 
-// TestIntegration_GraphQL_SchemaFirst tests GraphQL with SDL schema-first approach.
-// In this mode, types are defined in a .graphql SDL file and flows connect automatically.
-func TestIntegration_GraphQL_SchemaFirst(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "mycel-graphql-sdl-test-*")
+// parseGraphQLResponse parses a GraphQL response and returns the data map.
+// It fails the test if there are errors in the response.
+func parseGraphQLResponse(t *testing.T, body string) map[string]interface{} {
+	t.Helper()
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(body), &result); err != nil {
+		t.Fatalf("failed to parse GraphQL response: %v", err)
+	}
+
+	if errs, ok := result["errors"]; ok {
+		t.Fatalf("GraphQL errors: %v", errs)
+	}
+
+	data, ok := result["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data in GraphQL response, got: %s", body)
+	}
+
+	return data
+}
+
+// =============================================================================
+// GraphQL Integration Tests - Schema-First Mode (Full Suite)
+// =============================================================================
+
+// TestIntegration_GraphQL_SchemaFirst_CRUD tests complete CRUD operations with Schema-first mode.
+// This mirrors the REST integration tests with full type support from SDL.
+func TestIntegration_GraphQL_SchemaFirst_CRUD(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-graphql-sdl-crud-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
@@ -874,8 +764,8 @@ func TestIntegration_GraphQL_SchemaFirst(t *testing.T) {
 		t.Fatalf("failed to insert test data: %v", err)
 	}
 
-	gqlPort := 4902
-	createGraphQLSchemaFirstConfig(t, tmpDir, dbPath, gqlPort)
+	gqlPort := 4910
+	createGraphQLSchemaFirstFullConfig(t, tmpDir, dbPath, gqlPort)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -888,135 +778,343 @@ func TestIntegration_GraphQL_SchemaFirst(t *testing.T) {
 
 	waitForGraphQLServer(t, gqlPort)
 
-	// Test: Query with proper typed fields from SDL
-	t.Run("Query.users returns typed User objects", func(t *testing.T) {
-		query := `{ "query": "{ users { id email name } }" }`
+	// =========================================================================
+	// READ Operations
+	// =========================================================================
+
+	t.Run("Query.users returns all users with typed fields", func(t *testing.T) {
+		query := `{ "query": "{ users { id email name createdAt } }" }`
 		resp, body := doGraphQLRequest(t, gqlPort, query)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(body), &result); err != nil {
-			t.Fatalf("failed to parse response: %v", err)
-		}
-
-		if errs, ok := result["errors"]; ok {
-			t.Fatalf("GraphQL errors: %v", errs)
-		}
-
-		data, ok := result["data"].(map[string]interface{})
-		if !ok {
-			t.Fatalf("expected data in response, got: %s", body)
-		}
-
-		users, ok := data["users"].([]interface{})
-		if !ok {
-			t.Fatalf("expected users array, got: %v", data)
-		}
+		data := parseGraphQLResponse(t, body)
+		users := data["users"].([]interface{})
 
 		if len(users) < 2 {
 			t.Errorf("expected at least 2 users, got %d", len(users))
 		}
 
-		// Verify the first user has typed fields
-		user, ok := users[0].(map[string]interface{})
-		if !ok {
-			t.Fatalf("expected user object, got: %v", users[0])
-		}
-
-		// Check that typed fields are present
+		// Verify typed fields
+		user := users[0].(map[string]interface{})
 		if _, ok := user["id"]; !ok {
-			t.Error("expected 'id' field in User type")
+			t.Error("expected 'id' field")
 		}
 		if _, ok := user["email"]; !ok {
-			t.Error("expected 'email' field in User type")
+			t.Error("expected 'email' field")
 		}
 		if _, ok := user["name"]; !ok {
-			t.Error("expected 'name' field in User type")
+			t.Error("expected 'name' field")
 		}
 	})
 
-	// Test: Query single user with argument
-	// Note: user query returns [User] because handler returns []map from database
-	t.Run("Query.user with id argument returns user array", func(t *testing.T) {
+	t.Run("Query.user returns single user by ID (smart unwrap)", func(t *testing.T) {
 		query := `{ "query": "{ user(id: 1) { id email name } }" }`
 		resp, body := doGraphQLRequest(t, gqlPort, query)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(body), &result); err != nil {
-			t.Fatalf("failed to parse response: %v", err)
-		}
+		data := parseGraphQLResponse(t, body)
+		user := data["user"]
 
-		if errs, ok := result["errors"]; ok {
-			t.Fatalf("GraphQL errors: %v", errs)
-		}
-
-		data := result["data"].(map[string]interface{})
-		users := data["user"]
-
-		// Returns array with filtered results
-		if users == nil {
-			t.Fatal("expected user data")
-		}
-
-		// Should be an array
-		usersArr, ok := users.([]interface{})
+		// Should be unwrapped to single object (not array)
+		userObj, ok := user.(map[string]interface{})
 		if !ok {
-			t.Fatalf("expected array, got %T", users)
+			t.Fatalf("expected single user object (smart unwrap), got %T", user)
 		}
 
-		if len(usersArr) == 0 {
-			t.Fatal("expected at least one user")
+		if userObj["email"] != "john@example.com" {
+			t.Errorf("expected email 'john@example.com', got '%v'", userObj["email"])
 		}
 	})
 
-	// Test: Mutation with typed input
-	// Note: Mutation returns JSON (not User) because handler returns {id, affected}
-	t.Run("Mutation.createUser with CreateUserInput creates user", func(t *testing.T) {
-		// Don't request fields since return type is JSON scalar
-		query := `{ "query": "mutation { createUser(input: { email: \"SCHEMA@TEST.COM\", name: \"  Schema User  \" }) }" }`
+	t.Run("Query.user returns null for non-existent ID", func(t *testing.T) {
+		query := `{ "query": "{ user(id: 9999) { id email } }" }`
 		resp, body := doGraphQLRequest(t, gqlPort, query)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(body), &result); err != nil {
-			t.Fatalf("failed to parse response: %v", err)
+		data := parseGraphQLResponse(t, body)
+		user := data["user"]
+
+		if user != nil {
+			t.Errorf("expected null for non-existent user, got %v", user)
+		}
+	})
+
+	// =========================================================================
+	// CREATE Operations
+	// =========================================================================
+
+	t.Run("Mutation.createUser with transforms returns created user", func(t *testing.T) {
+		query := `{ "query": "mutation { createUser(input: { email: \"CREATE@TEST.COM\", name: \"  Created User  \" }) { id email name } }" }`
+		resp, body := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 		}
 
-		if errs, ok := result["errors"]; ok {
-			t.Fatalf("GraphQL errors: %v", errs)
+		data := parseGraphQLResponse(t, body)
+		created := data["createUser"].(map[string]interface{})
+
+		// Verify transform applied: email lowercased
+		if created["email"] != "create@test.com" {
+			t.Errorf("expected email 'create@test.com', got '%v'", created["email"])
+		}
+
+		// Verify transform applied: name trimmed
+		if created["name"] != "Created User" {
+			t.Errorf("expected name 'Created User', got '%v'", created["name"])
+		}
+
+		// Verify ID returned
+		if created["id"] == nil {
+			t.Error("expected 'id' in response")
 		}
 
 		// Verify in database
-		var email, name string
-		err := db.QueryRow("SELECT email, name FROM users ORDER BY id DESC LIMIT 1").Scan(&email, &name)
+		var dbEmail, dbName string
+		err := db.QueryRow("SELECT email, name FROM users ORDER BY id DESC LIMIT 1").Scan(&dbEmail, &dbName)
 		if err != nil {
 			t.Fatalf("failed to query database: %v", err)
 		}
 
-		// Email should be lowercased by transform
-		if email != "schema@test.com" {
-			t.Errorf("expected email 'schema@test.com', got '%s'", email)
+		if dbEmail != "create@test.com" {
+			t.Errorf("expected DB email 'create@test.com', got '%s'", dbEmail)
 		}
-
-		// Name should be trimmed by transform
-		if name != "Schema User" {
-			t.Errorf("expected name 'Schema User', got '%s'", name)
+		if dbName != "Created User" {
+			t.Errorf("expected DB name 'Created User', got '%s'", dbName)
 		}
 	})
 
-	// Test: Introspection shows our schema types
-	t.Run("Introspection returns User type", func(t *testing.T) {
-		query := `{ "query": "{ __type(name: \"User\") { name fields { name type { name } } } }" }`
+	t.Run("Mutation.createUserWithUUID generates UUID and returns externalId", func(t *testing.T) {
+		query := `{ "query": "mutation { createUserWithUUID(input: { email: \"uuid@test.com\", name: \"UUID User\" }) { id email externalId } }" }`
 		resp, body := doGraphQLRequest(t, gqlPort, query)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		data := parseGraphQLResponse(t, body)
+		created := data["createUserWithUUID"].(map[string]interface{})
+
+		// Verify ID returned
+		if created["id"] == nil {
+			t.Error("expected 'id' in response")
+		}
+
+		// Verify externalId is returned in GraphQL response (snake_case -> camelCase mapping)
+		externalId, ok := created["externalId"].(string)
+		if !ok || externalId == "" {
+			t.Errorf("expected 'externalId' as string in response, got '%v'", created["externalId"])
+		}
+
+		// Verify UUID format (36 chars with dashes)
+		if len(externalId) != 36 {
+			t.Errorf("expected UUID (36 chars), got '%s' (%d chars)", externalId, len(externalId))
+		}
+
+		// Verify UUID in database matches
+		var dbExternalID string
+		err := db.QueryRow("SELECT external_id FROM users ORDER BY id DESC LIMIT 1").Scan(&dbExternalID)
+		if err != nil {
+			t.Fatalf("failed to query database: %v", err)
+		}
+		if dbExternalID != externalId {
+			t.Errorf("GraphQL externalId '%s' doesn't match DB external_id '%s'", externalId, dbExternalID)
+		}
+	})
+
+	// =========================================================================
+	// UPDATE Operations
+	// =========================================================================
+
+	t.Run("Mutation.updateUser updates user and returns updated data", func(t *testing.T) {
+		// First create a user to update
+		createQuery := `{ "query": "mutation { createUser(input: { email: \"update@test.com\", name: \"Original Name\" }) { id } }" }`
+		_, createBody := doGraphQLRequest(t, gqlPort, createQuery)
+		createData := parseGraphQLResponse(t, createBody)
+		userID := createData["createUser"].(map[string]interface{})["id"]
+
+		// Update the user
+		updateQuery := fmt.Sprintf(`{ "query": "mutation { updateUser(id: \"%v\", input: { name: \"Updated Name\" }) { id email name } }" }`, userID)
+		resp, body := doGraphQLRequest(t, gqlPort, updateQuery)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		// Verify in database
+		var dbName string
+		err := db.QueryRow("SELECT name FROM users WHERE id = ?", userID).Scan(&dbName)
+		if err != nil {
+			t.Fatalf("failed to query database: %v", err)
+		}
+		if dbName != "Updated Name" {
+			t.Errorf("expected name 'Updated Name' in DB, got '%s'", dbName)
+		}
+	})
+
+	// =========================================================================
+	// DELETE Operations
+	// =========================================================================
+
+	t.Run("Mutation.deleteUser deletes user and returns result", func(t *testing.T) {
+		// First create a user to delete
+		createQuery := `{ "query": "mutation { createUser(input: { email: \"delete@test.com\", name: \"To Delete\" }) { id } }" }`
+		_, createBody := doGraphQLRequest(t, gqlPort, createQuery)
+		createData := parseGraphQLResponse(t, createBody)
+		userID := createData["createUser"].(map[string]interface{})["id"]
+
+		// Count before delete
+		var countBefore int
+		db.QueryRow("SELECT COUNT(*) FROM users").Scan(&countBefore)
+
+		// Delete the user - GraphQL returns ID as string
+		deleteQuery := fmt.Sprintf(`{ "query": "mutation { deleteUser(id: \"%v\") }" }`, userID)
+		resp, body := doGraphQLRequest(t, gqlPort, deleteQuery)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		// Verify user was deleted
+		var countAfter int
+		db.QueryRow("SELECT COUNT(*) FROM users").Scan(&countAfter)
+
+		if countAfter >= countBefore {
+			t.Errorf("expected count to decrease, before: %d, after: %d", countBefore, countAfter)
+		}
+
+		// Verify user doesn't exist - userID is a string
+		var exists bool
+		err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)", userID).Scan(&exists)
+		if err != nil {
+			t.Fatalf("failed to query database: %v", err)
+		}
+		if exists {
+			t.Error("expected user to be deleted")
+		}
+	})
+
+	// =========================================================================
+	// Schema Introspection
+	// =========================================================================
+
+	t.Run("Introspection returns User type with all fields", func(t *testing.T) {
+		query := `{ "query": "{ __type(name: \"User\") { name fields { name type { name kind ofType { name } } } } }" }`
+		resp, body := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		data := parseGraphQLResponse(t, body)
+		typeInfo := data["__type"].(map[string]interface{})
+
+		if typeInfo["name"] != "User" {
+			t.Errorf("expected type name 'User', got '%v'", typeInfo["name"])
+		}
+
+		fields := typeInfo["fields"].([]interface{})
+		fieldNames := make(map[string]bool)
+		for _, f := range fields {
+			field := f.(map[string]interface{})
+			fieldNames[field["name"].(string)] = true
+		}
+
+		expectedFields := []string{"id", "email", "name"}
+		for _, expected := range expectedFields {
+			if !fieldNames[expected] {
+				t.Errorf("expected field '%s' in User type", expected)
+			}
+		}
+	})
+
+	t.Run("Playground is accessible", func(t *testing.T) {
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/playground", gqlPort))
+		if err != nil {
+			t.Fatalf("failed to access playground: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for playground, got %d", resp.StatusCode)
+		}
+	})
+
+	// =========================================================================
+	// GraphQL Variables Tests
+	// =========================================================================
+
+	t.Run("Query with variables works correctly", func(t *testing.T) {
+		// Note: Variables work at GraphQL level, not as SQL parameters
+		// The variable value is passed to the resolver which uses it as filter
+		query := `{
+			"query": "query GetUser($id: ID!) { user(id: $id) { id email name } }",
+			"variables": { "id": "1" }
+		}`
+		resp, body := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		data := parseGraphQLResponse(t, body)
+		user := data["user"].(map[string]interface{})
+		if user["email"] != "john@example.com" {
+			t.Errorf("expected email 'john@example.com', got '%v'", user["email"])
+		}
+	})
+
+	t.Run("Mutation with variables works correctly", func(t *testing.T) {
+		query := `{
+			"query": "mutation CreateUser($input: CreateUserInput!) { createUser(input: $input) { id email name } }",
+			"variables": { "input": { "email": "VARIABLE@TEST.COM", "name": "  Variable User  " } }
+		}`
+		resp, body := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		data := parseGraphQLResponse(t, body)
+		created := data["createUser"].(map[string]interface{})
+
+		// Verify transforms applied via variables
+		if created["email"] != "variable@test.com" {
+			t.Errorf("expected email 'variable@test.com', got '%v'", created["email"])
+		}
+		if created["name"] != "Variable User" {
+			t.Errorf("expected name 'Variable User', got '%v'", created["name"])
+		}
+	})
+
+	// =========================================================================
+	// Error Handling Tests
+	// =========================================================================
+
+	t.Run("Invalid query returns GraphQL error", func(t *testing.T) {
+		query := `{ "query": "{ invalidField }" }`
+		resp, body := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 for GraphQL error, got %d", resp.StatusCode)
+		}
+
+		// GraphQL errors are returned with 200 status, check errors field
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(body), &result); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		errors, hasErrors := result["errors"]
+		if !hasErrors || errors == nil {
+			t.Error("expected GraphQL errors for invalid query")
+		}
+	})
+
+	t.Run("Missing required input field returns error", func(t *testing.T) {
+		// CreateUserInput requires email and name
+		query := `{ "query": "mutation { createUser(input: { email: \"only@email.com\" }) { id } }" }`
+		resp, body := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d", resp.StatusCode)
 		}
 
 		var result map[string]interface{}
@@ -1024,54 +1122,44 @@ func TestIntegration_GraphQL_SchemaFirst(t *testing.T) {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if errs, ok := result["errors"]; ok {
-			t.Fatalf("GraphQL errors: %v", errs)
+		// Should have error for missing required field
+		errors, hasErrors := result["errors"]
+		if !hasErrors || errors == nil {
+			t.Error("expected GraphQL errors for missing required field")
 		}
+	})
 
-		data := result["data"].(map[string]interface{})
-		typeInfo := data["__type"]
-
-		if typeInfo == nil {
-			t.Fatal("expected User type in schema")
-		}
-
-		userType := typeInfo.(map[string]interface{})
-		if userType["name"] != "User" {
-			t.Errorf("expected type name 'User', got '%v'", userType["name"])
-		}
-
-		fields := userType["fields"].([]interface{})
-		if len(fields) < 3 {
-			t.Errorf("expected at least 3 fields (id, email, name), got %d", len(fields))
+	t.Run("Empty query returns error", func(t *testing.T) {
+		query := `{ "query": "" }`
+		resp, _ := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400 for empty query, got %d", resp.StatusCode)
 		}
 	})
 }
 
-func createGraphQLSchemaFirstConfig(t *testing.T, tmpDir, dbPath string, port int) {
+func createGraphQLSchemaFirstFullConfig(t *testing.T, tmpDir, dbPath string, port int) {
 	t.Helper()
 
 	os.MkdirAll(filepath.Join(tmpDir, "connectors"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "flows"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "schema"), 0755)
 
-	// Main config
 	writeFile(t, filepath.Join(tmpDir, "config.hcl"), `
 service {
-  name    = "graphql-sdl-test"
+  name    = "graphql-sdl-crud-test"
   version = "1.0.0"
 }
 `)
 
-	// SDL Schema file
-	// Note: user query returns [User] because the handler returns []map from database
-	// Note: mutations return JSON because handlers return {id, affected} not the created object
+	// Complete SDL Schema with all CRUD operations
 	writeFile(t, filepath.Join(tmpDir, "schema", "schema.graphql"), `
 type User {
   id: ID!
   email: String!
   name: String!
-  external_id: String
-  created_at: String
+  externalId: String
+  createdAt: String
 }
 
 input CreateUserInput {
@@ -1079,41 +1167,40 @@ input CreateUserInput {
   name: String!
 }
 
-input DeleteUserInput {
-  id: ID!
+input UpdateUserInput {
+  email: String
+  name: String
 }
 
 scalar JSON
 
 type Query {
   users: [User!]!
-  user(id: ID!): [User]
+  user(id: ID!): User
 }
 
 type Mutation {
-  createUser(input: CreateUserInput!): JSON
-  deleteUser(input: DeleteUserInput!): JSON
+  createUser(input: CreateUserInput!): User
+  createUserWithUUID(input: CreateUserInput!): User
+  updateUser(id: ID!, input: UpdateUserInput!): User
+  deleteUser(id: ID!): JSON
 }
 `)
 
-	// GraphQL connector with schema path
 	schemaPath := filepath.Join(tmpDir, "schema", "schema.graphql")
 	writeFile(t, filepath.Join(tmpDir, "connectors", "graphql.hcl"), fmt.Sprintf(`
 connector "gql" {
   type   = "graphql"
   driver = "server"
-
   port       = %d
   endpoint   = "/graphql"
   playground = true
-
   schema {
     path = "%s"
   }
 }
 `, port, schemaPath))
 
-	// SQLite connector
 	writeFile(t, filepath.Join(tmpDir, "connectors", "database.hcl"), fmt.Sprintf(`
 connector "sqlite" {
   type     = "database"
@@ -1122,55 +1209,83 @@ connector "sqlite" {
 }
 `, dbPath))
 
-	// Flows connect to schema types
+	// Complete flows for CRUD
 	writeFile(t, filepath.Join(tmpDir, "flows", "graphql.hcl"), `
+# READ: Get all users
 flow "get_users" {
   from {
     connector = "gql"
     operation = "Query.users"
   }
-
   to {
     connector = "sqlite"
     target    = "users"
   }
 }
 
+# READ: Get single user by ID
 flow "get_user" {
   from {
     connector = "gql"
     operation = "Query.user"
   }
-
   to {
     connector = "sqlite"
     target    = "users"
   }
 }
 
+# CREATE: Create user with transforms
 flow "create_user" {
   from {
     connector = "gql"
     operation = "Mutation.createUser"
   }
-
   transform {
     email = "lower(input.email)"
     name  = "trim(input.name)"
   }
-
   to {
     connector = "sqlite"
     target    = "users"
   }
 }
 
+# CREATE: Create user with UUID
+flow "create_user_uuid" {
+  from {
+    connector = "gql"
+    operation = "Mutation.createUserWithUUID"
+  }
+  transform {
+    email       = "input.email"
+    name        = "input.name"
+    external_id = "uuid()"
+  }
+  to {
+    connector = "sqlite"
+    target    = "users"
+  }
+}
+
+# UPDATE: Update user
+flow "update_user" {
+  from {
+    connector = "gql"
+    operation = "Mutation.updateUser"
+  }
+  to {
+    connector = "sqlite"
+    target    = "users"
+  }
+}
+
+# DELETE: Delete user
 flow "delete_user" {
   from {
     connector = "gql"
     operation = "Mutation.deleteUser"
   }
-
   to {
     connector = "sqlite"
     target    = "users"
@@ -1179,19 +1294,14 @@ flow "delete_user" {
 `)
 }
 
-// TestIntegration_GraphQL_HCLFirst tests GraphQL with HCL-first approach.
-// In this mode, types are defined in HCL and flows use the 'returns' attribute.
-//
-// TODO: This test is skipped because HCL-first mode requires runtime changes:
-// 1. Runtime needs to pass HCL types to the GraphQL connector
-// 2. Flow's 'returns' attribute needs to be used when registering handlers
-// 3. The connector needs to convert HCL types to GraphQL types
-//
-// For now, users should use Schema-first mode with an SDL file.
-func TestIntegration_GraphQL_HCLFirst(t *testing.T) {
-	t.Skip("HCL-first mode requires runtime integration to pass types to GraphQL connector")
+// =============================================================================
+// GraphQL Integration Tests - HCL-First Mode (Full Suite)
+// =============================================================================
 
-	tmpDir, err := os.MkdirTemp("", "mycel-graphql-hcl-test-*")
+// TestIntegration_GraphQL_HCLFirst_CRUD tests complete CRUD operations with HCL-first mode.
+// Types are defined in HCL and flows use the 'returns' attribute.
+func TestIntegration_GraphQL_HCLFirst_CRUD(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-graphql-hcl-crud-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
@@ -1210,8 +1320,8 @@ func TestIntegration_GraphQL_HCLFirst(t *testing.T) {
 		t.Fatalf("failed to insert test data: %v", err)
 	}
 
-	gqlPort := 4903
-	createGraphQLHCLFirstConfig(t, tmpDir, dbPath, gqlPort)
+	gqlPort := 4920
+	createGraphQLHCLFirstFullConfig(t, tmpDir, dbPath, gqlPort)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1224,7 +1334,10 @@ func TestIntegration_GraphQL_HCLFirst(t *testing.T) {
 
 	waitForGraphQLServer(t, gqlPort)
 
-	// Test: Query returns typed results from HCL types
+	// =========================================================================
+	// READ Operations
+	// =========================================================================
+
 	t.Run("Query.users returns User[] type from HCL", func(t *testing.T) {
 		query := `{ "query": "{ users { id email name } }" }`
 		resp, body := doGraphQLRequest(t, gqlPort, query)
@@ -1232,30 +1345,14 @@ func TestIntegration_GraphQL_HCLFirst(t *testing.T) {
 			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(body), &result); err != nil {
-			t.Fatalf("failed to parse response: %v", err)
-		}
-
-		if errs, ok := result["errors"]; ok {
-			t.Fatalf("GraphQL errors: %v", errs)
-		}
-
-		data, ok := result["data"].(map[string]interface{})
-		if !ok {
-			t.Fatalf("expected data in response")
-		}
-
-		users, ok := data["users"].([]interface{})
-		if !ok {
-			t.Fatalf("expected users array")
-		}
+		data := parseGraphQLResponse(t, body)
+		users := data["users"].([]interface{})
 
 		if len(users) < 2 {
 			t.Errorf("expected at least 2 users, got %d", len(users))
 		}
 
-		// Verify typed fields
+		// Verify typed fields from HCL type
 		user := users[0].(map[string]interface{})
 		if _, ok := user["id"]; !ok {
 			t.Error("expected 'id' field from HCL type")
@@ -1263,44 +1360,228 @@ func TestIntegration_GraphQL_HCLFirst(t *testing.T) {
 		if _, ok := user["email"]; !ok {
 			t.Error("expected 'email' field from HCL type")
 		}
+		if _, ok := user["name"]; !ok {
+			t.Error("expected 'name' field from HCL type")
+		}
 	})
 
-	// Test: Mutation with HCL-first types
-	t.Run("Mutation.createUser uses returns type", func(t *testing.T) {
-		query := `{ "query": "mutation { createUser(input: { email: \"HCL@TEST.COM\", name: \"  HCL User  \" }) { id email name } }" }`
+	t.Run("Query.user returns single User with correct data", func(t *testing.T) {
+		// First get all users to find a valid ID and its data
+		usersQuery := `{ "query": "{ users { id email name } }" }`
+		_, usersBody := doGraphQLRequest(t, gqlPort, usersQuery)
+		usersData := parseGraphQLResponse(t, usersBody)
+		users := usersData["users"].([]interface{})
+		if len(users) == 0 {
+			t.Skip("no users in database to query")
+		}
+		firstUser := users[0].(map[string]interface{})
+		firstUserID := firstUser["id"]
+		expectedEmail := firstUser["email"]
+		expectedName := firstUser["name"]
+
+		// For HCL-first without SDL arguments, we use input argument
+		query := fmt.Sprintf(`{ "query": "{ user(input: {id: %v}) { id email name } }" }`, firstUserID)
 		resp, body := doGraphQLRequest(t, gqlPort, query)
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(body), &result); err != nil {
-			t.Fatalf("failed to parse response: %v", err)
+		data := parseGraphQLResponse(t, body)
+		user := data["user"]
+
+		if user == nil {
+			t.Fatal("expected user data")
 		}
 
-		if errs, ok := result["errors"]; ok {
-			t.Fatalf("GraphQL errors: %v", errs)
+		userObj := user.(map[string]interface{})
+
+		// Verify data matches
+		if userObj["id"] != firstUserID {
+			t.Errorf("expected id '%v', got '%v'", firstUserID, userObj["id"])
+		}
+		if userObj["email"] != expectedEmail {
+			t.Errorf("expected email '%v', got '%v'", expectedEmail, userObj["email"])
+		}
+		if userObj["name"] != expectedName {
+			t.Errorf("expected name '%v', got '%v'", expectedName, userObj["name"])
+		}
+	})
+
+	t.Run("Query.user returns null for non-existent ID", func(t *testing.T) {
+		query := `{ "query": "{ user(input: {id: 99999}) { id email } }" }`
+		resp, body := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		data := parseGraphQLResponse(t, body)
+		user := data["user"]
+
+		if user != nil {
+			t.Errorf("expected null for non-existent user, got %v", user)
+		}
+	})
+
+	// =========================================================================
+	// CREATE Operations
+	// =========================================================================
+
+	t.Run("Mutation.createUser with transforms returns User type", func(t *testing.T) {
+		query := `{ "query": "mutation { createUser(input: { email: \"HCLCREATE@TEST.COM\", name: \"  HCL Created  \" }) { id email name } }" }`
+		resp, body := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		data := parseGraphQLResponse(t, body)
+		created := data["createUser"].(map[string]interface{})
+
+		// Verify transforms applied
+		if created["email"] != "hclcreate@test.com" {
+			t.Errorf("expected email 'hclcreate@test.com', got '%v'", created["email"])
+		}
+		if created["name"] != "HCL Created" {
+			t.Errorf("expected name 'HCL Created', got '%v'", created["name"])
+		}
+
+		// Verify ID from HCL type
+		if created["id"] == nil {
+			t.Error("expected 'id' field from HCL type")
 		}
 
 		// Verify in database
-		var email, name string
-		err := db.QueryRow("SELECT email, name FROM users ORDER BY id DESC LIMIT 1").Scan(&email, &name)
+		var dbEmail, dbName string
+		err := db.QueryRow("SELECT email, name FROM users ORDER BY id DESC LIMIT 1").Scan(&dbEmail, &dbName)
 		if err != nil {
 			t.Fatalf("failed to query database: %v", err)
 		}
 
-		// Email should be lowercased
-		if email != "hcl@test.com" {
-			t.Errorf("expected email 'hcl@test.com', got '%s'", email)
-		}
-
-		// Name should be trimmed
-		if name != "HCL User" {
-			t.Errorf("expected name 'HCL User', got '%s'", name)
+		if dbEmail != "hclcreate@test.com" {
+			t.Errorf("expected DB email 'hclcreate@test.com', got '%s'", dbEmail)
 		}
 	})
 
-	// Test: Introspection shows HCL-generated types
+	t.Run("Mutation.createUserWithUUID generates UUID and returns externalId", func(t *testing.T) {
+		query := `{ "query": "mutation { createUserWithUUID(input: { email: \"hcluuid@test.com\", name: \"HCL UUID\" }) { id email externalId } }" }`
+		resp, body := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		data := parseGraphQLResponse(t, body)
+		created := data["createUserWithUUID"].(map[string]interface{})
+
+		// Verify ID returned
+		if created["id"] == nil {
+			t.Error("expected 'id' in response")
+		}
+
+		// Verify externalId is returned (snake_case -> camelCase mapping)
+		externalId, ok := created["externalId"].(string)
+		if !ok || externalId == "" {
+			t.Errorf("expected 'externalId' as string in response, got '%v'", created["externalId"])
+		}
+
+		// Verify UUID format (36 chars with dashes)
+		if len(externalId) != 36 {
+			t.Errorf("expected UUID (36 chars), got '%s' (%d chars)", externalId, len(externalId))
+		}
+
+		// Verify UUID in database matches
+		var dbExternalID string
+		err := db.QueryRow("SELECT external_id FROM users ORDER BY id DESC LIMIT 1").Scan(&dbExternalID)
+		if err != nil {
+			t.Fatalf("failed to query database: %v", err)
+		}
+		if dbExternalID != externalId {
+			t.Errorf("GraphQL externalId '%s' doesn't match DB external_id '%s'", externalId, dbExternalID)
+		}
+	})
+
+	// =========================================================================
+	// UPDATE Operations
+	// =========================================================================
+
+	t.Run("Mutation.updateUser updates user data", func(t *testing.T) {
+		// First create a user to update
+		createQuery := `{ "query": "mutation { createUser(input: { email: \"hclupdate@test.com\", name: \"Original HCL\" }) { id } }" }`
+		resp, createBody := doGraphQLRequest(t, gqlPort, createQuery)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("create failed: %s", createBody)
+		}
+		createData := parseGraphQLResponse(t, createBody)
+		userID := createData["createUser"].(map[string]interface{})["id"]
+
+		// Get the actual DB ID (last inserted)
+		var dbID int64
+		err := db.QueryRow("SELECT id FROM users ORDER BY id DESC LIMIT 1").Scan(&dbID)
+		if err != nil {
+			t.Fatalf("failed to get db id: %v", err)
+		}
+
+		// Update the user (HCL-first uses input argument) - use DB ID to ensure correct type
+		updateQuery := fmt.Sprintf(`{ "query": "mutation { updateUser(input: {id: %d, name: \"Updated HCL\"}) }" }`, dbID)
+		resp, body := doGraphQLRequest(t, gqlPort, updateQuery)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		// Check if there were GraphQL errors
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(body), &result); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+		if errs, ok := result["errors"]; ok && errs != nil {
+			t.Logf("GraphQL errors on update: %v", errs)
+		}
+		if data, ok := result["data"]; ok {
+			t.Logf("GraphQL update response data: %v", data)
+		}
+
+		// Verify in database
+		var dbName string
+		err = db.QueryRow("SELECT name FROM users WHERE id = ?", dbID).Scan(&dbName)
+		if err != nil {
+			t.Fatalf("failed to query database: %v", err)
+		}
+		if dbName != "Updated HCL" {
+			t.Errorf("expected name 'Updated HCL' in DB, got '%s' (userID from GraphQL: %v, dbID: %d)", dbName, userID, dbID)
+		}
+	})
+
+	// =========================================================================
+	// DELETE Operations
+	// =========================================================================
+
+	t.Run("Mutation.deleteUser deletes and returns result", func(t *testing.T) {
+		// Create user to delete
+		createQuery := `{ "query": "mutation { createUser(input: { email: \"hcldelete@test.com\", name: \"HCL Delete\" }) { id } }" }`
+		_, createBody := doGraphQLRequest(t, gqlPort, createQuery)
+		createData := parseGraphQLResponse(t, createBody)
+		userID := createData["createUser"].(map[string]interface{})["id"]
+
+		var countBefore int
+		db.QueryRow("SELECT COUNT(*) FROM users").Scan(&countBefore)
+
+		// Delete
+		deleteQuery := fmt.Sprintf(`{ "query": "mutation { deleteUser(input: {id: %v}) }" }`, userID)
+		resp, body := doGraphQLRequest(t, gqlPort, deleteQuery)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		var countAfter int
+		db.QueryRow("SELECT COUNT(*) FROM users").Scan(&countAfter)
+
+		if countAfter >= countBefore {
+			t.Errorf("expected count to decrease, before: %d, after: %d", countBefore, countAfter)
+		}
+	})
+
+	// =========================================================================
+	// Schema Introspection
+	// =========================================================================
+
 	t.Run("Introspection returns HCL-generated User type", func(t *testing.T) {
 		query := `{ "query": "{ __type(name: \"User\") { name fields { name } } }" }`
 		resp, body := doGraphQLRequest(t, gqlPort, query)
@@ -1308,16 +1589,7 @@ func TestIntegration_GraphQL_HCLFirst(t *testing.T) {
 			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(body), &result); err != nil {
-			t.Fatalf("failed to parse response: %v", err)
-		}
-
-		if errs, ok := result["errors"]; ok {
-			t.Fatalf("GraphQL errors: %v", errs)
-		}
-
-		data := result["data"].(map[string]interface{})
+		data := parseGraphQLResponse(t, body)
 		typeInfo := data["__type"]
 
 		if typeInfo == nil {
@@ -1328,20 +1600,126 @@ func TestIntegration_GraphQL_HCLFirst(t *testing.T) {
 		if userType["name"] != "User" {
 			t.Errorf("expected type name 'User', got '%v'", userType["name"])
 		}
+
+		// Verify fields from HCL type
+		fields := userType["fields"].([]interface{})
+		fieldNames := make(map[string]bool)
+		for _, f := range fields {
+			field := f.(map[string]interface{})
+			fieldNames[field["name"].(string)] = true
+		}
+
+		if !fieldNames["id"] {
+			t.Error("expected 'id' field from HCL type")
+		}
+		if !fieldNames["email"] {
+			t.Error("expected 'email' field from HCL type")
+		}
+		if !fieldNames["name"] {
+			t.Error("expected 'name' field from HCL type")
+		}
+	})
+
+	t.Run("Playground is accessible", func(t *testing.T) {
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/playground", gqlPort))
+		if err != nil {
+			t.Fatalf("failed to access playground: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for playground, got %d", resp.StatusCode)
+		}
+	})
+
+	// =========================================================================
+	// GraphQL Variables Tests
+	// =========================================================================
+
+	t.Run("Mutation with variables for simple types works", func(t *testing.T) {
+		// In HCL-first mode, the input argument is JSON scalar
+		// Variables are useful for passing the input object
+		query := `{
+			"query": "mutation CreateUser($input: JSON) { createUser(input: $input) { id email name } }",
+			"variables": { "input": { "email": "HCLVARQUERY@TEST.COM", "name": "  HCL Var Query  " } }
+		}`
+		resp, body := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		data := parseGraphQLResponse(t, body)
+		created := data["createUser"].(map[string]interface{})
+
+		// Verify transforms applied via variables
+		if created["email"] != "hclvarquery@test.com" {
+			t.Errorf("expected email 'hclvarquery@test.com', got '%v'", created["email"])
+		}
+	})
+
+	t.Run("Mutation with variables works correctly", func(t *testing.T) {
+		query := `{
+			"query": "mutation CreateUser($input: JSON) { createUser(input: $input) { id email name } }",
+			"variables": { "input": { "email": "HCLVAR@TEST.COM", "name": "  HCL Variable  " } }
+		}`
+		resp, body := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		data := parseGraphQLResponse(t, body)
+		created := data["createUser"].(map[string]interface{})
+
+		// Verify transforms applied via variables
+		if created["email"] != "hclvar@test.com" {
+			t.Errorf("expected email 'hclvar@test.com', got '%v'", created["email"])
+		}
+		if created["name"] != "HCL Variable" {
+			t.Errorf("expected name 'HCL Variable', got '%v'", created["name"])
+		}
+	})
+
+	// =========================================================================
+	// Error Handling Tests
+	// =========================================================================
+
+	t.Run("Invalid query returns GraphQL error", func(t *testing.T) {
+		query := `{ "query": "{ invalidHCLField }" }`
+		resp, body := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 for GraphQL error, got %d", resp.StatusCode)
+		}
+
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(body), &result); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		errors, hasErrors := result["errors"]
+		if !hasErrors || errors == nil {
+			t.Error("expected GraphQL errors for invalid query")
+		}
+	})
+
+	t.Run("Empty query returns error", func(t *testing.T) {
+		query := `{ "query": "" }`
+		resp, _ := doGraphQLRequest(t, gqlPort, query)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400 for empty query, got %d", resp.StatusCode)
+		}
 	})
 }
 
-func createGraphQLHCLFirstConfig(t *testing.T, tmpDir, dbPath string, port int) {
+func createGraphQLHCLFirstFullConfig(t *testing.T, tmpDir, dbPath string, port int) {
 	t.Helper()
 
 	os.MkdirAll(filepath.Join(tmpDir, "connectors"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "flows"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "types"), 0755)
 
-	// Main config
 	writeFile(t, filepath.Join(tmpDir, "config.hcl"), `
 service {
-  name    = "graphql-hcl-test"
+  name    = "graphql-hcl-crud-test"
   version = "1.0.0"
 }
 `)
@@ -1352,33 +1730,34 @@ type "User" {
   id         = id
   email      = string({ format = "email" })
   name       = string
-  external_id = string
-  created_at = string
+  externalId = string
+  createdAt  = string
 }
 
 type "CreateUserInput" {
   email = string({ format = "email" })
   name  = string
 }
+
+type "UpdateUserInput" {
+  email = string
+  name  = string
+}
 `)
 
-	// GraphQL connector with auto_generate
 	writeFile(t, filepath.Join(tmpDir, "connectors", "graphql.hcl"), fmt.Sprintf(`
 connector "gql" {
   type   = "graphql"
   driver = "server"
-
   port       = %d
   endpoint   = "/graphql"
   playground = true
-
   schema {
     auto_generate = true
   }
 }
 `, port))
 
-	// SQLite connector
 	writeFile(t, filepath.Join(tmpDir, "connectors", "database.hcl"), fmt.Sprintf(`
 connector "sqlite" {
   type     = "database"
@@ -1387,66 +1766,92 @@ connector "sqlite" {
 }
 `, dbPath))
 
-	// Flows with 'returns' attribute for HCL-first mode
+	// Flows with 'returns' attribute
 	writeFile(t, filepath.Join(tmpDir, "flows", "graphql.hcl"), `
+# READ: Get all users
 flow "get_users" {
   from {
     connector = "gql"
     operation = "Query.users"
   }
-
   to {
     connector = "sqlite"
     target    = "users"
   }
-
   returns = "User[]"
 }
 
+# READ: Get single user
 flow "get_user" {
   from {
     connector = "gql"
     operation = "Query.user"
   }
-
   to {
     connector = "sqlite"
     target    = "users"
   }
-
   returns = "User"
 }
 
+# CREATE: Create user with transforms
 flow "create_user" {
   from {
     connector = "gql"
     operation = "Mutation.createUser"
   }
-
   transform {
     email = "lower(input.email)"
     name  = "trim(input.name)"
   }
-
   to {
     connector = "sqlite"
     target    = "users"
   }
-
   returns = "User"
 }
 
+# CREATE: Create user with UUID
+flow "create_user_uuid" {
+  from {
+    connector = "gql"
+    operation = "Mutation.createUserWithUUID"
+  }
+  transform {
+    email       = "input.email"
+    name        = "input.name"
+    external_id = "uuid()"
+  }
+  to {
+    connector = "sqlite"
+    target    = "users"
+  }
+  returns = "User"
+}
+
+# UPDATE: Update user (returns affected count, not User)
+flow "update_user" {
+  from {
+    connector = "gql"
+    operation = "Mutation.updateUser"
+  }
+  to {
+    connector = "sqlite"
+    target    = "users"
+  }
+  returns = "JSON"
+}
+
+# DELETE: Delete user
 flow "delete_user" {
   from {
     connector = "gql"
     operation = "Mutation.deleteUser"
   }
-
   to {
     connector = "sqlite"
     target    = "users"
   }
-
   returns = "Boolean"
 }
 `)

@@ -5,8 +5,24 @@ import (
 	"github.com/graphql-go/graphql/language/ast"
 )
 
+// ResolverOptions configures how the resolver transforms results.
+type ResolverOptions struct {
+	// UnwrapSingleResult unwraps single-element arrays to a single object.
+	// Use when the schema expects a single object but the handler returns an array.
+	UnwrapSingleResult bool
+
+	// ReturnCreatedObject indicates this is a create mutation that should
+	// return the created object instead of {id, affected}.
+	ReturnCreatedObject bool
+}
+
 // CreateResolver wraps a flow handler as a GraphQL resolver function.
 func CreateResolver(handler HandlerFunc) graphql.FieldResolveFn {
+	return CreateResolverWithOptions(handler, ResolverOptions{})
+}
+
+// CreateResolverWithOptions wraps a flow handler with custom options.
+func CreateResolverWithOptions(handler HandlerFunc, opts ResolverOptions) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
 		// Build input from GraphQL arguments
 		input := MapArgsToInput(p)
@@ -18,8 +34,76 @@ func CreateResolver(handler HandlerFunc) graphql.FieldResolveFn {
 		}
 
 		// Convert result to GraphQL-compatible format
-		return MapResultToGraphQL(result), nil
+		converted := MapResultToGraphQL(result)
+
+		// Apply options
+		if opts.UnwrapSingleResult {
+			converted = unwrapSingleResult(converted)
+		}
+
+		return converted, nil
 	}
+}
+
+// CreateSmartResolver creates a resolver that automatically detects whether
+// to unwrap results based on the GraphQL return type.
+func CreateSmartResolver(handler HandlerFunc) graphql.FieldResolveFn {
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		// Build input from GraphQL arguments
+		input := MapArgsToInput(p)
+
+		// Call the flow handler
+		result, err := handler(p.Context, input)
+		if err != nil {
+			return nil, err
+		}
+
+		// Convert result to GraphQL-compatible format
+		converted := MapResultToGraphQL(result)
+
+		// Check if return type expects a single object (not a list)
+		if !isListType(p.Info.ReturnType) {
+			converted = unwrapSingleResult(converted)
+		}
+
+		return converted, nil
+	}
+}
+
+// unwrapSingleResult extracts the first element from a single-element array.
+func unwrapSingleResult(result interface{}) interface{} {
+	switch v := result.(type) {
+	case []map[string]interface{}:
+		if len(v) == 1 {
+			return v[0]
+		}
+		if len(v) == 0 {
+			return nil
+		}
+		return v
+	case []interface{}:
+		if len(v) == 1 {
+			return v[0]
+		}
+		if len(v) == 0 {
+			return nil
+		}
+		return v
+	default:
+		return result
+	}
+}
+
+// isListType checks if a GraphQL type is a list type.
+func isListType(t graphql.Type) bool {
+	// Unwrap NonNull wrapper
+	if nonNull, ok := t.(*graphql.NonNull); ok {
+		t = nonNull.OfType
+	}
+
+	// Check if it's a List
+	_, isList := t.(*graphql.List)
+	return isList
 }
 
 // MapArgsToInput converts GraphQL resolver params to a flow input map.
@@ -66,6 +150,7 @@ func MapArgsToInput(p graphql.ResolveParams) map[string]interface{} {
 }
 
 // MapResultToGraphQL converts a flow result to GraphQL-compatible format.
+// It also converts snake_case keys to camelCase for GraphQL compatibility.
 func MapResultToGraphQL(result interface{}) interface{} {
 	if result == nil {
 		return nil
@@ -73,18 +158,90 @@ func MapResultToGraphQL(result interface{}) interface{} {
 
 	switch v := result.(type) {
 	case []map[string]interface{}:
-		// Array of objects - common for list queries
-		return v
+		// Array of objects - convert each map's keys to camelCase
+		converted := make([]map[string]interface{}, len(v))
+		for i, row := range v {
+			converted[i] = convertKeysToCamelCase(row)
+		}
+		return converted
 	case map[string]interface{}:
-		// Single object
-		return v
+		// Single object - convert keys to camelCase
+		return convertKeysToCamelCase(v)
 	case []interface{}:
-		// Generic array
-		return v
+		// Generic array - check if elements are maps
+		converted := make([]interface{}, len(v))
+		for i, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				converted[i] = convertKeysToCamelCase(m)
+			} else {
+				converted[i] = item
+			}
+		}
+		return converted
 	default:
 		// Wrap primitive values
 		return result
 	}
+}
+
+// convertKeysToCamelCase converts all snake_case keys in a map to camelCase.
+func convertKeysToCamelCase(m map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{}, len(m))
+	for key, value := range m {
+		camelKey := snakeToCamel(key)
+		// Recursively convert nested maps
+		if nestedMap, ok := value.(map[string]interface{}); ok {
+			result[camelKey] = convertKeysToCamelCase(nestedMap)
+		} else if nestedSlice, ok := value.([]map[string]interface{}); ok {
+			converted := make([]map[string]interface{}, len(nestedSlice))
+			for i, item := range nestedSlice {
+				converted[i] = convertKeysToCamelCase(item)
+			}
+			result[camelKey] = converted
+		} else {
+			result[camelKey] = value
+		}
+	}
+	return result
+}
+
+// snakeToCamel converts a snake_case string to camelCase.
+// Examples: "external_id" -> "externalId", "created_at" -> "createdAt"
+func snakeToCamel(s string) string {
+	// If no underscore, return as-is
+	if !containsUnderscore(s) {
+		return s
+	}
+
+	result := make([]byte, 0, len(s))
+	capitalizeNext := false
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '_' {
+			capitalizeNext = true
+			continue
+		}
+		if capitalizeNext && c >= 'a' && c <= 'z' {
+			result = append(result, c-32) // to uppercase
+			capitalizeNext = false
+		} else {
+			result = append(result, c)
+			capitalizeNext = false
+		}
+	}
+
+	return string(result)
+}
+
+// containsUnderscore checks if a string contains an underscore.
+func containsUnderscore(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '_' {
+			return true
+		}
+	}
+	return false
 }
 
 // ExtractSelectionFields extracts the requested field names from a GraphQL query.

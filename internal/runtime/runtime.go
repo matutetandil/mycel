@@ -17,6 +17,7 @@ import (
 	"github.com/mycel-labs/mycel/internal/connector/database/postgres"
 	"github.com/mycel-labs/mycel/internal/connector/database/sqlite"
 	"github.com/mycel-labs/mycel/internal/connector/exec"
+	"github.com/mycel-labs/mycel/internal/connector/graphql"
 	connhttp "github.com/mycel-labs/mycel/internal/connector/http"
 	"github.com/mycel-labs/mycel/internal/connector/mq"
 	"github.com/mycel-labs/mycel/internal/connector/rest"
@@ -133,6 +134,9 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 
 	// Exec connector for executing external commands (local + SSH)
 	registry.RegisterFactory(exec.NewFactory(logger))
+
+	// GraphQL connector for exposing/consuming GraphQL APIs
+	registry.RegisterFactory(graphql.NewFactory(logger))
 }
 
 // Start initializes all connectors, registers flows, and starts the HTTP server.
@@ -333,6 +337,24 @@ func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
 			return fmt.Sprintf("→ ssh://%s [%s]", sshHost, cmd)
 		}
 		return fmt.Sprintf("→ %s [%s]", cmd, driver)
+	case "graphql":
+		driver := cfg.Driver
+		if driver == "" {
+			driver = "server"
+		}
+		if driver == "server" {
+			host := getString(cfg.Properties, "host", "0.0.0.0")
+			port := getInt(cfg.Properties, "port", 4000)
+			endpoint := getString(cfg.Properties, "endpoint", "/graphql")
+			playground := getBool(cfg.Properties, "playground", true)
+			if playground {
+				return fmt.Sprintf("listening on %s:%d%s [playground enabled]", host, port, endpoint)
+			}
+			return fmt.Sprintf("listening on %s:%d%s", host, port, endpoint)
+		}
+		// Client
+		endpoint := getString(cfg.Properties, "endpoint", "")
+		return fmt.Sprintf("→ %s", endpoint)
 	}
 	return ""
 }
@@ -388,6 +410,9 @@ func (r *Runtime) parseFlowOperation(connectorName, operation string) (method, p
 			case "mq":
 				// For MQ, the operation is the routing key pattern
 				return "MQ", operation
+			case "graphql":
+				// For GraphQL, the operation is "Query.field" or "Mutation.field"
+				return "GQL", operation
 			}
 		}
 	}
@@ -434,10 +459,32 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 		return
 	}
 
+	// Check if this connector supports loading HCL types (e.g., GraphQL server)
+	if typeLoader, ok := conn.(HCLTypeLoader); ok && len(r.types) > 0 {
+		if err := typeLoader.LoadHCLTypes(r.types); err != nil {
+			r.logger.Error("failed to load HCL types",
+				"connector", connectorName,
+				"error", err,
+			)
+		}
+	}
+
+	// Check if this connector supports return type registration
+	routerWithReturnType, hasReturnTypeSupport := conn.(RouteRegistrarWithReturnType)
+
 	// Find flows that use this connector as source
 	for _, handler := range r.flows.handlers {
 		if handler.Config.From.Connector == connectorName {
-			router.RegisterRoute(handler.Config.From.Operation, handler.HandleRequest)
+			// If flow has a return type and connector supports it, use RegisterRouteWithReturnType
+			if hasReturnTypeSupport && handler.Config.Returns != "" {
+				routerWithReturnType.RegisterRouteWithReturnType(
+					handler.Config.From.Operation,
+					handler.HandleRequest,
+					handler.Config.Returns,
+				)
+			} else {
+				router.RegisterRoute(handler.Config.From.Operation, handler.HandleRequest)
+			}
 		}
 	}
 }
@@ -483,4 +530,51 @@ type Starter interface {
 // RouteRegistrar is implemented by connectors that can register HTTP routes.
 type RouteRegistrar interface {
 	RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error))
+}
+
+// RouteRegistrarWithReturnType extends RouteRegistrar with return type support.
+// Used by GraphQL connectors in HCL-first mode where flow specifies return type.
+type RouteRegistrarWithReturnType interface {
+	RouteRegistrar
+	RegisterRouteWithReturnType(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error), returnType string)
+}
+
+// HCLTypeLoader is implemented by connectors that can load HCL types.
+// Used by GraphQL connectors to generate schema from HCL type definitions.
+type HCLTypeLoader interface {
+	LoadHCLTypes(types map[string]*validate.TypeSchema) error
+}
+
+// Helper functions for extracting configuration values
+
+func getString(props map[string]interface{}, key, defaultVal string) string {
+	if v, ok := props[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return defaultVal
+}
+
+func getInt(props map[string]interface{}, key string, defaultVal int) int {
+	if v, ok := props[key]; ok {
+		switch n := v.(type) {
+		case int:
+			return n
+		case int64:
+			return int(n)
+		case float64:
+			return int(n)
+		}
+	}
+	return defaultVal
+}
+
+func getBool(props map[string]interface{}, key string, defaultVal bool) bool {
+	if v, ok := props[key]; ok {
+		if b, ok := v.(bool); ok {
+			return b
+		}
+	}
+	return defaultVal
 }

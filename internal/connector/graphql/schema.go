@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/graphql-go/graphql"
+	"github.com/mycel-labs/mycel/internal/validate"
 )
 
 // SchemaMode defines how the schema is built.
@@ -142,6 +143,51 @@ func (b *SchemaBuilder) ParseSDL(sdl string) error {
 	return nil
 }
 
+// LoadHCLTypes loads type schemas from HCL and converts them to GraphQL types.
+// This enables HCL-first mode where types are defined in HCL configuration.
+func (b *SchemaBuilder) LoadHCLTypes(types map[string]*validate.TypeSchema) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if len(types) == 0 {
+		return nil
+	}
+
+	// Create HCL converter if not exists
+	if b.hclConverter == nil {
+		b.hclConverter = NewHCLConverter()
+	}
+
+	// Load type schemas
+	b.hclConverter.LoadTypeSchemas(types)
+
+	// Convert to GraphQL types
+	if err := b.hclConverter.Convert(); err != nil {
+		return fmt.Errorf("failed to convert HCL types: %w", err)
+	}
+
+	// Store converted types
+	for name, gqlType := range b.hclConverter.AllTypes() {
+		b.types[name] = gqlType
+	}
+
+	// Set mode to HCL if not already set to SDL
+	if b.mode == SchemaModeAuto {
+		b.mode = SchemaModeHCL
+	} else if b.mode == SchemaModeSDL {
+		b.mode = SchemaModeHybrid
+	}
+
+	return nil
+}
+
+// GetHCLConverter returns the HCL converter.
+func (b *SchemaBuilder) GetHCLConverter() *HCLConverter {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.hclConverter
+}
+
 // createFieldFromParsed creates a graphql.Field from a ParsedField definition.
 func (b *SchemaBuilder) createFieldFromParsed(typeName, fieldName string, def *ParsedField) *graphql.Field {
 	field := &graphql.Field{
@@ -187,7 +233,7 @@ func (b *SchemaBuilder) createFieldFromParsed(typeName, fieldName string, def *P
 }
 
 // RegisterHandler registers a handler for a GraphQL operation.
-// In SDL mode, this connects a handler to an existing field.
+// In SDL mode, this connects a handler to an existing field and uses smart resolving.
 // In dynamic mode, this creates the field with generic JSON types.
 func (b *SchemaBuilder) RegisterHandler(operation string, handler HandlerFunc) error {
 	b.mu.Lock()
@@ -204,9 +250,6 @@ func (b *SchemaBuilder) RegisterHandler(operation string, handler HandlerFunc) e
 	// Store the handler
 	b.handlers[operation] = handler
 
-	// Create the resolver
-	resolver := CreateResolver(handler)
-
 	// Check if we're in SDL mode and the field already exists
 	var fields graphql.Fields
 	switch strings.ToLower(typeName) {
@@ -218,13 +261,17 @@ func (b *SchemaBuilder) RegisterHandler(operation string, handler HandlerFunc) e
 		return fmt.Errorf("unsupported type: %s (expected Query or Mutation)", typeName)
 	}
 
-	// If field already exists (from SDL), just attach the resolver
+	// If field already exists (from SDL), use smart resolver that auto-detects return type
 	if existingField, exists := fields[fieldName]; exists {
-		existingField.Resolve = resolver
+		// Use smart resolver that automatically unwraps single results for non-list types
+		existingField.Resolve = CreateSmartResolver(handler)
 		return nil
 	}
 
 	// Field doesn't exist - create it dynamically (dynamic mode)
+	// Use basic resolver since we don't have type info
+	resolver := CreateResolver(handler)
+
 	var returnType graphql.Output
 	switch strings.ToLower(typeName) {
 	case "query":
@@ -270,7 +317,8 @@ func (b *SchemaBuilder) RegisterHandlerWithReturnType(operation string, handler 
 	fieldName := parts[1]
 
 	b.handlers[operation] = handler
-	resolver := CreateResolver(handler)
+	// Use smart resolver to automatically unwrap single results for non-list types
+	resolver := CreateSmartResolver(handler)
 
 	// Resolve the return type
 	gqlType := b.resolveReturnType(returnType)

@@ -7,6 +7,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - GraphQL Dual-Approach Schema Generation
+- **Schema-first mode**: Define types in SDL file (`.graphql`), Mycel auto-connects flows
+  - Full SDL parser with AST using `graphql-go/language/parser`
+  - Automatic type conversion from SDL to graphql-go types
+  - Smart resolver that auto-unwraps single-element arrays for non-list types
+  - Support for custom scalars: DateTime, Date, Time, JSON
+  - Input types, enums, and interfaces support
+- **HCL-first mode**: Define types in HCL, Mycel generates GraphQL schema
+  - TypeSchema to GraphQL converter (`hcl_to_graphql.go`)
+  - New `returns` attribute in flows to specify return type
+  - Automatic schema generation from HCL types
+  - Type mapping: `id` → `ID`, `string` → `String`, `number` → `Int/Float`, `boolean` → `Boolean`
+- **New files**:
+  - `internal/connector/graphql/sdl_parser.go` - Complete SDL parser
+  - `internal/connector/graphql/sdl_to_graphql.go` - SDL → graphql-go converter
+  - `internal/connector/graphql/hcl_to_graphql.go` - HCL → GraphQL converter
+  - `internal/connector/graphql/scalar_types.go` - Custom scalar types
+- **Comprehensive integration tests** (`internal/runtime/runtime_test.go`)
+  - Schema-first CRUD tests: 14 test cases
+  - HCL-first CRUD tests: 13 test cases
+  - Tests cover: Query, Mutation, UpdateUser, DeleteUser, Introspection, Playground
+  - GraphQL Variables tests for both modes
+  - Error handling tests (invalid queries, missing required fields, empty queries)
+  - All tests use SQLite as backend
+- **Column mapping (snake_case → camelCase)** for GraphQL responses
+  - `snakeToCamel()` function in `resolver.go`
+  - Automatic conversion: `external_id` → `externalId`, `created_at` → `createdAt`
+  - Recursive conversion for nested objects
+- **HCL Syntax for returns**:
+  ```hcl
+  flow "get_users" {
+    from { connector = "gql", operation = "Query.users" }
+    to   { connector = "db", target = "users" }
+    returns = "User[]"  # Specifies GraphQL return type
+  }
+
+  flow "get_user" {
+    from { connector = "gql", operation = "Query.user" }
+    to   { connector = "db", target = "users" }
+    returns = "User"  # Single object, auto-unwrap enabled
+  }
+  ```
+
+### Added - GraphQL Connector (Phase 3)
+- **GraphQL Server Connector** (`internal/connector/graphql/`)
+  - Expose GraphQL API endpoints with playground UI
+  - Dynamic schema building from registered handlers
+  - SDL file loading support for schema-first approach
+  - **Features**:
+    - Query and Mutation support
+    - GraphQL Playground UI at `/playground`
+    - CORS configuration
+    - JSON scalar type for flexible arguments
+    - Health check endpoint at `/health`
+  - **Operation format**: `Query.fieldName` or `Mutation.fieldName`
+- **GraphQL Client Connector**
+  - Call external GraphQL APIs
+  - **Authentication types**:
+    - Bearer token
+    - API Key (custom header)
+    - Basic auth
+    - OAuth2 client credentials
+  - Retry with exponential backoff
+  - Timeout configuration
+  - Custom headers support
+  - Use as enrichment source via `Call()`
+- **GraphQL Example** (`examples/graphql/`)
+  - Server with CRUD operations
+  - Schema file example
+- **HCL Syntax**:
+  ```hcl
+  # GraphQL Server
+  connector "graphql_api" {
+    type   = "graphql"
+    driver = "server"
+
+    port       = 4000
+    endpoint   = "/graphql"
+    playground = true
+
+    cors {
+      origins = ["*"]
+      methods = ["GET", "POST", "OPTIONS"]
+    }
+  }
+
+  # GraphQL Client
+  connector "external_api" {
+    type     = "graphql"
+    driver   = "client"
+    endpoint = "https://api.example.com/graphql"
+
+    auth {
+      type  = "bearer"
+      token = env("API_TOKEN")
+    }
+
+    timeout     = "30s"
+    retry_count = 3
+  }
+  ```
+
 ### Added - Exec Connector (Phase 3.2)
 - **Exec Connector** (`internal/connector/exec/`)
   - Execute external commands locally or on remote servers
