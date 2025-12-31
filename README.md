@@ -16,10 +16,29 @@ docker run -v ./my-service:/config -p 3000:3000 mdenda/mycel
 
 # Or from GitHub Container Registry
 docker run -v ./my-service:/config -p 3000:3000 ghcr.io/matutetandil/mycel
+```
 
-# Or build locally
-docker build -t mycel .
-docker run -v ./my-service:/config -p 3000:3000 mycel
+Or use in your `docker-compose.yml`:
+
+```yaml
+services:
+  my-api:
+    image: mdenda/mycel:latest
+    volumes:
+      - ./config:/config:ro
+    ports:
+      - "3000:3000"
+    environment:
+      - DB_HOST=postgres
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mycel
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: mycel
 ```
 
 ### From Source
