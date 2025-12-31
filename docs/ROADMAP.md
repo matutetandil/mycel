@@ -53,7 +53,7 @@ This document tracks the implementation status and future plans for Mycel.
 | Plugins System | 🔜 | 5 |
 | Mocks/Testing | 🔜 | 5 |
 | OpenAPI Export | 🔜 | 5 |
-| GraphQL Schema Export | 🔜 | 5 |
+| AsyncAPI Export | 🔜 | 5 |
 
 ## Phase Details
 
@@ -108,7 +108,7 @@ This document tracks the implementation status and future plans for Mycel.
 
 ### Phase 5 - Enterprise Features (Planned)
 - Enterprise-grade authentication system
-  - JWT with token rotation
+  - JWT with token rotation (local or external provider)
   - MFA (TOTP, WebAuthn, Passkeys)
   - SSO (SAML, OIDC)
   - Social login with account linking
@@ -117,7 +117,8 @@ This document tracks the implementation status and future plans for Mycel.
 - Custom validators with WASM
 - Plugin system
 - Mock system for testing
-- Documentation generation (OpenAPI, GraphQL schema)
+- Documentation generation (OpenAPI for REST, AsyncAPI for queues)
+  - Note: GraphQL has native introspection, no export needed
 
 ### Phase 6 - Notifications (Planned)
 - Webhook support (inbound/outbound)
