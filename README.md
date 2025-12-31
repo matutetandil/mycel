@@ -2,423 +2,155 @@
 
 **Declarative Microservice Framework**
 
-Mycel is an open-source framework for creating microservices through HCL configuration, without writing code. It works as a single runtime (like nginx or Docker) that interprets configuration files and exposes services.
+Mycel is an open-source framework for creating microservices through HCL configuration, without writing code. It works as a single runtime (like nginx) that interprets configuration files and exposes services.
 
 > **Philosophy:** Configuration, not code. You define WHAT you want, Mycel handles HOW.
-
-## The Vision
-
-Instead of programming each microservice in NestJS, Go, Python, etc., you:
-
-1. Create HCL configuration files
-2. Deploy Mycel with that configuration
-3. Done - you have a microservice
-
-```
-Production Environment:
-
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│     mycel       │  │     mycel       │  │     mycel       │
-│  + customers/   │  │  + products/    │  │  + orders/      │
-│    *.hcl        │  │    *.hcl        │  │    *.hcl        │
-├─────────────────┤  ├─────────────────┤  ├─────────────────┤
-│ customers-svc   │  │ products-svc    │  │ orders-svc      │
-│ :3001           │  │ :3002           │  │ :3003           │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
-```
-
-Same binary, different configuration = different microservice.
-
-## What Can You Connect?
-
-Mycel connects **anything to anything**:
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   SOURCE    │     │    MYCEL    │     │    TARGET   │
-├─────────────┤     │             │     ├─────────────┤
-│ REST API    │────▶│  validate   │────▶│ Database    │
-│ Database    │     │  transform  │     │ REST API    │
-│ Queue       │     │  route      │     │ Queue       │
-│ TCP         │     │             │     │ TCP         │
-│ GraphQL     │     │             │     │ GraphQL     │
-│ Files       │     │             │     │ Files       │
-│ gRPC        │     │             │     │ gRPC        │
-└─────────────┘     └─────────────┘     └─────────────┘
-```
-
-**Example Use Cases:**
-- `REST API → Database` - Classic CRUD microservice
-- `Queue → Database` - Process messages and persist
-- `REST → Queue` - Receive requests and enqueue for processing
-- `Database → REST` - Sync data between systems
-- `Queue → Queue` - Transform and route messages
-- `File → Database` - Import legacy data
-- `TCP → REST` - Protocol bridge
-- `REST + TCP enrichment → Database` - Aggregate data from multiple services
-
-## Status
-
-✅ **Phase 1 Complete** - Core runtime is functional!
-✅ **Phase 2 Complete** - Extended connectors and features!
-✅ **Phase 2.5 Complete** - TCP Server + Client!
-✅ **Phase 3 Complete** - GraphQL + Exec Connectors!
-✅ **Phase 3.2 Complete** - MySQL + MongoDB!
-✅ **Phase 3.3 Complete** - Cache Connector (Memory + Redis)!
-
-### Connector Support
-
-| Connector | Input (Server/Consumer) | Output (Client/Producer) |
-|-----------|------------------------|-------------------------|
-| REST      | ✅ Phase 1             | ✅ Phase 2              |
-| SQLite    | ✅ Phase 1             | ✅ Phase 1              |
-| PostgreSQL| ✅ Phase 2             | ✅ Phase 2              |
-| MySQL     | ✅ Phase 3.2           | ✅ Phase 3.2            |
-| MongoDB   | ✅ Phase 3.2           | ✅ Phase 3.2            |
-| TCP       | ✅ Phase 2.5           | ✅ Phase 2.5            |
-| RabbitMQ  | ✅ Phase 3             | ✅ Phase 3              |
-| Kafka     | ✅ Phase 3             | ✅ Phase 3              |
-| Exec      | ✅ Phase 3             | ✅ Phase 3              |
-| GraphQL   | ✅ Phase 3             | ✅ Phase 3              |
-| Cache     | ✅ Phase 3.3           | ✅ Phase 3.3            |
-| gRPC      | 🔜 Phase 4             | 🔜 Phase 4              |
-| Files     | 🔜 Phase 4             | 🔜 Phase 4              |
-| Slack     | -                      | 🔜 Phase 6              |
-| Discord   | -                      | 🔜 Phase 6              |
-| Email     | -                      | 🔜 Phase 6              |
-| Webhooks  | 🔜 Phase 6             | 🔜 Phase 6              |
-
-### Roadmap
-
-**Phase 1 - Core Runtime** ✅
-- [x] Project structure & CLI
-- [x] HCL parser
-- [x] REST connector (server)
-- [x] SQLite connector
-- [x] Flow executor
-- [x] Validation system
-- [x] Transform system
-- [x] Runtime orchestration
-
-**Phase 2 - Core Connectors** ✅
-- [x] REST Client (call external APIs with OAuth2, API Key, Bearer)
-- [x] PostgreSQL connector
-- [x] Transforms (inline + reusable named transforms)
-- [x] Type validation on flows (input/output validation)
-- [x] Environment variables support (env(), file(), base64decode(), etc.)
-- [x] **Data Enrichment** - Fetch data from other microservices during transformation (TCP, HTTP, Database)
-
-**Phase 2.5 - TCP** ✅
-- [x] TCP Server with length-prefixed framing
-- [x] TCP Client with connection pooling
-- [x] Configurable protocols (JSON, msgpack, raw, nestjs)
-- [x] Request-Response and Fire-and-forget patterns
-- [x] Message routing by type field
-- [x] **NestJS TCP protocol compatibility** - Connect to existing NestJS microservices!
-
-**Phase 3 - Extended Connectors** ✅
-- [x] RabbitMQ connector (consumer + publisher)
-- [x] AMQP topic pattern matching (`*` and `#` wildcards)
-- [x] Queue/Exchange declaration and binding
-- [x] Manual acknowledgment support
-- [x] Concurrent consumers with prefetch
-- [x] **Kafka connector** (consumer + producer)
-- [x] Consumer groups with auto-commit
-- [x] SASL authentication (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
-- [x] Compression support (gzip, snappy, lz4, zstd)
-- [x] **Exec Connector** - Execute local/remote shell commands
-- [x] Local shell execution with shell wrapper support
-- [x] SSH remote command execution with key/password auth
-- [x] Multiple output formats (text, json, lines)
-- [x] **GraphQL Connector** (server + client)
-- [x] **Dual-approach schema generation:**
-  - **Schema-first**: Define types in SDL file, Mycel auto-connects flows
-  - **HCL-first**: Define types in HCL with `returns` attribute, Mycel generates schema
-- [x] GraphQL Server with Playground UI
-- [x] Full SDL parser with AST (types, inputs, enums, interfaces)
-- [x] Smart resolver with auto-unwrap for non-list types
-- [x] Column mapping (snake_case → camelCase)
-- [x] Custom scalars (DateTime, Date, Time, JSON)
-- [x] GraphQL Variables support
-- [x] GraphQL Client with auth (Bearer, API Key, OAuth2)
-- [x] Retry with exponential backoff
-
-**Phase 3.2 - Additional Databases** ✅
-- [x] **MySQL connector** - Full CRUD with connection pooling
-- [x] Named parameter support (`:param` syntax)
-- [x] **MongoDB connector** - Full NoSQL CRUD operations
-- [x] ObjectID handling and BSON conversion
-- [x] MongoDB operators support (`$set`, `$gte`, etc.)
-- [x] Multiple operation types: INSERT_ONE/MANY, UPDATE_ONE/MANY, DELETE_ONE/MANY, REPLACE_ONE
-- [x] NoSQL query filter support in HCL (`query_filter` attribute)
-
-**Phase 3.3 - Caching System** ✅
-- [x] **Memory Cache** - In-memory LRU cache with configurable max items
-- [x] **Redis Cache** - Distributed cache with connection pooling
-- [x] **Inline cache configuration** in flows
-- [x] **Named cache definitions** for reusability (`cache "name" { }`)
-- [x] **Cache key interpolation** with `${input.id}`, `${input.query.*}`
-- [x] **Cache invalidation** after write operations
-- [x] **Pattern-based invalidation** with wildcards (`products:*`)
-- [x] Automatic cache-aside pattern (check before, store after)
-
-**Phase 4 - Production Ready**
-- [ ] gRPC (server + client)
-- [ ] File connector (read/write)
-- [ ] Hot reload
-- [ ] Metrics & observability
-- [ ] Rate limiting
-- [ ] Circuit breaker
-- [ ] Authentication & authorization (auth/)
-- [ ] Aspects / AOP (logging, caching, retry policies)
-
-**Phase 5 - Advanced Features**
-- [ ] Custom validators (WASM)
-- [ ] Plugins system
-- [ ] Mocks/Testing framework
-- [ ] Documentation generation (OpenAPI, GraphQL schema)
-
-**Phase 6 - Notifications & Integrations**
-- [ ] Slack connector (send messages, post to channels)
-- [ ] Discord connector (send messages, embeds)
-- [ ] Email connector (SMTP, templates)
-- [ ] Webhooks connector (incoming + outgoing)
-- [ ] SMS connector (Twilio, etc.)
-- [ ] Push notifications (Firebase, APNs)
 
 ## Quick Start
 
 ```bash
-# Clone the repository
+# Clone and build
 git clone https://github.com/mycel-labs/mycel.git
 cd mycel
+go build -o mycel ./cmd/mycel
 
-# Build
-make build
+# Run the basic example
+./mycel start --config ./examples/basic
+```
 
-# Setup example database
-mkdir -p data
-sqlite3 data/app.db < examples/basic/setup.sql
-
-# Run the example service
-./bin/mycel start --config ./examples/basic
-
-# Test the API (in another terminal)
+Test the API:
+```bash
+# List users
 curl http://localhost:3000/users
-curl -X POST -H "Content-Type: application/json" \
-     -d '{"email":"test@example.com","name":"Test User"}' \
-     http://localhost:3000/users
+
+# Create user
+curl -X POST http://localhost:3000/users \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","name":"Test"}'
 ```
 
 ## How It Works
 
-Define your microservice in HCL files:
+### 1. Define Connectors
 
 ```hcl
-# connectors/database.hcl
-connector "postgres" {
-  type     = "database"
-  driver   = "postgres"
-  host     = env("DB_HOST")
-  port     = 5432
-  database = "myapp"
-}
-
+# connectors.hcl
 connector "api" {
   type = "rest"
   port = 3000
 }
+
+connector "db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = "./data/app.db"
+}
 ```
 
-```hcl
-# flows/users.hcl
-flow "get_users" {
-  from {
-    connector = "api"
-    operation = "GET /users"
-  }
+### 2. Define Flows
 
-  to {
-    connector = "postgres"
-    target    = "users"
-  }
+```hcl
+# flows.hcl
+flow "get_users" {
+  from { connector = "api", operation = "GET /users" }
+  to   { connector = "db", target = "users" }
 }
 
 flow "create_user" {
-  from {
-    connector = "api"
-    operation = "POST /users"
-  }
+  from { connector = "api", operation = "POST /users" }
 
-  validate {
-    input = "type.user"
-  }
-
-  # CEL-powered transforms (Google Common Expression Language)
-  # See docs/transformations.md for full documentation
   transform {
     id         = "uuid()"
-    email      = "lower(trim(input.email))"
+    email      = "lower(input.email)"
     created_at = "now()"
-    is_active  = "true"
-    status     = "input.age >= 18 ? 'active' : 'pending'"
   }
 
-  to {
-    connector = "postgres"
-    target    = "users"
-  }
-}
-
-# Enrich data from external services
-flow "get_product_with_price" {
-  from {
-    connector = "api"
-    operation = "GET /products/:id"
-  }
-
-  # Fetch price from external pricing microservice
-  enrich "pricing" {
-    connector = "pricing_service"
-    operation = "getPrice"
-    params {
-      product_id = "input.id"
-    }
-  }
-
-  # Combine input with enriched data
-  transform {
-    id       = "input.id"
-    name     = "input.name"
-    price    = "enriched.pricing.price"
-    currency = "enriched.pricing.currency"
-  }
-
-  to {
-    connector = "postgres"
-    target    = "products"
-  }
+  to { connector = "db", target = "users" }
 }
 ```
 
-```hcl
-# types/user.hcl
-type "user" {
-  id    = number
-  email = string { format = "email" }
-  name  = string { min_length = 1, max_length = 100 }
-}
-```
-
-Then run:
+### 3. Run
 
 ```bash
 mycel start --config ./my-service
 ```
 
-## Directory Structure
-
-```
-my-service/
-├── connectors/           # Database, API, queue connections
-├── flows/                # Data flows (from → to)
-├── types/                # Data schemas
-├── transforms/           # Reusable transformations
-├── validators/           # Custom validators
-├── aspects/              # Cross-cutting concerns (logging, caching, etc.)
-├── auth/                 # Authentication & authorization config
-├── environments/         # Environment-specific variables
-└── config.hcl            # Service configuration (name, version)
-```
+That's it. You have a REST API connected to a database.
 
 ## CLI
 
 ```bash
-# Start the runtime
-mycel start [--config=<path>] [--env=<environment>]
-
-# Validate configuration
+mycel start [--config=<path>] [--env=<env>] [--hot-reload]
 mycel validate [--config=<path>]
-
-# Check connector connectivity
 mycel check [--config=<path>]
-
-# Show version
 mycel version
 ```
 
-## Architecture
+## Features
 
-Mycel follows SOLID principles:
+| Feature | Status | Example |
+|---------|--------|---------|
+| REST API | ✅ | [examples/basic](examples/basic) |
+| SQLite / PostgreSQL / MySQL | ✅ | [examples/basic](examples/basic) |
+| MongoDB | ✅ | [examples/mongodb](examples/mongodb) |
+| GraphQL Server & Client | ✅ | [examples/graphql](examples/graphql) |
+| gRPC Server & Client | ✅ | [examples/grpc](examples/grpc) |
+| RabbitMQ / Kafka | ✅ | [examples/mq](examples/mq) |
+| TCP Server & Client | ✅ | [examples/tcp](examples/tcp) |
+| Files (local) | ✅ | [examples/files](examples/files) |
+| S3 / MinIO | ✅ | [examples/s3](examples/s3) |
+| Cache (Memory / Redis) | ✅ | [examples/cache](examples/cache) |
+| Data Enrichment | ✅ | [examples/enrich](examples/enrich) |
+| Rate Limiting | ✅ | [examples/rate-limit](examples/rate-limit) |
+| Circuit Breaker | ✅ | - |
+| Hot Reload | ✅ | - |
+| Health Checks | ✅ | `/health`, `/health/live`, `/health/ready` |
+| Prometheus Metrics | ✅ | `/metrics` |
 
-- **S**ingle Responsibility: Each component has one job
-- **O**pen/Closed: Extensible via plugins without modifying core
-- **L**iskov Substitution: All connectors implement the same interface
-- **I**nterface Segregation: Small, focused interfaces (Reader, Writer)
-- **D**ependency Inversion: Core depends on abstractions, not implementations
+## Service Configuration
 
-```
-┌─────────────────────────────────────────┐
-│           mycel (runtime)               │
-│  ┌─────────────────────────────────┐    │
-│  │  Configuration Loader           │    │
-│  │  • connectors/*.hcl             │    │
-│  │  • flows/*.hcl                  │    │
-│  │  • types/*.hcl                  │    │
-│  └─────────────────────────────────┘    │
-│                 ↓                       │
-│  ┌─────────────────────────────────┐    │
-│  │  Flow Executor (Pipeline)       │    │
-│  │  validate → transform → execute │    │
-│  └─────────────────────────────────┘    │
-│                 ↓                       │
-│         Microservice Running            │
-└─────────────────────────────────────────┘
-```
+```hcl
+# config.hcl
+service {
+  name    = "my-api"
+  version = "1.0.0"
 
-## Development
-
-```bash
-# Install dependencies
-make deps
-
-# Build
-make build
-
-# Run tests
-make test
-
-# Format code
-make fmt
-
-# Run linter
-make lint
+  # Optional: Enable rate limiting
+  rate_limit {
+    requests_per_second = 100
+    burst               = 200
+    key_extractor       = "ip"  # or "header:X-API-Key"
+  }
+}
 ```
 
 ## Documentation
 
-### Guides
-- [Integration Patterns](docs/integration-patterns.md) - **Start here!** Common use cases with complete examples:
-  - GraphQL API → Database
-  - REST → GraphQL passthrough
-  - GraphQL → REST passthrough
-  - RabbitMQ → Database
-  - REST/GraphQL → RabbitMQ
-  - Raw SQL queries (JOINs, subqueries)
-- [Transformations Guide](docs/transformations.md) - Complete CEL transformation reference (includes data enrichment)
+- **[Configuration Reference](docs/CONFIGURATION.md)** - Complete HCL syntax reference
+- **[Integration Patterns](docs/integration-patterns.md)** - Common use cases
+- **[Transformations](docs/transformations.md)** - CEL transformation guide
+- **[Roadmap](docs/ROADMAP.md)** - Project status and future plans
 
-### Examples
-- [GraphQL Example](examples/graphql/README.md) - GraphQL connector with schema-first and HCL-first approaches
-- [Data Enrichment Example](examples/enrich/) - Fetch data from external services
-- [TCP Example](examples/tcp/README.md) - TCP connector usage guide
-- [Message Queue Example](examples/mq/README.md) - RabbitMQ/Kafka integration guide
-- [Exec Example](examples/exec/README.md) - External command execution (local + SSH)
-- [Cache Example](examples/cache/README.md) - Memory and Redis caching with invalidation patterns
+## Examples
+
+| Example | Description |
+|---------|-------------|
+| [basic](examples/basic) | REST API + SQLite |
+| [graphql](examples/graphql) | GraphQL server with schema |
+| [grpc](examples/grpc) | gRPC server and client |
+| [mq](examples/mq) | RabbitMQ and Kafka |
+| [tcp](examples/tcp) | TCP server with protocols |
+| [cache](examples/cache) | Memory and Redis caching |
+| [files](examples/files) | Local file operations |
+| [s3](examples/s3) | AWS S3 / MinIO |
+| [rate-limit](examples/rate-limit) | Rate limiting configuration |
+| [enrich](examples/enrich) | Data enrichment from services |
+| [mongodb](examples/mongodb) | MongoDB NoSQL operations |
+| [exec](examples/exec) | Execute shell commands |
 
 ## Requirements
 
 - Go 1.21+
-- Make
 
 ## License
 

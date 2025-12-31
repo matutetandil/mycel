@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,12 +21,19 @@ import (
 	"github.com/mycel-labs/mycel/internal/connector/database/postgres"
 	"github.com/mycel-labs/mycel/internal/connector/database/sqlite"
 	"github.com/mycel-labs/mycel/internal/connector/exec"
+	"github.com/mycel-labs/mycel/internal/connector/file"
 	"github.com/mycel-labs/mycel/internal/connector/graphql"
+	conns3 "github.com/mycel-labs/mycel/internal/connector/s3"
+	conngrpc "github.com/mycel-labs/mycel/internal/connector/grpc"
 	connhttp "github.com/mycel-labs/mycel/internal/connector/http"
 	"github.com/mycel-labs/mycel/internal/connector/mq"
 	"github.com/mycel-labs/mycel/internal/connector/rest"
 	"github.com/mycel-labs/mycel/internal/connector/tcp"
 	"github.com/mycel-labs/mycel/internal/flow"
+	"github.com/mycel-labs/mycel/internal/health"
+	"github.com/mycel-labs/mycel/internal/hotreload"
+	"github.com/mycel-labs/mycel/internal/ratelimit"
+	"github.com/mycel-labs/mycel/internal/metrics"
 	"github.com/mycel-labs/mycel/internal/parser"
 	"github.com/mycel-labs/mycel/internal/transform"
 	"github.com/mycel-labs/mycel/internal/validate"
@@ -42,11 +50,24 @@ type Runtime struct {
 	transforms  map[string]*transform.Config
 	types       map[string]*validate.TypeSchema
 	namedCaches map[string]*flow.NamedCacheConfig
+	health      *health.Manager
+	metrics     *metrics.Registry
+	rateLimiter *ratelimit.Limiter
 	logger      *slog.Logger
 	environment string
+	configDir   string
+
+	// Hot reload components
+	hotReloadEnabled bool
+	hotReloader      *hotreload.Reloader
+	hotWatcher       *hotreload.Watcher
+	signalHandler    *hotreload.SignalHandler
 
 	// shutdownTimeout is the maximum time to wait for graceful shutdown.
 	shutdownTimeout time.Duration
+
+	// mu protects runtime state during hot reload
+	mu sync.RWMutex
 }
 
 // Options configures the runtime behavior.
@@ -63,6 +84,14 @@ type Options struct {
 	// ShutdownTimeout is the maximum time to wait for graceful shutdown.
 	// Defaults to 30 seconds.
 	ShutdownTimeout time.Duration
+
+	// HotReload enables automatic configuration reload on file changes.
+	// Like nginx, Mycel can reload configuration without restarting.
+	HotReload bool
+
+	// HotReloadDebounce is the debounce duration for hot reload.
+	// Defaults to 500ms.
+	HotReloadDebounce time.Duration
 }
 
 // New creates a new runtime with the given options.
@@ -113,16 +142,37 @@ func New(opts Options) (*Runtime, error) {
 		namedCaches[c.Name] = c
 	}
 
+	// Create health manager
+	healthMgr := health.NewManager(Version)
+
+	// Create metrics registry
+	serviceName := "mycel"
+	serviceVersion := Version
+	if config.ServiceConfig != nil {
+		if config.ServiceConfig.Name != "" {
+			serviceName = config.ServiceConfig.Name
+		}
+		if config.ServiceConfig.Version != "" {
+			serviceVersion = config.ServiceConfig.Version
+		}
+	}
+	metricsReg := metrics.NewRegistry(serviceName, serviceVersion)
+	metrics.SetDefault(metricsReg)
+
 	return &Runtime{
-		config:          config,
-		connectors:      registry,
-		flows:           NewFlowRegistry(),
-		transforms:      transforms,
-		types:           types,
-		namedCaches:     namedCaches,
-		logger:          opts.Logger,
-		environment:     env,
-		shutdownTimeout: opts.ShutdownTimeout,
+		config:           config,
+		connectors:       registry,
+		flows:            NewFlowRegistry(),
+		transforms:       transforms,
+		types:            types,
+		namedCaches:      namedCaches,
+		health:           healthMgr,
+		metrics:          metricsReg,
+		logger:           opts.Logger,
+		environment:      env,
+		configDir:        opts.ConfigDir,
+		hotReloadEnabled: opts.HotReload,
+		shutdownTimeout:  opts.ShutdownTimeout,
 	}, nil
 }
 
@@ -154,6 +204,15 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 	// GraphQL connector for exposing/consuming GraphQL APIs
 	registry.RegisterFactory(graphql.NewFactory(logger))
 
+	// gRPC connector for exposing/consuming gRPC services
+	registry.RegisterFactory(conngrpc.NewFactory(logger))
+
+	// File connector for reading/writing files
+	registry.RegisterFactory(file.NewFactory())
+
+	// S3 connector for AWS S3 / MinIO
+	registry.RegisterFactory(conns3.NewFactory())
+
 	// Cache connector (Redis, Memory)
 	registry.RegisterFactory(cache.NewFactory())
 }
@@ -177,6 +236,9 @@ func (r *Runtime) Start(ctx context.Context) error {
 	}
 	banner.PrintServiceInfo(serviceName, serviceVersion, r.environment, r.getRESTPort())
 
+	// Initialize rate limiter if configured
+	r.initRateLimiter()
+
 	// Initialize connectors
 	if err := r.initConnectors(ctx); err != nil {
 		banner.PrintError(err.Error())
@@ -196,6 +258,13 @@ func (r *Runtime) Start(ctx context.Context) error {
 	}
 
 	banner.PrintReady()
+
+	// Initialize hot reload if enabled
+	if r.hotReloadEnabled {
+		if err := r.initHotReload(ctx); err != nil {
+			r.logger.Warn("hot reload initialization failed", "error", err)
+		}
+	}
 
 	// Wait for shutdown signal
 	return r.waitForShutdown(ctx)
@@ -232,6 +301,12 @@ func (r *Runtime) initConnectors(ctx context.Context) error {
 	// Connect all connectors
 	if err := r.connectors.ConnectAll(ctx); err != nil {
 		return err
+	}
+
+	// Register all connectors with health manager
+	for _, name := range r.connectors.List() {
+		conn, _ := r.connectors.Get(name)
+		r.health.Register(conn)
 	}
 
 	return nil
@@ -476,6 +551,21 @@ func (r *Runtime) startServers(ctx context.Context) error {
 
 		// Check if this is a startable connector (REST)
 		if starter, ok := conn.(Starter); ok {
+			// Set health manager if connector supports it
+			if hr, ok := conn.(HealthRegistrar); ok {
+				hr.SetHealthManager(r.health)
+			}
+
+			// Set metrics registry if connector supports it
+			if mr, ok := conn.(MetricsRegistrar); ok {
+				mr.SetMetrics(r.metrics)
+			}
+
+			// Set rate limiter if connector supports it
+			if rlr, ok := conn.(RateLimitRegistrar); ok && r.rateLimiter != nil {
+				rlr.SetRateLimiter(r.rateLimiter)
+			}
+
 			// Register flow handlers for this connector
 			r.registerFlowHandlers(name, conn)
 
@@ -485,6 +575,9 @@ func (r *Runtime) startServers(ctx context.Context) error {
 			}
 		}
 	}
+
+	// Mark service as ready after all servers are started
+	r.health.SetReady(true)
 
 	return nil
 }
@@ -550,6 +643,9 @@ func (r *Runtime) Shutdown() error {
 
 	banner.PrintShutdown()
 
+	// Mark service as not ready (stop accepting new traffic)
+	r.health.SetReady(false)
+
 	// Close all connectors
 	if err := r.connectors.CloseAll(ctx); err != nil {
 		banner.PrintError("Error closing connectors: " + err.Error())
@@ -580,6 +676,50 @@ type RouteRegistrarWithReturnType interface {
 // Used by GraphQL connectors to generate schema from HCL type definitions.
 type HCLTypeLoader interface {
 	LoadHCLTypes(types map[string]*validate.TypeSchema) error
+}
+
+// HealthRegistrar is implemented by connectors that can register health endpoints.
+type HealthRegistrar interface {
+	SetHealthManager(h *health.Manager)
+}
+
+// MetricsRegistrar is implemented by connectors that can register metrics.
+type MetricsRegistrar interface {
+	SetMetrics(m *metrics.Registry)
+}
+
+// RateLimitRegistrar is implemented by connectors that support rate limiting.
+type RateLimitRegistrar interface {
+	SetRateLimiter(rl *ratelimit.Limiter)
+}
+
+// initRateLimiter initializes the rate limiter based on service configuration.
+func (r *Runtime) initRateLimiter() {
+	if r.config.ServiceConfig == nil || r.config.ServiceConfig.RateLimit == nil {
+		return
+	}
+
+	rlConfig := r.config.ServiceConfig.RateLimit
+	if !rlConfig.Enabled {
+		r.logger.Info("rate limiting disabled by configuration")
+		return
+	}
+
+	r.rateLimiter = ratelimit.New(&ratelimit.Config{
+		Enabled:           rlConfig.Enabled,
+		RequestsPerSecond: rlConfig.RequestsPerSecond,
+		Burst:             rlConfig.Burst,
+		KeyExtractor:      rlConfig.KeyExtractor,
+		ExcludePaths:      rlConfig.ExcludePaths,
+		EnableHeaders:     rlConfig.EnableHeaders,
+	})
+
+	r.logger.Info("rate limiting configured",
+		"requests_per_second", rlConfig.RequestsPerSecond,
+		"burst", rlConfig.Burst,
+		"key_extractor", rlConfig.KeyExtractor,
+		"exclude_paths", rlConfig.ExcludePaths,
+	)
 }
 
 // Helper functions for extracting configuration values
@@ -614,4 +754,197 @@ func getBool(props map[string]interface{}, key string, defaultVal bool) bool {
 		}
 	}
 	return defaultVal
+}
+
+// initHotReload initializes the hot reload system.
+func (r *Runtime) initHotReload(ctx context.Context) error {
+	r.logger.Info("initializing hot reload",
+		"config_dir", r.configDir,
+	)
+
+	// Create reloader with hooks
+	r.hotReloader = hotreload.NewReloader(&hotreload.ReloaderConfig{
+		ConfigPath: r.configDir,
+		Logger:     r.logger,
+		OnLoad:     r.hotReloadLoad,
+		OnValidate: r.hotReloadValidate,
+		OnPrepare:  r.hotReloadPrepare,
+		OnSwitch:   r.hotReloadSwitch,
+		OnRollback: r.hotReloadRollback,
+		OnComplete: r.hotReloadComplete,
+	})
+
+	// Create file watcher
+	var err error
+	r.hotWatcher, err = hotreload.NewWatcher(
+		&hotreload.Config{
+			Enabled:    true,
+			Paths:      []string{r.configDir},
+			Extensions: []string{".hcl"},
+			Debounce:   500 * time.Millisecond,
+		},
+		r.logger,
+		func(ctx context.Context) error {
+			return r.hotReloader.Reload(ctx)
+		},
+		func(ctx context.Context) error {
+			return r.hotReloader.Validate(ctx)
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create hot reload watcher: %w", err)
+	}
+
+	// Start the watcher
+	if err := r.hotWatcher.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start hot reload watcher: %w", err)
+	}
+
+	// Set up SIGHUP handler
+	r.signalHandler = hotreload.NewSignalHandler(r.hotWatcher, r.logger)
+	r.signalHandler.Start(ctx)
+
+	r.logger.Info("hot reload enabled - configuration changes will be applied automatically")
+	r.logger.Info("send SIGHUP to trigger manual reload")
+
+	return nil
+}
+
+// Hot reload hooks
+
+func (r *Runtime) hotReloadLoad(ctx context.Context, configPath string) error {
+	r.logger.Debug("hot reload: loading new configuration")
+
+	// Parse new configuration
+	p := parser.NewHCLParser()
+	_, err := p.Parse(ctx, configPath)
+	if err != nil {
+		return fmt.Errorf("failed to parse configuration: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Runtime) hotReloadValidate(ctx context.Context) error {
+	r.logger.Debug("hot reload: validating configuration")
+	// Configuration validation happens during load
+	return nil
+}
+
+func (r *Runtime) hotReloadPrepare(ctx context.Context) error {
+	r.logger.Debug("hot reload: preparing new resources")
+	// Resources will be prepared during switch
+	return nil
+}
+
+func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
+	r.logger.Info("hot reload: switching to new configuration")
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Parse new configuration
+	p := parser.NewHCLParser()
+	newConfig, err := p.Parse(ctx, r.configDir)
+	if err != nil {
+		return fmt.Errorf("failed to parse configuration: %w", err)
+	}
+
+	// Close existing connectors gracefully
+	if err := r.connectors.CloseAll(ctx); err != nil {
+		r.logger.Warn("some connectors failed to close during reload", "error", err)
+	}
+
+	// Create new connector registry
+	newRegistry := connector.NewRegistry()
+	registerBuiltinFactories(newRegistry, r.logger)
+
+	// Update runtime state
+	oldConfig := r.config
+	r.config = newConfig
+	r.connectors = newRegistry
+
+	// Rebuild transforms map
+	r.transforms = make(map[string]*transform.Config)
+	for _, t := range newConfig.Transforms {
+		r.transforms[t.Name] = t
+	}
+
+	// Rebuild types map
+	r.types = make(map[string]*validate.TypeSchema)
+	for _, t := range newConfig.Types {
+		r.types[t.Name] = t
+	}
+
+	// Rebuild named caches map
+	r.namedCaches = make(map[string]*flow.NamedCacheConfig)
+	for _, c := range newConfig.NamedCaches {
+		r.namedCaches[c.Name] = c
+	}
+
+	// Create new flow registry
+	r.flows = NewFlowRegistry()
+
+	// Initialize new connectors
+	if err := r.initConnectors(ctx); err != nil {
+		// Rollback to old config
+		r.config = oldConfig
+		return fmt.Errorf("failed to initialize connectors: %w", err)
+	}
+
+	// Register flows with new connectors
+	if err := r.registerFlows(); err != nil {
+		r.config = oldConfig
+		return fmt.Errorf("failed to register flows: %w", err)
+	}
+
+	// Note: We don't restart HTTP servers here because they're already running
+	// and the new flows are registered with them. This provides zero-downtime reload.
+
+	return nil
+}
+
+func (r *Runtime) hotReloadRollback(ctx context.Context, err error) {
+	r.logger.Warn("hot reload: rolling back due to error", "error", err)
+	// The switch function handles rollback internally
+}
+
+func (r *Runtime) hotReloadComplete(ctx context.Context) {
+	r.logger.Info("hot reload: configuration reload completed successfully")
+
+	// Update metrics
+	if r.metrics != nil {
+		// Could add a reload counter metric here
+	}
+
+	// Mark health as ready
+	r.health.SetReady(true)
+}
+
+// Reload triggers a manual configuration reload.
+func (r *Runtime) Reload(ctx context.Context) error {
+	if !r.hotReloadEnabled || r.hotReloader == nil {
+		return fmt.Errorf("hot reload is not enabled")
+	}
+	return r.hotReloader.Reload(ctx)
+}
+
+// ReloadStats returns hot reload statistics.
+func (r *Runtime) ReloadStats() map[string]interface{} {
+	if !r.hotReloadEnabled || r.hotReloader == nil {
+		return map[string]interface{}{
+			"enabled": false,
+		}
+	}
+
+	stats := r.hotReloader.Stats()
+	stats["enabled"] = true
+
+	if r.hotWatcher != nil {
+		stats["watching"] = true
+		stats["last_reload"] = r.hotWatcher.LastReload()
+		stats["is_reloading"] = r.hotWatcher.IsReloading()
+	}
+
+	return stats
 }

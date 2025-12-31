@@ -41,8 +41,17 @@ Philosophy: Configuration, not code. You define WHAT you want, Mycel handles HOW
 var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start the Mycel runtime",
-	Long:  `Start the Mycel runtime and begin serving configured flows.`,
-	RunE:  runStart,
+	Long: `Start the Mycel runtime and begin serving configured flows.
+
+By default, hot reload is enabled. When you modify any .hcl file in the
+configuration directory, Mycel will automatically reload the configuration
+without restarting (like nginx).
+
+You can also trigger a manual reload by sending SIGHUP:
+  kill -SIGHUP <pid>
+
+To disable hot reload, use --hot-reload=false`,
+	RunE: runStart,
 }
 
 var validateCmd = &cobra.Command{
@@ -64,6 +73,7 @@ var (
 	configDir   string
 	environment string
 	verbose     bool
+	hotReload   bool
 )
 
 func init() {
@@ -71,6 +81,9 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&configDir, "config", "c", ".", "Configuration directory")
 	rootCmd.PersistentFlags().StringVarP(&environment, "env", "e", "dev", "Environment (dev, staging, prod)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging")
+
+	// Start command flags
+	startCmd.Flags().BoolVar(&hotReload, "hot-reload", true, "Enable hot reload (auto-reload on config changes)")
 
 	// Add commands
 	rootCmd.AddCommand(startCmd)
@@ -93,6 +106,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		ConfigDir:   configDir,
 		Environment: environment,
 		Logger:      logger,
+		HotReload:   hotReload,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create runtime: %w", err)

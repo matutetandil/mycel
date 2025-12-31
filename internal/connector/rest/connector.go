@@ -7,9 +7,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mycel-labs/mycel/internal/health"
+	"github.com/mycel-labs/mycel/internal/metrics"
+	"github.com/mycel-labs/mycel/internal/ratelimit"
 )
 
 // HandlerFunc is a function that handles a flow request.
@@ -17,12 +22,15 @@ type HandlerFunc func(ctx context.Context, input map[string]interface{}) (interf
 
 // Connector exposes HTTP endpoints as a REST API.
 type Connector struct {
-	name   string
-	port   int
-	server *http.Server
-	mux    *http.ServeMux
-	cors   *CORSConfig
-	logger *slog.Logger
+	name        string
+	port        int
+	server      *http.Server
+	mux         *http.ServeMux
+	cors        *CORSConfig
+	logger      *slog.Logger
+	health      *health.Manager
+	metrics     *metrics.Registry
+	rateLimiter *ratelimit.Limiter
 
 	mu         sync.Mutex
 	handlers   map[string]HandlerFunc
@@ -94,6 +102,27 @@ func (c *Connector) RegisterRoute(operation string, handler func(ctx context.Con
 	c.handlers[operation] = handler
 }
 
+// SetHealthManager sets the health manager for this connector.
+func (c *Connector) SetHealthManager(h *health.Manager) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.health = h
+}
+
+// SetMetrics sets the metrics registry for this connector.
+func (c *Connector) SetMetrics(m *metrics.Registry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.metrics = m
+}
+
+// SetRateLimiter sets the rate limiter for this connector.
+func (c *Connector) SetRateLimiter(rl *ratelimit.Limiter) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.rateLimiter = rl
+}
+
 // Start starts the HTTP server.
 func (c *Connector) Start(ctx context.Context) error {
 	c.mu.Lock()
@@ -106,10 +135,22 @@ func (c *Connector) Start(ctx context.Context) error {
 	// Setup routes
 	c.setupRoutes()
 
+	// Build middleware chain
+	var handler http.Handler = c.mux
+
+	// Apply rate limiting if configured
+	if c.rateLimiter != nil {
+		handler = c.rateLimiter.Middleware(handler)
+		c.logger.Info("rate limiting enabled")
+	}
+
+	// Apply CORS
+	handler = c.corsMiddleware(handler)
+
 	// Create server
 	c.server = &http.Server{
 		Addr:         fmt.Sprintf(":%d", c.port),
-		Handler:      c.corsMiddleware(c.mux),
+		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -158,17 +199,40 @@ func (c *Connector) setupRoutes() {
 		})
 	}
 
-	// Health check endpoint
-	c.mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	})
+	// Health check endpoints
+	if c.health != nil {
+		// Use the health manager for full health checks
+		c.health.RegisterHandlers(c.mux)
+	} else {
+		// Fallback to simple health check
+		c.mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		})
+	}
+
+	// Metrics endpoint
+	if c.metrics != nil {
+		c.mux.Handle("/metrics", c.metrics.Handler())
+	}
 }
 
 // handleRequest processes an HTTP request.
 func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handlers map[string]HandlerFunc, paramNames []string) {
+	start := time.Now()
+	path := r.URL.Path
+
+	// Track in-flight requests
+	if c.metrics != nil {
+		c.metrics.IncRequestsInFlight(r.Method, path)
+		defer c.metrics.DecRequestsInFlight(r.Method, path)
+	}
+
 	handler, ok := handlers[r.Method]
 	if !ok {
+		if c.metrics != nil {
+			c.metrics.RecordRequest(r.Method, path, "405", time.Since(start))
+		}
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -184,12 +248,18 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 			slog.String("path", r.URL.Path),
 			slog.Any("error", err),
 		)
-		c.writeError(w, err)
+		status := c.writeError(w, err)
+		if c.metrics != nil {
+			c.metrics.RecordRequest(r.Method, path, strconv.Itoa(status), time.Since(start))
+		}
 		return
 	}
 
 	// Write response
 	c.writeJSON(w, http.StatusOK, result)
+	if c.metrics != nil {
+		c.metrics.RecordRequest(r.Method, path, "200", time.Since(start))
+	}
 }
 
 // buildInput extracts input data from the HTTP request.
@@ -255,7 +325,7 @@ func (c *Connector) writeJSON(w http.ResponseWriter, status int, data interface{
 }
 
 // writeError writes an error response.
-func (c *Connector) writeError(w http.ResponseWriter, err error) {
+func (c *Connector) writeError(w http.ResponseWriter, err error) int {
 	status := http.StatusInternalServerError
 
 	// Check for specific error types
@@ -269,6 +339,7 @@ func (c *Connector) writeError(w http.ResponseWriter, err error) {
 	c.writeJSON(w, status, map[string]string{
 		"error": errStr,
 	})
+	return status
 }
 
 // corsMiddleware adds CORS headers to responses.

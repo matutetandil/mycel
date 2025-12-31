@@ -50,8 +50,19 @@ type Configuration struct {
 
 // ServiceConfig holds global service configuration.
 type ServiceConfig struct {
-	Name    string
-	Version string
+	Name      string
+	Version   string
+	RateLimit *RateLimitConfig
+}
+
+// RateLimitConfig holds rate limiting configuration.
+type RateLimitConfig struct {
+	Enabled           bool
+	RequestsPerSecond float64
+	Burst             int
+	KeyExtractor      string   // "ip", "header:X-API-Key", "query:api_key"
+	ExcludePaths      []string // paths to exclude from rate limiting
+	EnableHeaders     bool     // add X-RateLimit-* headers
 }
 
 // NewConfiguration creates an empty configuration.
@@ -216,6 +227,9 @@ func parseServiceBlock(block *hcl.Block, ctx *hcl.EvalContext) (*ServiceConfig, 
 			{Name: "name"},
 			{Name: "version"},
 		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "rate_limit"},
+		},
 	}
 
 	content, diags := block.Body.Content(schema)
@@ -241,5 +255,101 @@ func parseServiceBlock(block *hcl.Block, ctx *hcl.EvalContext) (*ServiceConfig, 
 		svc.Version = val.AsString()
 	}
 
+	// Parse rate_limit block
+	for _, b := range content.Blocks {
+		if b.Type == "rate_limit" {
+			rl, err := parseRateLimitBlock(b, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("rate_limit block error: %w", err)
+			}
+			svc.RateLimit = rl
+		}
+	}
+
 	return svc, nil
+}
+
+// parseRateLimitBlock parses a rate_limit block.
+func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "enabled"},
+			{Name: "requests_per_second"},
+			{Name: "burst"},
+			{Name: "key_extractor"},
+			{Name: "exclude_paths"},
+			{Name: "enable_headers"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("rate_limit block error: %s", diags.Error())
+	}
+
+	// Defaults
+	rl := &RateLimitConfig{
+		Enabled:           true,
+		RequestsPerSecond: 100,
+		Burst:             200,
+		KeyExtractor:      "ip",
+		EnableHeaders:     true,
+		ExcludePaths:      []string{"/health", "/health/live", "/health/ready", "/metrics"},
+	}
+
+	if attr, ok := content.Attributes["enabled"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("enabled error: %s", diags.Error())
+		}
+		rl.Enabled = val.True()
+	}
+
+	if attr, ok := content.Attributes["requests_per_second"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("requests_per_second error: %s", diags.Error())
+		}
+		f, _ := val.AsBigFloat().Float64()
+		rl.RequestsPerSecond = f
+	}
+
+	if attr, ok := content.Attributes["burst"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("burst error: %s", diags.Error())
+		}
+		i, _ := val.AsBigFloat().Int64()
+		rl.Burst = int(i)
+	}
+
+	if attr, ok := content.Attributes["key_extractor"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("key_extractor error: %s", diags.Error())
+		}
+		rl.KeyExtractor = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["exclude_paths"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("exclude_paths error: %s", diags.Error())
+		}
+		paths := []string{}
+		for _, v := range val.AsValueSlice() {
+			paths = append(paths, v.AsString())
+		}
+		rl.ExcludePaths = paths
+	}
+
+	if attr, ok := content.Attributes["enable_headers"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("enable_headers error: %s", diags.Error())
+		}
+		rl.EnableHeaders = val.True()
+	}
+
+	return rl, nil
 }
