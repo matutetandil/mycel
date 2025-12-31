@@ -11,11 +11,11 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 
-	"github.com/mycel-labs/mycel/internal/connector"
-	"github.com/mycel-labs/mycel/internal/flow"
-	"github.com/mycel-labs/mycel/internal/transform"
-	"github.com/mycel-labs/mycel/internal/validate"
-	myhcl "github.com/mycel-labs/mycel/pkg/hcl"
+	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/internal/transform"
+	"github.com/matutetandil/mycel/internal/validate"
+	myhcl "github.com/matutetandil/mycel/pkg/hcl"
 )
 
 // Parser parses HCL configuration files.

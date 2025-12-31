@@ -8,7 +8,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/mycel-labs/mycel/internal/connector/cache/types"
+	"github.com/matutetandil/mycel/internal/connector/cache/types"
 )
 
 // Connector implements a Redis cache connector.

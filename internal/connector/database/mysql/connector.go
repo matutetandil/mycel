@@ -10,7 +10,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql" // MySQL driver
 
-	"github.com/mycel-labs/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 // Connector implements a MySQL database connector.

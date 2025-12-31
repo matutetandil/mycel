@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mycel-labs/mycel/internal/connector/cache/types"
+	"github.com/matutetandil/mycel/internal/connector/cache/types"
 )
 
 func TestMemoryCache_Basic(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mycel-labs/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 func TestConnector_Basic(t *testing.T) {

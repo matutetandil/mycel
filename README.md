@@ -8,9 +8,25 @@ Mycel is an open-source framework for creating microservices through HCL configu
 
 ## Quick Start
 
+### With Docker (recommended)
+
+```bash
+# Using pre-built image (Docker Hub)
+docker run -v ./my-service:/config -p 3000:3000 mdenda/mycel
+
+# Or from GitHub Container Registry
+docker run -v ./my-service:/config -p 3000:3000 ghcr.io/matutetandil/mycel
+
+# Or build locally
+docker build -t mycel .
+docker run -v ./my-service:/config -p 3000:3000 mycel
+```
+
+### From Source
+
 ```bash
 # Clone and build
-git clone https://github.com/mycel-labs/mycel.git
+git clone https://github.com/matutetandil/mycel.git
 cd mycel
 go build -o mycel ./cmd/mycel
 
@@ -18,7 +34,7 @@ go build -o mycel ./cmd/mycel
 ./mycel start --config ./examples/basic
 ```
 
-Test the API:
+### Test the API
 ```bash
 # List users
 curl http://localhost:3000/users
@@ -150,7 +166,7 @@ service {
 
 ## Requirements
 
-- Go 1.21+
+**Docker** (recommended) or **Go 1.24+** (for building from source)
 
 ## License
 

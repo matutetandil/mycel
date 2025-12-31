@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/graphql-go/graphql"
-	"github.com/mycel-labs/mycel/internal/validate"
+	"github.com/matutetandil/mycel/internal/validate"
 )
 
 // HCLConverter converts HCL TypeSchemas to GraphQL types.

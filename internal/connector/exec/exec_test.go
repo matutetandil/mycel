@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mycel-labs/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 func TestConnector_LocalExecution(t *testing.T) {

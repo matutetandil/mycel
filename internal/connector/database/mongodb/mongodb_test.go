@@ -8,7 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 
-	"github.com/mycel-labs/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 func TestNew(t *testing.T) {

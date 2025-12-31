@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/mycel-labs/mycel/internal/parser"
-	"github.com/mycel-labs/mycel/internal/runtime"
+	"github.com/matutetandil/mycel/internal/parser"
+	"github.com/matutetandil/mycel/internal/runtime"
 )
 
 var (

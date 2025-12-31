@@ -11,7 +11,7 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 
-	"github.com/mycel-labs/mycel/internal/connector/cache/types"
+	"github.com/matutetandil/mycel/internal/connector/cache/types"
 )
 
 // entry represents a cached value with expiration.

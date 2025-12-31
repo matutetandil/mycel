@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mycel-labs/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 // Connector is an HTTP client for calling external REST APIs.

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mycel-labs/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 // TestSchemaBuilder tests schema construction.

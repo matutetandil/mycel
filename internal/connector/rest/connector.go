@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mycel-labs/mycel/internal/health"
-	"github.com/mycel-labs/mycel/internal/metrics"
-	"github.com/mycel-labs/mycel/internal/ratelimit"
+	"github.com/matutetandil/mycel/internal/health"
+	"github.com/matutetandil/mycel/internal/metrics"
+	"github.com/matutetandil/mycel/internal/ratelimit"
 )
 
 // HandlerFunc is a function that handles a flow request.

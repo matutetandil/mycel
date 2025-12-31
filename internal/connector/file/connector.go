@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/mycel-labs/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 // Connector provides file system operations.

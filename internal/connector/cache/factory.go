@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mycel-labs/mycel/internal/connector"
-	"github.com/mycel-labs/mycel/internal/connector/cache/memory"
-	"github.com/mycel-labs/mycel/internal/connector/cache/redis"
+	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/connector/cache/memory"
+	"github.com/matutetandil/mycel/internal/connector/cache/redis"
 )
 
 // Factory creates cache connectors.

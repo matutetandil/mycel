@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mycel-labs/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 // ClientConnector is a TCP client that connects to remote servers.

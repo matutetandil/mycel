@@ -2,7 +2,7 @@
 // This file re-exports types from the types subpackage for convenience.
 package mq
 
-import "github.com/mycel-labs/mycel/internal/connector/mq/types"
+import "github.com/matutetandil/mycel/internal/connector/mq/types"
 
 // Type aliases for backward compatibility
 type (

@@ -7,7 +7,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
-	"github.com/mycel-labs/mycel/internal/validate"
+	"github.com/matutetandil/mycel/internal/validate"
 )
 
 // parseTypeBlock parses a type block from HCL.

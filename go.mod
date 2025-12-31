@@ -1,4 +1,4 @@
-module github.com/mycel-labs/mycel
+module github.com/matutetandil/mycel
 
 go 1.24.0
 

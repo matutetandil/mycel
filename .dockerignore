@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Build artifacts
+mycel
+*.exe
+bin/
+dist/
+
+# Test files
+*_test.go
+coverage.out
+*.test
+
+# Documentation (not needed in image)
+*.md
+!README.md
+docs/
+
+# Examples (mount these instead)
+examples/
+
+# Local development
+.env
+.env.*
+*.local
+
+# OS files
+.DS_Store
+Thumbs.db

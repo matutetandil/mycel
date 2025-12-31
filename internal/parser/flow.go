@@ -8,8 +8,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/mycel-labs/mycel/internal/flow"
-	"github.com/mycel-labs/mycel/internal/transform"
+	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/internal/transform"
 )
 
 // parseFlowBlock parses a flow block from HCL.
