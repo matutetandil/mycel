@@ -58,7 +58,7 @@ This document tracks the implementation status and future plans for Mycel.
 | OpenAPI Export | ✅ | 5 |
 | AsyncAPI Export | ✅ | 5 |
 | Custom Validators (Regex/CEL) | ✅ | 5 |
-| Custom Validators (WASM) | 🔜 | 5 |
+| Custom Validators (WASM) | ✅ | 5 |
 | Plugins System | 🔜 | 5 |
 | Auth System | 🔜 | 5.1 |
 
@@ -171,9 +171,11 @@ This document tracks the implementation status and future plans for Mycel.
   - CEL validators for expression-based validation
   - Validator registry and factory
   - Integration with type validation system
-- 🔜 **Custom validators** with WASM
+- ✅ **Custom validators** with WASM
   - User-defined validation logic in compiled WASM
-  - Hot-loadable WASM modules
+  - wazero runtime (pure Go, no CGO)
+  - Memory management with alloc/free
+  - JSON-based input/output
 - 🔜 **Plugin system**
   - Custom connectors via WASM
   - Custom transforms via WASM

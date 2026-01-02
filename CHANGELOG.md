@@ -7,16 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - WASM Runtime and Validators (Phase 5)
+- **WASM Runtime** (`internal/wasm/`)
+  - Pure Go runtime using wazero (no CGO)
+  - Module loading from .wasm files
+  - Memory management with alloc/free helpers
+  - JSON-based function I/O
+  - Hot reload support for WASM modules
+- **WASM Validators** (`internal/validator/wasm.go`)
+  - `WASMValidator` type for compiled validators
+  - Shared runtime with module caching
+  - CallValidate helper for validation functions
+- **Example**: `examples/wasm-validator/`
+  - Complete Rust example for building validators
+  - Documentation for WASM interface specification
+
 ### Added - Custom Validators (Phase 5)
 - **Custom Validators** (`internal/validator/`)
   - Regex validators for pattern matching (email, phone, UUID, etc.)
   - CEL validators for expression-based validation (age checks, enums, password strength)
+  - WASM validators for complex custom logic
   - Validator registry for managing validators
   - Factory function for creating validators from config
 - **Parser support** for `validator` blocks
   - `type = "regex"` with `pattern` attribute
   - `type = "cel"` with `expr` attribute
-  - `type = "wasm"` (placeholder for future WASM support)
+  - `type = "wasm"` with `wasm` and `entrypoint` attributes
   - Custom `message` for validation errors
 - **Integration with type system**
   - `ValidatorRef` field in FieldSchema

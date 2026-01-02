@@ -249,8 +249,7 @@ func CreateValidator(cfg Config) (Validator, error) {
 		return NewCELValidator(cfg.Name, cfg.Expr, cfg.Message)
 
 	case ValidatorTypeWASM:
-		// WASM validators will be implemented later
-		return nil, fmt.Errorf("WASM validators not yet implemented")
+		return NewWASMValidator(cfg.Name, cfg.WASM, cfg.Entrypoint, cfg.Message)
 
 	default:
 		return nil, fmt.Errorf("unknown validator type: %s", cfg.Type)

@@ -646,30 +646,30 @@ volumes:
 
 ## 8. Implementation Checklist
 
-### Phase 5a: Validators (regex/CEL)
-- [ ] Define `ValidatorConfig` struct
-- [ ] Parser for `validator` blocks
-- [ ] `RegexValidator` implementation
-- [ ] `CELValidator` implementation
-- [ ] Integration with type validation
-- [ ] Tests for regex validators
-- [ ] Tests for CEL validators
-- [ ] Example: `examples/validators/`
+### Phase 5a: Validators (regex/CEL) ✅ COMPLETE
+- [x] Define `ValidatorConfig` struct
+- [x] Parser for `validator` blocks
+- [x] `RegexValidator` implementation
+- [x] `CELValidator` implementation
+- [x] Integration with type validation
+- [x] Tests for regex validators
+- [x] Tests for CEL validators
+- [x] Example: `examples/validators/`
 
-### Phase 5b: WASM Runtime
-- [ ] Add wazero dependency
-- [ ] Create `internal/wasm/runtime.go`
-- [ ] Memory management helpers (alloc/free)
-- [ ] JSON serialization for WASM I/O
-- [ ] Error handling
-- [ ] Tests for WASM runtime
+### Phase 5b: WASM Runtime ✅ COMPLETE
+- [x] Add wazero dependency
+- [x] Create `internal/wasm/runtime.go`
+- [x] Memory management helpers (alloc/free)
+- [x] JSON serialization for WASM I/O
+- [x] Error handling
+- [x] Tests for WASM runtime
 
-### Phase 5c: Validators WASM
-- [ ] `WASMValidator` implementation
-- [ ] Parser for `type = "wasm"` validators
-- [ ] Hot reload for .wasm files
-- [ ] Tests for WASM validators
-- [ ] Example validator in Rust
+### Phase 5c: Validators WASM ✅ COMPLETE
+- [x] `WASMValidator` implementation
+- [x] Parser for `type = "wasm"` validators
+- [x] Hot reload for .wasm files
+- [x] Tests for WASM validators
+- [x] Example validator in Rust
 
 ### Phase 5d: Functions WASM
 - [ ] Parser for `functions` blocks
