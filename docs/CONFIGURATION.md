@@ -17,6 +17,11 @@ Complete HCL configuration reference for Mycel.
   - [S3](#s3-connector)
   - [Exec](#exec-connector)
 - [Flows](#flows)
+- [Synchronization](#synchronization)
+  - [Flow Triggers](#flow-triggers-when)
+  - [Lock (Mutex)](#lock-mutex)
+  - [Semaphore](#semaphore)
+  - [Coordinate](#coordinate)
 - [Types](#types)
 - [Transforms](#transforms)
 - [Named Caches](#named-caches)
@@ -568,6 +573,218 @@ to {
     }
   }
 }
+```
+
+---
+
+## Synchronization
+
+Mycel provides synchronization primitives for coordinating distributed flow execution.
+
+### Flow Triggers (`when`)
+
+Control when a flow executes:
+
+```hcl
+# Default: triggered by from block (request/message)
+flow "get_users" {
+  # when = "always"  # implicit default
+  from { connector = "api", operation = "GET /users" }
+  to   { connector = "db", target = "users" }
+}
+
+# Cron schedule (standard 5-field format)
+flow "daily_cleanup" {
+  when = "0 3 * * *"  # minute hour day month weekday
+  to {
+    connector = "db"
+    query     = "DELETE FROM logs WHERE created_at < now() - interval '30 days'"
+  }
+}
+
+# Interval schedule
+flow "health_ping" {
+  when = "@every 5m"
+  to { connector = "monitoring", target = "POST /ping" }
+}
+```
+
+#### When Values
+
+| Value | Description |
+|-------|-------------|
+| `"always"` | Default. Triggered by `from` block |
+| `"0 3 * * *"` | Cron expression (min hour day month weekday) |
+| `"@every 5m"` | Interval (supports: s, m, h) |
+| `"@hourly"` | Shortcut for `0 * * * *` |
+| `"@daily"` | Shortcut for `0 0 * * *` |
+| `"@weekly"` | Shortcut for `0 0 * * 0` |
+| `"@monthly"` | Shortcut for `0 0 1 * *` |
+
+### Lock (Mutex)
+
+Distributed mutex for exclusive access by key:
+
+```hcl
+flow "process_payment" {
+  from { connector = "rabbitmq", operation = "queue:payments" }
+
+  lock {
+    storage = "redis"                           # Cache connector to use
+    key     = "'user:' + input.body.user_id"    # CEL expression
+    timeout = "30s"                              # Max time to hold lock
+    wait    = true                               # Wait for lock or fail immediately
+    retry   = "100ms"                            # Retry interval when waiting
+  }
+
+  to { connector = "db", target = "payments" }
+}
+```
+
+#### Lock Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `storage` | string | required | Cache connector name (Redis or Memory) |
+| `key` | string | required | CEL expression for lock key |
+| `timeout` | duration | `"30s"` | Maximum time to hold the lock |
+| `wait` | bool | `true` | Wait for lock (`true`) or fail immediately (`false`) |
+| `retry` | duration | `"100ms"` | Retry interval when `wait=true` |
+
+### Semaphore
+
+Limit concurrent access to a resource:
+
+```hcl
+flow "call_external_api" {
+  from { connector = "rabbitmq", operation = "queue:requests" }
+
+  semaphore {
+    storage     = "redis"           # Cache connector
+    key         = "'external_api'"  # CEL expression
+    max_permits = 10                # Max concurrent executions
+    timeout     = "30s"             # Max wait time for permit
+    lease       = "60s"             # Auto-release after this time (crash protection)
+  }
+
+  to { connector = "external_api", target = "POST /process" }
+}
+```
+
+#### Semaphore Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `storage` | string | required | Cache connector name |
+| `key` | string | required | CEL expression for semaphore key |
+| `max_permits` | int | required | Maximum concurrent permits |
+| `timeout` | duration | `"30s"` | Max wait time to acquire permit |
+| `lease` | duration | `"60s"` | Auto-release time (crash protection) |
+
+### Coordinate
+
+Signal/Wait pattern for dependency coordination:
+
+```hcl
+flow "process_entity" {
+  from { connector = "rabbitmq", operation = "queue:entities" }
+
+  coordinate {
+    storage              = "redis"
+    timeout              = "60s"
+    on_timeout           = "retry"    # fail | retry | skip | pass
+    max_retries          = 3          # Only for on_timeout = "retry"
+    max_concurrent_waits = 10         # Limit simultaneous waiters
+
+    # Child entities wait for their parent
+    wait {
+      when = "input.headers.type == 'child'"
+      for  = "'entity:' + input.headers.parent_id + ':ready'"
+    }
+
+    # Parent entities emit signal when processed
+    signal {
+      when = "input.headers.type == 'parent'"
+      emit = "'entity:' + input.body.id + ':ready'"
+      ttl  = "5m"
+    }
+
+    # Skip waiting if parent already exists in database
+    preflight {
+      connector = "postgres"
+      query     = "SELECT 1 FROM entities WHERE id = :parent_id"
+      params    = { parent_id = "input.headers.parent_id" }
+      if_exists = "pass"    # pass | fail
+    }
+  }
+
+  to { connector = "db", target = "entities" }
+}
+```
+
+#### Coordinate Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `storage` | string | required | Cache connector name |
+| `timeout` | duration | `"60s"` | Max wait time |
+| `on_timeout` | string | `"fail"` | Action on timeout: `fail`, `retry`, `skip`, `pass` |
+| `max_retries` | int | `3` | Max retries when `on_timeout = "retry"` |
+| `max_concurrent_waits` | int | `0` | Limit waiters (0 = unlimited) |
+
+#### Wait Block
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `when` | string | CEL expression: when to wait |
+| `for` | string | CEL expression: signal name to wait for |
+
+#### Signal Block
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `when` | string | CEL expression: when to emit signal |
+| `emit` | string | CEL expression: signal name to emit |
+| `ttl` | duration | Signal time-to-live |
+
+#### Preflight Block
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `connector` | string | Database connector to query |
+| `query` | string | SQL query with `:param` placeholders |
+| `params` | map | Parameter mappings (CEL expressions) |
+| `if_exists` | string | Action if query returns results: `pass` or `fail` |
+
+#### On Timeout Actions
+
+| Action | Behavior |
+|--------|----------|
+| `fail` | Error, message goes to DLQ |
+| `retry` | Requeue message (up to `max_retries`), then DLQ |
+| `skip` | Silently acknowledge (no error, no processing) |
+| `pass` | Continue processing without the signal |
+
+### MQ Input Structure
+
+When consuming from message queues, the input has a structured format:
+
+**RabbitMQ:**
+```
+input.body        # Parsed message payload (JSON)
+input.headers     # AMQP headers
+input.properties  # AMQP properties (message_id, timestamp, etc)
+input.routing_key # Routing key
+```
+
+**Kafka:**
+```
+input.body       # Parsed message payload (JSON)
+input.headers    # Kafka headers
+input.key        # Message key
+input.topic      # Topic name
+input.partition  # Partition number
+input.offset     # Offset
 ```
 
 ---

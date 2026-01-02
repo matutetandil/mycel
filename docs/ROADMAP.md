@@ -2,7 +2,7 @@
 
 This document tracks the implementation status and future plans for Mycel.
 
-## Current Status: Phase 4.1 Complete
+## Current Status: Phase 4.2 Complete
 
 ## Connector Support
 
@@ -47,11 +47,11 @@ This document tracks the implementation status and future plans for Mycel.
 | Rate Limiting | ✅ | 4 |
 | Circuit Breaker | ✅ | 4 |
 | Hot Reload | ✅ | 4 |
-| MQ Headers Access | 📋 | 4.2 |
-| Distributed Locks | 📋 | 4.2 |
-| Semaphores | 📋 | 4.2 |
-| Coordinate (Signal/Wait) | 📋 | 4.2 |
-| Flow Triggers (Cron) | 📋 | 4.2 |
+| MQ Headers Access | ✅ | 4.2 |
+| Distributed Locks | ✅ | 4.2 |
+| Semaphores | ✅ | 4.2 |
+| Coordinate (Signal/Wait) | ✅ | 4.2 |
+| Flow Triggers (Cron) | ✅ | 4.2 |
 | Connector Profiles | 📋 | 4.3 |
 | Auth System | 🔜 | 5 |
 | Aspects (AOP) | 🔜 | 5 |

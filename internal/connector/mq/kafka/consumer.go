@@ -139,16 +139,29 @@ func (c *Connector) consumeLoop(ctx context.Context, workerID int) {
 // handleMessage processes a single Kafka message.
 func (c *Connector) handleMessage(ctx context.Context, msg kafka.Message) error {
 	// Parse message body
-	var body map[string]interface{}
+	var body interface{}
 	if err := json.Unmarshal(msg.Value, &body); err != nil {
-		// If not JSON, wrap raw body
-		body = map[string]interface{}{
-			"raw": string(msg.Value),
-		}
+		// If not JSON, use raw string
+		body = string(msg.Value)
 	}
 
-	// Add Kafka metadata to body
-	body["_kafka"] = map[string]interface{}{
+	// Convert Kafka headers to map[string]interface{}
+	headers := make(map[string]interface{})
+	for _, h := range msg.Headers {
+		headers[h.Key] = string(h.Value)
+	}
+
+	// Build the full input structure for Kafka messages
+	// input.body - the parsed message payload
+	// input.headers - Kafka headers
+	// input.topic - the topic name
+	// input.partition - the partition number
+	// input.offset - the message offset
+	// input.key - the message key
+	// input.timestamp - the message timestamp
+	input := map[string]interface{}{
+		"body":      body,
+		"headers":   headers,
 		"topic":     msg.Topic,
 		"partition": msg.Partition,
 		"offset":    msg.Offset,
@@ -168,8 +181,8 @@ func (c *Connector) handleMessage(ctx context.Context, msg kafka.Message) error 
 		return nil // Don't error, just skip
 	}
 
-	// Execute handler
-	_, err := handler(ctx, body)
+	// Execute handler with the full input structure
+	_, err := handler(ctx, input)
 	if err != nil {
 		c.logger.Error("handler error",
 			"topic", msg.Topic,

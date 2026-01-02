@@ -26,10 +26,14 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 		Attributes: []hcl.AttributeSchema{
 			{Name: "returns"}, // GraphQL return type for HCL-first mode
 			{Name: "cache"},   // Reference to named cache (cache.name)
+			{Name: "when"},    // Flow trigger schedule
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "from"},
 			{Type: "to"},
+			{Type: "lock"},
+			{Type: "semaphore"},
+			{Type: "coordinate"},
 			{Type: "cache"},
 			{Type: "validate"},
 			{Type: "enrich", LabelNames: []string{"name"}},
@@ -63,6 +67,14 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 		}
 	}
 
+	// Parse when attribute (flow trigger schedule)
+	if attr, ok := content.Attributes["when"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			config.When = val.AsString()
+		}
+	}
+
 	// Parse nested blocks
 	for _, nestedBlock := range content.Blocks {
 		switch nestedBlock.Type {
@@ -79,6 +91,27 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 				return nil, fmt.Errorf("to block error: %w", err)
 			}
 			config.To = to
+
+		case "lock":
+			lock, err := parseLockBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("lock block error: %w", err)
+			}
+			config.Lock = lock
+
+		case "semaphore":
+			sem, err := parseSemaphoreBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("semaphore block error: %w", err)
+			}
+			config.Semaphore = sem
+
+		case "coordinate":
+			coord, err := parseCoordinateBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("coordinate block error: %w", err)
+			}
+			config.Coordinate = coord
 
 		case "cache":
 			cache, err := parseCacheBlock(nestedBlock, ctx)
@@ -1094,4 +1127,410 @@ func parseNamedCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.NamedCa
 	}
 
 	return cache, nil
+}
+
+// parseLockBlock parses a lock block in a flow.
+// Supports format:
+//
+//	lock {
+//	  storage = "redis"
+//	  key     = "'user:' + input.body.user_id"
+//	  timeout = "30s"
+//	  wait    = true
+//	  retry   = "100ms"
+//	}
+func parseLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "storage", Required: true},
+			{Name: "key", Required: true},
+			{Name: "timeout"},
+			{Name: "wait"},
+			{Name: "retry"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("lock block content error: %s", diags.Error())
+	}
+
+	lock := &flow.LockConfig{}
+
+	if attr, ok := content.Attributes["storage"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("lock storage error: %s", diags.Error())
+		}
+		lock.Storage = parseConnectorReference(val.AsString())
+	}
+
+	if attr, ok := content.Attributes["key"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("lock key error: %s", diags.Error())
+		}
+		lock.Key = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["timeout"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("lock timeout error: %s", diags.Error())
+		}
+		lock.Timeout = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["wait"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("lock wait error: %s", diags.Error())
+		}
+		lock.Wait = val.True()
+	}
+
+	if attr, ok := content.Attributes["retry"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("lock retry error: %s", diags.Error())
+		}
+		lock.Retry = val.AsString()
+	}
+
+	return lock, nil
+}
+
+// parseSemaphoreBlock parses a semaphore block in a flow.
+// Supports format:
+//
+//	semaphore {
+//	  storage     = "redis"
+//	  key         = "'external_api'"
+//	  max_permits = 10
+//	  timeout     = "30s"
+//	  lease       = "60s"
+//	}
+func parseSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SemaphoreConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "storage", Required: true},
+			{Name: "key", Required: true},
+			{Name: "max_permits", Required: true},
+			{Name: "timeout"},
+			{Name: "lease"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("semaphore block content error: %s", diags.Error())
+	}
+
+	sem := &flow.SemaphoreConfig{}
+
+	if attr, ok := content.Attributes["storage"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("semaphore storage error: %s", diags.Error())
+		}
+		sem.Storage = parseConnectorReference(val.AsString())
+	}
+
+	if attr, ok := content.Attributes["key"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("semaphore key error: %s", diags.Error())
+		}
+		sem.Key = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["max_permits"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("semaphore max_permits error: %s", diags.Error())
+		}
+		bf := val.AsBigFloat()
+		i, _ := bf.Int64()
+		sem.MaxPermits = int(i)
+	}
+
+	if attr, ok := content.Attributes["timeout"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("semaphore timeout error: %s", diags.Error())
+		}
+		sem.Timeout = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["lease"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("semaphore lease error: %s", diags.Error())
+		}
+		sem.Lease = val.AsString()
+	}
+
+	return sem, nil
+}
+
+// parseCoordinateBlock parses a coordinate block in a flow.
+// Supports format:
+//
+//	coordinate {
+//	  storage              = "redis"
+//	  timeout              = "60s"
+//	  on_timeout           = "fail"
+//	  max_retries          = 3
+//	  max_concurrent_waits = 10
+//
+//	  wait {
+//	    when = "input.headers.type == 'child'"
+//	    for  = "'parent:' + input.headers.parent_id + ':ready'"
+//	  }
+//
+//	  signal {
+//	    when = "input.headers.type == 'parent'"
+//	    emit = "'parent:' + input.body.id + ':ready'"
+//	    ttl  = "5m"
+//	  }
+//
+//	  preflight {
+//	    connector = "postgres"
+//	    query     = "SELECT 1 FROM entities WHERE id = :parent_id"
+//	    params    = { parent_id = "input.headers.parent_id" }
+//	    if_exists = "pass"
+//	  }
+//	}
+func parseCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CoordinateConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "storage", Required: true},
+			{Name: "timeout"},
+			{Name: "on_timeout"},
+			{Name: "max_retries"},
+			{Name: "max_concurrent_waits"},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "wait"},
+			{Type: "signal"},
+			{Type: "preflight"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("coordinate block content error: %s", diags.Error())
+	}
+
+	coord := &flow.CoordinateConfig{}
+
+	if attr, ok := content.Attributes["storage"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("coordinate storage error: %s", diags.Error())
+		}
+		coord.Storage = parseConnectorReference(val.AsString())
+	}
+
+	if attr, ok := content.Attributes["timeout"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("coordinate timeout error: %s", diags.Error())
+		}
+		coord.Timeout = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["on_timeout"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("coordinate on_timeout error: %s", diags.Error())
+		}
+		coord.OnTimeout = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["max_retries"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("coordinate max_retries error: %s", diags.Error())
+		}
+		bf := val.AsBigFloat()
+		i, _ := bf.Int64()
+		coord.MaxRetries = int(i)
+	}
+
+	if attr, ok := content.Attributes["max_concurrent_waits"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("coordinate max_concurrent_waits error: %s", diags.Error())
+		}
+		bf := val.AsBigFloat()
+		i, _ := bf.Int64()
+		coord.MaxConcurrentWaits = int(i)
+	}
+
+	for _, nestedBlock := range content.Blocks {
+		switch nestedBlock.Type {
+		case "wait":
+			wait, err := parseWaitBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("wait block error: %w", err)
+			}
+			coord.Wait = wait
+
+		case "signal":
+			signal, err := parseSignalBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("signal block error: %w", err)
+			}
+			coord.Signal = signal
+
+		case "preflight":
+			preflight, err := parsePreflightBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("preflight block error: %w", err)
+			}
+			coord.Preflight = preflight
+		}
+	}
+
+	return coord, nil
+}
+
+// parseWaitBlock parses a wait block inside coordinate.
+func parseWaitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.WaitConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "when", Required: true},
+			{Name: "for", Required: true},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("wait block content error: %s", diags.Error())
+	}
+
+	wait := &flow.WaitConfig{}
+
+	if attr, ok := content.Attributes["when"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("wait when error: %s", diags.Error())
+		}
+		wait.When = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["for"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("wait for error: %s", diags.Error())
+		}
+		wait.For = val.AsString()
+	}
+
+	return wait, nil
+}
+
+// parseSignalBlock parses a signal block inside coordinate.
+func parseSignalBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SignalConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "when", Required: true},
+			{Name: "emit", Required: true},
+			{Name: "ttl"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("signal block content error: %s", diags.Error())
+	}
+
+	signal := &flow.SignalConfig{}
+
+	if attr, ok := content.Attributes["when"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("signal when error: %s", diags.Error())
+		}
+		signal.When = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["emit"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("signal emit error: %s", diags.Error())
+		}
+		signal.Emit = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["ttl"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("signal ttl error: %s", diags.Error())
+		}
+		signal.TTL = val.AsString()
+	}
+
+	return signal, nil
+}
+
+// parsePreflightBlock parses a preflight block inside coordinate.
+func parsePreflightBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.PreflightConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "connector", Required: true},
+			{Name: "query", Required: true},
+			{Name: "params"},
+			{Name: "if_exists"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("preflight block content error: %s", diags.Error())
+	}
+
+	preflight := &flow.PreflightConfig{
+		Params: make(map[string]string),
+	}
+
+	if attr, ok := content.Attributes["connector"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("preflight connector error: %s", diags.Error())
+		}
+		preflight.Connector = parseConnectorReference(val.AsString())
+	}
+
+	if attr, ok := content.Attributes["query"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("preflight query error: %s", diags.Error())
+		}
+		preflight.Query = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["params"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("preflight params error: %s", diags.Error())
+		}
+		if val.Type().IsObjectType() || val.Type().IsMapType() {
+			for it := val.ElementIterator(); it.Next(); {
+				k, v := it.Element()
+				preflight.Params[k.AsString()] = v.AsString()
+			}
+		}
+	}
+
+	if attr, ok := content.Attributes["if_exists"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("preflight if_exists error: %s", diags.Error())
+		}
+		preflight.IfExists = val.AsString()
+	}
+
+	return preflight, nil
 }

@@ -79,6 +79,10 @@ type Config struct {
 	// Name is the flow identifier.
 	Name string
 
+	// When defines the flow trigger schedule.
+	// Values: "always" (default), cron expression, or "@every X"
+	When string
+
 	// From defines the source of the flow.
 	From *FromConfig
 
@@ -89,6 +93,15 @@ type Config struct {
 	// Used in HCL-first mode to define typed responses.
 	// Supports formats: "User", "User[]", "[User!]!", "User!"
 	Returns string
+
+	// Lock defines mutex locking for this flow.
+	Lock *LockConfig
+
+	// Semaphore defines concurrency limiting for this flow.
+	Semaphore *SemaphoreConfig
+
+	// Coordinate defines signal/wait coordination for this flow.
+	Coordinate *CoordinateConfig
 
 	// Cache defines caching behavior for this flow.
 	Cache *CacheConfig
@@ -268,6 +281,112 @@ type NamedCacheConfig struct {
 
 	// InvalidateOn is a list of events that invalidate entries in this cache.
 	InvalidateOn []string
+}
+
+// LockConfig holds mutex lock configuration for a flow.
+type LockConfig struct {
+	// Storage is the lock connector name (typically Redis).
+	Storage string
+
+	// Key is a CEL expression for the lock key.
+	// Example: "'user:' + input.body.user_id"
+	Key string
+
+	// Timeout is the maximum time to hold the lock (e.g., "30s").
+	Timeout string
+
+	// Wait indicates whether to wait for the lock or fail immediately.
+	Wait bool
+
+	// Retry is the interval between retry attempts (e.g., "100ms").
+	Retry string
+}
+
+// SemaphoreConfig holds semaphore configuration for a flow.
+type SemaphoreConfig struct {
+	// Storage is the semaphore connector name (typically Redis).
+	Storage string
+
+	// Key is a CEL expression for the semaphore key.
+	// Example: "'external_api'"
+	Key string
+
+	// MaxPermits is the maximum number of concurrent permits.
+	MaxPermits int
+
+	// Timeout is the maximum time to wait for a permit (e.g., "30s").
+	Timeout string
+
+	// Lease is the maximum time to hold a permit before auto-release (e.g., "60s").
+	Lease string
+}
+
+// CoordinateConfig holds coordination configuration for a flow.
+type CoordinateConfig struct {
+	// Storage is the coordinator connector name (typically Redis).
+	Storage string
+
+	// Wait defines when and what to wait for.
+	Wait *WaitConfig
+
+	// Signal defines when and what to signal.
+	Signal *SignalConfig
+
+	// Preflight defines a check to run before waiting.
+	Preflight *PreflightConfig
+
+	// Timeout is the maximum time to wait (e.g., "60s").
+	Timeout string
+
+	// OnTimeout defines what to do on timeout: "fail", "retry", "skip", "pass".
+	OnTimeout string
+
+	// MaxRetries is the maximum number of retries when OnTimeout is "retry".
+	MaxRetries int
+
+	// MaxConcurrentWaits limits the number of simultaneous waits (0 = unlimited).
+	MaxConcurrentWaits int
+}
+
+// WaitConfig defines when and what to wait for.
+type WaitConfig struct {
+	// When is a CEL expression that determines if this flow should wait.
+	// Example: "input.headers.type == 'child'"
+	When string
+
+	// For is a CEL expression for the signal to wait for.
+	// Example: "'parent:' + input.headers.parent_id + ':ready'"
+	For string
+}
+
+// SignalConfig defines when and what to signal.
+type SignalConfig struct {
+	// When is a CEL expression that determines if this flow should emit a signal.
+	// Example: "input.headers.type == 'parent'"
+	When string
+
+	// Emit is a CEL expression for the signal to emit.
+	// Example: "'parent:' + input.body.id + ':ready'"
+	Emit string
+
+	// TTL is the signal's time-to-live (e.g., "5m").
+	TTL string
+}
+
+// PreflightConfig defines a check to run before waiting.
+type PreflightConfig struct {
+	// Connector is the connector name for the preflight check.
+	Connector string
+
+	// Query is the query to execute (e.g., "SELECT 1 FROM entities WHERE id = :parent_id").
+	Query string
+
+	// Params are the parameters for the query.
+	// Keys are parameter names, values are CEL expressions.
+	Params map[string]string
+
+	// IfExists defines what to do if the query returns results: "pass" or "fail".
+	IfExists string
 }
 
 // Context holds runtime context for flow execution.

@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Synchronization Primitives (Phase 4.2)
+- **Lock (Mutex)** - Distributed mutex for exclusive access by key
+  - Memory and Redis implementations
+  - `lock {}` block in flows with key, timeout, wait, retry options
+  - Lua script for safe release (only owner can release)
+- **Semaphore** - Limit concurrent access to resources
+  - Memory and Redis implementations (sorted sets + Lua)
+  - `semaphore {}` block with max_permits, lease, timeout
+  - Automatic lease expiration for crash protection
+- **Coordinate** - Signal/Wait pattern for dependency coordination
+  - `wait {}` - Wait for a signal with conditional expression
+  - `signal {}` - Emit signal when condition is met
+  - `preflight {}` - Check database before waiting
+  - `on_timeout` options: fail, retry, skip, pass
+  - Redis Pub/Sub hub for efficient waiting
+- **Flow Triggers** - Cron and interval scheduling
+  - `when` attribute: "always", cron expressions, "@every X"
+  - Shortcuts: @hourly, @daily, @weekly, @monthly
+  - Uses robfig/cron/v3 library
+- **MQ Headers Access**
+  - `input.body`, `input.headers`, `input.properties` for RabbitMQ
+  - `input.body`, `input.headers`, `input.key`, `input.topic` for Kafka
+- **Prometheus Metrics** for sync primitives
+  - Lock acquired/released/timeout counters
+  - Semaphore acquired/released/available gauges
+  - Coordinate signal/wait/timeout metrics
+  - Scheduler execution counters
+- **Parser Support** for lock, semaphore, coordinate, when blocks
+- **Full specification**: [docs/PHASE-4.2-SYNC.md](docs/PHASE-4.2-SYNC.md)
+
 ### Added - Connector Profiles (Phase 4.3) - Spec Ready
 - **Connector Profiles** - Multiple backend implementations for the same logical connector
   - `select` attribute: Environment variable that determines active profile

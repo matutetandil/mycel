@@ -105,12 +105,48 @@ func (c *Connector) consumeWorker(ctx context.Context, deliveries <-chan amqp.De
 // handleDelivery processes a single message delivery.
 func (c *Connector) handleDelivery(ctx context.Context, delivery amqp.Delivery) error {
 	// Parse message body
-	var body map[string]interface{}
+	var body interface{}
 	if err := json.Unmarshal(delivery.Body, &body); err != nil {
-		// If not JSON, wrap raw body
-		body = map[string]interface{}{
-			"raw": string(delivery.Body),
-		}
+		// If not JSON, use raw string
+		body = string(delivery.Body)
+	}
+
+	// Convert AMQP headers to map[string]interface{}
+	headers := make(map[string]interface{})
+	for k, v := range delivery.Headers {
+		headers[k] = v
+	}
+
+	// Build AMQP properties map
+	properties := map[string]interface{}{
+		"message_id":       delivery.MessageId,
+		"correlation_id":   delivery.CorrelationId,
+		"content_type":     delivery.ContentType,
+		"content_encoding": delivery.ContentEncoding,
+		"delivery_mode":    delivery.DeliveryMode,
+		"priority":         delivery.Priority,
+		"reply_to":         delivery.ReplyTo,
+		"expiration":       delivery.Expiration,
+		"type":             delivery.Type,
+		"user_id":          delivery.UserId,
+		"app_id":           delivery.AppId,
+		"timestamp":        delivery.Timestamp.Unix(),
+		"delivery_tag":     delivery.DeliveryTag,
+		"redelivered":      delivery.Redelivered,
+	}
+
+	// Build the full input structure for MQ messages
+	// input.body - the parsed message payload
+	// input.headers - AMQP headers
+	// input.properties - AMQP message properties
+	// input.routing_key - the routing key
+	// input.exchange - the exchange name
+	input := map[string]interface{}{
+		"body":        body,
+		"headers":     headers,
+		"properties":  properties,
+		"routing_key": delivery.RoutingKey,
+		"exchange":    delivery.Exchange,
 	}
 
 	// Find handler for this routing key
@@ -127,8 +163,8 @@ func (c *Connector) handleDelivery(ctx context.Context, delivery amqp.Delivery) 
 		return delivery.Nack(false, false)
 	}
 
-	// Execute handler
-	_, err := handler(ctx, body)
+	// Execute handler with the full input structure
+	_, err := handler(ctx, input)
 	if err != nil {
 		c.logger.Error("handler error",
 			"routing_key", delivery.RoutingKey,
