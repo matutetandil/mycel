@@ -22,12 +22,14 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/redis/go-redis/v9 v9.17.2
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/segmentio/kafka-go v0.4.49
 	github.com/spf13/cobra v1.8.0
 	github.com/zclconf/go-cty v1.17.0
 	go.mongodb.org/mongo-driver v1.17.6
 	golang.org/x/time v0.14.0
 	google.golang.org/grpc v1.78.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.42.2
 )
 
@@ -71,7 +73,6 @@ require (
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stoewer/go-strcase v1.2.0 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect

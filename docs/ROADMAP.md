@@ -2,7 +2,7 @@
 
 This document tracks the implementation status and future plans for Mycel.
 
-## Current Status: Phase 4.3 Complete
+## Current Status: Phase 5 In Progress (Mocks + Doc Export Complete)
 
 ## Connector Support
 
@@ -53,10 +53,10 @@ This document tracks the implementation status and future plans for Mycel.
 | Coordinate (Signal/Wait) | ✅ | 4.2 |
 | Flow Triggers (Cron) | ✅ | 4.2 |
 | Connector Profiles | ✅ | 4.3 |
-| Aspects (AOP) | 🔜 | 5 |
-| Mocks/Testing | 🔜 | 5 |
-| OpenAPI Export | 🔜 | 5 |
-| AsyncAPI Export | 🔜 | 5 |
+| Aspects (AOP) | ✅ | 5 |
+| Mocks/Testing | ✅ | 5 |
+| OpenAPI Export | ✅ | 5 |
+| AsyncAPI Export | ✅ | 5 |
 | Custom Validators (WASM) | 🔜 | 5 |
 | Plugins System | 🔜 | 5 |
 | Auth System | 🔜 | 5.1 |
@@ -151,24 +151,24 @@ This document tracks the implementation status and future plans for Mycel.
   - Read replicas vs primary database
   - Gradual migration between systems
 
-### Phase 5 - Extensibility & Documentation (Planned)
-- **Aspects (AOP)** for cross-cutting concerns
+### Phase 5 - Extensibility & Documentation (In Progress)
+- ✅ **Aspects (AOP)** for cross-cutting concerns
   - Pattern matching on flows (e.g., `flows/**/create_*.hcl`)
   - When: before, after, around
   - Use cases: audit logging, caching, rate limiting, enrichment
-  - Refactor existing cache system as aspect
-- **Mock system** for testing
-  - Mock connectors by path matching
-  - JSON response files per operation
+- ✅ **Mock system** for testing
+  - JSON-based mock files with conditional responses (CEL)
   - CLI flags: `--mock=connector`, `--no-mock=connector`
-- **Documentation generation**
-  - OpenAPI export for REST endpoints
-  - AsyncAPI export for message queues
+  - `mocks {}` block in service configuration
+- ✅ **Documentation generation**
+  - `mycel export openapi` - OpenAPI 3.0.3 for REST endpoints
+  - `mycel export asyncapi` - AsyncAPI 2.6.0 for message queues
+  - Flags: `-o`, `-f` (yaml/json), `--base-url`
   - Note: GraphQL has native introspection, no export needed
-- **Custom validators** with WASM
+- 🔜 **Custom validators** with WASM
   - User-defined validation logic
   - Hot-loadable WASM modules
-- **Plugin system**
+- 🔜 **Plugin system**
   - Custom connectors via WASM
   - Custom transforms via WASM
 

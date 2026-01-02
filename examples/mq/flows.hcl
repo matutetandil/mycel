@@ -82,7 +82,6 @@ flow "get_order" {
   to {
     connector = "db"
     target    = "orders"
-    operation = "select"
   }
 }
 
@@ -96,6 +95,5 @@ flow "list_orders" {
   to {
     connector = "db"
     target    = "orders"
-    operation = "select"
   }
 }

@@ -29,6 +29,7 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "port"},
 			{Name: "database"},
 			{Name: "user"},
+			{Name: "username"}, // Alias for user (MQ connectors)
 			{Name: "password"},
 			{Name: "base_url"},
 			{Name: "timeout"},
@@ -44,6 +45,7 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "write_timeout"},
 			// MQ specific
 			{Name: "brokers"},
+			{Name: "vhost"}, // RabbitMQ virtual host
 			// Exec specific
 			{Name: "command"},
 			{Name: "args"},
@@ -68,6 +70,7 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Type: "schema"},
 			{Type: "ssh"},
 			{Type: "queue"},
+			{Type: "exchange"}, // MQ exchange configuration
 			{Type: "publisher"},
 			{Type: "consumer"},
 			{Type: "producer"},
@@ -174,6 +177,13 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 				return nil, fmt.Errorf("queue block error: %w", err)
 			}
 			config.Properties["queue"] = queue
+
+		case "exchange":
+			exchange, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("exchange block error: %w", err)
+			}
+			config.Properties["exchange"] = exchange
 
 		case "publisher":
 			pub, err := parseGenericBlock(nestedBlock, ctx)

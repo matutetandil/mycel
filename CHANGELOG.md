@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - Parser & Example Files
+- **Parser support for MQ connectors** (`internal/parser/connector.go`)
+  - Added `username` attribute (alias for `user`)
+  - Added `vhost` attribute for RabbitMQ virtual host
+  - Added `exchange` block for MQ exchange configuration
+- **MQ example files** (`examples/mq/`)
+  - Fixed CORS syntax: `allowed_origins` → `origins`, `allowed_methods` → `methods`
+  - Fixed types.hcl syntax: changed from `field {}` blocks to simple `field = type` attributes
+  - Removed invalid `operation` attribute from `to` blocks in flows
+- **AsyncAPI CLI flags** (`cmd/mycel/main.go`)
+  - Added `-o/--output` and `-f/--format` flags to AsyncAPI export command
+
+### Added - Documentation Export (Phase 5)
+- **Mock System** (`internal/mock/`)
+  - JSON-based mock files for connector responses
+  - Conditional responses with CEL expressions
+  - CLI flags: `--mock=connector` and `--no-mock=connector`
+  - `mocks {}` block in service configuration
+  - Connector wrapping for seamless mock injection
+  - Example: `examples/mocks/`
+- **OpenAPI Export** (`internal/export/openapi/`)
+  - Generate OpenAPI 3.0.3 specification from Mycel configuration
+  - REST endpoints from flows with path parameters
+  - Request/response schemas from types
+  - Server information from connectors
+  - CLI command: `mycel export openapi`
+  - Flags: `-o/--output`, `-f/--format` (yaml/json), `--base-url`
+- **AsyncAPI Export** (`internal/export/asyncapi/`)
+  - Generate AsyncAPI 2.6.0 specification from Mycel configuration
+  - Message channels from MQ flows (RabbitMQ, Kafka)
+  - Subscribe/Publish operations
+  - Message schemas from types
+  - Server information with protocol bindings
+  - CLI command: `mycel export asyncapi`
+  - Flags: `-o/--output`, `-f/--format` (yaml/json)
+- **HCL Syntax for Mocks**:
+  ```hcl
+  service {
+    name = "my-service"
+
+    mocks {
+      enabled = true
+      path    = "./mocks"
+    }
+  }
+  ```
+- **Mock File Format**:
+  ```json
+  {
+    "responses": [
+      {"when": "input.id == 1", "data": {"id": 1, "name": "John"}},
+      {"default": true, "data": []}
+    ]
+  }
+  ```
+
 ### Added - Synchronization Primitives (Phase 4.2)
 - **Lock (Mutex)** - Distributed mutex for exclusive access by key
   - Memory and Redis implementations

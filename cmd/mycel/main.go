@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/matutetandil/mycel/internal/export/asyncapi"
+	"github.com/matutetandil/mycel/internal/export/openapi"
 	"github.com/matutetandil/mycel/internal/logging"
 	"github.com/matutetandil/mycel/internal/parser"
 	"github.com/matutetandil/mycel/internal/runtime"
@@ -74,6 +77,50 @@ var checkCmd = &cobra.Command{
 	RunE:  runCheck,
 }
 
+var exportCmd = &cobra.Command{
+	Use:   "export",
+	Short: "Export API documentation",
+	Long:  `Export API documentation in various formats (OpenAPI, AsyncAPI).`,
+}
+
+var exportOpenAPICmd = &cobra.Command{
+	Use:   "openapi",
+	Short: "Export OpenAPI 3.0 specification",
+	Long: `Export OpenAPI 3.0 specification from your Mycel configuration.
+
+This generates a complete OpenAPI spec including:
+- All REST endpoints from flows
+- Request/response schemas from types
+- Path parameters and request bodies
+- Server information from connectors
+
+Examples:
+  mycel export openapi                           # Output to stdout as YAML
+  mycel export openapi -o api.yaml               # Write to file
+  mycel export openapi -f json -o api.json       # Export as JSON
+  mycel export openapi --base-url https://api.example.com`,
+	RunE: runExportOpenAPI,
+}
+
+var exportAsyncAPICmd = &cobra.Command{
+	Use:   "asyncapi",
+	Short: "Export AsyncAPI 2.6 specification",
+	Long: `Export AsyncAPI 2.6 specification from your Mycel configuration.
+
+This generates a complete AsyncAPI spec including:
+- All message channels from MQ flows (RabbitMQ, Kafka)
+- Subscribe operations for consuming flows
+- Publish operations for producing flows
+- Message schemas from types
+- Server information from MQ connectors
+
+Examples:
+  mycel export asyncapi                          # Output to stdout as YAML
+  mycel export asyncapi -o events.yaml           # Write to file
+  mycel export asyncapi -f json -o events.json   # Export as JSON`,
+	RunE: runExportAsyncAPI,
+}
+
 // Flags
 var (
 	configDir   string
@@ -82,6 +129,11 @@ var (
 	logFormat   string
 	verbose     bool // deprecated, kept for backward compatibility
 	hotReload   bool
+
+	// Export flags
+	exportOutput  string
+	exportFormat  string
+	exportBaseURL string
 )
 
 func init() {
@@ -95,10 +147,24 @@ func init() {
 	// Start command flags
 	startCmd.Flags().BoolVar(&hotReload, "hot-reload", true, "Enable hot reload (auto-reload on config changes)")
 
+	// Export command flags (OpenAPI)
+	exportOpenAPICmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file (default: stdout)")
+	exportOpenAPICmd.Flags().StringVarP(&exportFormat, "format", "f", "yaml", "Output format: yaml, json")
+	exportOpenAPICmd.Flags().StringVar(&exportBaseURL, "base-url", "", "Override base URL for API server")
+
+	// Export command flags (AsyncAPI)
+	exportAsyncAPICmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file (default: stdout)")
+	exportAsyncAPICmd.Flags().StringVarP(&exportFormat, "format", "f", "yaml", "Output format: yaml, json")
+
 	// Add commands
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(checkCmd)
+	rootCmd.AddCommand(exportCmd)
+
+	// Add export subcommands
+	exportCmd.AddCommand(exportOpenAPICmd)
+	exportCmd.AddCommand(exportAsyncAPICmd)
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
@@ -222,6 +288,101 @@ func runCheck(cmd *cobra.Command, args []string) error {
 
 	// Clean shutdown
 	_ = rt.Shutdown()
+
+	return nil
+}
+
+func runExportOpenAPI(cmd *cobra.Command, args []string) error {
+	// Parse configuration
+	p := parser.NewHCLParser()
+	config, err := p.Parse(context.Background(), configDir)
+	if err != nil {
+		return fmt.Errorf("failed to parse configuration: %w", err)
+	}
+
+	// Create generator
+	gen := openapi.NewGenerator(config)
+
+	// Set base URL if provided
+	if exportBaseURL != "" {
+		gen.SetBaseURL(exportBaseURL)
+	}
+
+	// Generate spec
+	spec, err := gen.Generate()
+	if err != nil {
+		return fmt.Errorf("failed to generate OpenAPI spec: %w", err)
+	}
+
+	// Serialize based on format
+	var output []byte
+	format := strings.ToLower(exportFormat)
+	switch format {
+	case "json":
+		output, err = spec.ToJSON()
+	case "yaml", "yml":
+		output, err = spec.ToYAML()
+	default:
+		return fmt.Errorf("unsupported format: %s (use 'yaml' or 'json')", exportFormat)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to serialize spec: %w", err)
+	}
+
+	// Write to file or stdout
+	if exportOutput != "" {
+		if err := os.WriteFile(exportOutput, output, 0644); err != nil {
+			return fmt.Errorf("failed to write file: %w", err)
+		}
+		fmt.Printf("✓ OpenAPI spec written to %s\n", exportOutput)
+	} else {
+		fmt.Println(string(output))
+	}
+
+	return nil
+}
+
+func runExportAsyncAPI(cmd *cobra.Command, args []string) error {
+	// Parse configuration
+	p := parser.NewHCLParser()
+	config, err := p.Parse(context.Background(), configDir)
+	if err != nil {
+		return fmt.Errorf("failed to parse configuration: %w", err)
+	}
+
+	// Create generator
+	gen := asyncapi.NewGenerator(config)
+
+	// Generate spec
+	spec, err := gen.Generate()
+	if err != nil {
+		return fmt.Errorf("failed to generate AsyncAPI spec: %w", err)
+	}
+
+	// Serialize based on format
+	var output []byte
+	format := strings.ToLower(exportFormat)
+	switch format {
+	case "json":
+		output, err = spec.ToJSON()
+	case "yaml", "yml":
+		output, err = spec.ToYAML()
+	default:
+		return fmt.Errorf("unsupported format: %s (use 'yaml' or 'json')", exportFormat)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to serialize spec: %w", err)
+	}
+
+	// Write to file or stdout
+	if exportOutput != "" {
+		if err := os.WriteFile(exportOutput, output, 0644); err != nil {
+			return fmt.Errorf("failed to write file: %w", err)
+		}
+		fmt.Printf("✓ AsyncAPI spec written to %s\n", exportOutput)
+	} else {
+		fmt.Println(string(output))
+	}
 
 	return nil
 }

@@ -12,8 +12,8 @@ connector "api" {
   port = 3000
 
   cors {
-    allowed_origins = ["*"]
-    allowed_methods = ["GET", "POST", "PUT", "DELETE"]
+    origins = ["*"]
+    methods = ["GET", "POST", "PUT", "DELETE"]
   }
 }
 
