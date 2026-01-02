@@ -34,6 +34,7 @@ import (
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/health"
 	"github.com/matutetandil/mycel/internal/hotreload"
+	"github.com/matutetandil/mycel/internal/mock"
 	"github.com/matutetandil/mycel/internal/ratelimit"
 	"github.com/matutetandil/mycel/internal/metrics"
 	"github.com/matutetandil/mycel/internal/parser"
@@ -62,6 +63,9 @@ type Runtime struct {
 	// Aspect-Oriented Programming (AOP) components
 	aspectRegistry *aspect.Registry
 	aspectExecutor *aspect.Executor
+
+	// Mock system components
+	mockManager *mock.Manager
 
 	// Hot reload components
 	hotReloadEnabled bool
@@ -98,6 +102,13 @@ type Options struct {
 	// HotReloadDebounce is the debounce duration for hot reload.
 	// Defaults to 500ms.
 	HotReloadDebounce time.Duration
+
+	// MockConnectors is a comma-separated list of connectors to mock.
+	// Empty means mock all when mocking is enabled.
+	MockConnectors string
+
+	// NoMockConnectors is a comma-separated list of connectors to exclude from mocking.
+	NoMockConnectors string
 }
 
 // New creates a new runtime with the given options.
@@ -171,6 +182,15 @@ func New(opts Options) (*Runtime, error) {
 		return nil, fmt.Errorf("failed to register aspects: %w", err)
 	}
 
+	// Create mock manager
+	mockCfg := config.MockConfig
+	if mockCfg == nil {
+		mockCfg = &mock.Config{}
+	}
+	// Apply CLI flags (override HCL config)
+	parser.ParseMockFlags(opts.MockConnectors, opts.NoMockConnectors, mockCfg)
+	mockMgr := mock.NewManager(mockCfg)
+
 	return &Runtime{
 		config:           config,
 		connectors:       registry,
@@ -181,6 +201,7 @@ func New(opts Options) (*Runtime, error) {
 		health:           healthMgr,
 		metrics:          metricsReg,
 		aspectRegistry:   aspectReg,
+		mockManager:      mockMgr,
 		logger:           opts.Logger,
 		environment:      env,
 		configDir:        opts.ConfigDir,
@@ -323,6 +344,14 @@ func (r *Runtime) initConnectors(ctx context.Context) error {
 	// Connect all connectors
 	if err := r.connectors.ConnectAll(ctx); err != nil {
 		return err
+	}
+
+	// Wrap connectors with mocks if enabled
+	if r.mockManager.IsEnabled() {
+		if err := r.mockManager.WrapRegistry(r.connectors); err != nil {
+			return fmt.Errorf("failed to wrap connectors with mocks: %w", err)
+		}
+		banner.PrintMockInfo(r.mockManager.GetConfig())
 	}
 
 	// Register all connectors with health manager

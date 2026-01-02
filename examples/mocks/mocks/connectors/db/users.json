@@ -1,0 +1,20 @@
+{
+  "responses": [
+    {
+      "when": "input.id == 1",
+      "data": {"id": 1, "email": "john@example.com", "name": "John Doe"}
+    },
+    {
+      "when": "input.id == 2",
+      "data": {"id": 2, "email": "jane@example.com", "name": "Jane Doe"}
+    },
+    {
+      "default": true,
+      "data": [
+        {"id": 1, "email": "john@example.com", "name": "John Doe"},
+        {"id": 2, "email": "jane@example.com", "name": "Jane Doe"},
+        {"id": 3, "email": "bob@example.com", "name": "Bob Smith"}
+      ]
+    }
+  ]
+}

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+
+	"github.com/matutetandil/mycel/internal/mock"
 )
 
 // ANSI color codes
@@ -184,4 +186,25 @@ func methodToColor(method string) string {
 // padMethod pads HTTP method to fixed width for alignment.
 func padMethod(method string) string {
 	return fmt.Sprintf("%-6s", method)
+}
+
+// PrintMockInfo prints mock system status.
+func PrintMockInfo(config *mock.Config) {
+	if config == nil || !config.Enabled {
+		return
+	}
+
+	fmt.Println("    Mocks:")
+	info := "enabled"
+	if len(config.MockOnly) > 0 {
+		info = fmt.Sprintf("only: %v", config.MockOnly)
+	}
+	if len(config.NoMock) > 0 {
+		info = fmt.Sprintf("excluding: %v", config.NoMock)
+	}
+	fmt.Printf("      %s %s %s\n",
+		color(BrightYellow, "⚡"),
+		color(White, "Mock mode"),
+		color(Dim, "("+info+")"),
+	)
 }

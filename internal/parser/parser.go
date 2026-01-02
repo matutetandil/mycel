@@ -14,6 +14,7 @@ import (
 	"github.com/matutetandil/mycel/internal/aspect"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/internal/mock"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
 	myhcl "github.com/matutetandil/mycel/pkg/hcl"
@@ -47,6 +48,9 @@ type Configuration struct {
 
 	// Aspects are cross-cutting concern configurations.
 	Aspects []*aspect.Config
+
+	// MockConfig is the mock system configuration.
+	MockConfig *mock.Config
 
 	// ServiceConfig is the global service configuration.
 	ServiceConfig *ServiceConfig
@@ -91,6 +95,9 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.Aspects = append(c.Aspects, other.Aspects...)
 	if other.ServiceConfig != nil {
 		c.ServiceConfig = other.ServiceConfig
+	}
+	if other.MockConfig != nil {
+		c.MockConfig = other.MockConfig
 	}
 }
 
@@ -215,6 +222,13 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 				return nil, fmt.Errorf("service parse error: %w", err)
 			}
 			config.ServiceConfig = svc
+
+		case "mocks":
+			mockCfg, err := parseMockConfig(block)
+			if err != nil {
+				return nil, fmt.Errorf("mocks parse error: %w", err)
+			}
+			config.MockConfig = mockCfg
 		}
 	}
 
@@ -232,6 +246,7 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "cache", LabelNames: []string{"name"}},
 			{Type: "aspect", LabelNames: []string{"name"}},
 			{Type: "service"},
+			{Type: "mocks"},
 		},
 	}
 }

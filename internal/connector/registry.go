@@ -166,3 +166,16 @@ func (r *Registry) List() []string {
 	}
 	return names
 }
+
+// Names is an alias for List.
+func (r *Registry) Names() []string {
+	return r.List()
+}
+
+// Replace replaces an existing connector with a new one.
+// This is used by the mock system to wrap connectors.
+func (r *Registry) Replace(name string, conn Connector) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.connectors[name] = conn
+}
