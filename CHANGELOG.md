@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Runtime Configuration (Phase 4.1)
+- **Environment Variables** for runtime configuration
+  - `MYCEL_ENV`: Select environment (development, staging, production)
+  - `MYCEL_LOG_LEVEL`: Set log level (debug, info, warn, error)
+  - `MYCEL_LOG_FORMAT`: Set log format (text, json)
+  - Flags override environment variables (priority: flag > env var > default)
+- **Logging Package** (`internal/logging/`)
+  - Centralized logging configuration
+  - JSON logging support for production environments
+  - Level filtering with standard slog integration
+  - Comprehensive test coverage
+- **CLI Improvements**
+  - New `--log-level` flag: debug, info, warn, error
+  - New `--log-format` flag: text, json
+  - Deprecated `--verbose` flag (use `--log-level=debug` instead)
+- **Docker Configuration Updates**
+  - Standard config path: `/etc/mycel` (instead of `/config`)
+  - Production defaults: `MYCEL_LOG_FORMAT=json`
+  - Updated docker-compose.yml with documented env vars
+- **Documentation Updates**
+  - README updated with environment variables table
+  - ROADMAP marked Phase 4.1 as complete
+
 ### Added - Cache Connector (Phase 3.3)
 - **Cache Connector** (`internal/connector/cache/`)
   - In-memory and Redis caching for flow responses

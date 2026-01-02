@@ -25,8 +25,8 @@ RUN apk add --no-cache ca-certificates tzdata
 # Create non-root user
 RUN adduser -D -u 1000 mycel
 
-# Create config directory
-RUN mkdir -p /config && chown mycel:mycel /config
+# Create config directory (standard Linux config path)
+RUN mkdir -p /etc/mycel && chown mycel:mycel /etc/mycel
 
 WORKDIR /app
 
@@ -36,8 +36,13 @@ COPY --from=builder /build/mycel /app/mycel
 # Switch to non-root user
 USER mycel
 
-# Default config directory
-ENV MYCEL_CONFIG=/config
+# Environment variables with sensible defaults for production
+# MYCEL_ENV: development, staging, production (default: development)
+# MYCEL_LOG_LEVEL: debug, info, warn, error (default: info)
+# MYCEL_LOG_FORMAT: text, json (default: text, use json for production)
+ENV MYCEL_ENV=production
+ENV MYCEL_LOG_LEVEL=info
+ENV MYCEL_LOG_FORMAT=json
 
 # Expose common ports
 EXPOSE 3000 4000 50051
@@ -46,6 +51,6 @@ EXPOSE 3000 4000 50051
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
 
-# Default command
+# Default command - config always at /etc/mycel
 ENTRYPOINT ["/app/mycel"]
-CMD ["start", "--config", "/config"]
+CMD ["start", "--config", "/etc/mycel"]

@@ -10,9 +10,14 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./my-service:/config:ro
+      # Mount your config directory to /etc/mycel (standard path)
+      - ./my-service:/etc/mycel:ro
     environment:
-      - MYCEL_ENV=dev
+      # Mycel runtime configuration
+      - MYCEL_ENV=production           # Environment: development, staging, production
+      - MYCEL_LOG_LEVEL=info           # Log level: debug, info, warn, error
+      - MYCEL_LOG_FORMAT=json          # Log format: text, json (use json for production)
+      # Your application config (used in HCL files via env() function)
       - DB_HOST=postgres
       - DB_USER=mycel
       - DB_PASSWORD=secret

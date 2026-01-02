@@ -8,8 +8,14 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/matutetandil/mycel/internal/logging"
 	"github.com/matutetandil/mycel/internal/parser"
 	"github.com/matutetandil/mycel/internal/runtime"
+)
+
+// Environment variable names
+const (
+	EnvEnvironment = "MYCEL_ENV"
 )
 
 var (
@@ -72,15 +78,19 @@ var checkCmd = &cobra.Command{
 var (
 	configDir   string
 	environment string
-	verbose     bool
+	logLevel    string
+	logFormat   string
+	verbose     bool // deprecated, kept for backward compatibility
 	hotReload   bool
 )
 
 func init() {
 	// Global flags
 	rootCmd.PersistentFlags().StringVarP(&configDir, "config", "c", ".", "Configuration directory")
-	rootCmd.PersistentFlags().StringVarP(&environment, "env", "e", "dev", "Environment (dev, staging, prod)")
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging")
+	rootCmd.PersistentFlags().StringVarP(&environment, "env", "e", "", "Environment (dev, staging, prod). Env: MYCEL_ENV")
+	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "Log level: debug, info, warn, error. Env: MYCEL_LOG_LEVEL")
+	rootCmd.PersistentFlags().StringVar(&logFormat, "log-format", "", "Log format: text, json. Env: MYCEL_LOG_FORMAT")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable debug logging (deprecated, use --log-level=debug)")
 
 	// Start command flags
 	startCmd.Flags().BoolVar(&hotReload, "hot-reload", true, "Enable hot reload (auto-reload on config changes)")
@@ -92,19 +102,16 @@ func init() {
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
-	// Setup logger
-	logLevel := slog.LevelInfo
-	if verbose {
-		logLevel = slog.LevelDebug
-	}
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
+	// Setup logger with priority: flag > env var > default
+	logger := createLogger()
+
+	// Resolve environment with priority: flag > env var > default
+	env := resolveEnvironment()
 
 	// Create runtime
 	rt, err := runtime.New(runtime.Options{
 		ConfigDir:   configDir,
-		Environment: environment,
+		Environment: env,
 		Logger:      logger,
 		HotReload:   hotReload,
 	})
@@ -115,6 +122,47 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Start runtime (blocks until shutdown)
 	ctx := context.Background()
 	return rt.Start(ctx)
+}
+
+// createLogger creates a logger based on flags and environment variables.
+// Priority: flag > env var > default
+func createLogger() *slog.Logger {
+	cfg := logging.DefaultConfig()
+
+	// Check env vars first (will be overridden by flags if set)
+	envCfg := logging.ConfigFromEnv()
+	cfg.Level = envCfg.Level
+	cfg.Format = envCfg.Format
+
+	// Flags override env vars
+	if logLevel != "" {
+		cfg.Level = logLevel
+	} else if verbose {
+		// Backward compatibility: --verbose sets debug level
+		cfg.Level = "debug"
+	}
+
+	if logFormat != "" {
+		cfg.Format = logFormat
+	}
+
+	return logging.NewLogger(cfg)
+}
+
+// resolveEnvironment resolves the environment with priority: flag > env var > default
+func resolveEnvironment() string {
+	// Flag takes precedence
+	if environment != "" {
+		return environment
+	}
+
+	// Then env var
+	if env := os.Getenv(EnvEnvironment); env != "" {
+		return env
+	}
+
+	// Default
+	return "development"
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
@@ -153,14 +201,15 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Config dir: %s\n", configDir)
 
 	// Setup logger
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	logger := createLogger()
+
+	// Resolve environment
+	env := resolveEnvironment()
 
 	// Create runtime (which initializes connectors)
 	rt, err := runtime.New(runtime.Options{
 		ConfigDir:   configDir,
-		Environment: environment,
+		Environment: env,
 		Logger:      logger,
 	})
 	if err != nil {

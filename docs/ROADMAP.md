@@ -2,7 +2,7 @@
 
 This document tracks the implementation status and future plans for Mycel.
 
-## Current Status: Phase 4 Complete
+## Current Status: Phase 4.1 Complete
 
 ## Connector Support
 
@@ -47,6 +47,11 @@ This document tracks the implementation status and future plans for Mycel.
 | Rate Limiting | ✅ | 4 |
 | Circuit Breaker | ✅ | 4 |
 | Hot Reload | ✅ | 4 |
+| MQ Headers Access | 📋 | 4.2 |
+| Distributed Locks | 📋 | 4.2 |
+| Semaphores | 📋 | 4.2 |
+| Coordinate (Signal/Wait) | 📋 | 4.2 |
+| Flow Triggers (Cron) | 📋 | 4.2 |
 | Auth System | 🔜 | 5 |
 | Aspects (AOP) | 🔜 | 5 |
 | Custom Validators (WASM) | 🔜 | 5 |
@@ -105,6 +110,30 @@ This document tracks the implementation status and future plans for Mycel.
 - Rate limiting with token bucket algorithm
 - Circuit breaker pattern
 - Hot reload with file watching
+
+### Phase 4.1 - Runtime Configuration (Complete)
+- Environment variables for runtime configuration:
+  - `MYCEL_ENV`: Environment selection (development, staging, production)
+  - `MYCEL_LOG_LEVEL`: Log level (debug, info, warn, error)
+  - `MYCEL_LOG_FORMAT`: Log format (text, json)
+- CLI flags override environment variables
+- Docker path standardized to `/etc/mycel`
+- JSON logging for production environments
+
+### Phase 4.2 - Synchronization (Spec Ready)
+> Full specification: [docs/PHASE-4.2-SYNC.md](./PHASE-4.2-SYNC.md)
+
+- **MQ Headers Access**: `input.body`, `input.headers`, `input.properties` for RabbitMQ/Kafka
+- **Lock (Mutex)**: Distributed locks by key with Redis/Memory backends
+- **Semaphore**: Limit concurrent executions (e.g., max 10 parallel API calls)
+- **Coordinate**: Signal/Wait pattern for dependency coordination
+  - Wait for parent entity before processing child
+  - Preflight checks against database
+  - Configurable timeout behavior (fail/retry/skip/pass)
+- **Flow Triggers**: `when` attribute for cron/interval scheduling
+  - `when = "0 3 * * *"` (cron)
+  - `when = "@every 5m"` (interval)
+  - `when = "@daily"` (shortcuts)
 
 ### Phase 5 - Enterprise Features (Planned)
 - Enterprise-grade authentication system

@@ -12,10 +12,10 @@ Mycel is an open-source framework for creating microservices through HCL configu
 
 ```bash
 # Using pre-built image (Docker Hub)
-docker run -v ./my-service:/config -p 3000:3000 mdenda/mycel
+docker run -v ./my-service:/etc/mycel -p 3000:3000 mdenda/mycel
 
 # Or from GitHub Container Registry
-docker run -v ./my-service:/config -p 3000:3000 ghcr.io/matutetandil/mycel
+docker run -v ./my-service:/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
 ```
 
 Or use in your `docker-compose.yml`:
@@ -25,10 +25,15 @@ services:
   my-api:
     image: mdenda/mycel:latest
     volumes:
-      - ./config:/config:ro
+      - ./config:/etc/mycel:ro
     ports:
       - "3000:3000"
     environment:
+      # Mycel runtime configuration
+      - MYCEL_ENV=production
+      - MYCEL_LOG_LEVEL=info
+      - MYCEL_LOG_FORMAT=json
+      # Your app config (accessible via env() in HCL)
       - DB_HOST=postgres
     depends_on:
       - postgres
@@ -115,11 +120,21 @@ That's it. You have a REST API connected to a database.
 ## CLI
 
 ```bash
-mycel start [--config=<path>] [--env=<env>] [--hot-reload]
+mycel start [--config=<path>] [--env=<env>] [--log-level=<level>] [--log-format=<format>] [--hot-reload]
 mycel validate [--config=<path>]
 mycel check [--config=<path>]
 mycel version
 ```
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MYCEL_ENV` | `development` | Environment to load (development, staging, production) |
+| `MYCEL_LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
+| `MYCEL_LOG_FORMAT` | `text` | Log format: text, json (use json for production) |
+
+Flags take precedence over environment variables.
 
 ## Features
 
