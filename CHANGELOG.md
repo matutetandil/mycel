@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Connector Profiles (Phase 4.3) - Spec Ready
+- **Connector Profiles** - Multiple backend implementations for the same logical connector
+  - `select` attribute: Environment variable that determines active profile
+  - `default` attribute: Fallback profile when select evaluates to empty
+  - `fallback` attribute: Ordered list of profiles to try on failure
+- **Per-profile transforms** to normalize data from different backends
+  - Each profile can have its own transform block
+  - Normalizes data before passing to flow (consistent interface)
+- **Use cases**:
+  - Same API, different data sources (Magento vs ERP vs Legacy)
+  - Multi-region deployments
+  - Read replicas vs primary database
+  - Gradual migration between systems
+- **HCL Syntax**:
+  ```hcl
+  connector "prices" {
+    select   = env("PRICE_SOURCE")  # Independent of MYCEL_ENV
+    default  = "erp"
+    fallback = ["erp", "legacy"]
+
+    profile "magento" {
+      type     = "http"
+      base_url = env("MAGENTO_URL")
+
+      transform {
+        price          = "float(input.special_price ?? input.price)"
+        original_price = "float(input.price)"
+        currency       = "input.currency"
+      }
+    }
+
+    profile "erp" {
+      type     = "database"
+      driver   = "postgres"
+      host     = env("ERP_DB_HOST")
+
+      transform {
+        price          = "input.precio_oferta ?? input.precio_base"
+        original_price = "input.precio_base"
+        currency       = "'ARS'"
+      }
+    }
+  }
+  ```
+- **Full specification**: [docs/PHASE-4.3-PROFILES.md](docs/PHASE-4.3-PROFILES.md)
+
 ### Added - Runtime Configuration (Phase 4.1)
 - **Environment Variables** for runtime configuration
   - `MYCEL_ENV`: Select environment (development, staging, production)

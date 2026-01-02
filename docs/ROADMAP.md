@@ -52,6 +52,7 @@ This document tracks the implementation status and future plans for Mycel.
 | Semaphores | 📋 | 4.2 |
 | Coordinate (Signal/Wait) | 📋 | 4.2 |
 | Flow Triggers (Cron) | 📋 | 4.2 |
+| Connector Profiles | 📋 | 4.3 |
 | Auth System | 🔜 | 5 |
 | Aspects (AOP) | 🔜 | 5 |
 | Custom Validators (WASM) | 🔜 | 5 |
@@ -134,6 +135,19 @@ This document tracks the implementation status and future plans for Mycel.
   - `when = "0 3 * * *"` (cron)
   - `when = "@every 5m"` (interval)
   - `when = "@daily"` (shortcuts)
+
+### Phase 4.3 - Connector Profiles (Spec Ready)
+> Full specification: [docs/PHASE-4.3-PROFILES.md](./PHASE-4.3-PROFILES.md)
+
+- **Multiple backend implementations** for the same logical connector
+- **Profile selection** via environment variable (independent of `MYCEL_ENV`)
+- **Per-profile transforms** to normalize data from different backends
+- **Fallback chains** for automatic failover between profiles
+- **Use cases**:
+  - Same API, different data sources (Magento vs ERP vs Legacy)
+  - Multi-region deployments
+  - Read replicas vs primary database
+  - Gradual migration between systems
 
 ### Phase 5 - Enterprise Features (Planned)
 - Enterprise-grade authentication system
