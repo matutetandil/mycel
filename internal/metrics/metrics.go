@@ -66,6 +66,13 @@ type Registry struct {
 	ScheduledFlows   *prometheus.GaugeVec
 	ScheduleExecuted *prometheus.CounterVec
 
+	// Profile metrics
+	ProfileActive    *prometheus.GaugeVec
+	ProfileRequests  *prometheus.CounterVec
+	ProfileErrors    *prometheus.CounterVec
+	ProfileFallback  *prometheus.CounterVec
+	ProfileLatency   *prometheus.HistogramVec
+
 	// Runtime metrics
 	UptimeSeconds *prometheus.GaugeVec
 	GoRoutines    prometheus.Gauge
@@ -313,6 +320,44 @@ func NewRegistry(serviceName, version string) *Registry {
 			[]string{"flow", "status"},
 		),
 
+		// Profile metrics
+		ProfileActive: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "mycel_connector_profile_active",
+				Help: "Currently active profile for a connector (1=active)",
+			},
+			[]string{"connector", "profile"},
+		),
+		ProfileRequests: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "mycel_connector_profile_requests_total",
+				Help: "Total number of requests per profile",
+			},
+			[]string{"connector", "profile"},
+		),
+		ProfileErrors: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "mycel_connector_profile_errors_total",
+				Help: "Total number of errors per profile",
+			},
+			[]string{"connector", "profile", "error"},
+		),
+		ProfileFallback: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "mycel_connector_profile_fallback_total",
+				Help: "Total number of fallback events between profiles",
+			},
+			[]string{"connector", "from", "to"},
+		),
+		ProfileLatency: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "mycel_connector_profile_latency_seconds",
+				Help:    "Latency per profile in seconds",
+				Buckets: prometheus.DefBuckets,
+			},
+			[]string{"connector", "profile"},
+		),
+
 		// Runtime metrics
 		UptimeSeconds: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
@@ -370,6 +415,11 @@ func NewRegistry(serviceName, version string) *Registry {
 		r.CoordinateActiveWaits,
 		r.ScheduledFlows,
 		r.ScheduleExecuted,
+		r.ProfileActive,
+		r.ProfileRequests,
+		r.ProfileErrors,
+		r.ProfileFallback,
+		r.ProfileLatency,
 		r.UptimeSeconds,
 		r.GoRoutines,
 		r.ServiceInfo,

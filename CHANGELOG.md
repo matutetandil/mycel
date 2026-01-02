@@ -37,14 +37,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Parser Support** for lock, semaphore, coordinate, when blocks
 - **Full specification**: [docs/PHASE-4.2-SYNC.md](docs/PHASE-4.2-SYNC.md)
 
-### Added - Connector Profiles (Phase 4.3) - Spec Ready
+### Added - Connector Profiles (Phase 4.3)
 - **Connector Profiles** - Multiple backend implementations for the same logical connector
-  - `select` attribute: Environment variable that determines active profile
+  - `type = "profiled"`: New connector type for profile-based routing
+  - `select` attribute: CEL expression to determine active profile (e.g., `env('PRICE_SOURCE')`)
   - `default` attribute: Fallback profile when select evaluates to empty
   - `fallback` attribute: Ordered list of profiles to try on failure
+- **ProfiledConnector** (`internal/connector/profile/`)
+  - Wrapper implementing Connector interface
+  - Routes operations to the active profile
+  - Automatic fallback on retriable errors (connection timeout, 5xx)
+  - Statistics tracking per profile (requests, errors, fallbacks)
 - **Per-profile transforms** to normalize data from different backends
   - Each profile can have its own transform block
+  - CEL expressions applied after reading from backend
   - Normalizes data before passing to flow (consistent interface)
+- **Prometheus Metrics** for profile observability
+  - `mycel_connector_profile_active` - Currently active profile (gauge)
+  - `mycel_connector_profile_requests_total` - Requests per profile (counter)
+  - `mycel_connector_profile_errors_total` - Errors per profile (counter)
+  - `mycel_connector_profile_fallback_total` - Fallback events (counter)
+  - `mycel_connector_profile_latency_seconds` - Latency per profile (histogram)
+- **Parser Support** (`internal/parser/connector.go`)
+  - `select`, `default`, `fallback` attributes
+  - `profile "name" {}` blocks with label for name
+  - `transform {}` blocks within profiles
+- **Factory Integration** (`internal/connector/profile/factory.go`)
+  - ProfileFactory creates ProfiledConnector instances
+  - Uses Registry to create underlying connectors for each profile
+- **Example** (`examples/profiles/`)
+  - Pricing service with Magento, ERP, and Legacy backends
+  - Profile selection via PRICE_SOURCE environment variable
 - **Use cases**:
   - Same API, different data sources (Magento vs ERP vs Legacy)
   - Multi-region deployments
@@ -52,19 +75,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Gradual migration between systems
 - **HCL Syntax**:
   ```hcl
-  connector "prices" {
-    select   = env("PRICE_SOURCE")  # Independent of MYCEL_ENV
-    default  = "erp"
+  connector "pricing" {
+    type = "profiled"
+
+    select   = "env('PRICE_SOURCE')"
+    default  = "magento"
     fallback = ["erp", "legacy"]
 
     profile "magento" {
       type     = "http"
-      base_url = env("MAGENTO_URL")
+      driver   = "client"
+      base_url = "http://magento/api"
 
       transform {
-        price          = "float(input.special_price ?? input.price)"
-        original_price = "float(input.price)"
-        currency       = "input.currency"
+        product_id = "input.entity_id"
+        price      = "double(input.price)"
+        source     = "'magento'"
       }
     }
 
@@ -74,9 +100,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       host     = env("ERP_DB_HOST")
 
       transform {
-        price          = "input.precio_oferta ?? input.precio_base"
-        original_price = "input.precio_base"
-        currency       = "'ARS'"
+        product_id = "string(input.id)"
+        price      = "input.precio"
+        source     = "'erp'"
       }
     }
   }

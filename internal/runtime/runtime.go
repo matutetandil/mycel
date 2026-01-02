@@ -16,6 +16,7 @@ import (
 	"github.com/matutetandil/mycel/internal/banner"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/cache"
+	"github.com/matutetandil/mycel/internal/connector/profile"
 	"github.com/matutetandil/mycel/internal/connector/database/mongodb"
 	"github.com/matutetandil/mycel/internal/connector/database/mysql"
 	"github.com/matutetandil/mycel/internal/connector/database/postgres"
@@ -215,6 +216,9 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 
 	// Cache connector (Redis, Memory)
 	registry.RegisterFactory(cache.NewFactory())
+
+	// Profile connector (must be registered last - uses other factories)
+	registry.RegisterFactory(profile.NewFactory(registry))
 }
 
 // Start initializes all connectors, registers flows, and starts the HTTP server.
@@ -466,6 +470,17 @@ func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
 		maxItems := getInt(cfg.Properties, "max_items", 10000)
 		eviction := getString(cfg.Properties, "eviction", "lru")
 		return fmt.Sprintf("in-memory [%s, max: %d]", eviction, maxItems)
+	case "profiled":
+		// Show profile information
+		if profileConfig, ok := cfg.Properties["_profiles"].(*profile.Config); ok {
+			profileNames := profileConfig.ProfileNames()
+			activeProfile := profileConfig.Default
+			if profileConfig.Select != "" {
+				activeProfile = fmt.Sprintf("${%s}", profileConfig.Select)
+			}
+			return fmt.Sprintf("profiles: %v [active: %s]", profileNames, activeProfile)
+		}
+		return "profiled connector"
 	}
 	return ""
 }

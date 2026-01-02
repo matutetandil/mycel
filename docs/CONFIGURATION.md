@@ -16,6 +16,7 @@ Complete HCL configuration reference for Mycel.
   - [Files](#files-connector)
   - [S3](#s3-connector)
   - [Exec](#exec-connector)
+  - [Profiles](#connector-profiles)
 - [Flows](#flows)
 - [Synchronization](#synchronization)
   - [Flow Triggers](#flow-triggers-when)
@@ -474,6 +475,112 @@ connector "remote" {
   }
 }
 ```
+
+### Connector Profiles
+
+Profiles allow a single logical connector to have multiple backend implementations with automatic selection and failover.
+
+**Use case:** A pricing microservice that fetches data from different sources depending on environment.
+
+```hcl
+connector "pricing" {
+  type = "profiled"
+
+  # Profile selection via environment variable
+  select  = "env('PRICE_SOURCE')"    # CEL expression
+  default = "magento"                 # Fallback if select is empty
+
+  # Fallback chain if primary fails
+  fallback = ["erp", "legacy"]
+
+  # Magento API profile
+  profile "magento" {
+    type     = "http"
+    driver   = "client"
+    base_url = "http://magento/api"
+
+    auth {
+      type  = "bearer"
+      token = env("MAGENTO_TOKEN")
+    }
+
+    # Normalize response to common format
+    transform {
+      product_id = "input.entity_id"
+      sku        = "input.sku"
+      price      = "double(input.price)"
+      currency   = "'USD'"
+      source     = "'magento'"
+    }
+  }
+
+  # ERP Database profile
+  profile "erp" {
+    type     = "database"
+    driver   = "postgres"
+    host     = env("ERP_HOST")
+    database = "erp"
+    user     = env("ERP_USER")
+    password = env("ERP_PASSWORD")
+
+    transform {
+      product_id = "string(input.id)"
+      sku        = "input.codigo"
+      price      = "input.precio"
+      currency   = "input.moneda"
+      source     = "'erp'"
+    }
+  }
+
+  # Legacy API profile
+  profile "legacy" {
+    type     = "http"
+    driver   = "client"
+    base_url = "http://legacy:9090/api"
+
+    transform {
+      product_id = "input.prod_id"
+      sku        = "input.product_code"
+      price      = "double(input.unit_price)"
+      currency   = "input.currency_code"
+      source     = "'legacy'"
+    }
+  }
+}
+```
+
+#### Profile Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `select` | string | CEL expression to determine active profile |
+| `default` | string | Default profile when select is empty/null |
+| `fallback` | list | Ordered list of fallback profiles |
+
+#### Profile Block
+
+Each profile inherits standard connector options for its type:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `type` | string | Connector type (http, database, graphql, etc.) |
+| `driver` | string | Driver for the connector type |
+| `transform` | block | CEL expressions to normalize output |
+
+#### Fallback Behavior
+
+When the active profile fails with a retriable error (connection timeout, 5xx):
+1. Mycel logs the failure and tries the next profile in `fallback`
+2. If all profiles fail, returns the last error
+3. Non-retriable errors (4xx, validation) do not trigger fallback
+
+#### Metrics
+
+Profile usage is tracked in Prometheus:
+- `mycel_connector_profile_active` - Currently active profile
+- `mycel_connector_profile_requests_total` - Requests per profile
+- `mycel_connector_profile_errors_total` - Errors per profile
+- `mycel_connector_profile_fallback_total` - Fallback events
 
 ---
 

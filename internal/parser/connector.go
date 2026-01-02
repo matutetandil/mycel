@@ -7,6 +7,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/connector/profile"
 )
 
 // parseConnectorBlock parses a connector block from HCL.
@@ -22,7 +23,7 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "type", Required: true},
+			{Name: "type"}, // Not required - profiled connectors don't have type at root
 			{Name: "driver"},
 			{Name: "host"},
 			{Name: "port"},
@@ -52,6 +53,10 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "input_format"},
 			{Name: "output_format"},
 			{Name: "retry_delay"},
+			// Profile-specific attributes
+			{Name: "select"},   // CEL expression for profile selection
+			{Name: "default"},  // Default profile name
+			{Name: "fallback"}, // Fallback profile list
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "pool"},
@@ -67,6 +72,7 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Type: "consumer"},
 			{Type: "producer"},
 			{Type: "federation"},
+			{Type: "profile", LabelNames: []string{"name"}}, // Profile blocks
 		},
 	}
 
@@ -196,10 +202,183 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 				return nil, fmt.Errorf("federation block error: %w", err)
 			}
 			config.Properties["federation"] = federation
+
+		case "profile":
+			if len(nestedBlock.Labels) < 1 {
+				return nil, fmt.Errorf("profile block requires a name label")
+			}
+			profileDef, err := parseProfileBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("profile %s error: %w", nestedBlock.Labels[0], err)
+			}
+
+			// Initialize profiles map if needed
+			profiles, ok := config.Properties["_profiles"].(*profile.Config)
+			if !ok {
+				profiles = &profile.Config{
+					Profiles: make(map[string]*profile.ProfileDef),
+				}
+				config.Properties["_profiles"] = profiles
+			}
+			profiles.Profiles[profileDef.Name] = profileDef
 		}
 	}
 
+	// Handle profile configuration
+	if profileConfig, ok := config.Properties["_profiles"].(*profile.Config); ok {
+		// Get select, default, fallback from properties
+		if sel, ok := config.Properties["select"].(string); ok {
+			profileConfig.Select = sel
+		}
+		if def, ok := config.Properties["default"].(string); ok {
+			profileConfig.Default = def
+		}
+		if fb, ok := config.Properties["fallback"].([]interface{}); ok {
+			for _, f := range fb {
+				if s, ok := f.(string); ok {
+					profileConfig.Fallback = append(profileConfig.Fallback, s)
+				}
+			}
+		}
+
+		// Validate: profiled connector needs either select or default
+		if profileConfig.Select == "" && profileConfig.Default == "" {
+			return nil, fmt.Errorf("profiled connector %s requires 'select' or 'default' attribute", config.Name)
+		}
+
+		// Mark as profiled connector
+		config.Type = "profiled"
+	} else if config.Type == "" {
+		return nil, fmt.Errorf("connector %s requires 'type' attribute or 'profile' blocks", config.Name)
+	}
+
 	return config, nil
+}
+
+// parseProfileBlock parses a profile block inside a connector.
+func parseProfileBlock(block *hcl.Block, ctx *hcl.EvalContext) (*profile.ProfileDef, error) {
+	profileName := block.Labels[0]
+
+	// Profile uses the same schema as a regular connector plus transform
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "type", Required: true},
+			{Name: "driver"},
+			{Name: "host"},
+			{Name: "port"},
+			{Name: "database"},
+			{Name: "user"},
+			{Name: "password"},
+			{Name: "base_url"},
+			{Name: "timeout"},
+			{Name: "retry_count"},
+			{Name: "endpoint"},
+			{Name: "playground"},
+			{Name: "brokers"},
+			{Name: "uri"},
+			{Name: "url"},
+			{Name: "address"},
+			{Name: "bucket"},
+			{Name: "region"},
+			{Name: "access_key"},
+			{Name: "secret_key"},
+			{Name: "charset"},
+			{Name: "ssl_mode"},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "pool"},
+			{Type: "auth"},
+			{Type: "headers"},
+			{Type: "transform"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("profile content error: %s", diags.Error())
+	}
+
+	// Build connector config for this profile
+	connConfig := &connector.Config{
+		Name:       profileName,
+		Properties: make(map[string]interface{}),
+	}
+
+	// Parse attributes
+	for name, attr := range content.Attributes {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("attribute %s error: %s", name, diags.Error())
+		}
+
+		if name == "type" {
+			connConfig.Type = val.AsString()
+		} else if name == "driver" {
+			connConfig.Driver = val.AsString()
+		}
+		connConfig.Properties[name] = ctyValueToGo(val)
+	}
+
+	profileDef := &profile.ProfileDef{
+		Name:            profileName,
+		ConnectorConfig: connConfig,
+		Transform:       make(map[string]string),
+	}
+
+	// Parse nested blocks
+	for _, nestedBlock := range content.Blocks {
+		switch nestedBlock.Type {
+		case "pool":
+			pool, err := parsePoolBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("pool block error: %w", err)
+			}
+			connConfig.Properties["pool"] = pool
+
+		case "auth":
+			auth, err := parseAuthBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("auth block error: %w", err)
+			}
+			connConfig.Properties["auth"] = auth
+
+		case "headers":
+			headers, err := parseHeadersBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("headers block error: %w", err)
+			}
+			connConfig.Properties["headers"] = headers
+
+		case "transform":
+			transform, err := parseProfileTransformBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("transform block error: %w", err)
+			}
+			profileDef.Transform = transform
+		}
+	}
+
+	return profileDef, nil
+}
+
+// parseProfileTransformBlock parses a transform block inside a profile.
+func parseProfileTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]string, error) {
+	attrs, diags := block.Body.JustAttributes()
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("transform block content error: %s", diags.Error())
+	}
+
+	transform := make(map[string]string)
+	for name, attr := range attrs {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("transform %s error: %s", name, diags.Error())
+		}
+		// Store as string (CEL expression)
+		transform[name] = val.AsString()
+	}
+
+	return transform, nil
 }
 
 // parseFederationBlock parses a GraphQL Federation configuration block.
