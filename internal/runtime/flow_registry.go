@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/matutetandil/mycel/internal/aspect"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/cache"
 	"github.com/matutetandil/mycel/internal/flow"
@@ -60,6 +61,10 @@ type FlowHandler struct {
 	// Config is the flow configuration from HCL.
 	Config *flow.Config
 
+	// FlowPath is the path to the flow file (used for aspect matching).
+	// Example: "flows/users/create_user.hcl"
+	FlowPath string
+
 	// Source is the source connector (where data comes from).
 	Source connector.Connector
 
@@ -89,6 +94,9 @@ type FlowHandler struct {
 
 	// NamedCaches allows lookup of named cache definitions.
 	NamedCaches map[string]*flow.NamedCacheConfig
+
+	// AspectExecutor handles cross-cutting concerns (AOP).
+	AspectExecutor *aspect.Executor
 }
 
 // HandleRequest processes an incoming request through the flow.
@@ -98,6 +106,104 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		return nil, err
 	}
 
+	// If aspect executor is configured, wrap execution with aspects
+	if h.AspectExecutor != nil && h.FlowPath != "" {
+		return h.handleRequestWithAspects(ctx, input)
+	}
+
+	// Execute without aspects
+	return h.executeFlowCore(ctx, input)
+}
+
+// handleRequestWithAspects wraps flow execution with aspect executor.
+func (h *FlowHandler) handleRequestWithAspects(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+	operation := parseOperation(h.Config.From.Operation)
+
+	// Create the flow function that the aspect executor will wrap
+	flowFn := func(ctx context.Context, flowInput map[string]interface{}) (*connector.Result, error) {
+		result, err := h.executeFlowCore(ctx, flowInput)
+		if err != nil {
+			return nil, err
+		}
+
+		// Convert result to connector.Result format
+		return h.resultToConnectorResult(result), nil
+	}
+
+	// Execute with aspects
+	result, err := h.AspectExecutor.Execute(
+		ctx,
+		h.FlowPath,
+		h.Config.Name,
+		h.Config.From.Operation,
+		h.Config.To.Target,
+		input,
+		flowFn,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert back from connector.Result to interface{}
+	if result == nil {
+		return nil, nil
+	}
+
+	// For GET operations, return rows directly
+	if operation.Method == "GET" {
+		return result.Rows, nil
+	}
+
+	// For write operations, return appropriate format
+	if len(result.Rows) > 0 {
+		if len(result.Rows) == 1 {
+			return result.Rows[0], nil
+		}
+		return result.Rows, nil
+	}
+
+	return map[string]interface{}{
+		"affected": result.Affected,
+		"id":       result.LastID,
+	}, nil
+}
+
+// resultToConnectorResult converts an interface{} result to connector.Result.
+func (h *FlowHandler) resultToConnectorResult(result interface{}) *connector.Result {
+	if result == nil {
+		return &connector.Result{}
+	}
+
+	switch v := result.(type) {
+	case []map[string]interface{}:
+		return &connector.Result{Rows: v}
+	case map[string]interface{}:
+		// Check if it's a write result
+		if affected, ok := v["affected"]; ok {
+			res := &connector.Result{}
+			if a, ok := affected.(int64); ok {
+				res.Affected = a
+			} else if a, ok := affected.(int); ok {
+				res.Affected = int64(a)
+			}
+			if id, ok := v["id"]; ok {
+				if i, ok := id.(int64); ok {
+					res.LastID = i
+				} else if i, ok := id.(int); ok {
+					res.LastID = int64(i)
+				}
+			}
+			return res
+		}
+		return &connector.Result{Rows: []map[string]interface{}{v}}
+	default:
+		return &connector.Result{}
+	}
+}
+
+// executeFlowCore executes the core flow logic without aspects.
+func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]interface{}) (interface{}, error) {
 	// Determine operation type from the flow config
 	operation := parseOperation(h.Config.From.Operation)
 

@@ -1,0 +1,517 @@
+package aspect
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+
+	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/transform"
+)
+
+// FlowFunc is a function that executes a flow and returns the result.
+type FlowFunc func(ctx context.Context, input map[string]interface{}) (*connector.Result, error)
+
+// Executor executes aspects around flows.
+type Executor struct {
+	registry   *Registry
+	cel        *transform.CELTransformer
+	connectors *connector.Registry
+}
+
+// NewExecutor creates a new aspect executor.
+func NewExecutor(registry *Registry, connectors *connector.Registry) (*Executor, error) {
+	cel, err := transform.NewCELTransformer()
+	if err != nil {
+		return nil, fmt.Errorf("creating CEL transformer for aspects: %w", err)
+	}
+
+	return &Executor{
+		registry:   registry,
+		cel:        cel,
+		connectors: connectors,
+	}, nil
+}
+
+// Execute executes a flow with all matching aspects applied.
+// flowPath is used to match aspects (e.g., "flows/users/create_user.hcl")
+// flowName is the flow identifier
+// operation is the operation being performed (e.g., "POST /users")
+// target is the target connector/table
+func (e *Executor) Execute(
+	ctx context.Context,
+	flowPath string,
+	flowName string,
+	operation string,
+	target string,
+	input map[string]interface{},
+	flowFn FlowFunc,
+) (*connector.Result, error) {
+	// Get matching aspects
+	beforeAspects := e.registry.GetBefore(flowPath)
+	aroundAspects := e.registry.GetAround(flowPath)
+	afterAspects := e.registry.GetAfter(flowPath)
+
+	// Add metadata to input
+	enrichedInput := e.enrichInput(input, flowName, operation, target)
+
+	// Execute before aspects
+	var err error
+	enrichedInput, err = e.executeBefore(ctx, beforeAspects, enrichedInput)
+	if err != nil {
+		return nil, fmt.Errorf("before aspect error: %w", err)
+	}
+
+	// Build the execution chain with around aspects
+	execFn := flowFn
+	for i := len(aroundAspects) - 1; i >= 0; i-- {
+		aspect := aroundAspects[i]
+		execFn = e.wrapAround(ctx, aspect, enrichedInput, execFn)
+	}
+
+	// Execute the flow (with around wrappers)
+	result, flowErr := execFn(ctx, enrichedInput)
+
+	// Execute after aspects (even if flow failed)
+	afterErr := e.executeAfter(ctx, afterAspects, enrichedInput, result, flowErr)
+	if afterErr != nil {
+		slog.Warn("after aspect error",
+			"flow", flowName,
+			"error", afterErr)
+	}
+
+	return result, flowErr
+}
+
+// enrichInput adds metadata to the input for use in aspect expressions.
+func (e *Executor) enrichInput(input map[string]interface{}, flowName, operation, target string) map[string]interface{} {
+	enriched := make(map[string]interface{})
+	for k, v := range input {
+		enriched[k] = v
+	}
+
+	// Add flow metadata
+	enriched["_flow"] = flowName
+	enriched["_operation"] = operation
+	enriched["_target"] = target
+	enriched["_timestamp"] = time.Now().Unix()
+
+	return enriched
+}
+
+// executeBefore executes all before aspects.
+// Returns the potentially modified input.
+func (e *Executor) executeBefore(ctx context.Context, aspects []*Config, input map[string]interface{}) (map[string]interface{}, error) {
+	current := input
+
+	for _, aspect := range aspects {
+		// Check condition
+		if !e.evaluateCondition(ctx, aspect, current, nil, nil) {
+			continue
+		}
+
+		slog.Debug("executing before aspect",
+			"aspect", aspect.Name,
+			"flow", input["_flow"])
+
+		// Execute action if present
+		if aspect.Action != nil {
+			if err := e.executeAction(ctx, aspect.Action, current, nil); err != nil {
+				return nil, fmt.Errorf("aspect %s action error: %w", aspect.Name, err)
+			}
+		}
+
+		// Execute rate limit if present
+		if aspect.RateLimit != nil {
+			if err := e.executeRateLimit(ctx, aspect.RateLimit, current); err != nil {
+				return nil, fmt.Errorf("aspect %s rate limit error: %w", aspect.Name, err)
+			}
+		}
+	}
+
+	return current, nil
+}
+
+// wrapAround creates a wrapper function for around aspects.
+func (e *Executor) wrapAround(ctx context.Context, aspect *Config, input map[string]interface{}, next FlowFunc) FlowFunc {
+	return func(execCtx context.Context, execInput map[string]interface{}) (*connector.Result, error) {
+		// Check condition
+		if !e.evaluateCondition(execCtx, aspect, execInput, nil, nil) {
+			return next(execCtx, execInput)
+		}
+
+		slog.Debug("executing around aspect",
+			"aspect", aspect.Name,
+			"flow", execInput["_flow"])
+
+		// Handle cache aspect
+		if aspect.Cache != nil {
+			return e.executeCache(execCtx, aspect.Cache, execInput, next)
+		}
+
+		// Handle circuit breaker aspect
+		if aspect.CircuitBreaker != nil {
+			return e.executeCircuitBreaker(execCtx, aspect.CircuitBreaker, execInput, next)
+		}
+
+		// Default: just execute next
+		return next(execCtx, execInput)
+	}
+}
+
+// executeAfter executes all after aspects.
+func (e *Executor) executeAfter(ctx context.Context, aspects []*Config, input map[string]interface{}, result *connector.Result, flowErr error) error {
+	// Reverse order for after aspects
+	for i := len(aspects) - 1; i >= 0; i-- {
+		aspect := aspects[i]
+
+		// Check condition
+		if !e.evaluateCondition(ctx, aspect, input, result, flowErr) {
+			continue
+		}
+
+		slog.Debug("executing after aspect",
+			"aspect", aspect.Name,
+			"flow", input["_flow"])
+
+		// Execute action if present
+		if aspect.Action != nil {
+			if err := e.executeAction(ctx, aspect.Action, input, result); err != nil {
+				slog.Warn("after aspect action error",
+					"aspect", aspect.Name,
+					"error", err)
+			}
+		}
+
+		// Execute invalidate if present
+		if aspect.Invalidate != nil {
+			if err := e.executeInvalidate(ctx, aspect.Invalidate, input, result); err != nil {
+				slog.Warn("after aspect invalidate error",
+					"aspect", aspect.Name,
+					"error", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// evaluateCondition evaluates the aspect's if condition.
+func (e *Executor) evaluateCondition(ctx context.Context, aspect *Config, input map[string]interface{}, result *connector.Result, flowErr error) bool {
+	if aspect.If == "" {
+		return true
+	}
+
+	// Build context for CEL evaluation
+	// CEL variables are at the top level, not nested in input
+	evalInput := make(map[string]interface{})
+
+	// Add input data (original input)
+	evalInput["input"] = input
+
+	// Add result if available
+	if result != nil {
+		resultMap := map[string]interface{}{
+			"affected": result.Affected,
+		}
+		if len(result.Rows) > 0 {
+			resultMap["data"] = result.Rows
+		}
+		evalInput["result"] = resultMap
+	} else {
+		// Provide empty result to avoid undeclared variable errors
+		evalInput["result"] = map[string]interface{}{}
+	}
+
+	// Add error if available
+	if flowErr != nil {
+		evalInput["error"] = flowErr.Error()
+	} else {
+		evalInput["error"] = ""
+	}
+
+	// Add flow metadata (from enriched input)
+	evalInput["_flow"] = getStringValue(input, "_flow")
+	evalInput["_operation"] = getStringValue(input, "_operation")
+	evalInput["_target"] = getStringValue(input, "_target")
+	evalInput["_timestamp"] = getIntValue(input, "_timestamp")
+
+	// Empty optional variables
+	evalInput["output"] = map[string]interface{}{}
+	evalInput["ctx"] = map[string]interface{}{}
+	evalInput["enriched"] = map[string]interface{}{}
+
+	// Evaluate condition
+	val, err := e.cel.EvaluateExpression(ctx, evalInput, nil, aspect.If)
+	if err != nil {
+		slog.Warn("aspect condition evaluation error",
+			"aspect", aspect.Name,
+			"condition", aspect.If,
+			"error", err)
+		return false
+	}
+
+	if boolVal, ok := val.(bool); ok {
+		return boolVal
+	}
+
+	return false
+}
+
+// getStringValue safely extracts a string value from a map.
+func getStringValue(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// getIntValue safely extracts an int64 value from a map.
+func getIntValue(m map[string]interface{}, key string) int64 {
+	if v, ok := m[key]; ok {
+		switch n := v.(type) {
+		case int64:
+			return n
+		case int:
+			return int64(n)
+		case float64:
+			return int64(n)
+		}
+	}
+	return 0
+}
+
+// executeAction executes an aspect action.
+func (e *Executor) executeAction(ctx context.Context, action *ActionConfig, input map[string]interface{}, result *connector.Result) error {
+	// Get connector
+	conn, err := e.connectors.Get(action.Connector)
+	if err != nil {
+		return fmt.Errorf("connector %s not found: %w", action.Connector, err)
+	}
+
+	// Build data from transform
+	data := make(map[string]interface{})
+
+	// Add result to context for transform evaluation
+	evalInput := make(map[string]interface{})
+	for k, v := range input {
+		evalInput[k] = v
+	}
+	if result != nil {
+		evalInput["result"] = map[string]interface{}{
+			"affected": result.Affected,
+			"data":     result.Rows,
+		}
+	}
+
+	// Apply transform
+	if action.Transform != nil {
+		for field, expr := range action.Transform {
+			val, err := e.cel.EvaluateExpression(ctx, evalInput, nil, expr)
+			if err != nil {
+				return fmt.Errorf("transform field %s error: %w", field, err)
+			}
+			data[field] = val
+		}
+	}
+
+	// Write to connector
+	writer, ok := conn.(connector.Writer)
+	if !ok {
+		return fmt.Errorf("connector %s does not support write operations", action.Connector)
+	}
+
+	// Default operation is INSERT for aspect actions (e.g., audit logs)
+	operation := "INSERT"
+	if action.Operation != "" {
+		operation = action.Operation
+	}
+
+	_, writeErr := writer.Write(ctx, &connector.Data{
+		Target:    action.Target,
+		Operation: operation,
+		Payload:   data,
+	})
+
+	return writeErr
+}
+
+// executeCache executes cache lookup/store around a flow.
+func (e *Executor) executeCache(ctx context.Context, cache *CacheConfig, input map[string]interface{}, next FlowFunc) (*connector.Result, error) {
+	// Build cache key
+	key, err := e.interpolateString(ctx, cache.Key, input)
+	if err != nil {
+		slog.Warn("cache key interpolation error", "error", err)
+		// Continue without cache
+		return next(ctx, input)
+	}
+
+	// Get cache connector
+	cacheConn, err := e.connectors.Get(cache.Storage)
+	if err != nil {
+		slog.Warn("cache connector not found", "storage", cache.Storage, "error", err)
+		return next(ctx, input)
+	}
+
+	// Try to read from cache
+	reader, ok := cacheConn.(connector.Reader)
+	if ok {
+		result, err := reader.Read(ctx, connector.Query{
+			Target: key,
+		})
+		if err == nil && result != nil && len(result.Rows) > 0 {
+			slog.Debug("cache hit", "key", key)
+			return result, nil
+		}
+	}
+
+	// Execute flow
+	result, err := next(ctx, input)
+	if err != nil {
+		return result, err
+	}
+
+	// Store in cache
+	writer, ok := cacheConn.(connector.Writer)
+	if ok && result != nil && len(result.Rows) > 0 {
+		ttl := parseDuration(cache.TTL)
+		// Store the result data as payload
+		payload := map[string]interface{}{
+			"data": result.Rows,
+			"ttl":  ttl.Seconds(),
+		}
+		_, writeErr := writer.Write(ctx, &connector.Data{
+			Target:  key,
+			Payload: payload,
+		})
+		if writeErr != nil {
+			slog.Warn("cache write error", "key", key, "error", writeErr)
+		} else {
+			slog.Debug("cache store", "key", key, "ttl", cache.TTL)
+		}
+	}
+
+	return result, nil
+}
+
+// executeInvalidate invalidates cache entries.
+func (e *Executor) executeInvalidate(ctx context.Context, invalidate *InvalidateConfig, input map[string]interface{}, result *connector.Result) error {
+	// Get cache connector
+	cacheConn, err := e.connectors.Get(invalidate.Storage)
+	if err != nil {
+		return fmt.Errorf("cache connector %s not found: %w", invalidate.Storage, err)
+	}
+
+	// Add result to context
+	evalInput := make(map[string]interface{})
+	for k, v := range input {
+		evalInput[k] = v
+	}
+	if result != nil {
+		evalInput["result"] = map[string]interface{}{
+			"affected": result.Affected,
+			"data":     result.Rows,
+		}
+	}
+
+	// Invalidate specific keys
+	for _, keyTemplate := range invalidate.Keys {
+		key, err := e.interpolateString(ctx, keyTemplate, evalInput)
+		if err != nil {
+			slog.Warn("invalidate key interpolation error", "template", keyTemplate, "error", err)
+			continue
+		}
+
+		// Delete key via Call if available
+		if caller, ok := cacheConn.(interface {
+			Call(ctx context.Context, operation string, params map[string]interface{}) (interface{}, error)
+		}); ok {
+			_, err := caller.Call(ctx, "delete", map[string]interface{}{"key": key})
+			if err != nil {
+				slog.Warn("cache invalidate error", "key", key, "error", err)
+			} else {
+				slog.Debug("cache invalidated", "key", key)
+			}
+		}
+	}
+
+	// Invalidate patterns
+	for _, patternTemplate := range invalidate.Patterns {
+		pattern, err := e.interpolateString(ctx, patternTemplate, evalInput)
+		if err != nil {
+			slog.Warn("invalidate pattern interpolation error", "template", patternTemplate, "error", err)
+			continue
+		}
+
+		if caller, ok := cacheConn.(interface {
+			Call(ctx context.Context, operation string, params map[string]interface{}) (interface{}, error)
+		}); ok {
+			_, err := caller.Call(ctx, "delete_pattern", map[string]interface{}{"pattern": pattern})
+			if err != nil {
+				slog.Warn("cache pattern invalidate error", "pattern", pattern, "error", err)
+			} else {
+				slog.Debug("cache pattern invalidated", "pattern", pattern)
+			}
+		}
+	}
+
+	return nil
+}
+
+// executeRateLimit checks rate limit before flow execution.
+func (e *Executor) executeRateLimit(ctx context.Context, rateLimit *RateLimitConfig, input map[string]interface{}) error {
+	// This would integrate with the ratelimit package
+	// For now, log and continue
+	slog.Debug("rate limit check",
+		"key", rateLimit.Key,
+		"rps", rateLimit.RequestsPerSecond)
+	return nil
+}
+
+// executeCircuitBreaker wraps flow with circuit breaker.
+func (e *Executor) executeCircuitBreaker(ctx context.Context, cb *CircuitBreakerConfig, input map[string]interface{}, next FlowFunc) (*connector.Result, error) {
+	// This would integrate with the circuitbreaker package
+	// For now, just execute the flow
+	return next(ctx, input)
+}
+
+// interpolateString interpolates ${...} expressions in a string.
+func (e *Executor) interpolateString(ctx context.Context, template string, input map[string]interface{}) (string, error) {
+	result := template
+
+	// Find all ${...} patterns
+	for {
+		start := strings.Index(result, "${")
+		if start < 0 {
+			break
+		}
+
+		end := strings.Index(result[start:], "}")
+		if end < 0 {
+			break
+		}
+
+		expr := result[start+2 : start+end]
+		val, err := e.cel.EvaluateExpression(ctx, input, nil, expr)
+		if err != nil {
+			return "", fmt.Errorf("interpolation error for %s: %w", expr, err)
+		}
+
+		result = result[:start] + fmt.Sprintf("%v", val) + result[start+end+1:]
+	}
+
+	return result, nil
+}
+
+// parseDuration parses a duration string.
+func parseDuration(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 5 * time.Minute // default
+	}
+	return d
+}

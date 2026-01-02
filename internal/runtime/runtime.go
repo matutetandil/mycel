@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/matutetandil/mycel/internal/aspect"
 	"github.com/matutetandil/mycel/internal/banner"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/cache"
@@ -57,6 +58,10 @@ type Runtime struct {
 	logger      *slog.Logger
 	environment string
 	configDir   string
+
+	// Aspect-Oriented Programming (AOP) components
+	aspectRegistry *aspect.Registry
+	aspectExecutor *aspect.Executor
 
 	// Hot reload components
 	hotReloadEnabled bool
@@ -160,6 +165,12 @@ func New(opts Options) (*Runtime, error) {
 	metricsReg := metrics.NewRegistry(serviceName, serviceVersion)
 	metrics.SetDefault(metricsReg)
 
+	// Create aspect registry and register aspects from config
+	aspectReg := aspect.NewRegistry()
+	if err := aspectReg.RegisterAll(config.Aspects); err != nil {
+		return nil, fmt.Errorf("failed to register aspects: %w", err)
+	}
+
 	return &Runtime{
 		config:           config,
 		connectors:       registry,
@@ -169,6 +180,7 @@ func New(opts Options) (*Runtime, error) {
 		namedCaches:      namedCaches,
 		health:           healthMgr,
 		metrics:          metricsReg,
+		aspectRegistry:   aspectReg,
 		logger:           opts.Logger,
 		environment:      env,
 		configDir:        opts.ConfigDir,
@@ -247,6 +259,12 @@ func (r *Runtime) Start(ctx context.Context) error {
 	if err := r.initConnectors(ctx); err != nil {
 		banner.PrintError(err.Error())
 		return fmt.Errorf("failed to initialize connectors: %w", err)
+	}
+
+	// Create aspect executor (needs connectors to be initialized)
+	if err := r.initAspects(); err != nil {
+		banner.PrintError(err.Error())
+		return fmt.Errorf("failed to initialize aspects: %w", err)
 	}
 
 	// Register flows
@@ -506,12 +524,14 @@ func (r *Runtime) registerFlows() error {
 		// Register the flow
 		handler := &FlowHandler{
 			Config:          cfg,
+			FlowPath:        cfg.SourceFile,
 			Source:          source,
 			Dest:            dest,
 			NamedTransforms: r.transforms,
 			Types:           r.types,
 			Connectors:      r.connectors,
 			NamedCaches:     r.namedCaches,
+			AspectExecutor:  r.aspectExecutor,
 		}
 
 		r.flows.Register(cfg.Name, handler)
@@ -708,6 +728,30 @@ type RateLimitRegistrar interface {
 	SetRateLimiter(rl *ratelimit.Limiter)
 }
 
+// initAspects creates the aspect executor after connectors are ready.
+func (r *Runtime) initAspects() error {
+	// Skip if no aspects configured
+	if r.aspectRegistry.Count() == 0 {
+		return nil
+	}
+
+	// Create aspect executor with connector registry
+	executor, err := aspect.NewExecutor(r.aspectRegistry, r.connectors)
+	if err != nil {
+		return fmt.Errorf("failed to create aspect executor: %w", err)
+	}
+	r.aspectExecutor = executor
+
+	// Print aspect info
+	fmt.Println()
+	fmt.Println("    Aspects:")
+	for _, asp := range r.aspectRegistry.All() {
+		banner.PrintAspect(asp.Name, string(asp.When), asp.On)
+	}
+
+	return nil
+}
+
 // initRateLimiter initializes the rate limiter based on service configuration.
 func (r *Runtime) initRateLimiter() {
 	if r.config.ServiceConfig == nil || r.config.ServiceConfig.RateLimit == nil {
@@ -897,6 +941,13 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 		r.namedCaches[c.Name] = c
 	}
 
+	// Rebuild aspect registry
+	r.aspectRegistry = aspect.NewRegistry()
+	if err := r.aspectRegistry.RegisterAll(newConfig.Aspects); err != nil {
+		r.config = oldConfig
+		return fmt.Errorf("failed to register aspects: %w", err)
+	}
+
 	// Create new flow registry
 	r.flows = NewFlowRegistry()
 
@@ -905,6 +956,12 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 		// Rollback to old config
 		r.config = oldConfig
 		return fmt.Errorf("failed to initialize connectors: %w", err)
+	}
+
+	// Initialize aspects (creates executor with new connectors)
+	if err := r.initAspects(); err != nil {
+		r.config = oldConfig
+		return fmt.Errorf("failed to initialize aspects: %w", err)
 	}
 
 	// Register flows with new connectors

@@ -106,6 +106,38 @@ func PrintFlow(method, path, target string) {
 	)
 }
 
+// PrintAspect prints aspect registration info.
+func PrintAspect(name, when string, patterns []string) {
+	whenColor := whenToColor(when)
+	patternsStr := ""
+	if len(patterns) > 0 {
+		patternsStr = patterns[0]
+		if len(patterns) > 1 {
+			patternsStr += fmt.Sprintf(" (+%d more)", len(patterns)-1)
+		}
+	}
+	fmt.Printf("      %s %s %s %s\n",
+		color(BrightGreen, "✓"),
+		color(White, name),
+		color(whenColor, "["+when+"]"),
+		color(Dim, patternsStr),
+	)
+}
+
+// whenToColor returns the appropriate color for an aspect when type.
+func whenToColor(when string) string {
+	switch when {
+	case "before":
+		return BrightYellow
+	case "after":
+		return BrightBlue
+	case "around":
+		return BrightMagenta
+	default:
+		return White
+	}
+}
+
 // PrintReady prints the ready message.
 func PrintReady() {
 	fmt.Println()

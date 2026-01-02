@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 
+	"github.com/matutetandil/mycel/internal/aspect"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/transform"
@@ -44,6 +45,9 @@ type Configuration struct {
 	// NamedCaches are reusable cache configurations.
 	NamedCaches []*flow.NamedCacheConfig
 
+	// Aspects are cross-cutting concern configurations.
+	Aspects []*aspect.Config
+
 	// ServiceConfig is the global service configuration.
 	ServiceConfig *ServiceConfig
 }
@@ -73,6 +77,7 @@ func NewConfiguration() *Configuration {
 		Types:       make([]*validate.TypeSchema, 0),
 		Transforms:  make([]*transform.Config, 0),
 		NamedCaches: make([]*flow.NamedCacheConfig, 0),
+		Aspects:     make([]*aspect.Config, 0),
 	}
 }
 
@@ -83,6 +88,7 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.Types = append(c.Types, other.Types...)
 	c.Transforms = append(c.Transforms, other.Transforms...)
 	c.NamedCaches = append(c.NamedCaches, other.NamedCaches...)
+	c.Aspects = append(c.Aspects, other.Aspects...)
 	if other.ServiceConfig != nil {
 		c.ServiceConfig = other.ServiceConfig
 	}
@@ -171,6 +177,8 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 			if err != nil {
 				return nil, fmt.Errorf("flow parse error: %w", err)
 			}
+			// Set the source file path for aspect matching
+			f.SourceFile = path
 			config.Flows = append(config.Flows, f)
 
 		case "type":
@@ -194,6 +202,13 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 			}
 			config.NamedCaches = append(config.NamedCaches, cache)
 
+		case "aspect":
+			asp, err := parseAspectBlock(block, p.evalCtx)
+			if err != nil {
+				return nil, fmt.Errorf("aspect parse error: %w", err)
+			}
+			config.Aspects = append(config.Aspects, asp)
+
 		case "service":
 			svc, err := parseServiceBlock(block, p.evalCtx)
 			if err != nil {
@@ -215,6 +230,7 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "type", LabelNames: []string{"name"}},
 			{Type: "transform", LabelNames: []string{"name"}},
 			{Type: "cache", LabelNames: []string{"name"}},
+			{Type: "aspect", LabelNames: []string{"name"}},
 			{Type: "service"},
 		},
 	}

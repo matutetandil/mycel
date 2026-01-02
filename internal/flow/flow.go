@@ -79,6 +79,10 @@ type Config struct {
 	// Name is the flow identifier.
 	Name string
 
+	// SourceFile is the path to the HCL file that defined this flow.
+	// Used for aspect pattern matching (e.g., "flows/users/create_user.hcl").
+	SourceFile string
+
 	// When defines the flow trigger schedule.
 	// Values: "always" (default), cron expression, or "@every X"
 	When string

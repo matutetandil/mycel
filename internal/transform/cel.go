@@ -48,6 +48,18 @@ func NewCELTransformer() (*CELTransformer, error) {
 		// Enriched variable - for data fetched from external sources
 		cel.Variable("enriched", cel.MapType(cel.StringType, cel.DynType)),
 
+		// Result variable - for aspect conditions (after execution)
+		cel.Variable("result", cel.MapType(cel.StringType, cel.DynType)),
+
+		// Error variable - for aspect conditions (after execution with error)
+		cel.Variable("error", cel.StringType),
+
+		// Flow metadata variables for aspects
+		cel.Variable("_flow", cel.StringType),
+		cel.Variable("_operation", cel.StringType),
+		cel.Variable("_target", cel.StringType),
+		cel.Variable("_timestamp", cel.IntType),
+
 		// Custom Mycel functions
 		cel.Function("uuid",
 			cel.Overload("uuid_generate",
@@ -393,7 +405,8 @@ func goTimeFormat(format string) string {
 }
 
 // EvaluateExpression evaluates a single CEL expression with input and enriched data.
-// This is used for evaluating enrich params before making the enrichment call.
+// This is used for evaluating enrich params before making the enrichment call,
+// and for evaluating aspect conditions where top-level variables are needed.
 func (t *CELTransformer) EvaluateExpression(ctx context.Context, input map[string]interface{}, enriched map[string]interface{}, expr string) (interface{}, error) {
 	prog, err := t.Compile(expr)
 	if err != nil {
@@ -410,6 +423,27 @@ func (t *CELTransformer) EvaluateExpression(ctx context.Context, input map[strin
 		"output":   make(map[string]interface{}),
 		"ctx":      make(map[string]interface{}),
 		"enriched": enriched,
+	}
+
+	// For aspect conditions, we need certain variables at the top level of activation.
+	// These are declared in the CEL environment and must be present.
+	topLevelVars := []string{"result", "error", "_flow", "_operation", "_target", "_timestamp"}
+	for _, key := range topLevelVars {
+		if val, ok := input[key]; ok {
+			activation[key] = val
+		} else {
+			// Provide defaults for missing variables to avoid undeclared errors
+			switch key {
+			case "result":
+				activation[key] = map[string]interface{}{}
+			case "error":
+				activation[key] = ""
+			case "_flow", "_operation", "_target":
+				activation[key] = ""
+			case "_timestamp":
+				activation[key] = int64(0)
+			}
+		}
 	}
 
 	// Evaluate

@@ -2090,3 +2090,205 @@ flow "create_order_raw" {
 }
 `)
 }
+
+// TestIntegration_Aspects tests aspect-oriented programming features.
+func TestIntegration_Aspects(t *testing.T) {
+	// Create temp directory for test config
+	tmpDir, err := os.MkdirTemp("", "mycel-aspect-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create flows directory (needed for pattern matching)
+	flowsDir := filepath.Join(tmpDir, "flows", "products")
+	if err := os.MkdirAll(flowsDir, 0755); err != nil {
+		t.Fatalf("failed to create flows dir: %v", err)
+	}
+
+	// Setup SQLite databases
+	dbPath := filepath.Join(tmpDir, "test.db")
+	db, err := setupTestDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("failed to setup database: %v", err)
+	}
+	defer db.Close()
+
+	// Create audit_logs table
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS audit_logs (
+		id TEXT PRIMARY KEY,
+		flow_name TEXT,
+		operation TEXT,
+		target TEXT,
+		timestamp INTEGER
+	)`)
+	if err != nil {
+		t.Fatalf("failed to create audit_logs table: %v", err)
+	}
+
+	// Create products table
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS products (
+		id TEXT PRIMARY KEY,
+		name TEXT,
+		price REAL,
+		created_at INTEGER
+	)`)
+	if err != nil {
+		t.Fatalf("failed to create products table: %v", err)
+	}
+
+	port := 3980
+
+	// Create config files
+	writeFile(t, filepath.Join(tmpDir, "config.hcl"), fmt.Sprintf(`
+service {
+  name    = "aspect-test"
+  version = "1.0.0"
+}
+
+connector "api" {
+  type = "rest"
+  port = %d
+}
+
+connector "db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = "%s"
+}
+`, port, dbPath))
+
+	// Create flows in the flows/products directory for pattern matching
+	// Each flow in its own file so aspects can match by file name
+	writeFile(t, filepath.Join(flowsDir, "get_products.hcl"), `
+flow "get_products" {
+  from {
+    connector = "api"
+    operation = "GET /products"
+  }
+  to {
+    connector = "db"
+    target    = "products"
+  }
+}
+`)
+
+	writeFile(t, filepath.Join(flowsDir, "create_product.hcl"), `
+flow "create_product" {
+  from {
+    connector = "api"
+    operation = "POST /products"
+  }
+  transform {
+    id         = "uuid()"
+    created_at = "now()"
+  }
+  to {
+    connector = "db"
+    target    = "products"
+  }
+}
+`)
+
+	// Create aspects file
+	writeFile(t, filepath.Join(tmpDir, "aspects.hcl"), `
+# After aspect - logs all create operations
+aspect "audit_creates" {
+  on   = ["**/create_*.hcl"]
+  when = "after"
+  if   = "result.affected > 0"
+
+  action {
+    connector = "db"
+    target    = "audit_logs"
+    transform {
+      id         = "uuid()"
+      flow_name  = "_flow"
+      operation  = "_operation"
+      target     = "_target"
+      timestamp  = "_timestamp"
+    }
+  }
+}
+`)
+
+	// Start the runtime
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt, err := startTestRuntime(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("failed to start runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	// Wait for server to be ready
+	time.Sleep(200 * time.Millisecond)
+
+	baseURL := fmt.Sprintf("http://localhost:%d", port)
+
+	// Test 1: Verify aspects are registered
+	t.Run("aspects_registered", func(t *testing.T) {
+		if rt.aspectRegistry == nil {
+			t.Error("aspect registry should not be nil")
+			return
+		}
+		count := rt.aspectRegistry.Count()
+		if count != 1 {
+			t.Errorf("expected 1 aspect registered, got %d", count)
+		}
+	})
+
+	// Test 2: Create a product and verify audit log was created
+	t.Run("after_aspect_executed", func(t *testing.T) {
+		// Create a product
+		productData := map[string]interface{}{
+			"name":  "Test Product",
+			"price": 19.99,
+		}
+		body, _ := json.Marshal(productData)
+
+		resp, err := http.Post(baseURL+"/products", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("POST /products failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(bodyBytes))
+		}
+
+		// Give aspect time to execute
+		time.Sleep(100 * time.Millisecond)
+
+		// Check that audit log was created
+		var auditCount int
+		err = db.QueryRow("SELECT COUNT(*) FROM audit_logs").Scan(&auditCount)
+		if err != nil {
+			t.Fatalf("failed to query audit_logs: %v", err)
+		}
+
+		if auditCount == 0 {
+			t.Error("expected audit log entry to be created by after aspect")
+		}
+	})
+
+	// Test 3: Verify aspect matching works
+	t.Run("aspect_matching", func(t *testing.T) {
+		// The audit_creates aspect should match flows/products/create_product.hcl
+		// but not flows/products/get_products.hcl
+		matches := rt.aspectRegistry.Match("flows/products/create_product.hcl")
+		if len(matches) == 0 {
+			t.Error("expected audit_creates aspect to match create_product flow")
+		}
+
+		// get_products should not match
+		getMatches := rt.aspectRegistry.Match("flows/products/get_products.hcl")
+		for _, m := range getMatches {
+			if m.Name == "audit_creates" {
+				t.Error("audit_creates should not match get_products flow")
+			}
+		}
+	})
+}
