@@ -27,8 +27,31 @@ type CELTransformer struct {
 
 // NewCELTransformer creates a new CEL-based transformer with custom Mycel functions.
 func NewCELTransformer() (*CELTransformer, error) {
-	// Create CEL environment with full standard library + extensions + custom functions
-	env, err := cel.NewEnv(
+	return NewCELTransformerWithOptions()
+}
+
+// NewCELTransformerWithOptions creates a new CEL-based transformer with additional options.
+// Use this to add custom WASM functions to the CEL environment.
+func NewCELTransformerWithOptions(additionalOptions ...cel.EnvOption) (*CELTransformer, error) {
+	// Build the complete list of options
+	options := baseCELOptions()
+	options = append(options, additionalOptions...)
+
+	// Create CEL environment
+	env, err := cel.NewEnv(options...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
+	}
+
+	return &CELTransformer{
+		env:      env,
+		programs: make(map[string]cel.Program),
+	}, nil
+}
+
+// baseCELOptions returns the base CEL environment options with all Mycel built-in functions.
+func baseCELOptions() []cel.EnvOption {
+	return []cel.EnvOption{
 		// CEL Standard Extensions - provides full CEL functionality
 		ext.Strings(),   // charAt, indexOf, lastIndexOf, join, quote, replace, split, substring, trim, upperAscii, lowerAscii, reverse
 		ext.Encoders(),  // base64.encode, base64.decode
@@ -270,16 +293,7 @@ func NewCELTransformer() (*CELTransformer, error) {
 				}),
 			),
 		),
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
 	}
-
-	return &CELTransformer{
-		env:      env,
-		programs: make(map[string]cel.Program),
-	}, nil
 }
 
 // Compile compiles a CEL expression and caches the program.

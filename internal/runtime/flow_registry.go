@@ -12,6 +12,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/cache"
 	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/internal/functions"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
 )
@@ -97,6 +98,9 @@ type FlowHandler struct {
 
 	// AspectExecutor handles cross-cutting concerns (AOP).
 	AspectExecutor *aspect.Executor
+
+	// FunctionsRegistry provides access to WASM functions for CEL expressions.
+	FunctionsRegistry *functions.Registry
 }
 
 // HandleRequest processes an incoming request through the flow.
@@ -708,7 +712,9 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 	// Initialize CEL transformer if needed
 	if h.Transformer == nil {
 		var err error
-		h.Transformer, err = transform.NewCELTransformer()
+		// Create CEL transformer with WASM functions if registry is available
+		celOptions := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
+		h.Transformer, err = transform.NewCELTransformerWithOptions(celOptions...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create CEL transformer: %w", err)
 		}

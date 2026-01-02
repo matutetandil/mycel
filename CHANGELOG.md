@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - WASM Functions (Phase 5d)
+- **Custom Functions** (`internal/functions/`)
+  - WASM functions that extend CEL transform expressions
+  - `functions "name" { wasm = "...", exports = [...] }` blocks
+  - Registry for managing function modules
+  - Support for 0-5 function arguments
+- **CEL Integration** (`internal/transform/wasm_functions.go`)
+  - `CreateWASMFunctionOptions()` for CEL environment setup
+  - `NewCELTransformerWithOptions()` for custom function support
+  - Automatic JSON serialization for function calls
+- **Parser support** for `functions` blocks
+  - `wasm` attribute for .wasm file path
+  - `exports` array for function names
+- **Example**: `examples/wasm-functions/`
+  - Pricing functions (calculate_price, apply_discount, tax_for_country)
+  - Complete Rust example with checkout flow
+
 ### Added - WASM Runtime and Validators (Phase 5)
 - **WASM Runtime** (`internal/wasm/`)
   - Pure Go runtime using wazero (no CGO)

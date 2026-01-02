@@ -671,12 +671,12 @@ volumes:
 - [x] Tests for WASM validators
 - [x] Example validator in Rust
 
-### Phase 5d: Functions WASM
-- [ ] Parser for `functions` blocks
-- [ ] Function registration in CEL
-- [ ] Dynamic function calling
-- [ ] Tests for WASM functions
-- [ ] Example functions in Rust
+### Phase 5d: Functions WASM ✅ COMPLETE
+- [x] Parser for `functions` blocks
+- [x] Function registration in CEL
+- [x] Dynamic function calling
+- [x] Tests for WASM functions
+- [x] Example functions in Rust
 
 ### Phase 5e: Plugins
 - [ ] Parser for `plugins.hcl`

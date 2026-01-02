@@ -59,6 +59,7 @@ This document tracks the implementation status and future plans for Mycel.
 | AsyncAPI Export | ✅ | 5 |
 | Custom Validators (Regex/CEL) | ✅ | 5 |
 | Custom Validators (WASM) | ✅ | 5 |
+| Custom Functions (WASM) | ✅ | 5 |
 | Plugins System | 🔜 | 5 |
 | Auth System | 🔜 | 5.1 |
 
@@ -176,6 +177,11 @@ This document tracks the implementation status and future plans for Mycel.
   - wazero runtime (pure Go, no CGO)
   - Memory management with alloc/free
   - JSON-based input/output
+- ✅ **Custom functions** (CEL extensions)
+  - WASM functions available in transform expressions
+  - Parser for `functions` blocks
+  - Dynamic function registration in CEL
+  - Support for 0-5 arguments per function
 - 🔜 **Plugin system**
   - Custom connectors via WASM
   - Custom transforms via WASM

@@ -14,6 +14,7 @@ import (
 	"github.com/matutetandil/mycel/internal/aspect"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/internal/functions"
 	"github.com/matutetandil/mycel/internal/mock"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
@@ -58,6 +59,9 @@ type Configuration struct {
 
 	// Validators are custom validator configurations.
 	Validators []*validator.Config
+
+	// Functions are WASM function module configurations.
+	Functions []*functions.Config
 }
 
 // ServiceConfig holds global service configuration.
@@ -87,6 +91,7 @@ func NewConfiguration() *Configuration {
 		NamedCaches: make([]*flow.NamedCacheConfig, 0),
 		Aspects:     make([]*aspect.Config, 0),
 		Validators:  make([]*validator.Config, 0),
+		Functions:   make([]*functions.Config, 0),
 	}
 }
 
@@ -99,6 +104,7 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.NamedCaches = append(c.NamedCaches, other.NamedCaches...)
 	c.Aspects = append(c.Aspects, other.Aspects...)
 	c.Validators = append(c.Validators, other.Validators...)
+	c.Functions = append(c.Functions, other.Functions...)
 	if other.ServiceConfig != nil {
 		c.ServiceConfig = other.ServiceConfig
 	}
@@ -242,6 +248,13 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 				return nil, fmt.Errorf("validator parse error: %w", err)
 			}
 			config.Validators = append(config.Validators, v)
+
+		case "functions":
+			fn, err := parseFunctionsBlock(block, p.evalCtx)
+			if err != nil {
+				return nil, fmt.Errorf("functions parse error: %w", err)
+			}
+			config.Functions = append(config.Functions, fn)
 		}
 	}
 
@@ -259,6 +272,7 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "cache", LabelNames: []string{"name"}},
 			{Type: "aspect", LabelNames: []string{"name"}},
 			{Type: "validator", LabelNames: []string{"name"}},
+			{Type: "functions", LabelNames: []string{"name"}},
 			{Type: "service"},
 			{Type: "mocks"},
 		},

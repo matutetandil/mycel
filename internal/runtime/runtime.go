@@ -32,6 +32,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector/rest"
 	"github.com/matutetandil/mycel/internal/connector/tcp"
 	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/internal/functions"
 	"github.com/matutetandil/mycel/internal/health"
 	"github.com/matutetandil/mycel/internal/hotreload"
 	"github.com/matutetandil/mycel/internal/mock"
@@ -66,6 +67,9 @@ type Runtime struct {
 
 	// Mock system components
 	mockManager *mock.Manager
+
+	// WASM Functions registry for CEL extensions
+	functionsRegistry *functions.Registry
 
 	// Hot reload components
 	hotReloadEnabled bool
@@ -191,22 +195,39 @@ func New(opts Options) (*Runtime, error) {
 	parser.ParseMockFlags(opts.MockConnectors, opts.NoMockConnectors, mockCfg)
 	mockMgr := mock.NewManager(mockCfg)
 
+	// Create WASM functions registry and register functions from config
+	functionsReg := functions.NewRegistry()
+	for _, fnCfg := range config.Functions {
+		if err := functionsReg.Register(fnCfg); err != nil {
+			opts.Logger.Warn("failed to register WASM functions module",
+				"module", fnCfg.Name,
+				"wasm", fnCfg.WASM,
+				"error", err.Error())
+			// Continue - don't fail startup for optional WASM functions
+		} else {
+			opts.Logger.Info("registered WASM functions module",
+				"module", fnCfg.Name,
+				"exports", fnCfg.Exports)
+		}
+	}
+
 	return &Runtime{
-		config:           config,
-		connectors:       registry,
-		flows:            NewFlowRegistry(),
-		transforms:       transforms,
-		types:            types,
-		namedCaches:      namedCaches,
-		health:           healthMgr,
-		metrics:          metricsReg,
-		aspectRegistry:   aspectReg,
-		mockManager:      mockMgr,
-		logger:           opts.Logger,
-		environment:      env,
-		configDir:        opts.ConfigDir,
-		hotReloadEnabled: opts.HotReload,
-		shutdownTimeout:  opts.ShutdownTimeout,
+		config:            config,
+		connectors:        registry,
+		flows:             NewFlowRegistry(),
+		transforms:        transforms,
+		types:             types,
+		namedCaches:       namedCaches,
+		health:            healthMgr,
+		metrics:           metricsReg,
+		aspectRegistry:    aspectReg,
+		mockManager:       mockMgr,
+		functionsRegistry: functionsReg,
+		logger:            opts.Logger,
+		environment:       env,
+		configDir:         opts.ConfigDir,
+		hotReloadEnabled:  opts.HotReload,
+		shutdownTimeout:   opts.ShutdownTimeout,
 	}, nil
 }
 
@@ -552,15 +573,16 @@ func (r *Runtime) registerFlows() error {
 
 		// Register the flow
 		handler := &FlowHandler{
-			Config:          cfg,
-			FlowPath:        cfg.SourceFile,
-			Source:          source,
-			Dest:            dest,
-			NamedTransforms: r.transforms,
-			Types:           r.types,
-			Connectors:      r.connectors,
-			NamedCaches:     r.namedCaches,
-			AspectExecutor:  r.aspectExecutor,
+			Config:            cfg,
+			FlowPath:          cfg.SourceFile,
+			Source:            source,
+			Dest:              dest,
+			NamedTransforms:   r.transforms,
+			Types:             r.types,
+			Connectors:        r.connectors,
+			NamedCaches:       r.namedCaches,
+			AspectExecutor:    r.aspectExecutor,
+			FunctionsRegistry: r.functionsRegistry,
 		}
 
 		r.flows.Register(cfg.Name, handler)
