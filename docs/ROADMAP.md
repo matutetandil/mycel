@@ -57,6 +57,7 @@ This document tracks the implementation status and future plans for Mycel.
 | Mocks/Testing | ✅ | 5 |
 | OpenAPI Export | ✅ | 5 |
 | AsyncAPI Export | ✅ | 5 |
+| Custom Validators (Regex/CEL) | ✅ | 5 |
 | Custom Validators (WASM) | 🔜 | 5 |
 | Plugins System | 🔜 | 5 |
 | Auth System | 🔜 | 5.1 |
@@ -165,8 +166,13 @@ This document tracks the implementation status and future plans for Mycel.
   - `mycel export asyncapi` - AsyncAPI 2.6.0 for message queues
   - Flags: `-o`, `-f` (yaml/json), `--base-url`
   - Note: GraphQL has native introspection, no export needed
+- ✅ **Custom validators** (Regex/CEL)
+  - Regex validators for pattern matching
+  - CEL validators for expression-based validation
+  - Validator registry and factory
+  - Integration with type validation system
 - 🔜 **Custom validators** with WASM
-  - User-defined validation logic
+  - User-defined validation logic in compiled WASM
   - Hot-loadable WASM modules
 - 🔜 **Plugin system**
   - Custom connectors via WASM

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Custom Validators (Phase 5)
+- **Custom Validators** (`internal/validator/`)
+  - Regex validators for pattern matching (email, phone, UUID, etc.)
+  - CEL validators for expression-based validation (age checks, enums, password strength)
+  - Validator registry for managing validators
+  - Factory function for creating validators from config
+- **Parser support** for `validator` blocks
+  - `type = "regex"` with `pattern` attribute
+  - `type = "cel"` with `expr` attribute
+  - `type = "wasm"` (placeholder for future WASM support)
+  - Custom `message` for validation errors
+- **Integration with type system**
+  - `ValidatorRef` field in FieldSchema
+  - `CustomValidatorConstraint` for using validators as constraints
+- **Example**: `examples/validators/`
+  - Regex validators: email, phone_ar, uuid, slug, username
+  - CEL validators: adult_age, positive_number, valid_status, strong_password
+
 ### Fixed - Parser & Example Files
 - **Parser support for MQ connectors** (`internal/parser/connector.go`)
   - Added `username` attribute (alias for `user`)

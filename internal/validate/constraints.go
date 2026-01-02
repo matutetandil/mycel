@@ -157,6 +157,21 @@ func (c *EnumConstraint) Validate(value interface{}) error {
 	return fmt.Errorf("value must be one of: %v", c.Values)
 }
 
+// CustomValidatorConstraint wraps a custom validator function.
+// This allows custom validators to be used as constraints in type schemas.
+type CustomValidatorConstraint struct {
+	ValidatorName string
+	ValidateFn    func(value interface{}) error
+}
+
+func (c *CustomValidatorConstraint) Name() string { return "custom:" + c.ValidatorName }
+func (c *CustomValidatorConstraint) Validate(value interface{}) error {
+	if c.ValidateFn == nil {
+		return fmt.Errorf("validator %q not found", c.ValidatorName)
+	}
+	return c.ValidateFn(value)
+}
+
 // Helper functions
 
 func toFloat64(v interface{}) float64 {

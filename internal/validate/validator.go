@@ -35,6 +35,9 @@ type FieldSchema struct {
 
 	// Constraints are validation constraints for this field.
 	Constraints []Constraint
+
+	// ValidatorRef is a reference to a custom validator (e.g., "validator.phone_ar").
+	ValidatorRef string
 }
 
 // Constraint represents a validation constraint.
