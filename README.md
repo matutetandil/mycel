@@ -8,73 +8,16 @@ Mycel is an open-source framework for creating microservices through HCL configu
 
 ## Quick Start
 
-### With Docker (recommended)
+### 1. Create Your Configuration
+
+Create a directory for your service and add these files:
 
 ```bash
-# Using pre-built image (Docker Hub)
-docker run -v ./my-service:/etc/mycel -p 3000:3000 mdenda/mycel
-
-# Or from GitHub Container Registry
-docker run -v ./my-service:/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
+mkdir my-service && cd my-service
 ```
 
-Or use in your `docker-compose.yml`:
-
-```yaml
-services:
-  my-api:
-    image: mdenda/mycel:latest
-    volumes:
-      - ./config:/etc/mycel:ro
-    ports:
-      - "3000:3000"
-    environment:
-      # Mycel runtime configuration
-      - MYCEL_ENV=production
-      - MYCEL_LOG_LEVEL=info
-      - MYCEL_LOG_FORMAT=json
-      # Your app config (accessible via env() in HCL)
-      - DB_HOST=postgres
-    depends_on:
-      - postgres
-
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: mycel
-      POSTGRES_PASSWORD: secret
-      POSTGRES_DB: mycel
-```
-
-### From Source
-
-```bash
-# Clone and build
-git clone https://github.com/matutetandil/mycel.git
-cd mycel
-go build -o mycel ./cmd/mycel
-
-# Run the basic example
-./mycel start --config ./examples/basic
-```
-
-### Test the API
-```bash
-# List users
-curl http://localhost:3000/users
-
-# Create user
-curl -X POST http://localhost:3000/users \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","name":"Test"}'
-```
-
-## How It Works
-
-### 1. Define Connectors
-
+**`connectors.hcl`** - Define your data sources:
 ```hcl
-# connectors.hcl
 connector "api" {
   type = "rest"
   port = 3000
@@ -87,35 +30,52 @@ connector "db" {
 }
 ```
 
-### 2. Define Flows
-
+**`flows.hcl`** - Define how data moves:
 ```hcl
-# flows.hcl
-flow "get_users" {
+flow "list_users" {
   from { connector = "api", operation = "GET /users" }
   to   { connector = "db", target = "users" }
 }
 
 flow "create_user" {
   from { connector = "api", operation = "POST /users" }
-
   transform {
     id         = "uuid()"
     email      = "lower(input.email)"
     created_at = "now()"
   }
-
   to { connector = "db", target = "users" }
 }
 ```
 
-### 3. Run
+### 2. Run Your Service
 
+**With Docker (recommended):**
 ```bash
-mycel start --config ./my-service
+docker run -v $(pwd):/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
 ```
 
-That's it. You have a REST API connected to a database.
+**From source:**
+```bash
+go install github.com/matutetandil/mycel/cmd/mycel@latest
+mycel start
+```
+
+### 3. Test the API
+
+```bash
+# Create a user
+curl -X POST http://localhost:3000/users \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","name":"Test"}'
+
+# List users
+curl http://localhost:3000/users
+```
+
+That's it! You have a REST API connected to a database without writing any code.
+
+> **Next steps:** See [Getting Started Guide](docs/GETTING_STARTED.md) for a complete tutorial.
 
 ## CLI
 
