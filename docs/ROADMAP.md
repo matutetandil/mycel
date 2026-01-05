@@ -2,7 +2,7 @@
 
 This document tracks the implementation status and future plans for Mycel.
 
-## Current Status: Phase 5 In Progress (Mocks + Doc Export Complete)
+## Current Status: Phase 5.1 Complete (Full Auth System)
 
 ## Connector Support
 
@@ -64,7 +64,7 @@ This document tracks the implementation status and future plans for Mycel.
 | Auth System Core | ✅ | 5.1a |
 | Auth Security Features | ✅ | 5.1b |
 | Auth MFA (TOTP/WebAuthn) | ✅ | 5.1c |
-| Auth SSO/Social | 🔜 | 5.1d |
+| Auth SSO/Social | ✅ | 5.1d |
 
 ## Phase Details
 
@@ -192,7 +192,7 @@ This document tracks the implementation status and future plans for Mycel.
   - Plugin registry and factory for runtime integration
   - Git/registry sources planned for future
 
-### Phase 5.1 - Authentication System (In Progress)
+### Phase 5.1 - Authentication System (Complete)
 
 #### Phase 5.1a - Core Auth System (Complete)
 - ✅ JWT token generation and validation with HMAC/RSA
@@ -220,10 +220,15 @@ This document tracks the implementation status and future plans for Mycel.
 - ✅ Manager integration for MFA flows
 - ✅ Full test coverage
 
-#### Phase 5.1d - SSO & Social Login (Planned)
-- 🔜 SSO (SAML, OIDC - Okta, Azure AD, Auth0)
-- 🔜 Social login (Google, Apple, GitHub) with account linking
-- 🔜 External auth provider integration
+#### Phase 5.1d - SSO & Social Login (Complete)
+- ✅ OAuth2 service with authorization code flow
+- ✅ OpenID Connect with discovery documents
+- ✅ Social providers: Google, GitHub, Apple
+- ✅ Enterprise OIDC for Okta, Azure AD, Auth0
+- ✅ Account linking service with configurable strategies
+- ✅ State management with expiration
+- ✅ Token refresh support
+- ✅ Full test coverage
 
 ### Phase 6 - Notifications (Planned)
 - Webhook support (inbound/outbound)

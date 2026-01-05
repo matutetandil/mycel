@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - SSO and Social Login (Phase 5.1d)
+- **OAuth2/OIDC Base** (`internal/auth/sso_oauth.go`)
+  - OAuth2Service for authorization code flow
+  - OIDCService with discovery document support
+  - State generation and token exchange
+  - User info fetching and token refresh
+  - ID token parsing for OIDC claims
+- **Social Providers** (`internal/auth/sso_providers.go`)
+  - `GoogleProvider` with offline access and refresh tokens
+  - `GitHubProvider` with email fetching from emails API
+  - `AppleProvider` with Sign in with Apple (ES256 client secret)
+  - `OIDCProvider` for enterprise SSO (Okta, Azure AD, Auth0)
+  - Configurable scopes and claim mappings per provider
+- **Account Linking** (`internal/auth/sso_linking.go`)
+  - `LinkedAccountStore` interface with memory implementation
+  - `AccountLinkingService` for user/account association
+  - Match strategies: email, none
+  - On-match actions: link, prompt, reject
+  - Prevention of unlinking only authentication method
+  - Duplicate provider account prevention
+- **SSO Orchestration** (`internal/auth/sso.go`)
+  - `SSOService` coordinating all SSO flows
+  - Provider initialization and OIDC discovery
+  - State management with automatic expiration
+  - Background cleanup for expired states
+  - Unified callback handling with account linking
+- **Tests** (`internal/auth/sso_test.go`)
+  - OAuth2 flow tests with mock HTTP servers
+  - OIDC discovery and ID token parsing
+  - Account linking scenarios (new user, existing user, reuse)
+  - Provider auth URL generation tests
+  - State management and cleanup tests
+
 ### Added - Multi-Factor Authentication (Phase 5.1c)
 - **MFA Service** (`internal/auth/mfa.go`)
   - Complete MFA orchestration service
