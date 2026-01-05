@@ -60,8 +60,11 @@ This document tracks the implementation status and future plans for Mycel.
 | Custom Validators (Regex/CEL) | ✅ | 5 |
 | Custom Validators (WASM) | ✅ | 5 |
 | Custom Functions (WASM) | ✅ | 5 |
-| Plugins System | 🔜 | 5 |
-| Auth System | 🔜 | 5.1 |
+| Plugins System | ✅ | 5 |
+| Auth System Core | ✅ | 5.1a |
+| Auth Security Features | ✅ | 5.1b |
+| Auth MFA (TOTP/WebAuthn) | ✅ | 5.1c |
+| Auth SSO/Social | 🔜 | 5.1d |
 
 ## Phase Details
 
@@ -182,22 +185,45 @@ This document tracks the implementation status and future plans for Mycel.
   - Parser for `functions` blocks
   - Dynamic function registration in CEL
   - Support for 0-5 arguments per function
-- 🔜 **Plugin system**
-  - Custom connectors via WASM
-  - Custom transforms via WASM
+- ✅ **Plugin system**
+  - Custom connectors via WASM plugins
+  - Plugin manifest (`plugin.hcl`) for metadata and configuration
+  - Plugin loader for local directories
+  - Plugin registry and factory for runtime integration
+  - Git/registry sources planned for future
 
-### Phase 5.1 - Authentication System (Planned)
-- Enterprise-grade authentication system
-  - JWT with token rotation (local or external provider)
-  - Token storage (Redis, SQL, MongoDB)
-  - MFA (TOTP, WebAuthn, Passkeys, SMS, Email, Push)
-  - SSO (SAML, OIDC - Okta, Azure AD, Auth0)
-  - Social login (Google, Apple, GitHub) with account linking
-  - Session management (multi-device, list, revoke)
-  - Security features: impossible travel, device binding, replay protection, brute force
-  - Password policies with breach check
-  - Audit logging
-  - Presets: strict, standard, relaxed, development
+### Phase 5.1 - Authentication System (In Progress)
+
+#### Phase 5.1a - Core Auth System (Complete)
+- ✅ JWT token generation and validation with HMAC/RSA
+- ✅ Token rotation with refresh tokens
+- ✅ Password hashing with Argon2id
+- ✅ Password validation with configurable policies
+- ✅ Session management (create, validate, revoke)
+- ✅ Storage interfaces (User, Session, Token, BruteForce stores)
+- ✅ Memory implementations for all stores
+- ✅ Configuration presets (strict, standard, relaxed, development)
+
+#### Phase 5.1b - Security Features (Complete)
+- ✅ Redis storage (Session, Token, BruteForce stores)
+- ✅ PostgreSQL storage (User, Password History, Audit)
+- ✅ MySQL storage (User, Password History, Audit, Session, Token)
+- ✅ Brute force protection with progressive delays
+- ✅ Session cleanup service with idle timeout
+- ✅ Per-endpoint rate limiting
+- ✅ Audit logging
+
+#### Phase 5.1c - Multi-Factor Authentication (Complete)
+- ✅ TOTP (RFC 6238) with QR code generation
+- ✅ Recovery codes with secure hashing
+- ✅ WebAuthn/Passkeys support
+- ✅ Manager integration for MFA flows
+- ✅ Full test coverage
+
+#### Phase 5.1d - SSO & Social Login (Planned)
+- 🔜 SSO (SAML, OIDC - Okta, Azure AD, Auth0)
+- 🔜 Social login (Google, Apple, GitHub) with account linking
+- 🔜 External auth provider integration
 
 ### Phase 6 - Notifications (Planned)
 - Webhook support (inbound/outbound)

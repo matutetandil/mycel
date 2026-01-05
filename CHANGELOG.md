@@ -33,6 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Attestation preferences (none, indirect, direct)
   - User verification options
   - Multiple credentials per user
+- **Manager Integration** (`internal/auth/manager.go`)
+  - `WithMFAStore` option for MFA store injection
+  - MFA verification in Login flow (TOTP and recovery codes)
+  - MFA management methods:
+    - `GetMFAStatus`: Check user's MFA status
+    - `BeginTOTPSetup`/`ConfirmTOTPSetup`: TOTP enrollment flow
+    - `DisableMFA`: Disable all MFA methods (requires password)
+    - `RegenerateRecoveryCodes`: Generate new recovery codes
+  - WebAuthn methods:
+    - `BeginWebAuthnRegistration`/`FinishWebAuthnRegistration`
+    - `GetWebAuthnCredentials`/`RemoveWebAuthnCredential`
+- **UserStore Interface Extensions**
+  - `UpdateMFAEnabled` method for all implementations
+  - Memory, PostgreSQL, and MySQL support
 - **Dependencies**
   - `github.com/boombuler/barcode` - QR code generation
   - `github.com/go-webauthn/webauthn` - WebAuthn protocol
