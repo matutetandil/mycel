@@ -12,10 +12,12 @@ import (
 	"github.com/hashicorp/hcl/v2/hclparse"
 
 	"github.com/matutetandil/mycel/internal/aspect"
+	"github.com/matutetandil/mycel/internal/auth"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/functions"
 	"github.com/matutetandil/mycel/internal/mock"
+	"github.com/matutetandil/mycel/internal/plugin"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
 	"github.com/matutetandil/mycel/internal/validator"
@@ -62,6 +64,12 @@ type Configuration struct {
 
 	// Functions are WASM function module configurations.
 	Functions []*functions.Config
+
+	// Plugins are plugin declarations for custom connectors/functions.
+	Plugins []*plugin.PluginDeclaration
+
+	// Auth is the authentication system configuration.
+	Auth *auth.Config
 }
 
 // ServiceConfig holds global service configuration.
@@ -92,6 +100,7 @@ func NewConfiguration() *Configuration {
 		Aspects:     make([]*aspect.Config, 0),
 		Validators:  make([]*validator.Config, 0),
 		Functions:   make([]*functions.Config, 0),
+		Plugins:     make([]*plugin.PluginDeclaration, 0),
 	}
 }
 
@@ -105,6 +114,7 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.Aspects = append(c.Aspects, other.Aspects...)
 	c.Validators = append(c.Validators, other.Validators...)
 	c.Functions = append(c.Functions, other.Functions...)
+	c.Plugins = append(c.Plugins, other.Plugins...)
 	if other.ServiceConfig != nil {
 		c.ServiceConfig = other.ServiceConfig
 	}
@@ -255,6 +265,20 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 				return nil, fmt.Errorf("functions parse error: %w", err)
 			}
 			config.Functions = append(config.Functions, fn)
+
+		case "plugin":
+			pl, err := parsePluginBlock(block, p.evalCtx)
+			if err != nil {
+				return nil, fmt.Errorf("plugin parse error: %w", err)
+			}
+			config.Plugins = append(config.Plugins, pl)
+
+		case "auth":
+			authCfg, err := p.parseAuthBlock(block)
+			if err != nil {
+				return nil, fmt.Errorf("auth parse error: %w", err)
+			}
+			config.Auth = authCfg
 		}
 	}
 
@@ -273,8 +297,10 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "aspect", LabelNames: []string{"name"}},
 			{Type: "validator", LabelNames: []string{"name"}},
 			{Type: "functions", LabelNames: []string{"name"}},
+			{Type: "plugin", LabelNames: []string{"name"}},
 			{Type: "service"},
 			{Type: "mocks"},
+			{Type: "auth"},
 		},
 	}
 }

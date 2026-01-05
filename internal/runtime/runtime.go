@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/matutetandil/mycel/internal/aspect"
+	"github.com/matutetandil/mycel/internal/auth"
 	"github.com/matutetandil/mycel/internal/banner"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/cache"
@@ -36,9 +37,10 @@ import (
 	"github.com/matutetandil/mycel/internal/health"
 	"github.com/matutetandil/mycel/internal/hotreload"
 	"github.com/matutetandil/mycel/internal/mock"
-	"github.com/matutetandil/mycel/internal/ratelimit"
 	"github.com/matutetandil/mycel/internal/metrics"
 	"github.com/matutetandil/mycel/internal/parser"
+	"github.com/matutetandil/mycel/internal/plugin"
+	"github.com/matutetandil/mycel/internal/ratelimit"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
 )
@@ -70,6 +72,13 @@ type Runtime struct {
 
 	// WASM Functions registry for CEL extensions
 	functionsRegistry *functions.Registry
+
+	// Plugin registry for custom connectors and functions
+	pluginRegistry *plugin.Registry
+
+	// Auth manager for authentication system
+	authManager *auth.Manager
+	authHandler *auth.Handler
 
 	// Hot reload components
 	hotReloadEnabled bool
@@ -211,6 +220,53 @@ func New(opts Options) (*Runtime, error) {
 		}
 	}
 
+	// Create plugin registry and load plugins
+	pluginReg := plugin.NewRegistry(opts.ConfigDir)
+	if len(config.Plugins) > 0 {
+		if err := pluginReg.LoadAll(context.Background(), config.Plugins); err != nil {
+			return nil, fmt.Errorf("failed to load plugins: %w", err)
+		}
+
+		// Register plugin connector factory with connector registry
+		// This must be done BEFORE connectors are initialized
+		registry.RegisterFactory(plugin.NewFactory(pluginReg))
+
+		// Register plugin functions with the functions registry
+		for pluginName, loadedPlugin := range pluginReg.GetFunctionsConfigs() {
+			fnCfg := pluginReg.Loader().GetFunctionsConfig(loadedPlugin)
+			if fnCfg != nil {
+				if err := functionsReg.Register(fnCfg); err != nil {
+					opts.Logger.Warn("failed to register plugin functions",
+						"plugin", pluginName,
+						"error", err.Error())
+				} else {
+					opts.Logger.Info("registered plugin functions",
+						"plugin", pluginName,
+						"exports", fnCfg.Exports)
+				}
+			}
+		}
+
+		opts.Logger.Info("plugins loaded",
+			"count", len(config.Plugins))
+	}
+
+	// Create auth manager if auth config is present
+	var authMgr *auth.Manager
+	var authHdl *auth.Handler
+	if config.Auth != nil {
+		var err error
+		authMgr, err = auth.NewManager(config.Auth,
+			auth.WithLogger(opts.Logger),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create auth manager: %w", err)
+		}
+		authHdl = auth.NewHandler(authMgr)
+		opts.Logger.Info("auth system initialized",
+			"preset", config.Auth.Preset)
+	}
+
 	return &Runtime{
 		config:            config,
 		connectors:        registry,
@@ -223,6 +279,9 @@ func New(opts Options) (*Runtime, error) {
 		aspectRegistry:    aspectReg,
 		mockManager:       mockMgr,
 		functionsRegistry: functionsReg,
+		pluginRegistry:    pluginReg,
+		authManager:       authMgr,
+		authHandler:       authHdl,
 		logger:            opts.Logger,
 		environment:       env,
 		configDir:         opts.ConfigDir,
@@ -1070,4 +1129,14 @@ func (r *Runtime) ReloadStats() map[string]interface{} {
 	}
 
 	return stats
+}
+
+// AuthManager returns the auth manager, or nil if auth is not configured.
+func (r *Runtime) AuthManager() *auth.Manager {
+	return r.authManager
+}
+
+// AuthHandler returns the auth HTTP handler, or nil if auth is not configured.
+func (r *Runtime) AuthHandler() *auth.Handler {
+	return r.authHandler
 }

@@ -7,6 +7,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Authentication System Core (Phase 5.1a)
+- **Auth Package** (`internal/auth/`)
+  - Complete enterprise-grade authentication system
+  - Declarative configuration via HCL `auth {}` block
+- **Types and Config** (`internal/auth/types.go`)
+  - Full configuration structs for all auth features
+  - User, Session, TokenPair, Claims types
+  - LoginRequest, RegisterRequest, RefreshRequest
+  - Common auth errors (ErrInvalidCredentials, ErrUserNotFound, etc.)
+- **Presets** (`internal/auth/presets.go`)
+  - `strict`: Maximum security (MFA required, 15m tokens, strong passwords)
+  - `standard`: Balanced (MFA optional, 1h tokens, moderate passwords)
+  - `relaxed`: Minimal (no MFA, 24h tokens, basic passwords)
+  - `development`: For dev (no security, 7d tokens, no requirements)
+  - `MergeWithPreset()` for combining user config with defaults
+  - `ParseDuration()` supporting day suffix (e.g., "7d", "90d")
+- **Password Hashing** (`internal/auth/password.go`)
+  - Argon2id hashing (memory-hard, GPU-resistant)
+  - PHC string format for hash storage
+  - `PasswordHasher` with configurable parameters
+  - `PasswordValidator` for policy enforcement
+  - Complexity requirements (upper, lower, number, special)
+  - Strength scoring (0-100)
+  - `GenerateRandomPassword()` utility
+- **JWT Tokens** (`internal/auth/jwt.go`)
+  - Support for HS256, RS256, ES256 and variants
+  - Access and refresh token generation
+  - Token validation with issuer/audience verification
+  - Custom claims support
+  - `TokenManager` for all JWT operations
+- **Storage Interfaces** (`internal/auth/storage.go`)
+  - `UserStore` interface for user CRUD
+  - `SessionStore` interface for session management
+  - `TokenStore` interface for blacklist/replay protection
+  - `BruteForceStore` interface for failed attempt tracking
+  - In-memory implementations for all stores (development/testing)
+- **Auth Manager** (`internal/auth/manager.go`)
+  - Central coordination of all auth components
+  - `Register()`, `Login()`, `Logout()`, `LogoutAll()`
+  - `ValidateToken()`, `RefreshToken()`
+  - `ChangePassword()`, `GetSessions()`, `RevokeSession()`
+  - Brute force protection with configurable lockout
+  - Session limits with oldest-first revocation
+- **HTTP Handlers** (`internal/auth/handlers.go`)
+  - REST endpoints for all auth operations
+  - Automatic endpoint registration on HTTP mux
+  - Configurable paths and methods
+  - Proper error responses with codes
+- **Middleware** (`internal/auth/middleware.go`)
+  - `Middleware` for protecting routes
+  - Path exclusion support
+  - Role and permission-based authorization
+  - `RequireAuth()`, `OptionalAuth()` helpers
+  - `RequireRoles()`, `RequirePermissions()` helpers
+  - Context extraction: `GetUser()`, `GetClaims()`
+- **HCL Parser** (`internal/parser/auth.go`)
+  - Full parsing of `auth {}` block
+  - Support for all nested blocks (jwt, password, mfa, security, etc.)
+  - WebAuthn configuration with biometrics/passkeys
+  - Social login and SSO configuration
+  - External provider configuration
+- **Runtime Integration** (`internal/runtime/runtime.go`)
+  - `authManager` and `authHandler` fields
+  - Automatic initialization when auth config present
+  - `AuthManager()` and `AuthHandler()` getters
+- **Tests** (`internal/auth/auth_test.go`)
+  - Password hashing and verification
+  - Password validation and strength
+  - Token generation and validation
+  - Full auth flow (register, login, refresh, logout)
+  - Memory store operations
+  - Preset configuration
+- **Example**: `examples/auth/`
+  - Complete auth service configuration
+  - Database schema for PostgreSQL
+  - API documentation with curl examples
+
+### Added - Plugin System (Phase 5e)
+- **Plugin Types** (`internal/plugin/types.go`)
+  - `PluginDeclaration` for plugin references in config
+  - `PluginManifest` for plugin metadata
+  - `ConnectorProvide` for connector definitions
+  - `ConfigField` for connector configuration schema
+  - `LoadedPlugin` for runtime plugin state
+- **Plugin Loader** (`internal/plugin/loader.go`)
+  - Load plugins from local directories
+  - Parse `plugin.hcl` manifest files
+  - Resolve plugin paths (local, git planned, registry planned)
+- **WASM Connector** (`internal/plugin/connector.go`)
+  - `WASMConnector` implementing `connector.Connector`, `Reader`, `Writer`
+  - JSON-based communication with WASM modules
+  - Support for `init()`, `read()`, `write()`, `call()`, `health()`, `close()`
+- **Plugin Registry** (`internal/plugin/registry.go`)
+  - Manage loaded plugins
+  - Create connector instances from plugins
+  - Track connector types provided by plugins
+- **Plugin Factory** (`internal/plugin/factory.go`)
+  - Factory for creating plugin connectors
+  - Support for `type = "plugin"` or direct plugin type names
+- **Parser support** for `plugin` blocks
+  - `source` attribute for plugin location
+  - `version` attribute for version constraints (git/registry)
+- **Runtime integration**
+  - Plugin registry initialization at startup
+  - Plugin connector factory registration
+  - Plugin functions integration with CEL
+- **Example**: `examples/plugin/`
+  - Example plugin structure and manifest
+  - Documentation for building WASM connectors
+
 ### Added - WASM Functions (Phase 5d)
 - **Custom Functions** (`internal/functions/`)
   - WASM functions that extend CEL transform expressions
