@@ -84,6 +84,9 @@ type BruteForceStore interface {
 	// Get gets the current failure count for a key
 	Get(ctx context.Context, key string) (int, error)
 
+	// GetAttempts is an alias for Get (for compatibility)
+	GetAttempts(ctx context.Context, key string) (int, error)
+
 	// Reset resets the failure count for a key
 	Reset(ctx context.Context, key string) error
 
@@ -92,6 +95,12 @@ type BruteForceStore interface {
 
 	// Lock locks a key for a duration
 	Lock(ctx context.Context, key string, duration time.Duration) error
+
+	// GetDelay returns the current progressive delay for a key
+	GetDelay(ctx context.Context, key string) (time.Duration, error)
+
+	// SetDelay sets the progressive delay for a key
+	SetDelay(ctx context.Context, key string, delay time.Duration, window time.Duration) error
 }
 
 // MemoryUserStore implements UserStore in memory (for development/testing)
@@ -434,6 +443,7 @@ type bruteForceEntry struct {
 	firstAt   time.Time
 	lockedAt  time.Time
 	lockUntil time.Time
+	delay     time.Duration
 }
 
 // NewMemoryBruteForceStore creates a new in-memory brute force store
@@ -512,5 +522,39 @@ func (s *MemoryBruteForceStore) Lock(ctx context.Context, key string, duration t
 
 	entry.lockedAt = now
 	entry.lockUntil = now.Add(duration)
+	return nil
+}
+
+// GetAttempts is an alias for Get
+func (s *MemoryBruteForceStore) GetAttempts(ctx context.Context, key string) (int, error) {
+	return s.Get(ctx, key)
+}
+
+// GetDelay returns the current progressive delay for a key
+func (s *MemoryBruteForceStore) GetDelay(ctx context.Context, key string) (time.Duration, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	entry, exists := s.attempts[key]
+	if !exists {
+		return 0, nil
+	}
+	return entry.delay, nil
+}
+
+// SetDelay sets the progressive delay for a key
+func (s *MemoryBruteForceStore) SetDelay(ctx context.Context, key string, delay time.Duration, window time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entry, exists := s.attempts[key]
+	if !exists {
+		entry = &bruteForceEntry{
+			firstAt: time.Now(),
+		}
+		s.attempts[key] = entry
+	}
+
+	entry.delay = delay
 	return nil
 }

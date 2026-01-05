@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - MySQL Storage Support
+- **MySQL Storage** (`internal/auth/storage_mysql.go`)
+  - `MySQLUserStore` for user CRUD operations
+  - Configurable table and column names via HCL
+  - `MySQLPasswordHistoryStore` for password history
+  - `MySQLAuditStore` for audit logging
+  - `MySQLSessionStore` for session management
+  - `MySQLTokenStore` for token blacklist
+  - MySQL-specific syntax (? placeholders, ON DUPLICATE KEY)
+  - Tests in `storage_mysql_test.go`
+
+### Added - Authentication System Security Features (Phase 5.1b)
+- **Redis Storage** (`internal/auth/storage_redis.go`)
+  - `RedisSessionStore` for session storage with TTL
+  - `RedisTokenStore` for refresh tokens and blacklist
+  - `RedisBruteForceStore` with progressive delay support
+  - `RedisReplayProtectionStore` for one-time token usage
+  - All stores implement the base interfaces
+- **PostgreSQL Storage** (`internal/auth/storage_postgres.go`)
+  - `PostgresUserStore` for user CRUD operations
+  - Configurable table and column names via HCL
+  - `PostgresPasswordHistoryStore` for password history
+  - `PostgresAuditStore` for audit logging
+  - Event filtering support
+- **Brute Force Service** (`internal/auth/bruteforce.go`)
+  - `BruteForceService` for coordinated protection
+  - `CheckAccess()` returns lockout status and progressive delay
+  - `RecordFailedAttempt()` with automatic lockout
+  - `RecordSuccess()` clears attempts
+  - `GetStats()` for monitoring
+  - Progressive delay: exponential backoff with max cap
+- **Session Cleanup Service** (`internal/auth/cleanup.go`)
+  - `CleanupService` with configurable interval
+  - Automatic cleanup of expired sessions
+  - Idle session timeout support
+  - Token blacklist cleanup
+  - Graceful start/stop with context support
+  - `MemorySessionStoreWithIdle` for idle timeout
+- **Per-Endpoint Rate Limiting** (`internal/auth/ratelimit.go`)
+  - `RateLimiter` for global rate limiting
+  - `PerKeyRateLimiter` for per-IP/user rate limiting
+  - `RateLimitConfig` with per-endpoint configuration
+  - Default stricter limits for sensitive endpoints (login: 5/min, register: 10/min)
+  - `RateLimitMiddleware` for HTTP handler integration
+  - Key extraction by IP, user, or combined
+- **Extended BruteForceStore Interface**
+  - Added `GetAttempts()` alias for compatibility
+  - Added `GetDelay()` for progressive delay retrieval
+  - Added `SetDelay()` for progressive delay storage
+- **Tests**
+  - `bruteforce_test.go` - Brute force protection tests
+  - `cleanup_test.go` - Cleanup service lifecycle tests
+  - `ratelimit_test.go` - Rate limiting tests
+
 ### Added - Authentication System Core (Phase 5.1a)
 - **Auth Package** (`internal/auth/`)
   - Complete enterprise-grade authentication system

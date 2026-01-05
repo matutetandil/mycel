@@ -538,12 +538,18 @@ var (
 	ErrInvalidCredentials = &AuthError{Code: "invalid_credentials", Message: "Invalid email or password"}
 	ErrUserNotFound       = &AuthError{Code: "user_not_found", Message: "User not found"}
 	ErrUserExists         = &AuthError{Code: "user_exists", Message: "User already exists"}
+	ErrUserAlreadyExists  = ErrUserExists // Alias
 	ErrInvalidToken       = &AuthError{Code: "invalid_token", Message: "Invalid or expired token"}
+	ErrTokenExpired       = &AuthError{Code: "token_expired", Message: "Token has expired"}
 	ErrMFARequired        = &AuthError{Code: "mfa_required", Message: "MFA verification required"}
 	ErrInvalidMFACode     = &AuthError{Code: "invalid_mfa_code", Message: "Invalid MFA code"}
 	ErrAccountLocked      = &AuthError{Code: "account_locked", Message: "Account is temporarily locked"}
 	ErrSessionExpired     = &AuthError{Code: "session_expired", Message: "Session has expired"}
+	ErrSessionNotFound    = &AuthError{Code: "session_not_found", Message: "Session not found"}
 	ErrPasswordExpired    = &AuthError{Code: "password_expired", Message: "Password has expired"}
 	ErrWeakPassword       = &AuthError{Code: "weak_password", Message: "Password does not meet requirements"}
 	ErrBreachedPassword   = &AuthError{Code: "breached_password", Message: "Password found in data breach"}
 )
+
+// UserFieldsConfig is an alias for FieldsConfig
+type UserFieldsConfig = FieldsConfig
