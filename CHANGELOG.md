@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Multi-Factor Authentication (Phase 5.1c)
+- **MFA Service** (`internal/auth/mfa.go`)
+  - Complete MFA orchestration service
+  - Support for multiple MFA methods (TOTP, WebAuthn, Recovery)
+  - `MFAStatus` for user MFA state
+  - `MFASetup` for setup ceremony data
+  - `MFAUserData` for persistent storage
+  - `MFAStore` interface with memory implementation
+- **TOTP Implementation** (`internal/auth/mfa_totp.go`)
+  - RFC 6238 compliant TOTP generation
+  - Support for SHA1, SHA256, SHA512 algorithms
+  - Configurable digits (6/8) and period (30s default)
+  - Clock skew tolerance
+  - QR code generation for authenticator apps
+  - Provisioning URI (otpauth://) generation
+- **Recovery Codes**
+  - Configurable count and length
+  - Secure hashing with Argon2id
+  - One-time use with automatic consumption
+  - Regeneration support
+- **WebAuthn/Passkeys** (`internal/auth/mfa_webauthn.go`)
+  - Registration and login ceremonies
+  - Support for platform and cross-platform authenticators
+  - Attestation preferences (none, indirect, direct)
+  - User verification options
+  - Multiple credentials per user
+- **Dependencies**
+  - `github.com/boombuler/barcode` - QR code generation
+  - `github.com/go-webauthn/webauthn` - WebAuthn protocol
+- **Tests** (`internal/auth/mfa_test.go`)
+  - Full TOTP setup and validation flow
+  - Recovery code lifecycle
+  - MFA store operations
+
 ### Added - MySQL Storage Support
 - **MySQL Storage** (`internal/auth/storage_mysql.go`)
   - `MySQLUserStore` for user CRUD operations

@@ -145,8 +145,9 @@ type PasswordConfig struct {
 
 // MFAConfig defines multi-factor authentication
 type MFAConfig struct {
-	Required   string   `hcl:"required,optional"` // true, false, optional, admin_only
-	Methods    []string `hcl:"methods,optional"`  // totp, webauthn, sms, email, push
+	Enabled  bool     `hcl:"enabled,optional"`  // Enables MFA support
+	Required string   `hcl:"required,optional"` // true, false, optional, admin_only
+	Methods  []string `hcl:"methods,optional"`  // totp, webauthn, sms, email, push
 	RequireFor []string `hcl:"require_for,optional"`
 
 	// Multiple factors
@@ -172,6 +173,7 @@ type RecoveryConfig struct {
 	Enabled    bool `hcl:"enabled,optional"`
 	CodeCount  int  `hcl:"code_count,optional"`
 	CodeLength int  `hcl:"code_length,optional"`
+	GroupSize  int  `hcl:"group_size,optional"` // Groups characters for readability
 }
 
 // TOTPConfig defines TOTP settings
@@ -180,13 +182,16 @@ type TOTPConfig struct {
 	Digits    int    `hcl:"digits,optional"`
 	Period    int    `hcl:"period,optional"`
 	Algorithm string `hcl:"algorithm,optional"` // SHA1, SHA256, SHA512
+	Skew      int    `hcl:"skew,optional"`      // Clock drift tolerance in periods
 }
 
 // WebAuthnConfig defines WebAuthn/FIDO2/Passkeys settings
 type WebAuthnConfig struct {
-	RPName  string   `hcl:"rp_name"`
-	RPID    string   `hcl:"rp_id"`
-	Origins []string `hcl:"origins"`
+	RPName        string   `hcl:"rp_name"`
+	RPDisplayName string   `hcl:"rp_display_name,optional"` // Display name for RP
+	RPID          string   `hcl:"rp_id"`
+	Origins       []string `hcl:"origins"`
+	RPOrigins     []string `hcl:"rp_origins,optional"` // Alias for origins
 
 	// Authenticator requirements
 	AuthenticatorAttachment string `hcl:"authenticator_attachment,optional"` // platform, cross-platform, any
@@ -197,8 +202,11 @@ type WebAuthnConfig struct {
 	MaxCredentials int `hcl:"max_credentials,optional"`
 
 	// Attestation
-	Attestation   string   `hcl:"attestation,optional"`     // none, indirect, direct
-	AllowedAAGUIDs []string `hcl:"allowed_aaguids,optional"` // Whitelist of hardware keys
+	Attestation    string   `hcl:"attestation,optional"`      // none, indirect, direct
+	AllowedAAGUIDs []string `hcl:"allowed_aaguids,optional"`  // Whitelist of hardware keys
+
+	// Timeout in milliseconds (default: 60000)
+	Timeout int `hcl:"timeout,optional"`
 }
 
 // SMSConfig defines SMS MFA settings
