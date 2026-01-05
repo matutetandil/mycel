@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Documentation Improvements
+- **Getting Started Guide** (`docs/GETTING_STARTED.md`)
+  - Step-by-step tutorial from zero to running service
+  - Examples for service, connectors, flows, and types
+  - Verification commands with expected outputs
+  - Next steps with links to advanced features
+- **Troubleshooting Guide** (`docs/TROUBLESHOOTING.md`)
+  - Quick diagnosis commands
+  - Startup issues (port in use, parse errors)
+  - Database issues (connection, auth, missing db)
+  - Flow issues (not triggered, transform errors)
+  - Message queue issues
+  - Performance issues
+  - Docker/Kubernetes issues
+- **Observability Guide** (`docs/OBSERVABILITY.md`)
+  - Complete Prometheus metrics reference
+  - Health check endpoints documentation
+  - Kubernetes probe configuration
+  - Grafana dashboard examples
+  - Common PromQL queries
+  - Alerting rules examples
+- **Example Verification Sections**
+  - Added "Verify It Works" sections to 13 examples
+  - Each includes expected logs, curl commands, common issues
+  - Examples: basic, enrich, tcp, graphql, cache, profiles,
+    grpc, auth, notifications, mocks, files, s3, mongodb
+- **CLI Help Messages**
+  - Added Quick Start section to root command
+  - Added comprehensive examples to all commands
+  - Added environment variables documentation
+  - Added common issues to check command
+
 ### Added - Helm Chart for Kubernetes
 - **Helm Chart** (`helm/mycel/`)
   - Complete Kubernetes deployment configuration
