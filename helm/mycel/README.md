@@ -27,10 +27,30 @@ helm install my-mycel ./helm/mycel -f my-values.yaml
 helm install my-mycel ./helm/mycel -n mycel --create-namespace
 ```
 
-### From OCI Registry (Future)
+### From OCI Registry (Recommended)
 
 ```bash
+# Install latest version
 helm install my-mycel oci://ghcr.io/matutetandil/charts/mycel
+
+# Install specific version
+helm install my-mycel oci://ghcr.io/matutetandil/charts/mycel --version 1.0.0
+
+# Install with custom values
+helm install my-mycel oci://ghcr.io/matutetandil/charts/mycel -f values.yaml
+
+# Install in a specific namespace
+helm install my-mycel oci://ghcr.io/matutetandil/charts/mycel -n mycel --create-namespace
+```
+
+### Upgrade
+
+```bash
+# Upgrade to latest
+helm upgrade my-mycel oci://ghcr.io/matutetandil/charts/mycel
+
+# Upgrade with new values
+helm upgrade my-mycel oci://ghcr.io/matutetandil/charts/mycel -f values.yaml
 ```
 
 ## Uninstalling the Chart

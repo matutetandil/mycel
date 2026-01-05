@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Security context (non-root, read-only filesystem)
   - Resource limits and requests
   - Comprehensive documentation and examples
+- **GitHub Actions for Helm Release**
+  - Automatic chart versioning from git tags
+  - Push to GitHub Container Registry (GHCR)
+  - Chart attached to GitHub releases
+  - Install via: `helm install mycel oci://ghcr.io/matutetandil/charts/mycel`
 
 ### Added - Notification Connectors (Phase 6)
 - **Webhooks** (`internal/connector/webhook/`)

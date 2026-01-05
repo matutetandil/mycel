@@ -131,14 +131,20 @@ mycel version
 Deploy Mycel to Kubernetes using Helm:
 
 ```bash
-# Install from local chart
-helm install my-api ./helm/mycel -f values.yaml
+# Install from GHCR (recommended)
+helm install my-api oci://ghcr.io/matutetandil/charts/mycel
+
+# Install specific version
+helm install my-api oci://ghcr.io/matutetandil/charts/mycel --version 1.0.0
 
 # With custom configuration
-helm install my-api ./helm/mycel \
+helm install my-api oci://ghcr.io/matutetandil/charts/mycel \
   --set replicaCount=3 \
   --set autoscaling.enabled=true \
   --set ingress.enabled=true
+
+# Or from local chart (for development)
+helm install my-api ./helm/mycel -f values.yaml
 ```
 
 Create a `values.yaml`:
