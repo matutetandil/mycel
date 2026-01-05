@@ -205,6 +205,93 @@ func (s *PostgresUserStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// FindByID is an alias for GetByID to satisfy UserStore interface
+func (s *PostgresUserStore) FindByID(ctx context.Context, id string) (*User, error) {
+	return s.GetByID(ctx, id)
+}
+
+// FindByEmail is an alias for GetByEmail to satisfy UserStore interface
+func (s *PostgresUserStore) FindByEmail(ctx context.Context, email string) (*User, error) {
+	return s.GetByEmail(ctx, email)
+}
+
+// UpdatePassword updates a user's password hash
+func (s *PostgresUserStore) UpdatePassword(ctx context.Context, id string, passwordHash string) error {
+	table := s.getTableName()
+	fields := s.getFields()
+
+	query := fmt.Sprintf(`
+		UPDATE %s SET %s = $1, %s = $2 WHERE %s = $3
+	`, table, fields.PasswordHash, fields.UpdatedAt, fields.ID)
+
+	result, err := s.db.ExecContext(ctx, query, passwordHash, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check affected rows: %w", err)
+	}
+	if rowsAffected == 0 {
+		return ErrUserNotFound
+	}
+
+	return nil
+}
+
+// UpdateLastLogin updates a user's last login timestamp
+func (s *PostgresUserStore) UpdateLastLogin(ctx context.Context, id string, t time.Time) error {
+	table := s.getTableName()
+	fields := s.getFields()
+
+	// Assumes there's a last_login_at column
+	query := fmt.Sprintf(`
+		UPDATE %s SET last_login_at = $1, %s = $2 WHERE %s = $3
+	`, table, fields.UpdatedAt, fields.ID)
+
+	result, err := s.db.ExecContext(ctx, query, t, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("failed to update last login: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check affected rows: %w", err)
+	}
+	if rowsAffected == 0 {
+		return ErrUserNotFound
+	}
+
+	return nil
+}
+
+// UpdateMFAEnabled updates a user's MFA enabled status
+func (s *PostgresUserStore) UpdateMFAEnabled(ctx context.Context, id string, enabled bool) error {
+	table := s.getTableName()
+	fields := s.getFields()
+
+	// Assumes there's an mfa_enabled column
+	query := fmt.Sprintf(`
+		UPDATE %s SET mfa_enabled = $1, %s = $2 WHERE %s = $3
+	`, table, fields.UpdatedAt, fields.ID)
+
+	result, err := s.db.ExecContext(ctx, query, enabled, time.Now(), id)
+	if err != nil {
+		return fmt.Errorf("failed to update MFA status: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check affected rows: %w", err)
+	}
+	if rowsAffected == 0 {
+		return ErrUserNotFound
+	}
+
+	return nil
+}
+
 // PostgresPasswordHistoryStore stores password history for users
 type PostgresPasswordHistoryStore struct {
 	db    *sql.DB

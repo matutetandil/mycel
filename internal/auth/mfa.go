@@ -149,6 +149,11 @@ func NewMFAService(config *MFAConfig, store MFAStore) *MFAService {
 	return svc
 }
 
+// WebAuthn returns the WebAuthn service
+func (s *MFAService) WebAuthn() *WebAuthnService {
+	return s.webauthn
+}
+
 // GetStatus returns the MFA status for a user
 func (s *MFAService) GetStatus(ctx context.Context, userID string) (*MFAStatus, error) {
 	if !s.config.Enabled {

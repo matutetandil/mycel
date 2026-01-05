@@ -29,6 +29,9 @@ type UserStore interface {
 
 	// UpdateLastLogin updates the last login timestamp
 	UpdateLastLogin(ctx context.Context, id string, t time.Time) error
+
+	// UpdateMFAEnabled updates user's MFA enabled status
+	UpdateMFAEnabled(ctx context.Context, id string, enabled bool) error
 }
 
 // SessionStore interface for session storage operations
@@ -214,6 +217,20 @@ func (s *MemoryUserStore) UpdateLastLogin(ctx context.Context, id string, t time
 	}
 
 	user.LastLoginAt = &t
+	return nil
+}
+
+func (s *MemoryUserStore) UpdateMFAEnabled(ctx context.Context, id string, enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	user, exists := s.users[id]
+	if !exists {
+		return ErrUserNotFound
+	}
+
+	user.MFAEnabled = enabled
+	user.UpdatedAt = time.Now()
 	return nil
 }
 

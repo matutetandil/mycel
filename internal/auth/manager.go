@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/go-webauthn/webauthn/protocol"
 )
 
 // Manager is the main auth service
@@ -18,11 +20,13 @@ type Manager struct {
 	sessionStore    SessionStore
 	tokenStore      TokenStore
 	bruteForceStore BruteForceStore
+	mfaStore        MFAStore
 
 	// Components
 	tokenManager      *TokenManager
 	passwordHasher    *PasswordHasher
 	passwordValidator *PasswordValidator
+	mfaService        *MFAService
 
 	logger *slog.Logger
 }
@@ -62,6 +66,13 @@ func WithBruteForceStore(store BruteForceStore) ManagerOption {
 func WithLogger(logger *slog.Logger) ManagerOption {
 	return func(m *Manager) {
 		m.logger = logger
+	}
+}
+
+// WithMFAStore sets the MFA store
+func WithMFAStore(store MFAStore) ManagerOption {
+	return func(m *Manager) {
+		m.mfaStore = store
 	}
 }
 
@@ -116,6 +127,14 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 	// Initialize password components
 	m.passwordHasher = NewPasswordHasher(config.Password)
 	m.passwordValidator = NewPasswordValidator(config.Password)
+
+	// Initialize MFA components if enabled
+	if config.MFA != nil && config.MFA.Enabled {
+		if m.mfaStore == nil {
+			m.mfaStore = NewMemoryMFAStore()
+		}
+		m.mfaService = NewMFAService(config.MFA, m.mfaStore)
+	}
 
 	return m, nil
 }
@@ -214,9 +233,23 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 		return nil, nil, ErrMFARequired
 	}
 
-	// TODO: Verify MFA code if provided
+	// Verify MFA code if provided
 	if user.MFAEnabled && req.MFACode != "" {
-		// MFA verification will be implemented in Phase 5.1c
+		if m.mfaService == nil {
+			return nil, nil, &AuthError{Code: "mfa_not_configured", Message: "MFA is enabled but MFA service is not configured"}
+		}
+
+		// Try TOTP first, then recovery code
+		err := m.mfaService.ValidateTOTP(ctx, user.ID, req.MFACode)
+		if err != nil {
+			// Try recovery code
+			err = m.mfaService.ValidateRecoveryCode(ctx, user.ID, req.MFACode)
+			if err != nil {
+				m.recordFailedLogin(ctx, req.Email, ip)
+				return nil, nil, ErrInvalidMFACode
+			}
+			m.logger.Warn("user logged in with recovery code", "user_id", user.ID)
+		}
 	}
 
 	// Reset brute force counter on successful login
@@ -547,5 +580,214 @@ func (m *Manager) Cleanup(ctx context.Context) error {
 		m.logger.Error("failed to cleanup expired tokens", "error", err)
 	}
 
+	return nil
+}
+
+// ==================== MFA Methods ====================
+
+// GetMFAStatus returns the MFA status for a user
+func (m *Manager) GetMFAStatus(ctx context.Context, userID string) (*MFAStatus, error) {
+	if m.mfaService == nil {
+		return &MFAStatus{
+			Enabled:          false,
+			TOTPConfigured:   false,
+			RequiredByPolicy: false,
+		}, nil
+	}
+	return m.mfaService.GetStatus(ctx, userID)
+}
+
+// BeginTOTPSetup initiates TOTP setup for a user
+func (m *Manager) BeginTOTPSetup(ctx context.Context, userID string) (*MFASetup, error) {
+	if m.mfaService == nil {
+		return nil, &AuthError{Code: "mfa_not_configured", Message: "MFA is not enabled in configuration"}
+	}
+
+	// Get user to get their email
+	user, err := m.userStore.FindByID(ctx, userID)
+	if err != nil {
+		return nil, ErrUserNotFound
+	}
+
+	return m.mfaService.BeginTOTPSetup(ctx, userID, user.Email)
+}
+
+// ConfirmTOTPSetup completes TOTP setup by verifying the code
+func (m *Manager) ConfirmTOTPSetup(ctx context.Context, userID, code string) ([]string, error) {
+	if m.mfaService == nil {
+		return nil, &AuthError{Code: "mfa_not_configured", Message: "MFA is not enabled in configuration"}
+	}
+
+	recoveryCodes, err := m.mfaService.ConfirmTOTPSetup(ctx, userID, code)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update user's MFAEnabled flag
+	if err := m.userStore.UpdateMFAEnabled(ctx, userID, true); err != nil {
+		m.logger.Error("failed to update user MFA status", "user_id", userID, "error", err)
+	}
+
+	m.logger.Info("MFA enabled for user", "user_id", userID)
+	return recoveryCodes, nil
+}
+
+// DisableMFA disables MFA for a user
+func (m *Manager) DisableMFA(ctx context.Context, userID, password string) error {
+	if m.mfaService == nil {
+		return nil // MFA not configured, nothing to disable
+	}
+
+	// Verify password before disabling MFA
+	user, err := m.userStore.FindByID(ctx, userID)
+	if err != nil {
+		return ErrUserNotFound
+	}
+
+	valid, err := m.passwordHasher.Verify(password, user.PasswordHash)
+	if err != nil || !valid {
+		return &AuthError{Code: "invalid_password", Message: "Password is incorrect"}
+	}
+
+	// Disable TOTP
+	if err := m.mfaService.DisableTOTP(ctx, userID); err != nil {
+		return err
+	}
+
+	// Update user's MFAEnabled flag
+	if err := m.userStore.UpdateMFAEnabled(ctx, userID, false); err != nil {
+		m.logger.Error("failed to update user MFA status", "user_id", userID, "error", err)
+	}
+
+	m.logger.Info("MFA disabled for user", "user_id", userID)
+	return nil
+}
+
+// RegenerateRecoveryCodes generates new recovery codes for a user
+func (m *Manager) RegenerateRecoveryCodes(ctx context.Context, userID, password string) ([]string, error) {
+	if m.mfaService == nil {
+		return nil, &AuthError{Code: "mfa_not_configured", Message: "MFA is not enabled in configuration"}
+	}
+
+	// Verify password before regenerating codes
+	user, err := m.userStore.FindByID(ctx, userID)
+	if err != nil {
+		return nil, ErrUserNotFound
+	}
+
+	valid, err := m.passwordHasher.Verify(password, user.PasswordHash)
+	if err != nil || !valid {
+		return nil, &AuthError{Code: "invalid_password", Message: "Password is incorrect"}
+	}
+
+	codes, err := m.mfaService.RegenerateRecoveryCodes(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	m.logger.Info("recovery codes regenerated", "user_id", userID)
+	return codes, nil
+}
+
+// ==================== WebAuthn/Passkey Methods ====================
+
+// BeginWebAuthnRegistration starts WebAuthn credential registration
+func (m *Manager) BeginWebAuthnRegistration(ctx context.Context, userID string) (interface{}, string, error) {
+	if m.mfaService == nil || m.mfaService.WebAuthn() == nil {
+		return nil, "", &AuthError{Code: "webauthn_not_configured", Message: "WebAuthn is not enabled in configuration"}
+	}
+
+	user, err := m.userStore.FindByID(ctx, userID)
+	if err != nil {
+		return nil, "", ErrUserNotFound
+	}
+
+	// Get existing credentials
+	existingCreds, _ := m.mfaService.GetWebAuthnCredentials(ctx, userID)
+
+	return m.mfaService.WebAuthn().BeginRegistration(ctx, userID, user.Email, user.Email, existingCreds)
+}
+
+// FinishWebAuthnRegistration completes WebAuthn credential registration
+func (m *Manager) FinishWebAuthnRegistration(ctx context.Context, userID, sessionData, credentialName string, response interface{}) error {
+	if m.mfaService == nil || m.mfaService.WebAuthn() == nil {
+		return &AuthError{Code: "webauthn_not_configured", Message: "WebAuthn is not enabled in configuration"}
+	}
+
+	user, err := m.userStore.FindByID(ctx, userID)
+	if err != nil {
+		return ErrUserNotFound
+	}
+
+	// Get existing credentials
+	existingCreds, _ := m.mfaService.GetWebAuthnCredentials(ctx, userID)
+
+	// Type assert the response - it should be *protocol.ParsedCredentialCreationData
+	parsedResponse, ok := response.(*protocol.ParsedCredentialCreationData)
+	if !ok {
+		return &AuthError{Code: "invalid_response", Message: "Invalid WebAuthn response"}
+	}
+
+	// Finish registration
+	cred, err := m.mfaService.WebAuthn().FinishRegistration(ctx, userID, user.Email, user.Email, existingCreds, sessionData, parsedResponse)
+	if err != nil {
+		return err
+	}
+
+	// Store the credential
+	if err := m.mfaService.AddWebAuthnCredential(ctx, userID, cred, credentialName); err != nil {
+		return err
+	}
+
+	// Update user's MFAEnabled flag if this is their first MFA method
+	status, _ := m.mfaService.GetStatus(ctx, userID)
+	if status != nil && status.Enabled {
+		if err := m.userStore.UpdateMFAEnabled(ctx, userID, true); err != nil {
+			m.logger.Error("failed to update user MFA status", "user_id", userID, "error", err)
+		}
+	}
+
+	m.logger.Info("WebAuthn credential registered", "user_id", userID, "credential_name", credentialName)
+	return nil
+}
+
+// GetWebAuthnCredentials returns all WebAuthn credentials for a user
+func (m *Manager) GetWebAuthnCredentials(ctx context.Context, userID string) ([]WebAuthnCredential, error) {
+	if m.mfaService == nil {
+		return nil, nil
+	}
+	return m.mfaService.GetWebAuthnCredentials(ctx, userID)
+}
+
+// RemoveWebAuthnCredential removes a WebAuthn credential
+func (m *Manager) RemoveWebAuthnCredential(ctx context.Context, userID, credentialID, password string) error {
+	if m.mfaService == nil {
+		return &AuthError{Code: "mfa_not_configured", Message: "MFA is not enabled in configuration"}
+	}
+
+	// Verify password
+	user, err := m.userStore.FindByID(ctx, userID)
+	if err != nil {
+		return ErrUserNotFound
+	}
+
+	valid, err := m.passwordHasher.Verify(password, user.PasswordHash)
+	if err != nil || !valid {
+		return &AuthError{Code: "invalid_password", Message: "Password is incorrect"}
+	}
+
+	if err := m.mfaService.RemoveWebAuthnCredential(ctx, userID, credentialID); err != nil {
+		return err
+	}
+
+	// Check if user still has any MFA methods enabled
+	status, _ := m.mfaService.GetStatus(ctx, userID)
+	if status != nil && !status.Enabled {
+		if err := m.userStore.UpdateMFAEnabled(ctx, userID, false); err != nil {
+			m.logger.Error("failed to update user MFA status", "user_id", userID, "error", err)
+		}
+	}
+
+	m.logger.Info("WebAuthn credential removed", "user_id", userID, "credential_id", credentialID)
 	return nil
 }
