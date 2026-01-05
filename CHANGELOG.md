@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Helm Chart for Kubernetes
+- **Helm Chart** (`helm/mycel/`)
+  - Complete Kubernetes deployment configuration
+  - Deployment with configurable replicas and rolling updates
+  - Service (ClusterIP, NodePort, LoadBalancer)
+  - Ingress with TLS support
+  - ConfigMap for HCL configuration files
+  - Secret for sensitive environment variables
+  - ServiceAccount with configurable annotations
+  - HorizontalPodAutoscaler for auto-scaling
+  - PodDisruptionBudget for high availability
+  - ServiceMonitor for Prometheus Operator
+  - Health checks (liveness/readiness probes)
+  - Security context (non-root, read-only filesystem)
+  - Resource limits and requests
+  - Comprehensive documentation and examples
+
 ### Added - Notification Connectors (Phase 6)
 - **Webhooks** (`internal/connector/webhook/`)
   - Inbound webhook receiver with HTTP handler

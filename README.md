@@ -126,6 +126,63 @@ mycel check [--config=<path>]
 mycel version
 ```
 
+## Kubernetes (Helm)
+
+Deploy Mycel to Kubernetes using Helm:
+
+```bash
+# Install from local chart
+helm install my-api ./helm/mycel -f values.yaml
+
+# With custom configuration
+helm install my-api ./helm/mycel \
+  --set replicaCount=3 \
+  --set autoscaling.enabled=true \
+  --set ingress.enabled=true
+```
+
+Create a `values.yaml`:
+
+```yaml
+replicaCount: 2
+
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: api.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+mycel:
+  env: production
+  config:
+    service: |
+      service {
+        name = "my-api"
+        port = 8080
+      }
+    connectors: |
+      connector "api" {
+        type = "rest"
+        port = 8080
+      }
+    flows: |
+      # Your flows here
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+
+metrics:
+  serviceMonitor:
+    enabled: true  # For Prometheus Operator
+```
+
+See [helm/mycel/README.md](helm/mycel/README.md) for full documentation.
+
 ## Environment Variables
 
 | Variable | Default | Description |

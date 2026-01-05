@@ -1,0 +1,237 @@
+# Default values for mycel.
+# This is a YAML-formatted file.
+
+# -- Number of replicas
+replicaCount: 1
+
+image:
+  # -- Image repository
+  repository: mdenda/mycel
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag (default is the chart appVersion)
+  tag: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+
+# -- Override the name of the chart
+nameOverride: ""
+
+# -- Override the full name of the chart
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Specifies whether a service account should be created
+  create: true
+  # -- Annotations to add to the service account
+  annotations: {}
+  # -- The name of the service account to use
+  name: ""
+
+# -- Annotations to add to the pod
+podAnnotations: {}
+
+# -- Labels to add to the pod
+podLabels: {}
+
+# -- Pod security context
+podSecurityContext:
+  fsGroup: 1000
+
+# -- Container security context
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+service:
+  # -- Service type
+  type: ClusterIP
+  # -- Service port
+  port: 8080
+  # -- Service target port
+  targetPort: 8080
+  # -- Node port (only used if type is NodePort)
+  nodePort: ""
+  # -- Annotations to add to the service
+  annotations: {}
+
+ingress:
+  # -- Enable ingress
+  enabled: false
+  # -- Ingress class name
+  className: ""
+  # -- Annotations to add to the ingress
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: mycel.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  # -- TLS configuration
+  tls: []
+  #  - secretName: mycel-tls
+  #    hosts:
+  #      - mycel.local
+
+# -- Resource limits and requests
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Autoscaling configuration
+autoscaling:
+  # -- Enable horizontal pod autoscaler
+  enabled: false
+  # -- Minimum number of replicas
+  minReplicas: 1
+  # -- Maximum number of replicas
+  maxReplicas: 10
+  # -- Target CPU utilization percentage
+  targetCPUUtilizationPercentage: 80
+  # -- Target memory utilization percentage
+  targetMemoryUtilizationPercentage: ""
+
+# -- Node selector
+nodeSelector: {}
+
+# -- Tolerations
+tolerations: []
+
+# -- Affinity rules
+affinity: {}
+
+# Mycel-specific configuration
+mycel:
+  # -- Environment (development, staging, production)
+  env: production
+  # -- Log level (debug, info, warn, error)
+  logLevel: info
+  # -- Log format (text, json)
+  logFormat: json
+  # -- Enable hot reload
+  hotReload: false
+
+  # Configuration files
+  config:
+    # -- Enable ConfigMap for Mycel configuration
+    enabled: true
+    # -- Service configuration (service.hcl content)
+    service: |
+      service {
+        name = "mycel"
+        port = 8080
+      }
+    # -- Connectors configuration (connectors.hcl content)
+    connectors: ""
+    # -- Flows configuration (flows.hcl content)
+    flows: ""
+    # -- Types configuration (types.hcl content)
+    types: ""
+    # -- Additional HCL files (key: filename, value: content)
+    extra: {}
+
+  # Secrets configuration
+  secrets:
+    # -- Enable Secrets for sensitive data
+    enabled: false
+    # -- Environment variables from secrets
+    env: {}
+      # DATABASE_PASSWORD: "secret-password"
+      # API_KEY: "secret-api-key"
+
+# Health checks
+healthCheck:
+  # -- Enable health check endpoints
+  enabled: true
+  # Liveness probe
+  liveness:
+    # -- Path for liveness probe
+    path: /health/live
+    # -- Initial delay seconds
+    initialDelaySeconds: 10
+    # -- Period seconds
+    periodSeconds: 10
+    # -- Timeout seconds
+    timeoutSeconds: 5
+    # -- Failure threshold
+    failureThreshold: 3
+  # Readiness probe
+  readiness:
+    # -- Path for readiness probe
+    path: /health/ready
+    # -- Initial delay seconds
+    initialDelaySeconds: 5
+    # -- Period seconds
+    periodSeconds: 10
+    # -- Timeout seconds
+    timeoutSeconds: 5
+    # -- Failure threshold
+    failureThreshold: 3
+
+# Prometheus metrics
+metrics:
+  # -- Enable Prometheus metrics endpoint
+  enabled: true
+  # -- Metrics port
+  port: 8080
+  # -- Metrics path
+  path: /metrics
+  # ServiceMonitor for Prometheus Operator
+  serviceMonitor:
+    # -- Enable ServiceMonitor
+    enabled: false
+    # -- Namespace for ServiceMonitor (defaults to release namespace)
+    namespace: ""
+    # -- Labels for ServiceMonitor
+    labels: {}
+    # -- Interval for scraping
+    interval: 30s
+    # -- Scrape timeout
+    scrapeTimeout: 10s
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  # -- Enable PodDisruptionBudget
+  enabled: false
+  # -- Minimum available pods
+  minAvailable: 1
+  # -- Maximum unavailable pods (alternative to minAvailable)
+  maxUnavailable: ""
+
+# Extra environment variables
+extraEnv: []
+  # - name: MY_VAR
+  #   value: "my-value"
+  # - name: MY_SECRET
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: my-secret
+  #       key: password
+
+# Extra volume mounts
+extraVolumeMounts: []
+  # - name: extra-config
+  #   mountPath: /etc/mycel/extra
+
+# Extra volumes
+extraVolumes: []
+  # - name: extra-config
+  #   configMap:
+  #     name: extra-config
+
+# Init containers
+initContainers: []
+
+# Sidecar containers
+sidecarContainers: []

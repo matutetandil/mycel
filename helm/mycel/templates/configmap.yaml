@@ -1,0 +1,29 @@
+{{- if .Values.mycel.config.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mycel.configMapName" . }}
+  labels:
+    {{- include "mycel.labels" . | nindent 4 }}
+data:
+  {{- if .Values.mycel.config.service }}
+  service.hcl: |
+    {{- .Values.mycel.config.service | nindent 4 }}
+  {{- end }}
+  {{- if .Values.mycel.config.connectors }}
+  connectors.hcl: |
+    {{- .Values.mycel.config.connectors | nindent 4 }}
+  {{- end }}
+  {{- if .Values.mycel.config.flows }}
+  flows.hcl: |
+    {{- .Values.mycel.config.flows | nindent 4 }}
+  {{- end }}
+  {{- if .Values.mycel.config.types }}
+  types.hcl: |
+    {{- .Values.mycel.config.types | nindent 4 }}
+  {{- end }}
+  {{- range $filename, $content := .Values.mycel.config.extra }}
+  {{ $filename }}: |
+    {{- $content | nindent 4 }}
+  {{- end }}
+{{- end }}
