@@ -43,7 +43,20 @@ through HCL configuration, without writing code.
 It works as a single runtime (similar to nginx or Apache) that interprets
 configuration files and exposes services.
 
-Philosophy: Configuration, not code. You define WHAT you want, Mycel handles HOW.`,
+Philosophy: Configuration, not code. You define WHAT you want, Mycel handles HOW.
+
+Quick Start:
+  mycel start --config ./my-service     Start a service
+  mycel validate --config ./my-service  Validate configuration
+  mycel check --config ./my-service     Test connector connectivity
+
+Environment Variables:
+  MYCEL_ENV         Environment (development, staging, production)
+  MYCEL_LOG_LEVEL   Log level (debug, info, warn, error)
+  MYCEL_LOG_FORMAT  Log format (text, json)
+
+Documentation:
+  https://github.com/matutetandil/mycel`,
 	Version: fmt.Sprintf("%s (commit: %s)", version, commit),
 }
 
@@ -59,28 +72,105 @@ without restarting (like nginx).
 You can also trigger a manual reload by sending SIGHUP:
   kill -SIGHUP <pid>
 
-To disable hot reload, use --hot-reload=false`,
+To disable hot reload, use --hot-reload=false
+
+Examples:
+  # Start from current directory
+  mycel start
+
+  # Start from specific config directory
+  mycel start --config ./examples/basic
+
+  # Start with production environment
+  mycel start --config ./my-service --env production
+
+  # Start with debug logging
+  mycel start --log-level debug
+
+  # Start with JSON logs (for production)
+  mycel start --log-format json
+
+  # Start without hot reload
+  mycel start --hot-reload=false
+
+  # Using environment variables
+  MYCEL_ENV=production MYCEL_LOG_FORMAT=json mycel start`,
 	RunE: runStart,
 }
 
 var validateCmd = &cobra.Command{
 	Use:   "validate",
 	Short: "Validate configuration files",
-	Long:  `Validate all HCL configuration files without starting the runtime.`,
-	RunE:  runValidate,
+	Long: `Validate all HCL configuration files without starting the runtime.
+
+This command parses and validates your configuration, checking for:
+- HCL syntax errors
+- Missing required fields
+- Invalid connector types
+- Flow configuration issues
+- Type definition problems
+
+Examples:
+  # Validate current directory
+  mycel validate
+
+  # Validate specific config directory
+  mycel validate --config ./my-service
+
+  # Validate with environment overlay
+  mycel validate --config ./my-service --env production
+
+Output shows:
+  - Number of connectors, flows, and types found
+  - Details of each component
+  - Any errors or warnings`,
+	RunE: runValidate,
 }
 
 var checkCmd = &cobra.Command{
 	Use:   "check",
 	Short: "Check connector connectivity",
-	Long:  `Check connectivity to all configured connectors.`,
-	RunE:  runCheck,
+	Long: `Check connectivity to all configured connectors.
+
+This command attempts to connect to each configured connector and reports
+the status. Use this to verify that:
+- Database connections are working
+- External APIs are reachable
+- Message queue brokers are available
+- Cache servers are responding
+
+Examples:
+  # Check current directory
+  mycel check
+
+  # Check specific config
+  mycel check --config ./my-service
+
+  # Check with specific environment
+  mycel check --config ./my-service --env staging
+
+Common issues detected:
+  - Connection refused (service not running)
+  - Authentication failed (wrong credentials)
+  - Timeout (network issues, firewall)
+  - Unknown host (DNS issues)`,
+	RunE: runCheck,
 }
 
 var exportCmd = &cobra.Command{
 	Use:   "export",
 	Short: "Export API documentation",
-	Long:  `Export API documentation in various formats (OpenAPI, AsyncAPI).`,
+	Long: `Export API documentation in various formats.
+
+Available formats:
+  openapi   - OpenAPI 3.0 for REST APIs
+  asyncapi  - AsyncAPI 2.6 for message queues (RabbitMQ, Kafka)
+
+Examples:
+  mycel export openapi                    # Export REST API docs
+  mycel export asyncapi                   # Export MQ docs
+  mycel export openapi -o api.yaml        # Save to file
+  mycel export openapi -f json            # Export as JSON`,
 }
 
 var exportOpenAPICmd = &cobra.Command{
