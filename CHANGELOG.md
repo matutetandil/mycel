@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Notification Connectors (Phase 6)
+- **Webhooks** (`internal/connector/webhook/`)
+  - Inbound webhook receiver with HTTP handler
+  - Outbound webhook sender with retry and exponential backoff
+  - Signature verification (HMAC-SHA256, HMAC-SHA1)
+  - Support for Stripe and GitHub signature formats
+  - Timestamp validation for replay protection
+  - IP allowlist for inbound webhooks
+- **Email** (`internal/connector/email/`)
+  - SMTP connector with connection pooling and STARTTLS/TLS
+  - SendGrid API connector with template support
+  - AWS SES connector with v2 SDK
+  - Support for attachments, CC/BCC, reply-to
+  - HTML and plain text content
+- **Slack** (`internal/connector/slack/`)
+  - Webhook-based messaging
+  - Bot API support with OAuth tokens
+  - Rich message formatting with blocks
+  - Attachments and interactive elements
+- **Discord** (`internal/connector/discord/`)
+  - Webhook-based messaging
+  - Bot API support
+  - Embeds with fields, images, thumbnails
+  - Interactive components
+- **SMS** (`internal/connector/sms/`)
+  - Twilio connector with full API support
+  - AWS SNS connector for SMS delivery
+- **Push Notifications** (`internal/connector/push/`)
+  - Firebase Cloud Messaging (FCM) with legacy API
+  - Apple Push Notification service (APNs) with HTTP/2
+
 ### Added - SSO and Social Login (Phase 5.1d)
 - **OAuth2/OIDC Base** (`internal/auth/sso_oauth.go`)
   - OAuth2Service for authorization code flow
