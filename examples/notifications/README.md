@@ -154,3 +154,108 @@ Sends push notifications via FCM or APNs.
 
 ### receive_webhook
 Receives and validates incoming webhooks.
+
+## Verify It Works
+
+### 1. Start with mock mode (no real credentials needed)
+
+```bash
+mycel start --config ./examples/notifications --mock=email,slack,discord,sms,push
+```
+
+You should see:
+```
+INFO  Starting service: notifications-example
+INFO  Loaded 6 connectors (5 mocked)
+INFO  REST server listening on :8080
+```
+
+### 2. Test email notification (mocked)
+
+```bash
+curl -X POST http://localhost:8080/api/notify/email \
+  -H "Content-Type: application/json" \
+  -d '{"to": "user@example.com", "subject": "Test", "body": "Hello!"}'
+```
+
+Expected response:
+```json
+{
+  "success": true,
+  "provider": "mock",
+  "message_id": "mock-12345"
+}
+```
+
+### 3. Test Slack notification (mocked)
+
+```bash
+curl -X POST http://localhost:8080/api/notify/slack \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "#general", "text": "Hello from Mycel!"}'
+```
+
+Expected response:
+```json
+{
+  "success": true,
+  "provider": "mock"
+}
+```
+
+### 4. Test with real credentials
+
+```bash
+# Set real credentials
+export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/xxx"
+
+# Start without mocking Slack
+mycel start --config ./examples/notifications --no-mock=slack
+```
+
+Now Slack notifications are sent for real:
+```bash
+curl -X POST http://localhost:8080/api/notify/slack \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "#testing", "text": "Real message!"}'
+```
+
+### What to check in logs
+
+```
+INFO  POST /api/notify/email
+INFO    Provider: smtp (mocked)
+INFO    To: user@example.com
+INFO    Subject: Test
+INFO  Response: 200 OK
+
+INFO  POST /api/notify/slack
+INFO    Provider: webhook
+INFO    Channel: #general
+INFO  Response: 200 OK
+```
+
+### Common Issues
+
+**"Missing credentials for provider"**
+
+Either set the required environment variables or use `--mock=<provider>`.
+
+**"Webhook signature verification failed"**
+
+For incoming webhooks, ensure `X-Signature-256` header is set correctly:
+```bash
+SIGNATURE=$(echo -n '{"event":"test"}' | openssl sha256 -hmac "$WEBHOOK_SECRET" | sed 's/^.* //')
+curl -X POST http://localhost:8080/webhooks/events \
+  -H "X-Signature-256: sha256=$SIGNATURE" \
+  -d '{"event":"test"}'
+```
+
+**"Rate limit exceeded"**
+
+Notification providers have rate limits. For testing, use mock mode.
+
+## See Also
+
+- [Auth Example](../auth) - Send verification emails
+- [MQ Example](../mq) - Process notification queue

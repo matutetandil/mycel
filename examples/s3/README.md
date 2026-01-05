@@ -100,3 +100,102 @@ connector "minio" {
 | `LIST` | List objects with prefix |
 | `COPY` | Copy object within bucket |
 | `PRESIGN` | Generate presigned URL |
+
+## Verify It Works
+
+### 1. Start MinIO locally (for testing)
+
+```bash
+docker run -d --name minio \
+  -p 9000:9000 -p 9001:9001 \
+  -e MINIO_ROOT_USER=minioadmin \
+  -e MINIO_ROOT_PASSWORD=minioadmin \
+  minio/minio server /data --console-address ":9001"
+```
+
+Create a bucket:
+```bash
+docker exec minio mc mb /data/test-bucket
+```
+
+### 2. Start the service
+
+```bash
+export MINIO_ENDPOINT="http://localhost:9000"
+export MINIO_BUCKET="test-bucket"
+export MINIO_ACCESS_KEY="minioadmin"
+export MINIO_SECRET_KEY="minioadmin"
+
+mycel start --config ./examples/s3
+```
+
+You should see:
+```
+INFO  Starting service: s3-example
+INFO  Loaded 2 connectors: api, s3
+INFO    s3: MinIO at http://localhost:9000/test-bucket
+INFO  REST server listening on :3000
+```
+
+### 3. Upload a file
+
+```bash
+curl -X POST http://localhost:3000/upload \
+  -H "Content-Type: application/json" \
+  -d '{"filename":"test.txt","content":"Hello S3"}'
+```
+
+Expected response:
+```json
+{
+  "id": "test.txt",
+  "size": 8,
+  "etag": "abc123..."
+}
+```
+
+### 4. List files
+
+```bash
+curl http://localhost:3000/files
+```
+
+Expected response:
+```json
+[{"key": "test.txt", "size": 8, "last_modified": "..."}]
+```
+
+### 5. Get presigned URL
+
+```bash
+curl http://localhost:3000/presigned/test.txt
+```
+
+Expected response:
+```json
+{
+  "url": "http://localhost:9000/test-bucket/test.txt?X-Amz-...",
+  "expires_in": 3600
+}
+```
+
+### 6. Verify in MinIO Console
+
+Open http://localhost:9001 (minioadmin/minioadmin) to see uploaded files.
+
+### Common Issues
+
+**"InvalidAccessKeyId"**
+
+Check that AWS_ACCESS_KEY_ID or MINIO_ACCESS_KEY matches your credentials.
+
+**"NoSuchBucket"**
+
+Create the bucket first:
+```bash
+aws s3 mb s3://my-bucket --endpoint-url http://localhost:9000
+```
+
+**"Connection refused"**
+
+Ensure MinIO/S3 endpoint is correct and accessible.

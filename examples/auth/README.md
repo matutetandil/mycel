@@ -271,3 +271,126 @@ oidc "okta" {
   scopes        = ["openid", "email", "profile"]
 }
 ```
+
+## Verify It Works
+
+### 1. Start the service
+
+```bash
+export JWT_SECRET="test-secret-key-for-development"
+mycel start --config ./examples/auth
+```
+
+You should see:
+```
+INFO  Starting service: auth-example
+INFO  Loaded 2 connectors: api, database
+INFO  Auth system initialized
+INFO    JWT signing: HS256
+INFO    Token storage: database
+INFO    Brute force protection: enabled
+INFO  REST server listening on :8080
+```
+
+### 2. Register a user
+
+```bash
+curl -X POST http://localhost:8080/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "MyP@ssw0rd!"}'
+```
+
+Expected response:
+```json
+{
+  "user": {"id": "<uuid>", "email": "user@example.com"},
+  "message": "User registered successfully"
+}
+```
+
+### 3. Login
+
+```bash
+curl -X POST http://localhost:8080/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "MyP@ssw0rd!"}'
+```
+
+Expected response:
+```json
+{
+  "user": {"id": "<uuid>", "email": "user@example.com"},
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "Bearer",
+  "expires_in": 3600
+}
+```
+
+### 4. Access protected endpoint
+
+```bash
+curl http://localhost:8080/auth/me \
+  -H "Authorization: Bearer <access_token>"
+```
+
+Expected response:
+```json
+{
+  "id": "<uuid>",
+  "email": "user@example.com"
+}
+```
+
+### 5. Check audit log (in database)
+
+```sql
+SELECT * FROM auth_audit_log ORDER BY created_at DESC LIMIT 5;
+```
+
+Expected entries:
+```
+| event           | user_id | email            | success |
+|-----------------|---------|------------------|---------|
+| login           | abc123  | user@example.com | true    |
+| register        | abc123  | user@example.com | true    |
+```
+
+### What to check in logs
+
+```
+INFO  POST /auth/register
+INFO    Creating user: user@example.com
+INFO    Password hashed with argon2id
+INFO    Audit: user_registered
+INFO  Response sent in 150ms
+
+INFO  POST /auth/login
+INFO    Authenticating: user@example.com
+INFO    Password verified
+INFO    Tokens generated (access: 1h, refresh: 7d)
+INFO    Audit: login_success
+INFO  Response sent in 50ms
+```
+
+### Common Issues
+
+**"JWT_SECRET not set"**
+
+The auth system requires a JWT secret:
+```bash
+export JWT_SECRET="your-secret-key-here"
+```
+
+**"Password too weak"**
+
+Default policy requires: 8+ chars, uppercase, lowercase, number, special char.
+Use `preset = "development"` to disable for testing.
+
+**"Invalid credentials" (after correct password)**
+
+Check if brute force protection locked the account. Wait 15 minutes or clear the lock in database.
+
+**SSO callback failing**
+
+Ensure callback URL matches exactly what's configured in the OAuth provider.

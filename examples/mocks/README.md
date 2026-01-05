@@ -83,3 +83,89 @@ curl -X POST -d '{"email":"new@test.com","name":"New User"}' \
 - **Error simulation**: Return errors for specific conditions
 - **CLI overrides**: `--mock` and `--no-mock` flags
 - **Per-connector config**: Different settings per connector
+
+## Verify It Works
+
+### 1. Start with mocks enabled
+
+```bash
+mycel start --config ./examples/mocks
+```
+
+You should see:
+```
+INFO  Starting service: mocks-example
+INFO  Loaded 2 connectors: api, db
+INFO    db: MOCKED (from mocks/connectors/db/)
+INFO  REST server listening on :3000
+```
+
+### 2. List users (from mock data)
+
+```bash
+curl http://localhost:3000/users
+```
+
+Expected response (mock data):
+```json
+[
+  {"id": 1, "email": "john@example.com", "name": "John Doe"},
+  {"id": 2, "email": "jane@example.com", "name": "Jane Doe"}
+]
+```
+
+### 3. Get specific user (conditional mock)
+
+```bash
+curl http://localhost:3000/users/1
+```
+
+Expected response:
+```json
+{"id": 1, "email": "john@example.com", "name": "John Doe"}
+```
+
+```bash
+curl http://localhost:3000/users/999
+```
+
+Expected response (mock error):
+```json
+{"error": "Not found", "status": 404}
+```
+
+### 4. Disable mock for db
+
+```bash
+mycel start --config ./examples/mocks --no-mock=db
+```
+
+Now log shows:
+```
+INFO    db: connected to SQLite (real database)
+```
+
+### What to check in logs
+
+```
+INFO  GET /users
+INFO    Mock response for: db/users
+INFO    Latency simulation: 50ms
+INFO  Response sent in 52ms
+```
+
+### Common Issues
+
+**"Mock file not found"**
+
+Mock files must be in `mocks/connectors/<connector>/<target>.json`:
+```
+mocks/connectors/db/users.json
+```
+
+**"CEL condition not matching"**
+
+Check your `when` expressions match the input structure:
+```json
+{"when": "input.id == 1"}  // input.id comes from path param
+```

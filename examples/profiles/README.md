@@ -85,3 +85,92 @@ Profile usage is tracked in Prometheus metrics:
 - `mycel_connector_profile_requests_total` - Requests per profile
 - `mycel_connector_profile_errors_total` - Errors per profile
 - `mycel_connector_profile_fallback_total` - Fallback events
+
+## Verify It Works
+
+### 1. Start with default profile (Magento)
+
+```bash
+mycel start --config ./examples/profiles
+```
+
+You should see:
+```
+INFO  Starting service: profiles-example
+INFO  Loaded connector: pricing (profiled)
+INFO    Active profile: magento
+INFO  REST server listening on :3000
+```
+
+### 2. Test the pricing endpoint
+
+```bash
+curl http://localhost:3000/products/123/price
+```
+
+Expected response (normalized from Magento):
+```json
+{
+  "product_id": "123",
+  "sku": "PROD-123",
+  "price": 99.99,
+  "currency": "USD",
+  "source": "magento"
+}
+```
+
+### 3. Switch to ERP profile
+
+```bash
+PRICE_SOURCE=erp mycel start --config ./examples/profiles
+```
+
+You should see:
+```
+INFO    Active profile: erp
+```
+
+Same request returns:
+```json
+{
+  "product_id": "123",
+  "sku": "PROD-123",
+  "price": 99.99,
+  "currency": "USD",
+  "source": "erp"
+}
+```
+
+### 4. Test fallback (if primary fails)
+
+With `fallback = ["erp", "legacy"]`, if Magento is down:
+```
+WARN  Profile 'magento' failed: connection refused
+INFO  Falling back to profile: erp
+```
+
+### 5. Check metrics
+
+```bash
+curl http://localhost:3000/metrics | grep profile
+```
+
+Expected:
+```
+mycel_connector_profile_active{connector="pricing",profile="magento"} 1
+mycel_connector_profile_requests_total{connector="pricing",profile="magento"} 5
+```
+
+### Common Issues
+
+**"Unknown profile: xxx"**
+
+The `PRICE_SOURCE` value must match a profile name defined in the connector.
+
+**"No profile selected"**
+
+Either set `PRICE_SOURCE` or ensure `default` is set in the connector config.
+
+**Transforms not applying**
+
+Check that the profile's `transform {}` block uses correct field names for that backend.

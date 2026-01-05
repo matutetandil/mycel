@@ -247,4 +247,115 @@ flow "name" {
     }
   }
 }
+
+## Verify It Works
+
+### 1. Start the service
+
+```bash
+mycel start --config ./examples/cache
+```
+
+You should see:
+```
+INFO  Starting service: cache-example
+INFO  Loaded 3 connectors: api, db, memory_cache
+INFO  Memory cache initialized (max_items: 10000)
+INFO  Registered 5 flows with caching
+INFO  REST server listening on :3000
+```
+
+### 2. Create a product
+
+```bash
+curl -X POST http://localhost:3000/products \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Widget", "price": 29.99}'
+```
+
+Expected response:
+```json
+{"id":1,"name":"Widget","price":29.99}
+```
+
+### 3. First GET (cache MISS)
+
+```bash
+time curl http://localhost:3000/products/1
+```
+
+Expected:
+- Response time: ~5-10ms
+- Log shows: `Cache MISS for key: product:1`
+
+### 4. Second GET (cache HIT)
+
+```bash
+time curl http://localhost:3000/products/1
+```
+
+Expected:
+- Response time: <1ms
+- Log shows: `Cache HIT for key: product:1`
+
+### 5. Update product (invalidates cache)
+
+```bash
+curl -X PUT http://localhost:3000/products/1 \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Super Widget", "price": 39.99}'
+```
+
+Log shows:
+```
+INFO  Cache INVALIDATED: product:1
+```
+
+### 6. Next GET (cache MISS again)
+
+```bash
+curl http://localhost:3000/products/1
+```
+
+Response contains updated data, log shows cache miss.
+
+### What to check in logs
+
+```
+INFO  GET /products/1
+INFO    Cache MISS for key: product:1
+INFO    Querying database...
+INFO    Result cached for 5m
+INFO  Response sent in 8ms
+
+INFO  GET /products/1
+INFO    Cache HIT for key: product:1
+INFO  Response sent in 0.5ms
+```
+
+### Common Issues
+
+**Cache not working (always MISS)**
+
+Check that the cache connector is loaded:
+```bash
+curl http://localhost:3000/health
+# Should show cache connector as healthy
+```
+
+**"Unknown cache storage"**
+
+The `storage` name in the flow must match a cache connector name:
+```hcl
+cache {
+  storage = "memory_cache"  # Must match connector name
+}
+```
+
+**Redis connection failed**
+
+For Redis cache, ensure Redis is running:
+```bash
+redis-cli ping
+# Should respond: PONG
 ```

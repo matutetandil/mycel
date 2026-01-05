@@ -169,6 +169,58 @@ This example requires external services to be running. For a complete working ex
 mycel start --config ./examples/enrich
 ```
 
+## Verify It Works
+
+### 1. Start the service
+
+```bash
+mycel start --config ./examples/enrich
+```
+
+You should see:
+```
+INFO  Starting service: enrich-example
+INFO  Loaded 4 connectors
+INFO  Registered flows with enrichments
+INFO  REST server listening on :3000
+```
+
+### 2. Test product with pricing (mock scenario)
+
+```bash
+curl http://localhost:3000/products/123
+```
+
+Expected response (with enriched pricing data):
+```json
+{
+  "id": "123",
+  "name": "Widget",
+  "price": 29.99,
+  "currency": "USD",
+  "in_stock": true
+}
+```
+
+### 3. What to check in logs
+
+```
+INFO  GET /products/123 → get_product_with_price
+INFO    Enriching from: pricing_service
+INFO    Enriching from: inventory_service
+INFO  Response sent in 45ms
+```
+
+### Common Issues
+
+**"Enrichment failed: connection refused"**
+
+The external service is not running. For testing without external services, use mocks:
+
+```bash
+mycel start --config ./examples/enrich --mock=pricing_service,inventory_service
+```
+
 ## See Also
 
 - [Transformations Guide](../../docs/transformations.md) - Full CEL reference

@@ -197,3 +197,90 @@ NestJS supports two pattern formats:
 2. **Object pattern**: `{"cmd": "sum"}` → Routes to `@MessagePattern({cmd: 'sum'})`
 
 Both are automatically handled by Mycel.
+
+## Verify It Works
+
+### 1. Start the service
+
+```bash
+mycel start --config ./examples/tcp
+```
+
+You should see:
+```
+INFO  Starting service: tcp-example
+INFO  Loaded 3 connectors: api, tcp_server, sqlite
+INFO  Registered 5 flows
+INFO  TCP server listening on :9000
+INFO  REST server listening on :3000
+```
+
+### 2. Test REST endpoint (simpler)
+
+```bash
+curl http://localhost:3000/users
+```
+
+Expected response:
+```json
+[]
+```
+
+### 3. Create a user via REST
+
+```bash
+curl -X POST http://localhost:3000/users \
+  -H "Content-Type: application/json" \
+  -d '{"email": "test@example.com", "name": "Test User"}'
+```
+
+Expected response:
+```json
+{"id":"<uuid>","email":"test@example.com","name":"Test User"}
+```
+
+### 4. Test TCP with Python
+
+```bash
+python3 -c "
+import socket, json, struct
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.connect(('localhost', 9000))
+msg = json.dumps({'type': 'list_users', 'id': '1', 'data': {}}).encode()
+sock.sendall(struct.pack('>I', len(msg)) + msg)
+length = struct.unpack('>I', sock.recv(4))[0]
+print(json.loads(sock.recv(length)))
+sock.close()
+"
+```
+
+Expected output (users from previous REST call):
+```json
+{"type": "response", "id": "1", "data": [{"id": "...", "email": "test@example.com", "name": "Test User"}]}
+```
+
+### What to check in logs
+
+```
+INFO  TCP connection from 127.0.0.1:xxxxx
+INFO    Message type: list_users
+INFO    Flow: list_users → sqlite:users
+INFO  TCP response sent
+```
+
+### Common Issues
+
+**"Connection refused" on port 9000**
+
+The TCP server is not running. Check if the service started correctly:
+```bash
+lsof -i :9000
+```
+
+**"Invalid message format"**
+
+Ensure you're sending the correct length-prefixed JSON. The length must be a 4-byte big-endian integer.
+
+**NestJS protocol not working**
+
+Make sure you set `protocol = "nestjs"` in the connector config. The wire format is different (`75#{"pattern":"..."}`)

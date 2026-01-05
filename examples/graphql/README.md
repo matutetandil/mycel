@@ -330,3 +330,91 @@ Supported scalar types:
 - `DateTime` - ISO 8601 date/time
 - `Date` - ISO 8601 date
 - `Time` - ISO 8601 time
+
+## Verify It Works
+
+### 1. Start the service
+
+```bash
+mycel start --config ./examples/graphql
+```
+
+You should see:
+```
+INFO  Starting service: graphql-example
+INFO  Loaded 2 connectors: graphql_api, database
+INFO  Registered 4 flows: get_users, get_user, create_user, delete_user
+INFO  GraphQL server listening on :4000
+INFO  GraphQL Playground available at http://localhost:4000/playground
+```
+
+### 2. Open GraphQL Playground
+
+Open http://localhost:4000/playground in your browser. You should see the GraphQL IDE.
+
+### 3. Test query via curl
+
+```bash
+curl -X POST http://localhost:4000/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ users { id email name } }"}'
+```
+
+Expected response:
+```json
+{"data":{"users":[]}}
+```
+
+### 4. Create a user
+
+```bash
+curl -X POST http://localhost:4000/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "mutation { createUser(input: { email: \"test@example.com\", name: \"Test\" }) { id email name } }"}'
+```
+
+Expected response:
+```json
+{"data":{"createUser":{"id":"<uuid>","email":"test@example.com","name":"Test"}}}
+```
+
+### 5. Query users again
+
+```bash
+curl -X POST http://localhost:4000/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "{ users { id email name createdAt } }"}'
+```
+
+Expected response:
+```json
+{"data":{"users":[{"id":"<uuid>","email":"test@example.com","name":"Test","createdAt":"2024-01-15T10:30:00Z"}]}}
+```
+
+### What to check in logs
+
+```
+INFO  POST /graphql → Query.users
+INFO    Executing flow: get_users
+INFO    Result: 1 rows
+INFO  Response sent in 5ms
+```
+
+### Common Issues
+
+**"Schema not found"**
+
+Ensure `schema.graphql` exists in the example directory, or remove the `schema.path` config to use HCL-first approach.
+
+**"No resolver for Query.users"**
+
+The flow operation must match the schema: `operation = "Query.users"` matches `type Query { users: ... }`
+
+**Playground not loading**
+
+Ensure `playground = true` is set in the GraphQL connector config.
+
+## See Also
+
+- [Cache Example](../cache) - Add caching to GraphQL queries
+- [Auth Example](../auth) - Add authentication to GraphQL

@@ -129,3 +129,92 @@ Common operators supported in `query_filter`:
 | `$regex` | Regular expression |
 | `$or`, `$and` | Logical operators |
 | `$exists` | Field exists |
+
+## Verify It Works
+
+### 1. Start MongoDB
+
+```bash
+docker run -d --name mongodb -p 27017:27017 mongo:latest
+```
+
+### 2. Start the service
+
+```bash
+export MONGO_URI="mongodb://localhost:27017"
+mycel start --config ./examples/mongodb
+```
+
+You should see:
+```
+INFO  Starting service: mongodb-example
+INFO  Loaded 2 connectors: api, mongo
+INFO    mongo: connected to mongodb://localhost:27017/myapp
+INFO  REST server listening on :3000
+```
+
+### 3. Create a user
+
+```bash
+curl -X POST http://localhost:3000/users \
+  -H "Content-Type: application/json" \
+  -d '{"name":"John Doe","email":"john@example.com","status":"active"}'
+```
+
+Expected response:
+```json
+{
+  "_id": "507f1f77bcf86cd799439011",
+  "name": "John Doe",
+  "email": "john@example.com",
+  "status": "active"
+}
+```
+
+### 4. List users
+
+```bash
+curl http://localhost:3000/users
+```
+
+Expected response:
+```json
+[{"_id": "507f...", "name": "John Doe", "email": "john@example.com"}]
+```
+
+### 5. Search with query
+
+```bash
+curl "http://localhost:3000/users/search?q=john"
+```
+
+Expected response (uses `$regex`):
+```json
+[{"_id": "507f...", "name": "John Doe"}]
+```
+
+### 6. Verify in MongoDB shell
+
+```bash
+docker exec -it mongodb mongosh myapp --eval "db.users.find()"
+```
+
+### Common Issues
+
+**"Connection refused"**
+
+Ensure MongoDB is running:
+```bash
+docker ps | grep mongo
+```
+
+**"Authentication failed"**
+
+If MongoDB requires auth:
+```bash
+export MONGO_URI="mongodb://user:pass@localhost:27017"
+```
+
+**"Invalid ObjectId"**
+
+MongoDB IDs are 24-character hex strings. Ensure you're using the `_id` from the create response.
