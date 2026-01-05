@@ -133,6 +133,55 @@ auth {
     enabled   = true
     connector = connector.postgres
     table     = "auth_audit_log"
-    events    = ["login", "logout", "failed_login", "register", "password_change"]
+    events    = ["login", "logout", "failed_login", "register", "password_change", "sso_login"]
   }
+
+  # SSO / Social Login (Phase 5.1d)
+  sso {
+    # Account linking configuration
+    linking {
+      enabled              = true
+      match_by             = "email"     # "email", "none"
+      require_verification = true
+      on_match             = "link"      # "link", "prompt", "reject"
+    }
+  }
+
+  # Social Login Providers
+  social {
+    google {
+      client_id     = env("GOOGLE_CLIENT_ID")
+      client_secret = env("GOOGLE_CLIENT_SECRET")
+      scopes        = ["openid", "email", "profile"]
+    }
+
+    github {
+      client_id     = env("GITHUB_CLIENT_ID")
+      client_secret = env("GITHUB_CLIENT_SECRET")
+      scopes        = ["read:user", "user:email"]
+    }
+
+    # Apple Sign In (requires additional setup)
+    # apple {
+    #   client_id   = env("APPLE_CLIENT_ID")
+    #   team_id     = env("APPLE_TEAM_ID")
+    #   key_id      = env("APPLE_KEY_ID")
+    #   private_key = env("APPLE_PRIVATE_KEY")
+    # }
+  }
+
+  # Enterprise OIDC Providers
+  # oidc "okta" {
+  #   issuer        = env("OKTA_ISSUER")
+  #   client_id     = env("OKTA_CLIENT_ID")
+  #   client_secret = env("OKTA_CLIENT_SECRET")
+  #   scopes        = ["openid", "email", "profile"]
+  # }
+
+  # oidc "azure" {
+  #   issuer        = "https://login.microsoftonline.com/${TENANT_ID}/v2.0"
+  #   client_id     = env("AZURE_CLIENT_ID")
+  #   client_secret = env("AZURE_CLIENT_SECRET")
+  #   scopes        = ["openid", "email", "profile"]
+  # }
 }
