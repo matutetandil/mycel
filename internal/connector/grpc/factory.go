@@ -202,7 +202,38 @@ func (f *Factory) createClient(config *connector.Config) (connector.Connector, e
 		}
 	}
 
+	// Load balancing
+	if lbCfg, ok := config.Properties["load_balancing"].(map[string]interface{}); ok {
+		clientConfig.LoadBalancing = parseLoadBalancingConfig(lbCfg)
+	} else if lbPolicy := getString(config.Properties, "load_balancing", ""); lbPolicy != "" {
+		// Simple form: load_balancing = "round_robin"
+		clientConfig.LoadBalancing = &LoadBalancingConfig{
+			Policy: lbPolicy,
+		}
+	}
+
 	return NewClientConnector(config.Name, clientConfig), nil
+}
+
+// parseLoadBalancingConfig parses load balancing configuration.
+func parseLoadBalancingConfig(props map[string]interface{}) *LoadBalancingConfig {
+	cfg := &LoadBalancingConfig{
+		Policy:      getString(props, "policy", "pick_first"),
+		HealthCheck: getBool(props, "health_check", false),
+	}
+
+	// Targets can be single string or array
+	if target, ok := props["targets"].(string); ok {
+		cfg.Targets = []string{target}
+	} else if targets, ok := props["targets"].([]interface{}); ok {
+		for _, t := range targets {
+			if s, ok := t.(string); ok {
+				cfg.Targets = append(cfg.Targets, s)
+			}
+		}
+	}
+
+	return cfg
 }
 
 // parseClientAuthConfig parses client authentication configuration.

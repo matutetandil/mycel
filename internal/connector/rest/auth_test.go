@@ -395,3 +395,96 @@ func TestGetAuthContext(t *testing.T) {
 		}
 	})
 }
+
+func TestDynamicAPIKeyValidation(t *testing.T) {
+	// Mock database that validates API keys
+	mockDB := &mockAPIKeyDB{
+		keys: map[string]mockAPIKeyRecord{
+			"valid-dynamic-key": {userID: "user-456", metadata: map[string]interface{}{"role": "admin", "tenant": "acme"}},
+			"readonly-key":      {userID: "user-789", metadata: map[string]interface{}{"role": "readonly"}},
+		},
+	}
+
+	conn := New("test", 3000, nil, nil)
+	conn.SetAuthConfig(&AuthConfig{
+		Type: "api_key",
+		APIKey: &APIKeyAuthConfig{
+			Header: "X-API-Key",
+			ValidateFunc: func(ctx context.Context, apiKey string) (bool, string, map[string]interface{}, error) {
+				record, exists := mockDB.keys[apiKey]
+				if !exists {
+					return false, "", nil, nil
+				}
+				return true, record.userID, record.metadata, nil
+			},
+		},
+	})
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authCtx := GetAuthContext(r.Context())
+		if authCtx != nil && authCtx.UserID != "" {
+			w.Header().Set("X-User-ID", authCtx.UserID)
+			if role, ok := authCtx.Claims["role"].(string); ok {
+				w.Header().Set("X-Role", role)
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	authHandler := conn.authMiddleware(handler)
+
+	t.Run("valid dynamic API key", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/data", nil)
+		req.Header.Set("X-API-Key", "valid-dynamic-key")
+		rr := httptest.NewRecorder()
+
+		authHandler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", rr.Code)
+		}
+		if rr.Header().Get("X-User-ID") != "user-456" {
+			t.Errorf("expected user-456, got %s", rr.Header().Get("X-User-ID"))
+		}
+		if rr.Header().Get("X-Role") != "admin" {
+			t.Errorf("expected admin role, got %s", rr.Header().Get("X-Role"))
+		}
+	})
+
+	t.Run("invalid dynamic API key", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/data", nil)
+		req.Header.Set("X-API-Key", "unknown-key")
+		rr := httptest.NewRecorder()
+
+		authHandler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusUnauthorized {
+			t.Errorf("expected status 401, got %d", rr.Code)
+		}
+	})
+
+	t.Run("readonly key with correct metadata", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/api/data", nil)
+		req.Header.Set("X-API-Key", "readonly-key")
+		rr := httptest.NewRecorder()
+
+		authHandler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", rr.Code)
+		}
+		if rr.Header().Get("X-Role") != "readonly" {
+			t.Errorf("expected readonly role, got %s", rr.Header().Get("X-Role"))
+		}
+	})
+}
+
+// Mock database for testing dynamic API key validation
+type mockAPIKeyRecord struct {
+	userID   string
+	metadata map[string]interface{}
+}
+
+type mockAPIKeyDB struct {
+	keys map[string]mockAPIKeyRecord
+}

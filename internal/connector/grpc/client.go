@@ -72,10 +72,11 @@ func (c *ClientConnector) Connect(ctx context.Context) error {
 		defer cancel()
 	}
 
-	// Dial the server
-	conn, err := grpc.DialContext(dialCtx, c.config.Target, opts...)
+	// Dial the server (use GetTarget for load balancing support)
+	target := c.GetTarget()
+	conn, err := grpc.DialContext(dialCtx, target, opts...)
 	if err != nil {
-		return fmt.Errorf("failed to dial %s: %w", c.config.Target, err)
+		return fmt.Errorf("failed to dial %s: %w", target, err)
 	}
 
 	c.conn = conn
@@ -144,7 +145,63 @@ func (c *ClientConnector) buildDialOptions() ([]grpc.DialOption, error) {
 		opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(c.config.MaxSend*1024*1024)))
 	}
 
+	// Load balancing
+	if c.config.LoadBalancing != nil {
+		serviceConfig := c.buildServiceConfig()
+		opts = append(opts, grpc.WithDefaultServiceConfig(serviceConfig))
+	}
+
 	return opts, nil
+}
+
+// buildServiceConfig builds a gRPC service config JSON string for load balancing.
+func (c *ClientConnector) buildServiceConfig() string {
+	lb := c.config.LoadBalancing
+	if lb == nil {
+		return ""
+	}
+
+	// Default to pick_first
+	policy := lb.Policy
+	if policy == "" {
+		policy = "pick_first"
+	}
+
+	// Build service config JSON
+	// Format: {"loadBalancingConfig": [{"round_robin": {}}], "healthCheckConfig": {"serviceName": ""}}
+	var config string
+
+	switch policy {
+	case "round_robin":
+		config = `{"loadBalancingConfig": [{"round_robin": {}}]`
+	case "pick_first":
+		config = `{"loadBalancingConfig": [{"pick_first": {}}]`
+	default:
+		// Custom policy or unknown, try to use as-is
+		config = fmt.Sprintf(`{"loadBalancingConfig": [{"%s": {}}]`, policy)
+	}
+
+	// Add health check config if enabled
+	if lb.HealthCheck {
+		config += `, "healthCheckConfig": {"serviceName": ""}`
+	}
+
+	config += `}`
+	return config
+}
+
+// GetTarget returns the target address, handling load balancing with multiple targets.
+func (c *ClientConnector) GetTarget() string {
+	if c.config.LoadBalancing != nil && len(c.config.LoadBalancing.Targets) > 0 {
+		// For multiple targets, use dns:/// scheme or static:/// if available
+		// If target already has a scheme, use as-is
+		if strings.Contains(c.config.Target, "://") {
+			return c.config.Target
+		}
+		// Default to dns:/// for load balancing
+		return "dns:///" + c.config.Target
+	}
+	return c.config.Target
 }
 
 // buildTLSCredentials builds TLS credentials.

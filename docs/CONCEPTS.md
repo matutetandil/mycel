@@ -1675,7 +1675,7 @@ auth {
 - [x] OAuth2 client credentials con token refresh ✅
 - [x] OAuth2 refresh token flow ✅
 - [x] TLS con client certificates ✅
-- [ ] Dynamic API key (from DB/service)
+- [x] Dynamic API key (from DB/service) ✅
 
 ### Database
 - [x] Read replica routing ✅ (PostgreSQL y MySQL)
@@ -1689,12 +1689,12 @@ auth {
 ### gRPC
 - [x] Server interceptors (auth, logging) ✅ (JWT, API Key, mTLS)
 - [x] Client auth ✅ (Bearer, API Key, OAuth2)
-- [ ] Load balancing
+- [x] Load balancing ✅ (round_robin, pick_first)
 
 ### Cache
 - [x] Redis Cluster ✅
 - [x] Redis Sentinel ✅
 
 ### General
-- [ ] Aspects (AOP) - no implementado
-- [ ] Múltiples implementaciones de Sync (Phase 4.2)
+- [x] Aspects (AOP) ✅ (before, after, around, on_error)
+- [x] Sync primitives ✅ (Lock, Semaphore, Coordinate con Redis y Memory backends)

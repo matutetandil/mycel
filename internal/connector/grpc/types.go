@@ -60,6 +60,22 @@ type ClientConfig struct {
 	KeepAlive       *KeepAliveConfig
 	RetryCount      int
 	RetryBackoff    time.Duration
+
+	// Load balancing
+	LoadBalancing *LoadBalancingConfig
+}
+
+// LoadBalancingConfig holds load balancing configuration.
+type LoadBalancingConfig struct {
+	// Policy: round_robin, pick_first (default: pick_first)
+	Policy string
+
+	// Targets: additional targets for static load balancing
+	// Used with dns:/// or static:/// resolver
+	Targets []string
+
+	// HealthCheck: enable client-side health checking
+	HealthCheck bool
 }
 
 // ClientAuthConfig holds authentication configuration for gRPC clients.

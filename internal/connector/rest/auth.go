@@ -81,7 +81,19 @@ type APIKeyAuthConfig struct {
 
 	// Hash keys before comparison (for security)
 	HashKeys bool
+
+	// Dynamic validation: validate API key against a database or service
+	// If set, Keys list is ignored and validation is done via this function
+	ValidateFunc APIKeyValidateFunc
+
+	// For HCL config: connector name and query for dynamic validation
+	ValidateConnector string // e.g., "connector.db"
+	ValidateQuery     string // e.g., "SELECT 1 FROM api_keys WHERE key = :key AND active = true"
 }
+
+// APIKeyValidateFunc is a function type for validating API keys dynamically.
+// Returns (valid, userID, metadata, error)
+type APIKeyValidateFunc func(ctx context.Context, apiKey string) (bool, string, map[string]interface{}, error)
 
 // BasicAuthConfig holds Basic auth validation configuration.
 type BasicAuthConfig struct {
@@ -522,7 +534,30 @@ func (c *Connector) validateAPIKey(r *http.Request) (*AuthContext, error) {
 		return nil, fmt.Errorf("missing API key")
 	}
 
-	// Validate against known keys
+	// If dynamic validation function is configured, use it
+	if cfg.ValidateFunc != nil {
+		valid, userID, metadata, err := cfg.ValidateFunc(r.Context(), apiKey)
+		if err != nil {
+			c.logger.Error("API key validation error", "error", err)
+			return nil, fmt.Errorf("API key validation failed")
+		}
+		if !valid {
+			return nil, fmt.Errorf("invalid API key")
+		}
+
+		authCtx := &AuthContext{
+			Authenticated: true,
+			APIKey:        apiKey,
+			UserID:        userID,
+		}
+		// Store metadata in claims for access
+		if metadata != nil {
+			authCtx.Claims = metadata
+		}
+		return authCtx, nil
+	}
+
+	// Validate against static keys list
 	valid := false
 	for _, key := range cfg.Keys {
 		// Use constant-time comparison to prevent timing attacks
@@ -540,6 +575,69 @@ func (c *Connector) validateAPIKey(r *http.Request) (*AuthContext, error) {
 		Authenticated: true,
 		APIKey:        apiKey,
 	}, nil
+}
+
+// CreateAPIKeyValidator creates an APIKeyValidateFunc from a database connector.
+// The query should return at least one row if the key is valid.
+// Optional columns: user_id, and any additional columns will be added to metadata.
+func CreateAPIKeyValidator(reader interface {
+	Read(ctx context.Context, query interface{}) (interface{}, error)
+}, queryTemplate string) APIKeyValidateFunc {
+	return func(ctx context.Context, apiKey string) (bool, string, map[string]interface{}, error) {
+		// Replace :key placeholder with actual key
+		query := strings.ReplaceAll(queryTemplate, ":key", apiKey)
+		query = strings.ReplaceAll(query, "${key}", apiKey)
+
+		result, err := reader.Read(ctx, query)
+		if err != nil {
+			return false, "", nil, err
+		}
+
+		// Check if we got results
+		if result == nil {
+			return false, "", nil, nil
+		}
+
+		// Try to extract rows from result
+		var rows []map[string]interface{}
+		switch r := result.(type) {
+		case *struct {
+			Rows     []map[string]interface{}
+			Affected int64
+		}:
+			rows = r.Rows
+		case map[string]interface{}:
+			if rowsData, ok := r["rows"].([]map[string]interface{}); ok {
+				rows = rowsData
+			} else if rowsData, ok := r["Rows"].([]map[string]interface{}); ok {
+				rows = rowsData
+			}
+		}
+
+		if len(rows) == 0 {
+			return false, "", nil, nil
+		}
+
+		// Key is valid - extract user_id and metadata
+		firstRow := rows[0]
+		var userID string
+		metadata := make(map[string]interface{})
+
+		for k, v := range firstRow {
+			switch strings.ToLower(k) {
+			case "user_id", "userid", "user":
+				if s, ok := v.(string); ok {
+					userID = s
+				} else if s, ok := v.(fmt.Stringer); ok {
+					userID = s.String()
+				}
+			default:
+				metadata[k] = v
+			}
+		}
+
+		return true, userID, metadata, nil
+	}
 }
 
 // validateBasic validates Basic auth credentials.

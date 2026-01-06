@@ -193,6 +193,17 @@ func parseAPIKeyConfig(authMap map[string]interface{}) *APIKeyAuthConfig {
 		}
 	}
 
+	// Dynamic validation against a connector (database or service)
+	// Format: validate { connector = "connector.db", query = "SELECT ... WHERE key = :key" }
+	if validate, ok := authMap["validate"].(map[string]interface{}); ok {
+		if connector, ok := validate["connector"].(string); ok {
+			cfg.ValidateConnector = connector
+		}
+		if query, ok := validate["query"].(string); ok {
+			cfg.ValidateQuery = query
+		}
+	}
+
 	return cfg
 }
 
