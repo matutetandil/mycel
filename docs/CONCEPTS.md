@@ -1,50 +1,50 @@
-# Conceptos de Mycel
+# Mycel Concepts
 
-Este documento define todos los conceptos de Mycel y su configuración.
+This document defines all Mycel concepts and their configuration.
 
 ---
 
-## 1. Conceptos Core
+## 1. Core Concepts
 
 ### Connector
 
-**Qué es:** Adaptador bidireccional que conecta Mycel con un sistema externo (base de datos, API, queue, archivo, etc).
+**What it is:** Bidirectional adapter that connects Mycel with an external system (database, API, queue, file, etc).
 
-**Modos de operación:**
-- **Input (Source):** Recibe datos o eventos que disparan un flow. Ejemplos: endpoint REST expuesto, mensaje consumido de una queue, request gRPC entrante.
-- **Output (Target):** Destino donde el flow escribe datos. Ejemplos: INSERT en base de datos, llamada HTTP a otra API, publicar mensaje en queue.
+**Operation modes:**
+- **Input (Source):** Receives data or events that trigger a flow. Examples: exposed REST endpoint, message consumed from a queue, incoming gRPC request.
+- **Output (Target):** Destination where the flow writes data. Examples: INSERT into database, HTTP call to another API, publish message to queue.
 
-**Nota:** Algunos connectors son exclusivamente input (ej: cron), otros exclusivamente output (ej: email/notificaciones), y la mayoría pueden ser ambos según el contexto.
+**Note:** Some connectors are input-only (e.g., cron), others are output-only (e.g., email/notifications), and most can be either depending on the context.
 
 ---
 
 ### Flow
 
-**Qué es:** Unidad de trabajo que define el camino de los datos. Conecta un input con un output, opcionalmente transformando los datos en el medio.
+**What it is:** Unit of work that defines the data path. Connects an input with an output, optionally transforming the data in between.
 
-**Estructura:**
+**Structure:**
 ```hcl
-flow "nombre" {
-  from { connector.input = "trigger" }   # Qué dispara el flow
+flow "name" {
+  from { connector.input = "trigger" }   # What triggers the flow
 
-  transform { ... }                       # Opcional: transformar datos
+  transform { ... }                       # Optional: transform data
 
-  to { connector.output = "destino" }    # Dónde van los datos
+  to { connector.output = "destination" } # Where the data goes
 }
 ```
 
-**Cuándo se ejecuta:** Cuando el connector de `from` recibe un evento (request HTTP, mensaje de queue, etc) o según el trigger configurado (cron, interval).
+**When it executes:** When the `from` connector receives an event (HTTP request, queue message, etc) or according to the configured trigger (cron, interval).
 
 ---
 
 ### Transform
 
-**Qué es:** Transformación de datos usando expresiones CEL (Common Expression Language). Mapea campos de entrada a campos de salida.
+**What it is:** Data transformation using CEL (Common Expression Language) expressions. Maps input fields to output fields.
 
-**Modos:**
-- **Inline:** Definido dentro del flow, para uso único.
-- **Reusable:** Definido en archivo separado, referenciado con `use`.
-- **Composición:** Combinar múltiples transforms con override.
+**Modes:**
+- **Inline:** Defined within the flow, for single use.
+- **Reusable:** Defined in a separate file, referenced with `use`.
+- **Composition:** Combine multiple transforms with override.
 
 ```hcl
 # Inline
@@ -54,7 +54,7 @@ transform {
   output.created_at = "now()"
 }
 
-# Reusable con composición
+# Reusable with composition
 transform {
   use = [transform.normalize_user, transform.add_timestamps]
   output.source = "'api'"  # Override
@@ -65,9 +65,9 @@ transform {
 
 ### Type
 
-**Qué es:** Schema que define la estructura esperada de los datos. Valida campos, tipos, y formatos.
+**What it is:** Schema that defines the expected data structure. Validates fields, types, and formats.
 
-**Uso:** Validar input de un flow, o output antes de enviarlo.
+**Usage:** Validate flow input, or output before sending.
 
 ```hcl
 type "user" {
@@ -79,12 +79,12 @@ type "user" {
 }
 ```
 
-**Validación en flow:**
+**Validation in flow:**
 ```hcl
 flow "create_user" {
   from { ... }
-  input_type = type.user    # Valida entrada
-  output_type = type.user   # Valida salida
+  input_type = type.user    # Validate input
+  output_type = type.user   # Validate output
   to { ... }
 }
 ```
@@ -93,29 +93,29 @@ flow "create_user" {
 
 ### Validator
 
-**Qué es:** Regla de validación custom para campos que requieren lógica especial más allá de los tipos built-in.
+**What it is:** Custom validation rule for fields that require special logic beyond built-in types.
 
-**Tipos:**
-- **regex:** Patrón de expresión regular
-- **cel:** Expresión CEL que retorna true/false
-- **wasm:** Módulo WASM compilado para validaciones complejas
+**Types:**
+- **regex:** Regular expression pattern
+- **cel:** CEL expression that returns true/false
+- **wasm:** Compiled WASM module for complex validations
 
 ```hcl
 # Regex
 validator "cuit_argentina" {
   type    = "regex"
   pattern = "^(20|23|24|27|30|33|34)\\d{8}\\d$"
-  message = "CUIT inválido"
+  message = "Invalid CUIT"
 }
 
 # CEL
 validator "adult" {
   type    = "cel"
   expr    = "value >= 18"
-  message = "Debe ser mayor de edad"
+  message = "Must be of legal age"
 }
 
-# Uso en type
+# Usage in type
 type "customer" {
   cuit = string { validate = validator.cuit_argentina }
   age  = number { validate = validator.adult }
@@ -124,23 +124,23 @@ type "customer" {
 
 ---
 
-## 2. Connectors por Tipo
+## 2. Connectors by Type
 
 ### REST
 
-**Qué es:** Protocolo HTTP para APIs web. El connector más común.
+**What it is:** HTTP protocol for web APIs. The most common connector.
 
-#### Como Input (Server) - Exponer endpoints
+#### As Input (Server) - Expose endpoints
 
-Mycel actúa como servidor HTTP, exponiendo endpoints que disparan flows.
+Mycel acts as an HTTP server, exposing endpoints that trigger flows.
 
 ```hcl
 connector "api" {
   type = "rest"
-  mode = "server"  # Implícito cuando tiene port
+  mode = "server"  # Implicit when it has port
 
   port = 8080
-  host = "0.0.0.0"  # Opcional, default 0.0.0.0
+  host = "0.0.0.0"  # Optional, default 0.0.0.0
 
   # TLS
   tls {
@@ -157,54 +157,54 @@ connector "api" {
     max_age = 3600
   }
 
-  # Rate limiting global
+  # Global rate limiting
   rate_limit {
     requests = 100
     window   = "1m"
     by       = "ip"  # ip, header, query
   }
 
-  # Autenticación entrante (validar requests)
-  # GAP: No implementado aún
+  # Incoming authentication (validate requests)
+  # GAP: Not yet implemented
   auth {
     type = "jwt"  # jwt, api_key, basic, oauth2
 
-    # Para JWT
+    # For JWT
     jwt {
-      secret      = env("JWT_SECRET")      # O jwks_url
-      jwks_url    = "https://..."          # Para validar con JWKS
+      secret      = env("JWT_SECRET")      # Or jwks_url
+      jwks_url    = "https://..."          # To validate with JWKS
       issuer      = "https://auth.example.com"
       audience    = ["my-api"]
       algorithms  = ["RS256", "HS256"]
     }
 
-    # Para API Key
+    # For API Key
     api_key {
-      header = "X-API-Key"           # O query param
-      keys   = [env("API_KEY_1")]    # Lista de keys válidas
-      # O validar contra DB/servicio externo
+      header = "X-API-Key"           # Or query param
+      keys   = [env("API_KEY_1")]    # List of valid keys
+      # Or validate against DB/external service
       validate = { connector.keys_db = "api_keys" }
     }
 
-    # Para Basic Auth
+    # For Basic Auth
     basic {
       users = {
         admin = env("ADMIN_PASSWORD")
       }
-      # O validar contra DB
+      # Or validate against DB
       validate = { connector.users_db = "users" }
     }
 
-    # Rutas públicas (sin auth)
+    # Public routes (no auth)
     public = ["/health", "/metrics", "/docs/*"]
   }
 
-  # Headers requeridos
-  # GAP: No implementado
+  # Required headers
+  # GAP: Not implemented
   required_headers = ["X-Request-ID", "X-Correlation-ID"]
 
-  # Headers que se agregan a todas las respuestas
-  # GAP: No implementado
+  # Headers added to all responses
+  # GAP: Not implemented
   response_headers {
     "X-Powered-By" = "Mycel"
     "X-Request-ID" = "${request.id}"
@@ -212,18 +212,18 @@ connector "api" {
 }
 ```
 
-#### Como Output (Client) - Llamar APIs externas
+#### As Output (Client) - Call external APIs
 
-Mycel actúa como cliente HTTP, llamando a APIs externas.
+Mycel acts as an HTTP client, calling external APIs.
 
 ```hcl
 connector "external_api" {
   type = "rest"
-  mode = "client"  # Implícito cuando tiene base_url
+  mode = "client"  # Implicit when it has base_url
 
   base_url = env("EXTERNAL_API_URL")
 
-  # Timeout y retry
+  # Timeout and retry
   timeout = "30s"
   retry {
     attempts = 3
@@ -232,12 +232,12 @@ connector "external_api" {
     max      = "30s"
   }
 
-  # Autenticación saliente (para autenticarse con la API)
-  # GAP: Solo básico implementado, falta OAuth2, API Key dinámico
+  # Outgoing authentication (to authenticate with the API)
+  # GAP: Only basic implemented, missing OAuth2, dynamic API Key
   auth {
     type = "bearer"  # bearer, basic, api_key, oauth2, custom
 
-    # Bearer token estático
+    # Static bearer token
     bearer {
       token = env("API_TOKEN")
     }
@@ -250,24 +250,24 @@ connector "external_api" {
 
     # API Key
     api_key {
-      header = "X-API-Key"       # O "query" para query param
-      name   = "api_key"         # Nombre del param si es query
+      header = "X-API-Key"       # Or "query" for query param
+      name   = "api_key"         # Param name if query
       value  = env("API_KEY")
     }
 
     # OAuth2 Client Credentials
-    # GAP: No implementado
+    # GAP: Not implemented
     oauth2 {
       grant_type    = "client_credentials"
       token_url     = "https://auth.example.com/oauth/token"
       client_id     = env("CLIENT_ID")
       client_secret = env("CLIENT_SECRET")
       scopes        = ["read", "write"]
-      # Token caching automático
+      # Automatic token caching
     }
 
-    # OAuth2 con refresh token
-    # GAP: No implementado
+    # OAuth2 with refresh token
+    # GAP: Not implemented
     oauth2 {
       grant_type    = "refresh_token"
       token_url     = "https://auth.example.com/oauth/token"
@@ -284,40 +284,40 @@ connector "external_api" {
     }
   }
 
-  # Headers estáticos para todas las requests
+  # Static headers for all requests
   headers {
     "Accept"       = "application/json"
     "User-Agent"   = "Mycel/1.0"
-    "X-Request-ID" = "${uuid()}"  # Dinámico por request
+    "X-Request-ID" = "${uuid()}"  # Dynamic per request
   }
 
   # Circuit breaker
   circuit_breaker {
-    threshold         = 5      # Fallos para abrir
-    timeout           = "30s"  # Tiempo en open antes de half-open
-    success_threshold = 2      # Éxitos para cerrar
+    threshold         = 5      # Failures to open
+    timeout           = "30s"  # Time in open before half-open
+    success_threshold = 2      # Successes to close
   }
 
-  # TLS personalizado (para APIs con certs custom)
-  # GAP: No implementado
+  # Custom TLS (for APIs with custom certs)
+  # GAP: Not implemented
   tls {
     ca_cert             = "/path/to/ca.pem"
     client_cert         = "/path/to/client-cert.pem"
     client_key          = "/path/to/client-key.pem"
-    insecure_skip_verify = false  # Solo para desarrollo
+    insecure_skip_verify = false  # Only for development
   }
 }
 ```
 
-**Uso en flows:**
+**Usage in flows:**
 ```hcl
-# Como input (server)
+# As input (server)
 flow "get_users" {
   from { connector.api = "GET /users" }
   to   { connector.database = "users" }
 }
 
-# Como output (client)
+# As output (client)
 flow "sync_to_external" {
   from { connector.database = "SELECT * FROM users WHERE synced = false" }
   to   { connector.external_api = "POST /users" }
@@ -328,32 +328,32 @@ flow "sync_to_external" {
 
 ### Database (SQL)
 
-**Qué es:** Conexión a bases de datos relacionales (PostgreSQL, MySQL, SQLite).
+**What it is:** Connection to relational databases (PostgreSQL, MySQL, SQLite).
 
 **Drivers:** `postgres`, `mysql`, `sqlite`
 
-#### Configuración común
+#### Common configuration
 
 ```hcl
 connector "db" {
   type   = "database"
   driver = "postgres"  # postgres, mysql, sqlite
 
-  # Conexión
+  # Connection
   host     = env("DB_HOST")
   port     = 5432
   database = env("DB_NAME")
   username = env("DB_USER")
   password = env("DB_PASS")
 
-  # O connection string
+  # Or connection string
   # dsn = env("DATABASE_URL")
 
-  # Pool de conexiones
+  # Connection pool
   pool {
-    max_open = 25       # Conexiones máximas abiertas
-    max_idle = 5        # Conexiones idle máximas
-    max_lifetime = "1h" # Tiempo máximo de vida de una conexión
+    max_open = 25       # Maximum open connections
+    max_idle = 5        # Maximum idle connections
+    max_lifetime = "1h" # Maximum connection lifetime
   }
 
   # SSL/TLS
@@ -364,20 +364,20 @@ connector "db" {
     key      = "/path/to/client-key.pem"
   }
 
-  # Read replica (para queries de lectura)
-  # GAP: No implementado
+  # Read replica (for read queries)
+  # GAP: Not implemented
   replica {
     host     = env("DB_REPLICA_HOST")
     port     = 5432
-    # Hereda credenciales del principal
+    # Inherits credentials from primary
   }
 
-  # Schema default
+  # Default schema
   schema = "public"  # PostgreSQL
 }
 ```
 
-#### Como Input (leer datos)
+#### As Input (read data)
 
 ```hcl
 flow "get_users" {
@@ -390,7 +390,7 @@ flow "get_user_by_id" {
   to   { connector.db = "users WHERE id = :id" }
 }
 
-# Query raw
+# Raw query
 flow "complex_query" {
   from { connector.api = "GET /reports/sales" }
   to   {
@@ -407,7 +407,7 @@ flow "complex_query" {
 }
 ```
 
-#### Como Output (escribir datos)
+#### As Output (write data)
 
 ```hcl
 flow "create_user" {
@@ -430,24 +430,24 @@ flow "delete_user" {
 
 ### Database (NoSQL - MongoDB)
 
-**Qué es:** Conexión a MongoDB.
+**What it is:** Connection to MongoDB.
 
 ```hcl
 connector "mongo" {
   type   = "database"
   driver = "mongodb"
 
-  # Conexión
+  # Connection
   uri      = env("MONGO_URI")  # mongodb://user:pass@host:27017/db
   database = "myapp"
 
-  # O por partes
+  # Or by parts
   host     = env("MONGO_HOST")
   port     = 27017
   username = env("MONGO_USER")
   password = env("MONGO_PASS")
 
-  # Opciones
+  # Options
   auth_source  = "admin"
   replica_set  = "rs0"
 
@@ -465,21 +465,21 @@ connector "mongo" {
 }
 ```
 
-**Uso:**
+**Usage:**
 ```hcl
-# Input: leer documentos
+# Input: read documents
 flow "get_products" {
   from { connector.api = "GET /products" }
-  to   { connector.mongo = "products" }  # find en collection
+  to   { connector.mongo = "products" }  # find in collection
 }
 
-# Output: escribir documentos
+# Output: write documents
 flow "create_product" {
   from { connector.api = "POST /products" }
   to   { connector.mongo = "INSERT products" }
 }
 
-# Query con filtro
+# Query with filter
 flow "get_active_products" {
   from { connector.api = "GET /products/active" }
   to   {
@@ -497,23 +497,23 @@ flow "get_active_products" {
 
 ### Message Queue (RabbitMQ)
 
-**Qué es:** Conexión a RabbitMQ para mensajería asíncrona.
+**What it is:** Connection to RabbitMQ for asynchronous messaging.
 
-#### Configuración
+#### Configuration
 
 ```hcl
 connector "rabbit" {
   type   = "queue"
   driver = "rabbitmq"
 
-  # Conexión
+  # Connection
   host     = env("RABBIT_HOST")
   port     = 5672
   username = env("RABBIT_USER")
   password = env("RABBIT_PASS")
   vhost    = "/"
 
-  # O connection string
+  # Or connection string
   # url = "amqp://user:pass@host:5672/vhost"
 
   # TLS
@@ -522,11 +522,11 @@ connector "rabbit" {
     ca_cert = "/path/to/ca.pem"
   }
 
-  # Heartbeat y timeouts
+  # Heartbeat and timeouts
   heartbeat        = "10s"
   connection_timeout = "30s"
 
-  # Exchange default
+  # Default exchange
   exchange {
     name    = "myapp"
     type    = "topic"      # direct, topic, fanout, headers
@@ -534,21 +534,21 @@ connector "rabbit" {
     auto_delete = false
   }
 
-  # Prefetch (para consumers)
+  # Prefetch (for consumers)
   prefetch = 10
 
-  # Reconexión automática
+  # Automatic reconnection
   reconnect {
     enabled  = true
     interval = "5s"
-    max_attempts = 0  # 0 = infinito
+    max_attempts = 0  # 0 = infinite
   }
 }
 ```
 
-#### Como Input (Consumer) - Leer mensajes
+#### As Input (Consumer) - Read messages
 
-Mycel consume mensajes de una queue y ejecuta el flow.
+Mycel consumes messages from a queue and executes the flow.
 
 ```hcl
 flow "process_order" {
@@ -556,12 +556,12 @@ flow "process_order" {
     connector.rabbit = {
       queue = "orders"
 
-      # Configuración de la queue
+      # Queue configuration
       durable     = true
       auto_delete = false
       exclusive   = false
 
-      # Binding (de qué exchange/routing key viene)
+      # Binding (from which exchange/routing key)
       bind {
         exchange    = "myapp"
         routing_key = "order.created"
@@ -569,10 +569,10 @@ flow "process_order" {
 
       # Consumer
       consumer_tag = "mycel-orders"
-      auto_ack     = false  # Manual ack después de procesar
+      auto_ack     = false  # Manual ack after processing
 
-      # DLQ para mensajes fallidos
-      # GAP: Parcialmente implementado
+      # DLQ for failed messages
+      # GAP: Partially implemented
       dlq {
         enabled     = true
         queue       = "orders.dlq"
@@ -581,7 +581,7 @@ flow "process_order" {
         max_retries = 3
       }
 
-      # Parseo del mensaje
+      # Message parsing
       format = "json"  # json, msgpack, protobuf, raw
     }
   }
@@ -590,12 +590,12 @@ flow "process_order" {
 }
 ```
 
-**Acceso a headers del mensaje:**
+**Access to message headers:**
 ```hcl
 transform {
-  # El mensaje viene estructurado así:
-  # input.body    = contenido del mensaje
-  # input.headers = headers AMQP
+  # The message is structured as:
+  # input.body    = message content
+  # input.headers = AMQP headers
   # input.properties = properties (correlation_id, message_id, etc)
 
   order_id       = "input.body.id"
@@ -604,7 +604,7 @@ transform {
 }
 ```
 
-#### Como Output (Producer) - Publicar mensajes
+#### As Output (Producer) - Publish messages
 
 ```hcl
 flow "notify_order_created" {
@@ -615,23 +615,23 @@ flow "notify_order_created" {
       exchange    = "myapp"
       routing_key = "order.created"
 
-      # Propiedades del mensaje
-      persistent  = true       # Mensaje durable
-      mandatory   = true       # Error si no hay queue que lo reciba
+      # Message properties
+      persistent  = true       # Durable message
+      mandatory   = true       # Error if no queue receives it
 
-      # Headers custom
+      # Custom headers
       headers {
         "x-source"   = "mycel"
         "x-priority" = "high"
       }
 
-      # Properties AMQP
+      # AMQP properties
       content_type   = "application/json"
       correlation_id = "${input.id}"
       message_id     = "${uuid()}"
-      expiration     = "3600000"  # TTL en ms
+      expiration     = "3600000"  # TTL in ms
 
-      # Formato de serialización
+      # Serialization format
       format = "json"
     }
   }
@@ -642,9 +642,9 @@ flow "notify_order_created" {
 
 ### Message Queue (Kafka)
 
-**Qué es:** Conexión a Apache Kafka para streaming de eventos.
+**What it is:** Connection to Apache Kafka for event streaming.
 
-#### Configuración
+#### Configuration
 
 ```hcl
 connector "kafka" {
@@ -658,8 +658,8 @@ connector "kafka" {
     env("KAFKA_BROKER_3")
   ]
 
-  # Autenticación
-  # GAP: Solo SASL_PLAIN implementado
+  # Authentication
+  # GAP: Only SASL_PLAIN implemented
   auth {
     mechanism = "SASL_PLAIN"  # SASL_PLAIN, SASL_SCRAM_256, SASL_SCRAM_512
     username  = env("KAFKA_USER")
@@ -672,8 +672,8 @@ connector "kafka" {
     ca_cert = "/path/to/ca.pem"
   }
 
-  # Para Confluent Cloud u otros servicios managed
-  # GAP: No implementado
+  # For Confluent Cloud or other managed services
+  # GAP: Not implemented
   schema_registry {
     url      = "https://schema-registry.example.com"
     username = env("SR_USER")
@@ -682,7 +682,7 @@ connector "kafka" {
 }
 ```
 
-#### Como Input (Consumer)
+#### As Input (Consumer)
 
 ```hcl
 flow "process_events" {
@@ -693,24 +693,24 @@ flow "process_events" {
       # Consumer group
       group_id = "mycel-events"
 
-      # Offset inicial
+      # Initial offset
       offset = "earliest"  # earliest, latest, timestamp
 
-      # Particiones específicas (opcional)
+      # Specific partitions (optional)
       partitions = [0, 1, 2]
 
-      # Commit automático o manual
+      # Automatic or manual commit
       auto_commit = false
 
       # Batch processing
-      # GAP: No implementado
+      # GAP: Not implemented
       batch {
         enabled  = true
         size     = 100
         timeout  = "5s"
       }
 
-      # Formato
+      # Format
       format = "json"  # json, avro, protobuf
     }
   }
@@ -719,15 +719,15 @@ flow "process_events" {
 }
 ```
 
-**Acceso a metadata:**
+**Access to metadata:**
 ```hcl
 transform {
-  # input.body      = contenido del mensaje
-  # input.key       = key del mensaje
-  # input.headers   = headers Kafka
-  # input.partition = número de partición
-  # input.offset    = offset del mensaje
-  # input.timestamp = timestamp del mensaje
+  # input.body      = message content
+  # input.key       = message key
+  # input.headers   = Kafka headers
+  # input.partition = partition number
+  # input.offset    = message offset
+  # input.timestamp = message timestamp
 
   event_id  = "input.body.id"
   event_key = "input.key"
@@ -735,7 +735,7 @@ transform {
 }
 ```
 
-#### Como Output (Producer)
+#### As Output (Producer)
 
 ```hcl
 flow "emit_event" {
@@ -745,8 +745,8 @@ flow "emit_event" {
     connector.kafka = {
       topic = "events"
 
-      # Key para particionamiento
-      key = "${input.user_id}"  # Mensajes del mismo user van a misma partición
+      # Key for partitioning
+      key = "${input.user_id}"  # Messages from same user go to same partition
 
       # Headers
       headers {
@@ -754,13 +754,13 @@ flow "emit_event" {
         "source"     = "mycel"
       }
 
-      # Partición específica (override del key-based)
+      # Specific partition (overrides key-based)
       # partition = 0
 
       # Acks
       acks = "all"  # 0, 1, all
 
-      # Formato
+      # Format
       format = "json"
 
       # Compression
@@ -774,9 +774,9 @@ flow "emit_event" {
 
 ### gRPC
 
-**Qué es:** Protocolo RPC de alto rendimiento basado en Protocol Buffers.
+**What it is:** High-performance RPC protocol based on Protocol Buffers.
 
-#### Como Input (Server) - Exponer servicios gRPC
+#### As Input (Server) - Expose gRPC services
 
 ```hcl
 connector "grpc_server" {
@@ -787,8 +787,8 @@ connector "grpc_server" {
 
   # Proto files
   proto {
-    path = "./protos"           # Directorio con .proto files
-    files = ["service.proto"]   # O archivos específicos
+    path = "./protos"           # Directory with .proto files
+    files = ["service.proto"]   # Or specific files
   }
 
   # TLS
@@ -797,18 +797,18 @@ connector "grpc_server" {
     key  = "/path/to/key.pem"
   }
 
-  # Reflection (para herramientas como grpcurl)
+  # Reflection (for tools like grpcurl)
   reflection = true
 
-  # Health check gRPC estándar
+  # Standard gRPC health check
   health_check = true
 
   # Interceptors
-  # GAP: No implementado
+  # GAP: Not implemented
   interceptors {
     auth {
       type = "jwt"
-      # ... config similar a REST
+      # ... config similar to REST
     }
     logging = true
     metrics = true
@@ -820,7 +820,7 @@ connector "grpc_server" {
 }
 ```
 
-#### Como Output (Client) - Llamar servicios gRPC
+#### As Output (Client) - Call gRPC services
 
 ```hcl
 connector "grpc_client" {
@@ -840,24 +840,24 @@ connector "grpc_client" {
     ca_cert = "/path/to/ca.pem"
   }
 
-  # Sin TLS (desarrollo)
+  # No TLS (development)
   # insecure = true
 
   # Auth
-  # GAP: No implementado
+  # GAP: Not implemented
   auth {
     type = "bearer"
     token = env("GRPC_TOKEN")
   }
 
-  # Timeout y retry
+  # Timeout and retry
   timeout = "30s"
   retry {
     attempts = 3
   }
 
   # Load balancing
-  # GAP: No implementado
+  # GAP: Not implemented
   load_balancing = "round_robin"  # round_robin, pick_first
 }
 ```
@@ -866,9 +866,9 @@ connector "grpc_client" {
 
 ### TCP
 
-**Qué es:** Conexión TCP directa para protocolos custom o legacy.
+**What it is:** Direct TCP connection for custom or legacy protocols.
 
-#### Como Input (Server)
+#### As Input (Server)
 
 ```hcl
 connector "tcp_server" {
@@ -878,16 +878,16 @@ connector "tcp_server" {
   port = 9000
   host = "0.0.0.0"
 
-  # Protocolo de mensajes
+  # Message protocol
   protocol = "json"  # json, msgpack, line, length_prefixed, nestjs
 
-  # Para length_prefixed
+  # For length_prefixed
   length_prefix {
-    size   = 4       # Bytes del prefijo
+    size   = 4       # Prefix bytes
     endian = "big"   # big, little
   }
 
-  # Para line protocol
+  # For line protocol
   line {
     delimiter = "\n"
     max_length = 65536
@@ -899,14 +899,14 @@ connector "tcp_server" {
     key  = "/path/to/key.pem"
   }
 
-  # Conexiones
+  # Connections
   max_connections = 1000
   read_timeout    = "30s"
   write_timeout   = "30s"
 }
 ```
 
-#### Como Output (Client)
+#### As Output (Client)
 
 ```hcl
 connector "tcp_client" {
@@ -929,13 +929,13 @@ connector "tcp_client" {
   read_timeout    = "30s"
   write_timeout   = "30s"
 
-  # Reconexión
+  # Reconnection
   reconnect {
     enabled  = true
     interval = "5s"
   }
 
-  # Pool de conexiones
+  # Connection pool
   pool {
     size = 10
   }
@@ -946,30 +946,30 @@ connector "tcp_client" {
 
 ### Files
 
-**Qué es:** Lectura/escritura de archivos locales.
+**What it is:** Local file read/write.
 
 ```hcl
 connector "files" {
   type = "file"
 
-  # Directorio base
+  # Base directory
   base_path = "/data"
 
-  # Permisos para archivos nuevos
+  # Permissions for new files
   file_mode = "0644"
   dir_mode  = "0755"
 }
 ```
 
-**Uso:**
+**Usage:**
 ```hcl
-# Leer archivo
+# Read file
 flow "import_data" {
   from { connector.files = "input/data.json" }
   to   { connector.db = "INSERT data" }
 }
 
-# Escribir archivo
+# Write file
 flow "export_report" {
   from { connector.db = "SELECT * FROM reports" }
   to   {
@@ -981,7 +981,7 @@ flow "export_report" {
   }
 }
 
-# Con template en nombre
+# With template in filename
 flow "daily_export" {
   from { connector.db = "SELECT * FROM orders WHERE date = today()" }
   to   {
@@ -1001,7 +1001,7 @@ flow "daily_export" {
 
 ### S3
 
-**Qué es:** Almacenamiento de objetos compatible con S3 (AWS, MinIO, etc).
+**What it is:** S3-compatible object storage (AWS, MinIO, etc).
 
 ```hcl
 connector "s3" {
@@ -1013,26 +1013,26 @@ connector "s3" {
   access_key = env("AWS_ACCESS_KEY")
   secret_key = env("AWS_SECRET_KEY")
 
-  # O S3-compatible (MinIO, etc)
+  # Or S3-compatible (MinIO, etc)
   endpoint = "http://minio:9000"
 
-  # Path style (para MinIO)
+  # Path style (for MinIO)
   force_path_style = true
 
-  # Prefix default para todos los objetos
+  # Default prefix for all objects
   prefix = "mycel/"
 }
 ```
 
-**Uso:**
+**Usage:**
 ```hcl
-# Leer objeto
+# Read object
 flow "import_from_s3" {
   from { connector.s3 = "data/input.json" }
   to   { connector.db = "INSERT data" }
 }
 
-# Escribir objeto
+# Write object
 flow "backup_to_s3" {
   from { connector.db = "SELECT * FROM users" }
   to   {
@@ -1051,7 +1051,7 @@ flow "backup_to_s3" {
   }
 }
 
-# Generar presigned URL
+# Generate presigned URL
 flow "get_download_url" {
   from { connector.api = "GET /files/:key/url" }
   to   {
@@ -1068,28 +1068,28 @@ flow "get_download_url" {
 
 ### Cache
 
-**Qué es:** Almacenamiento en caché para acelerar accesos frecuentes.
+**What it is:** Cache storage to speed up frequent access.
 
 **Drivers:** `memory`, `redis`
 
 ```hcl
-# Memory (local, para desarrollo o single-instance)
+# Memory (local, for development or single-instance)
 connector "cache" {
   type   = "cache"
   driver = "memory"
 
-  # Límites
+  # Limits
   max_size = "100MB"
   max_items = 10000
 
-  # TTL default
+  # Default TTL
   ttl = "10m"
 
   # Eviction policy
   eviction = "lru"  # lru, lfu
 }
 
-# Redis (distribuido)
+# Redis (distributed)
 connector "cache" {
   type   = "cache"
   driver = "redis"
@@ -1099,18 +1099,18 @@ connector "cache" {
   password = env("REDIS_PASS")
   db       = 0
 
-  # Prefix para keys
+  # Key prefix
   prefix = "mycel:"
 
   # Cluster
-  # GAP: No implementado
+  # GAP: Not implemented
   cluster {
     enabled = true
     nodes   = ["redis1:6379", "redis2:6379", "redis3:6379"]
   }
 
   # Sentinel
-  # GAP: No implementado
+  # GAP: Not implemented
   sentinel {
     master = "mymaster"
     nodes  = ["sentinel1:26379", "sentinel2:26379"]
@@ -1118,7 +1118,7 @@ connector "cache" {
 }
 ```
 
-**Uso en flows:**
+**Usage in flows:**
 ```hcl
 flow "get_product" {
   cache {
@@ -1136,41 +1136,41 @@ flow "get_product" {
 
 ### Exec
 
-**Qué es:** Ejecutar comandos del sistema o scripts.
+**What it is:** Execute system commands or scripts.
 
 ```hcl
 connector "exec" {
   type = "exec"
 
-  # Directorio de trabajo
+  # Working directory
   working_dir = "/app/scripts"
 
-  # Variables de entorno adicionales
+  # Additional environment variables
   env {
     PATH = "/usr/local/bin:/usr/bin"
     MY_VAR = "value"
   }
 
-  # Timeout default
+  # Default timeout
   timeout = "60s"
 
   # Shell
   shell = "/bin/bash"
 
-  # SSH remoto
-  # GAP: Implementado pero limitado
+  # Remote SSH
+  # GAP: Implemented but limited
   ssh {
     host     = env("SSH_HOST")
     port     = 22
     user     = env("SSH_USER")
     key_file = "/path/to/key"
-    # O password
+    # Or password
     # password = env("SSH_PASS")
   }
 }
 ```
 
-**Uso:**
+**Usage:**
 ```hcl
 flow "run_script" {
   from { connector.api = "POST /jobs/run" }
@@ -1189,7 +1189,7 @@ flow "get_stats" {
   to   {
     connector.exec = {
       command = "df -h | grep /dev/sda"
-      shell   = true  # Ejecutar en shell
+      shell   = true  # Execute in shell
     }
   }
 }
@@ -1199,9 +1199,9 @@ flow "get_stats" {
 
 ### GraphQL
 
-**Qué es:** Protocolo de consulta flexible para APIs.
+**What it is:** Flexible query protocol for APIs.
 
-#### Como Input (Server) - Exponer API GraphQL
+#### As Input (Server) - Expose GraphQL API
 
 ```hcl
 connector "graphql" {
@@ -1234,29 +1234,29 @@ connector "graphql" {
     }
   SDL
 
-  # O desde archivo
+  # Or from file
   # schema_file = "./schema.graphql"
 
   # Playground/GraphiQL
   playground = true
 
-  # Auth (similar a REST)
-  # GAP: No integrado
+  # Auth (similar to REST)
+  # GAP: Not integrated
   auth {
     type = "jwt"
     # ...
   }
 
   # Introspection
-  introspection = true  # false en producción
+  introspection = true  # false in production
 
-  # Límites
+  # Limits
   max_depth       = 10
   max_complexity  = 1000
 }
 ```
 
-#### Como Output (Client) - Llamar APIs GraphQL
+#### As Output (Client) - Call GraphQL APIs
 
 ```hcl
 connector "graphql_client" {
@@ -1281,7 +1281,7 @@ connector "graphql_client" {
 }
 ```
 
-**Uso:**
+**Usage:**
 ```hcl
 # Query
 flow "get_external_users" {
@@ -1327,15 +1327,15 @@ flow "create_external_user" {
 
 ---
 
-## 3. Sincronización
+## 3. Synchronization
 
 ### Lock (Mutex)
 
-**Qué es:** Exclusión mutua distribuida. Garantiza que solo un flow procese un recurso específico a la vez.
+**What it is:** Distributed mutual exclusion. Guarantees that only one flow processes a specific resource at a time.
 
-**Cuándo usarlo:**
-- Evitar procesamiento duplicado del mismo pedido
-- Operaciones que no pueden ser concurrentes (ej: actualizar saldo)
+**When to use:**
+- Avoid duplicate processing of the same order
+- Operations that cannot be concurrent (e.g., update balance)
 
 ```hcl
 flow "process_order" {
@@ -1344,7 +1344,7 @@ flow "process_order" {
     storage = "connector.redis"
     timeout = "30s"
 
-    # Qué hacer si no se puede adquirir el lock
+    # What to do if lock cannot be acquired
     on_fail = "wait"  # wait, skip, fail
     wait_timeout = "10s"
   }
@@ -1358,17 +1358,17 @@ flow "process_order" {
 
 ### Semaphore
 
-**Qué es:** Limitar concurrencia a N ejecuciones simultáneas.
+**What it is:** Limit concurrency to N simultaneous executions.
 
-**Cuándo usarlo:**
-- Rate limiting hacia APIs externas que tienen límites
-- Limitar carga en recursos compartidos
+**When to use:**
+- Rate limiting towards external APIs that have limits
+- Limit load on shared resources
 
 ```hcl
 flow "call_external_api" {
   semaphore {
     key     = "external_api"
-    permits = 5  # Máximo 5 requests concurrentes
+    permits = 5  # Maximum 5 concurrent requests
     storage = "connector.redis"
     timeout = "30s"
 
@@ -1385,14 +1385,14 @@ flow "call_external_api" {
 
 ### Coordinate (Signal/Wait)
 
-**Qué es:** Coordinar ejecución entre flows dependientes. Un flow espera hasta que otro señalice.
+**What it is:** Coordinate execution between dependent flows. One flow waits until another signals.
 
-**Cuándo usarlo:**
-- Procesar items hijo solo después de que el padre existe
-- Sincronizar flujos paralelos
+**When to use:**
+- Process child items only after parent exists
+- Synchronize parallel flows
 
 ```hcl
-# Flow que procesa el parent y señaliza
+# Flow that processes the parent and signals
 flow "process_order" {
   from { connector.rabbit = "orders" }
 
@@ -1404,19 +1404,19 @@ flow "process_order" {
   to { connector.db = "INSERT orders" }
 }
 
-# Flow que espera al parent
+# Flow that waits for the parent
 flow "process_order_item" {
   wait {
     key     = "'order:' + input.order_id"
     storage = "connector.redis"
     timeout = "5m"
 
-    # Verificación previa en DB
+    # Prior verification in DB
     check {
       connector.db = "SELECT 1 FROM orders WHERE id = :order_id"
     }
 
-    # Qué hacer si timeout
+    # What to do on timeout
     on_timeout = "retry"  # fail, skip, retry, dlq
     max_retries = 3
   }
@@ -1430,24 +1430,24 @@ flow "process_order_item" {
 
 ### Flow Triggers (when)
 
-**Qué es:** Definir cuándo se ejecuta un flow además del trigger normal del `from`.
+**What it is:** Define when a flow executes besides the normal `from` trigger.
 
 ```hcl
-# Por defecto: se ejecuta cuando llega algo al from
+# Default: executes when something arrives at from
 flow "on_request" {
   from { connector.api = "GET /data" }
   to   { connector.db = "data" }
 }
 
-# Cron: ejecutar en horarios específicos
+# Cron: execute at specific schedules
 flow "daily_report" {
-  when = "0 3 * * *"  # 3am todos los días
+  when = "0 3 * * *"  # 3am every day
 
   from { connector.db = "SELECT * FROM sales WHERE date = yesterday()" }
   to   { connector.email = "reports@example.com" }
 }
 
-# Interval: ejecutar cada X tiempo
+# Interval: execute every X time
 flow "health_check" {
   when = "@every 1m"
 
@@ -1466,15 +1466,15 @@ flow "weekly_cleanup" {
 
 ---
 
-## 4. Extensibilidad
+## 4. Extensibility
 
 ### Functions (WASM)
 
-**Qué es:** Funciones custom compiladas a WASM que se pueden usar en expresiones CEL.
+**What it is:** Custom functions compiled to WASM that can be used in CEL expressions.
 
-**Cuándo usarlo:**
-- Lógica de negocio compleja que no se puede expresar en CEL
-- Algoritmos específicos (pricing, scoring, etc)
+**When to use:**
+- Complex business logic that cannot be expressed in CEL
+- Specific algorithms (pricing, scoring, etc)
 
 ```hcl
 functions "pricing" {
@@ -1483,7 +1483,7 @@ functions "pricing" {
 }
 ```
 
-**Uso en transforms:**
+**Usage in transforms:**
 ```hcl
 transform {
   subtotal = "calculate_price(input.items)"
@@ -1497,20 +1497,20 @@ transform {
 
 ### Plugins
 
-**Qué es:** Extensiones que agregan nuevos tipos de connectors via WASM.
+**What it is:** Extensions that add new connector types via WASM.
 
-**Cuándo usarlo:**
-- Integrar sistemas no soportados nativamente (Salesforce, SAP, etc)
-- Protocolos propietarios
+**When to use:**
+- Integrate systems not natively supported (Salesforce, SAP, etc)
+- Proprietary protocols
 
 ```hcl
-# Declarar plugin
+# Declare plugin
 plugin "salesforce" {
-  source  = "./plugins/salesforce"  # O "registry/salesforce"
+  source  = "./plugins/salesforce"  # Or "registry/salesforce"
   version = "1.0.0"
 }
 
-# Usar connector del plugin
+# Use connector from plugin
 connector "sf" {
   type = "salesforce"
 
@@ -1524,29 +1524,29 @@ connector "sf" {
 
 ### Aspects (AOP)
 
-**Qué es:** Cross-cutting concerns aplicados automáticamente a múltiples flows por pattern matching.
+**What it is:** Cross-cutting concerns applied automatically to multiple flows by pattern matching.
 
-**Cuándo usarlo:**
-- Audit logging en todas las operaciones de escritura
-- Cache automática en todas las lecturas
-- Métricas custom en todos los flows
+**When to use:**
+- Audit logging on all write operations
+- Automatic cache on all reads
+- Custom metrics on all flows
 
 ```hcl
 aspect "audit_log" {
-  # Cuándo ejecutar
+  # When to execute
   when = "after"  # before, after, around, on_error
 
-  # A qué flows aplicar (glob patterns)
+  # Which flows to apply to (glob patterns)
   on = [
     "flows/**/create_*.hcl",
     "flows/**/update_*.hcl",
     "flows/**/delete_*.hcl"
   ]
 
-  # Excluir
+  # Exclude
   except = ["flows/internal/*"]
 
-  # Acción a ejecutar
+  # Action to execute
   action {
     connector.audit_db = {
       operation = "INSERT audit_logs"
@@ -1578,13 +1578,13 @@ aspect "cache_reads" {
 
 ## 5. Authentication System
 
-**Qué es:** Sistema de autenticación enterprise-grade declarativo.
+**What it is:** Enterprise-grade declarative authentication system.
 
-### Configuración básica
+### Basic configuration
 
 ```hcl
 auth {
-  # Preset base (strict, standard, relaxed, development)
+  # Base preset (strict, standard, relaxed, development)
   preset = "standard"
 
   # JWT
@@ -1624,7 +1624,7 @@ auth {
   # MFA
   mfa {
     enabled  = true
-    required = false  # true = obligatorio para todos
+    required = false  # true = mandatory for everyone
 
     totp {
       issuer = "MyApp"
@@ -1644,12 +1644,12 @@ auth {
 
   # Storage
   storage {
-    users    = "connector.db"  # Tabla users
+    users    = "connector.db"  # users table
     sessions = "connector.redis"
     tokens   = "connector.redis"
   }
 
-  # Endpoints (opcionales, defaults razonables)
+  # Endpoints (optional, reasonable defaults)
   endpoints {
     login           = "POST /auth/login"
     logout          = "POST /auth/logout"
@@ -1664,24 +1664,24 @@ auth {
 
 ---
 
-## Resumen de GAPs Identificados
+## Summary of Identified GAPs
 
 ### REST Input (Server)
-- [x] Auth entrante (JWT, API Key, Basic, OAuth2 validation) ✅
+- [x] Incoming auth (JWT, API Key, Basic, OAuth2 validation) ✅
 - [x] Required headers validation ✅
-- [x] Response headers custom ✅
+- [x] Custom response headers ✅
 
 ### REST Output (Client)
-- [x] OAuth2 client credentials con token refresh ✅
+- [x] OAuth2 client credentials with token refresh ✅
 - [x] OAuth2 refresh token flow ✅
-- [x] TLS con client certificates ✅
+- [x] TLS with client certificates ✅
 - [x] Dynamic API key (from DB/service) ✅
 
 ### Database
-- [x] Read replica routing ✅ (PostgreSQL y MySQL)
+- [x] Read replica routing ✅ (PostgreSQL and MySQL)
 
 ### Message Queues
-- [x] DLQ completo con retry count ✅ (RabbitMQ)
+- [x] Complete DLQ with retry count ✅ (RabbitMQ)
 - [x] Kafka SASL_SCRAM authentication ✅
 - [x] Kafka Schema Registry integration ✅
 - [x] Kafka batch processing ✅
@@ -1697,4 +1697,4 @@ auth {
 
 ### General
 - [x] Aspects (AOP) ✅ (before, after, around, on_error)
-- [x] Sync primitives ✅ (Lock, Semaphore, Coordinate con Redis y Memory backends)
+- [x] Sync primitives ✅ (Lock, Semaphore, Coordinate with Redis and Memory backends)
