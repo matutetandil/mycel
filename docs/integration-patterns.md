@@ -1203,3 +1203,517 @@ transform {
 - [Data Enrichment](../examples/enrich/README.md)
 - [TCP Connector](../examples/tcp/README.md)
 - [Transformations Guide](./transformations.md)
+
+---
+
+## Event-Driven Integration Patterns
+
+The following patterns show complete, production-ready examples for event-driven architectures with RabbitMQ as the central message broker. All examples are available in `examples/integration/`.
+
+### Pattern: RabbitMQ → REST
+
+**Use case:** Consume messages from a queue and call external REST APIs.
+
+**Common scenarios:**
+- Process orders and notify fulfillment service
+- Sync data to external CRM/ERP systems
+- Trigger webhooks based on events
+
+```hcl
+connector "rabbit" {
+  type   = "queue"
+  driver = "rabbitmq"
+  host   = env("RABBIT_HOST")
+  # ...
+}
+
+connector "fulfillment_api" {
+  type     = "rest"
+  mode     = "client"
+  base_url = env("FULFILLMENT_API_URL")
+
+  auth {
+    type = "bearer"
+    bearer { token = env("API_TOKEN") }
+  }
+
+  retry {
+    attempts = 3
+    backoff  = "exponential"
+  }
+
+  circuit_breaker {
+    threshold = 5
+    timeout   = "30s"
+  }
+}
+
+flow "process_order" {
+  from {
+    connector.rabbit = {
+      queue   = "orders.pending"
+      durable = true
+
+      bind {
+        exchange    = "orders"
+        routing_key = "order.created"
+      }
+
+      dlq {
+        enabled     = true
+        queue       = "orders.pending.dlq"
+        max_retries = 3
+      }
+    }
+  }
+
+  transform {
+    output.external_id = "input.body.order_id"
+    output.customer    = "input.body.customer"
+    output.items       = "input.body.items"
+  }
+
+  to {
+    connector.fulfillment_api = "POST /v1/shipments"
+  }
+}
+```
+
+📁 Full example: `examples/integration/rabbit-to-rest/`
+
+---
+
+### Pattern: RabbitMQ → GraphQL
+
+**Use case:** Consume messages from a queue and call GraphQL APIs.
+
+**Common scenarios:**
+- Update inventory in a GraphQL-based product service
+- Sync user data to Hasura/Apollo backend
+- Trigger mutations based on domain events
+
+```hcl
+connector "inventory_graphql" {
+  type     = "graphql"
+  mode     = "client"
+  endpoint = env("INVENTORY_GRAPHQL_URL")
+
+  auth {
+    type = "bearer"
+    bearer { token = env("GRAPHQL_TOKEN") }
+  }
+}
+
+flow "update_inventory" {
+  from {
+    connector.rabbit = {
+      queue   = "inventory.updates"
+      durable = true
+
+      bind {
+        exchange    = "inventory"
+        routing_key = "stock.changed"
+      }
+    }
+  }
+
+  to {
+    connector.inventory_graphql = {
+      query = <<GRAPHQL
+        mutation UpdateStock($sku: String!, $quantity: Int!) {
+          updateInventory(input: { sku: $sku, quantity: $quantity }) {
+            success
+            inventory { id, sku, quantity }
+          }
+        }
+      GRAPHQL
+      variables {
+        sku      = "${input.body.sku}"
+        quantity = "${input.body.new_quantity}"
+      }
+    }
+  }
+}
+```
+
+📁 Full example: `examples/integration/rabbit-to-graphql/`
+
+---
+
+### Pattern: RabbitMQ → Exec
+
+**Use case:** Consume messages from a queue and execute local processes/scripts.
+
+**Common scenarios:**
+- PDF generation, image processing, video transcoding
+- Run data processing scripts (Python, R, shell)
+- Execute legacy system integrations
+- Trigger batch jobs
+
+```hcl
+connector "exec" {
+  type        = "exec"
+  working_dir = "/app/scripts"
+  timeout     = "5m"
+  shell       = "/bin/bash"
+}
+
+flow "process_image" {
+  # Limit concurrent image processing
+  semaphore {
+    key     = "image_processing"
+    permits = 3
+    storage = "memory"
+    on_fail = "wait"
+  }
+
+  from {
+    connector.rabbit = {
+      queue = "images.processing"
+      bind {
+        exchange    = "images"
+        routing_key = "image.*"
+      }
+    }
+  }
+
+  to {
+    connector.exec = {
+      command = "./process_image.sh"
+      args    = [
+        "${input.body.source_path}",
+        "${input.body.dest_path}",
+        "${input.body.operation}"
+      ]
+      timeout = "3m"
+    }
+  }
+}
+```
+
+📁 Full example: `examples/integration/rabbit-to-exec/`
+
+---
+
+### Pattern: REST → RabbitMQ (API Gateway)
+
+**Use case:** Receive HTTP requests and publish messages to a queue.
+
+**Common scenarios:**
+- API Gateway that decouples request handling from processing
+- Webhook receivers that queue events for async processing
+- Command endpoints that trigger background jobs
+
+```hcl
+connector "api" {
+  type = "rest"
+  mode = "server"
+  port = 8080
+
+  rate_limit {
+    requests = 1000
+    window   = "1m"
+    by       = "ip"
+  }
+}
+
+connector "rabbit" {
+  type   = "queue"
+  driver = "rabbitmq"
+
+  exchange {
+    name    = "events"
+    type    = "topic"
+    durable = true
+  }
+}
+
+flow "create_order" {
+  from {
+    connector.api = "POST /orders"
+  }
+
+  transform {
+    output.order_id   = "input.order_id ?? uuid()"
+    output.customer   = "input.customer"
+    output.items      = "input.items"
+    output.created_at = "now()"
+  }
+
+  to {
+    connector.rabbit = {
+      exchange    = "events"
+      routing_key = "order.created"
+      persistent  = true
+
+      headers {
+        "x-request-id" = "${context.request_id}"
+      }
+    }
+  }
+
+  response {
+    status = 202
+    body = {
+      message  = "Order received"
+      order_id = "${output.order_id}"
+    }
+  }
+}
+
+flow "receive_webhook" {
+  from {
+    connector.api = "POST /webhooks/:provider"
+  }
+
+  transform {
+    output.provider   = "input.params.provider"
+    output.event_type = "input.headers['x-event-type']"
+    output.payload    = "input.body"
+  }
+
+  to {
+    connector.rabbit = {
+      exchange    = "events"
+      routing_key = "'webhook.' + output.provider + '.' + output.event_type"
+      persistent  = true
+    }
+  }
+
+  response {
+    status = 200
+    body   = { received = true }
+  }
+}
+```
+
+📁 Full example: `examples/integration/rest-to-rabbit/`
+
+---
+
+### Pattern: File → RabbitMQ (Scheduled Import)
+
+**Use case:** Read files periodically and publish content to queue.
+
+**Common scenarios:**
+- Process drop folders (CSV imports, data feeds)
+- Watch for new files and trigger processing
+- Batch file processing on schedule
+- Log file tailing and event streaming
+
+```hcl
+connector "files" {
+  type      = "file"
+  base_path = "/data"
+}
+
+connector "rabbit" {
+  type   = "queue"
+  driver = "rabbitmq"
+
+  exchange {
+    name    = "imports"
+    type    = "topic"
+    durable = true
+  }
+}
+
+flow "process_daily_import" {
+  when = "0 6 * * *"  # Every day at 6am
+
+  from {
+    connector.files = {
+      path   = "imports/daily/*.csv"
+      format = "csv"
+      glob   = true
+
+      csv {
+        delimiter = ","
+        header    = true
+      }
+
+      on_success { move_to = "imports/archive/" }
+      on_error   { move_to = "imports/failed/" }
+    }
+  }
+
+  foreach "row" in "input.rows" {
+    transform {
+      output.record_id   = "row.id ?? uuid()"
+      output.data        = "row"
+      output.source      = "input.file_name"
+      output.imported_at = "now()"
+    }
+
+    to {
+      connector.rabbit = {
+        exchange    = "imports"
+        routing_key = "import.daily.record"
+        persistent  = true
+      }
+    }
+  }
+}
+
+flow "watch_drop_folder" {
+  when = "@every 30s"
+
+  from {
+    connector.files = {
+      path = "dropbox/*.json"
+      glob = true
+
+      filter {
+        newer_than = "30s"
+      }
+    }
+  }
+
+  to {
+    connector.rabbit = {
+      exchange    = "imports"
+      routing_key = "file.dropped"
+      persistent  = true
+    }
+  }
+}
+```
+
+📁 Full example: `examples/integration/file-to-rabbit/`
+
+---
+
+## Complete Event-Driven Architecture
+
+Real-world systems combine multiple patterns:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Mycel Service                         │
+│                                                              │
+│  ┌──────────┐     ┌──────────┐     ┌──────────────────┐     │
+│  │ REST API │────▶│ RabbitMQ │────▶│ External REST API │     │
+│  └──────────┘     └──────────┘     └──────────────────┘     │
+│                         │                                    │
+│                         ├─────────▶ GraphQL Backend          │
+│                         │                                    │
+│                         └─────────▶ Exec (Scripts)           │
+│                                                              │
+│  ┌──────────┐                                                │
+│  │ Files/S3 │─────────────────────▶ RabbitMQ                 │
+│  └──────────┘                                                │
+│     (cron)                                                   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Example: Order Processing Pipeline
+
+```hcl
+# 1. Receive order via API
+flow "receive_order" {
+  from { connector.api = "POST /orders" }
+  to   { connector.rabbit = { exchange = "orders", routing_key = "order.received" } }
+}
+
+# 2. Validate inventory
+flow "validate_inventory" {
+  from { connector.rabbit = { queue = "orders.validation" } }
+  to   { connector.inventory_graphql = { query = "..." } }
+}
+
+# 3. Process payment
+flow "process_payment" {
+  from { connector.rabbit = { queue = "orders.payment" } }
+  to   { connector.payment_api = "POST /v1/charges" }
+}
+
+# 4. Generate invoice PDF
+flow "generate_invoice" {
+  from { connector.rabbit = { queue = "orders.invoice" } }
+  to   { connector.exec = { command = "./generate_invoice.py" } }
+}
+
+# 5. Notify customer
+flow "send_notification" {
+  from { connector.rabbit = { queue = "orders.notify" } }
+  to   { connector.email = { to = "${input.body.customer.email}" } }
+}
+```
+
+---
+
+## Best Practices
+
+### 1. Always Use DLQ for Critical Flows
+
+```hcl
+from {
+  connector.rabbit = {
+    queue = "critical.queue"
+
+    dlq {
+      enabled     = true
+      queue       = "critical.queue.dlq"
+      max_retries = 3
+    }
+  }
+}
+```
+
+### 2. Use Semaphores for Rate-Limited APIs
+
+```hcl
+flow "call_rate_limited_api" {
+  semaphore {
+    key     = "external_api"
+    permits = 5  # Max 5 concurrent calls
+    storage = "redis"
+  }
+  # ...
+}
+```
+
+### 3. Use Locks for Non-Idempotent Operations
+
+```hcl
+flow "process_payment" {
+  lock {
+    key     = "'payment:' + input.body.payment_id"
+    storage = "redis"
+    timeout = "5m"
+  }
+  # ...
+}
+```
+
+### 4. Configure Circuit Breakers for External Services
+
+```hcl
+connector "external_api" {
+  type = "rest"
+
+  circuit_breaker {
+    threshold         = 5
+    timeout           = "30s"
+    success_threshold = 2
+  }
+}
+```
+
+### 5. Use Appropriate Message Persistence
+
+```hcl
+# Critical messages - persistent
+to {
+  connector.rabbit = {
+    persistent = true  # Survives broker restart
+  }
+}
+
+# Ephemeral messages - non-persistent
+to {
+  connector.rabbit = {
+    persistent = false  # Faster, but lost on restart
+  }
+}
+```
