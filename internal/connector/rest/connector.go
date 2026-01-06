@@ -27,6 +27,7 @@ type Connector struct {
 	server      *http.Server
 	mux         *http.ServeMux
 	cors        *CORSConfig
+	authConfig  *AuthConfig
 	logger      *slog.Logger
 	health      *health.Manager
 	metrics     *metrics.Registry
@@ -146,6 +147,12 @@ func (c *Connector) Start(ctx context.Context) error {
 
 	// Apply CORS
 	handler = c.corsMiddleware(handler)
+
+	// Apply authentication if configured
+	if c.authConfig != nil {
+		handler = c.authMiddleware(handler)
+		c.logger.Info("authentication enabled", "type", c.authConfig.Type)
+	}
 
 	// Create server
 	c.server = &http.Server{

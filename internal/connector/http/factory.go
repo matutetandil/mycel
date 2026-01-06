@@ -73,8 +73,14 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 		auth = parseAuthConfig(authCfg)
 	}
 
-	// Create connector
-	conn := New(cfg.Name, baseURL, timeout, auth, headers, retryCount)
+	// Parse TLS config (optional)
+	var tlsCfg *TLSConfig
+	if tlsMap, ok := cfg.Properties["tls"].(map[string]interface{}); ok {
+		tlsCfg = parseTLSConfig(tlsMap)
+	}
+
+	// Create connector with TLS
+	conn := NewWithTLS(cfg.Name, baseURL, timeout, auth, tlsCfg, headers, retryCount)
 
 	return conn, nil
 }
@@ -92,10 +98,21 @@ func parseAuthConfig(cfg map[string]interface{}) *AuthConfig {
 			auth.Type = AuthTypeBearer
 		case "oauth2":
 			auth.Type = AuthTypeOAuth2
+		case "client_credentials":
+			auth.Type = AuthTypeClientCredentials
 		case "apikey", "api_key":
 			auth.Type = AuthTypeAPIKey
 		case "basic":
 			auth.Type = AuthTypeBasic
+		}
+	}
+
+	// Grant type (for OAuth2)
+	if grantType, ok := cfg["grant_type"].(string); ok {
+		auth.GrantType = grantType
+		// If grant_type is client_credentials but type is oauth2, upgrade
+		if grantType == "client_credentials" && auth.Type == AuthTypeOAuth2 {
+			auth.Type = AuthTypeClientCredentials
 		}
 	}
 
@@ -145,4 +162,24 @@ func parseAuthConfig(cfg map[string]interface{}) *AuthConfig {
 	}
 
 	return auth
+}
+
+// parseTLSConfig parses TLS configuration from HCL.
+func parseTLSConfig(cfg map[string]interface{}) *TLSConfig {
+	tls := &TLSConfig{}
+
+	if caCert, ok := cfg["ca_cert"].(string); ok {
+		tls.CACert = caCert
+	}
+	if clientCert, ok := cfg["client_cert"].(string); ok {
+		tls.ClientCert = clientCert
+	}
+	if clientKey, ok := cfg["client_key"].(string); ok {
+		tls.ClientKey = clientKey
+	}
+	if insecure, ok := cfg["insecure_skip_verify"].(bool); ok {
+		tls.InsecureSkipVerify = insecure
+	}
+
+	return tls
 }

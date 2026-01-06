@@ -4,11 +4,14 @@ package http
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +26,7 @@ type Connector struct {
 	timeout    time.Duration
 	client     *http.Client
 	auth       *AuthConfig
+	tlsConfig  *TLSConfig
 	headers    map[string]string
 	retryCount int
 
@@ -40,11 +44,14 @@ type AuthConfig struct {
 	Token string
 
 	// OAuth2 with refresh token
-	RefreshToken  string
-	TokenURL      string
-	ClientID      string
-	ClientSecret  string
-	Scopes        []string
+	RefreshToken string
+	TokenURL     string
+	ClientID     string
+	ClientSecret string
+	Scopes       []string
+
+	// OAuth2 grant type: "refresh_token" (default) or "client_credentials"
+	GrantType string
 
 	// API Key auth
 	APIKey       string
@@ -56,19 +63,38 @@ type AuthConfig struct {
 	Password string
 }
 
+// TLSConfig holds TLS configuration for client certificates.
+type TLSConfig struct {
+	// CA certificate for verifying server
+	CACert string
+
+	// Client certificate and key for mTLS
+	ClientCert string
+	ClientKey  string
+
+	// Skip server verification (insecure, only for development)
+	InsecureSkipVerify bool
+}
+
 // AuthType represents the type of authentication.
 type AuthType string
 
 const (
-	AuthTypeNone    AuthType = "none"
-	AuthTypeBearer  AuthType = "bearer"
-	AuthTypeOAuth2  AuthType = "oauth2"
-	AuthTypeAPIKey  AuthType = "apikey"
-	AuthTypeBasic   AuthType = "basic"
+	AuthTypeNone              AuthType = "none"
+	AuthTypeBearer            AuthType = "bearer"
+	AuthTypeOAuth2            AuthType = "oauth2"
+	AuthTypeClientCredentials AuthType = "client_credentials"
+	AuthTypeAPIKey            AuthType = "apikey"
+	AuthTypeBasic             AuthType = "basic"
 )
 
 // New creates a new HTTP client connector.
 func New(name, baseURL string, timeout time.Duration, auth *AuthConfig, headers map[string]string, retryCount int) *Connector {
+	return NewWithTLS(name, baseURL, timeout, auth, nil, headers, retryCount)
+}
+
+// NewWithTLS creates a new HTTP client connector with TLS configuration.
+func NewWithTLS(name, baseURL string, timeout time.Duration, auth *AuthConfig, tlsCfg *TLSConfig, headers map[string]string, retryCount int) *Connector {
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
@@ -79,17 +105,63 @@ func New(name, baseURL string, timeout time.Duration, auth *AuthConfig, headers 
 		headers = make(map[string]string)
 	}
 
+	// Build HTTP client with optional TLS
+	transport := &http.Transport{}
+	if tlsCfg != nil {
+		tlsConf, err := buildTLSConfig(tlsCfg)
+		if err == nil && tlsConf != nil {
+			transport.TLSClientConfig = tlsConf
+		}
+	}
+
 	return &Connector{
 		name:       name,
 		baseURL:    strings.TrimSuffix(baseURL, "/"),
 		timeout:    timeout,
 		auth:       auth,
+		tlsConfig:  tlsCfg,
 		headers:    headers,
 		retryCount: retryCount,
 		client: &http.Client{
-			Timeout: timeout,
+			Timeout:   timeout,
+			Transport: transport,
 		},
 	}
+}
+
+// buildTLSConfig builds a TLS configuration from TLSConfig.
+func buildTLSConfig(cfg *TLSConfig) (*tls.Config, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	tlsConf := &tls.Config{
+		InsecureSkipVerify: cfg.InsecureSkipVerify,
+	}
+
+	// Load CA certificate
+	if cfg.CACert != "" {
+		caCert, err := os.ReadFile(cfg.CACert)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA cert: %w", err)
+		}
+		caCertPool := x509.NewCertPool()
+		if !caCertPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA cert")
+		}
+		tlsConf.RootCAs = caCertPool
+	}
+
+	// Load client certificate
+	if cfg.ClientCert != "" && cfg.ClientKey != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.ClientCert, cfg.ClientKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client cert: %w", err)
+		}
+		tlsConf.Certificates = []tls.Certificate{cert}
+	}
+
+	return tlsConf, nil
 }
 
 // Name returns the connector name.
@@ -109,10 +181,17 @@ func (c *Connector) Connect(ctx context.Context) error {
 		return fmt.Errorf("invalid base URL: %w", err)
 	}
 
-	// If OAuth2, get initial access token
+	// If OAuth2 with refresh token, get initial access token
 	if c.auth != nil && c.auth.Type == AuthTypeOAuth2 {
 		if err := c.refreshAccessToken(ctx); err != nil {
 			return fmt.Errorf("failed to get initial access token: %w", err)
+		}
+	}
+
+	// If Client Credentials, get initial access token
+	if c.auth != nil && c.auth.Type == AuthTypeClientCredentials {
+		if err := c.getClientCredentialsToken(ctx); err != nil {
+			return fmt.Errorf("failed to get client credentials token: %w", err)
 		}
 	}
 
@@ -341,6 +420,18 @@ func (c *Connector) applyAuth(ctx context.Context, req *http.Request) error {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
 
+	case AuthTypeClientCredentials:
+		// Check if token needs refresh
+		if c.isTokenExpired() {
+			if err := c.getClientCredentialsToken(ctx); err != nil {
+				return err
+			}
+		}
+		token := c.getAccessToken()
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+
 	case AuthTypeAPIKey:
 		if c.auth.APIKeyQuery != "" {
 			// Add as query parameter
@@ -422,6 +513,69 @@ func (c *Connector) refreshAccessToken(ctx context.Context) error {
 	// Update refresh token if a new one was provided
 	if tokenResp.RefreshToken != "" {
 		c.auth.RefreshToken = tokenResp.RefreshToken
+	}
+
+	return nil
+}
+
+// getClientCredentialsToken gets an access token using client credentials grant.
+func (c *Connector) getClientCredentialsToken(ctx context.Context) error {
+	if c.auth == nil || c.auth.TokenURL == "" {
+		return fmt.Errorf("token URL not configured")
+	}
+	if c.auth.ClientID == "" || c.auth.ClientSecret == "" {
+		return fmt.Errorf("client_id and client_secret required for client_credentials grant")
+	}
+
+	data := url.Values{}
+	data.Set("grant_type", "client_credentials")
+	data.Set("client_id", c.auth.ClientID)
+	data.Set("client_secret", c.auth.ClientSecret)
+	if len(c.auth.Scopes) > 0 {
+		data.Set("scope", strings.Join(c.auth.Scopes, " "))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.auth.TokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	// Some OAuth2 servers prefer Basic auth for client credentials
+	req.SetBasicAuth(c.auth.ClientID, c.auth.ClientSecret)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("client credentials token request failed: %s - %s", resp.Status, string(body))
+	}
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+		Scope       string `json:"scope"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return fmt.Errorf("failed to decode token response: %w", err)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.accessToken = tokenResp.AccessToken
+	if tokenResp.ExpiresIn > 0 {
+		// Set expiry with a small buffer (60 seconds before actual expiry)
+		c.tokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn-60) * time.Second)
+	} else {
+		// Default to 1 hour if no expiry provided
+		c.tokenExpiry = time.Now().Add(time.Hour)
 	}
 
 	return nil

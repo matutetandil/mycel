@@ -127,6 +127,19 @@ func (f *Factory) createRabbitMQ(cfg *connector.Config) (*rabbitmq.Connector, er
 			Prefetch:    getInt(consumerCfg, "prefetch", 10),
 			Args:        getMap(consumerCfg, "args"),
 		}
+
+		// DLQ configuration
+		if dlqCfg := getMap(consumerCfg, "dlq"); dlqCfg != nil {
+			config.Consumer.DLQ = &rabbitmq.DLQConfig{
+				Enabled:     getBool(dlqCfg, "enabled", true),
+				Exchange:    getString(dlqCfg, "exchange", ""),
+				Queue:       getString(dlqCfg, "queue", ""),
+				RoutingKey:  getString(dlqCfg, "routing_key", ""),
+				MaxRetries:  getInt(dlqCfg, "max_retries", 3),
+				RetryDelay:  getDuration(dlqCfg, "retry_delay", 0),
+				RetryHeader: getString(dlqCfg, "retry_header", "x-retry-count"),
+			}
+		}
 	}
 
 	// Publisher configuration
@@ -297,6 +310,33 @@ func (f *Factory) createKafka(cfg *connector.Config) (*kafka.Connector, error) {
 			BatchSize:   getInt(producerCfg, "batch_size", 16384),
 			LingerMs:    getInt(producerCfg, "linger_ms", 5),
 			Compression: getString(producerCfg, "compression", "none"),
+		}
+	}
+
+	// Schema Registry configuration
+	if srCfg := getMap(cfg.Properties, "schema_registry"); srCfg != nil {
+		config.SchemaRegistry = &kafka.SchemaRegistryConfig{
+			URL:                 getString(srCfg, "url", ""),
+			Username:            getString(srCfg, "username", ""),
+			Password:            getString(srCfg, "password", ""),
+			SubjectNameStrategy: getString(srCfg, "subject_name_strategy", "topic"),
+			AutoRegister:        getBool(srCfg, "auto_register", false),
+			Format:              getString(srCfg, "format", "avro"),
+			Schemas:             make(map[string]*kafka.TopicSchema),
+		}
+
+		// Parse per-topic schemas
+		if schemas := getMap(srCfg, "schemas"); schemas != nil {
+			for topic, schemaCfg := range schemas {
+				if schemaMap, ok := schemaCfg.(map[string]interface{}); ok {
+					config.SchemaRegistry.Schemas[topic] = &kafka.TopicSchema{
+						KeySchema:     getString(schemaMap, "key_schema", ""),
+						KeySchemaID:   getInt(schemaMap, "key_schema_id", 0),
+						ValueSchema:   getString(schemaMap, "value_schema", ""),
+						ValueSchemaID: getInt(schemaMap, "value_schema_id", 0),
+					}
+				}
+			}
 		}
 	}
 

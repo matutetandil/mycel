@@ -81,5 +81,43 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 		conn.SetPoolConfig(maxOpen, maxIdle, maxLifetime)
 	}
 
+	// Parse read replicas configuration
+	if replicas, ok := cfg.Properties["replicas"].([]interface{}); ok {
+		for _, r := range replicas {
+			if replicaMap, ok := r.(map[string]interface{}); ok {
+				replica := parseReplicaConfig(replicaMap)
+				conn.AddReplica(replica)
+			}
+		}
+	}
+
+	// Check use_replicas setting (default: true if replicas are configured)
+	if useReplicas, ok := cfg.Properties["use_replicas"].(bool); ok {
+		conn.SetUseReplicas(useReplicas)
+	}
+
 	return conn, nil
+}
+
+// parseReplicaConfig extracts replica configuration from a map.
+func parseReplicaConfig(m map[string]interface{}) ReplicaConfig {
+	replica := ReplicaConfig{
+		Port:   3306,
+		Weight: 1,
+	}
+
+	if host, ok := m["host"].(string); ok {
+		replica.Host = host
+	}
+	if port, ok := m["port"].(int); ok {
+		replica.Port = port
+	}
+	if weight, ok := m["weight"].(int); ok {
+		replica.Weight = weight
+	}
+	if maxConns, ok := m["max_connections"].(int); ok {
+		replica.MaxConns = maxConns
+	}
+
+	return replica
 }

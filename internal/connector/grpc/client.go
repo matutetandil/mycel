@@ -115,6 +115,13 @@ func (c *ClientConnector) buildDialOptions() ([]grpc.DialOption, error) {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
+	// Authentication
+	if c.config.Auth != nil {
+		if authOpt := BuildClientAuthOption(c.config.Auth); authOpt != nil {
+			opts = append(opts, authOpt)
+		}
+	}
+
 	// Wait for ready
 	if c.config.WaitForReady {
 		opts = append(opts, grpc.WithDefaultCallOptions(grpc.WaitForReady(true)))

@@ -69,6 +69,7 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Type: "headers"},
 			{Type: "schema"},
 			{Type: "ssh"},
+			{Type: "tls"}, // TLS configuration for HTTP client
 			{Type: "queue"},
 			{Type: "exchange"}, // MQ exchange configuration
 			{Type: "publisher"},
@@ -170,6 +171,13 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 				return nil, fmt.Errorf("ssh block error: %w", err)
 			}
 			config.Properties["ssh"] = ssh
+
+		case "tls":
+			tls, err := parseTLSBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("tls block error: %w", err)
+			}
+			config.Properties["tls"] = tls
 
 		case "queue":
 			queue, err := parseGenericBlock(nestedBlock, ctx)
@@ -498,22 +506,40 @@ func parseAuthBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interfac
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "type"},
-			// Bearer token
+			// Bearer token (client mode)
 			{Name: "token"},
 			{Name: "header"},
-			// OAuth2
+			// OAuth2 (client mode)
+			{Name: "grant_type"}, // refresh_token or client_credentials
 			{Name: "refresh_token"},
 			{Name: "token_url"},
 			{Name: "client_id"},
 			{Name: "client_secret"},
 			{Name: "scopes"},
-			// API Key
+			// API Key (client mode)
 			{Name: "api_key"},
 			{Name: "api_key_header"},
 			{Name: "api_key_query"},
-			// Basic auth
+			// Basic auth (client mode)
 			{Name: "username"},
 			{Name: "password"},
+			// JWT validation (server mode)
+			{Name: "secret"},
+			{Name: "jwks_url"},
+			{Name: "issuer"},
+			{Name: "audience"},
+			{Name: "algorithms"},
+			{Name: "scheme"},
+			// API Key validation (server mode)
+			{Name: "keys"},
+			{Name: "query_param"},
+			// Basic auth validation (server mode)
+			{Name: "users"},
+			{Name: "realm"},
+			// Common (server mode)
+			{Name: "public"},
+			{Name: "required_headers"},
+			{Name: "response_headers"},
 		},
 	}
 
@@ -578,6 +604,34 @@ func parseRetryBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interfa
 	}
 
 	return retry, nil
+}
+
+// parseTLSBlock parses a TLS configuration block for HTTP clients.
+func parseTLSBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interface{}, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "ca_cert"},
+			{Name: "client_cert"},
+			{Name: "client_key"},
+			{Name: "insecure_skip_verify"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("tls block content error: %s", diags.Error())
+	}
+
+	tls := make(map[string]interface{})
+	for name, attr := range content.Attributes {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("tls %s error: %s", name, diags.Error())
+		}
+		tls[name] = ctyValueToGo(val)
+	}
+
+	return tls, nil
 }
 
 // parseMockBlock parses a mock configuration block.

@@ -200,12 +200,28 @@ func (c *ServerConnector) Start(ctx context.Context) error {
 func (c *ServerConnector) buildServerOptions() []grpc.ServerOption {
 	var opts []grpc.ServerOption
 
-	// TLS
+	// TLS or mTLS
 	if c.config.TLS != nil && c.config.TLS.Enabled {
-		creds, err := credentials.NewServerTLSFromFile(c.config.TLS.CertFile, c.config.TLS.KeyFile)
-		if err == nil {
-			opts = append(opts, grpc.Creds(creds))
+		// Check if mTLS is configured
+		if c.config.Auth != nil && c.config.Auth.Type == "mtls" && c.config.TLS.CAFile != "" {
+			tlsCfg, err := BuildMTLSConfig(c.config.TLS)
+			if err == nil && tlsCfg != nil {
+				opts = append(opts, grpc.Creds(credentials.NewTLS(tlsCfg)))
+			}
+		} else {
+			creds, err := credentials.NewServerTLSFromFile(c.config.TLS.CertFile, c.config.TLS.KeyFile)
+			if err == nil {
+				opts = append(opts, grpc.Creds(creds))
+			}
 		}
+	}
+
+	// Auth interceptors
+	if c.config.Auth != nil && c.config.Auth.Type != "" && c.config.Auth.Type != "none" {
+		authInterceptor := NewAuthInterceptor(c.config.Auth)
+		opts = append(opts, grpc.ChainUnaryInterceptor(authInterceptor.UnaryInterceptor()))
+		opts = append(opts, grpc.ChainStreamInterceptor(authInterceptor.StreamInterceptor()))
+		c.logger.Info("gRPC authentication enabled", "type", c.config.Auth.Type)
 	}
 
 	// Message sizes

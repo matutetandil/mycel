@@ -13,8 +13,33 @@ type ServerConfig struct {
 	ProtoFiles []string // Specific .proto files to load
 	Reflection bool     // Enable gRPC reflection for tools like grpcurl
 	TLS        *TLSConfig
-	MaxRecv    int // Max receive message size in MB (default: 4)
-	MaxSend    int // Max send message size in MB (default: 4)
+	Auth       *AuthConfig // Server-side authentication
+	MaxRecv    int         // Max receive message size in MB (default: 4)
+	MaxSend    int         // Max send message size in MB (default: 4)
+}
+
+// AuthConfig holds authentication configuration for gRPC servers.
+type AuthConfig struct {
+	Type   string         // jwt, api_key, mtls, none
+	JWT    *JWTAuthConfig // JWT validation config
+	APIKey *APIKeyConfig  // API key validation config
+	Public []string       // Public methods (no auth required)
+}
+
+// JWTAuthConfig holds JWT validation configuration.
+type JWTAuthConfig struct {
+	Secret     string   // Secret for HS* algorithms
+	JWKSURL    string   // URL for JWKS (RS*, ES*)
+	Issuer     string   // Expected issuer
+	Audience   []string // Expected audience
+	Algorithms []string // Allowed algorithms
+}
+
+// APIKeyConfig holds API key validation configuration.
+type APIKeyConfig struct {
+	Keys     []string // Valid API keys
+	Header   string   // Header name (default: x-api-key)
+	Metadata string   // Metadata key (default: api-key)
 }
 
 // ClientConfig holds configuration for a gRPC client.
@@ -23,6 +48,7 @@ type ClientConfig struct {
 	ProtoPath  string // Path to .proto files directory
 	ProtoFiles []string
 	TLS        *TLSConfig
+	Auth       *ClientAuthConfig // Client-side authentication
 	Timeout    time.Duration
 	MaxRecv    int // Max receive message size in MB
 	MaxSend    int // Max send message size in MB
@@ -34,6 +60,28 @@ type ClientConfig struct {
 	KeepAlive       *KeepAliveConfig
 	RetryCount      int
 	RetryBackoff    time.Duration
+}
+
+// ClientAuthConfig holds authentication configuration for gRPC clients.
+type ClientAuthConfig struct {
+	Type   string // bearer, api_key, oauth2, mtls
+	Token  string // Bearer token (static)
+	APIKey *ClientAPIKeyConfig
+	OAuth2 *OAuth2Config
+}
+
+// ClientAPIKeyConfig holds API key config for gRPC clients.
+type ClientAPIKeyConfig struct {
+	Key      string // The API key value
+	Metadata string // Metadata key name (default: api-key)
+}
+
+// OAuth2Config holds OAuth2 client credentials config.
+type OAuth2Config struct {
+	TokenURL     string
+	ClientID     string
+	ClientSecret string
+	Scopes       []string
 }
 
 // TLSConfig holds TLS configuration.

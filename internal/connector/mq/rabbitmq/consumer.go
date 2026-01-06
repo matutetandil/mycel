@@ -170,8 +170,8 @@ func (c *Connector) handleDelivery(ctx context.Context, delivery amqp.Delivery) 
 			"routing_key", delivery.RoutingKey,
 			"error", err,
 		)
-		// Nack with requeue on error
-		return delivery.Nack(false, true)
+		// Handle retry logic
+		return c.handleRetry(delivery, err)
 	}
 
 	// Acknowledge successful processing
@@ -180,6 +180,105 @@ func (c *Connector) handleDelivery(ctx context.Context, delivery amqp.Delivery) 
 	}
 
 	return nil
+}
+
+// handleRetry handles retry logic for failed messages.
+func (c *Connector) handleRetry(delivery amqp.Delivery, handlerErr error) error {
+	dlqConfig := c.getDLQConfig()
+	if dlqConfig == nil || !dlqConfig.Enabled {
+		// DLQ not enabled, just requeue
+		return delivery.Nack(false, true)
+	}
+
+	// Get retry count from headers
+	retryHeader := dlqConfig.RetryHeader
+	if retryHeader == "" {
+		retryHeader = "x-retry-count"
+	}
+
+	retryCount := 0
+	if val, ok := delivery.Headers[retryHeader]; ok {
+		switch v := val.(type) {
+		case int32:
+			retryCount = int(v)
+		case int64:
+			retryCount = int(v)
+		case int:
+			retryCount = v
+		}
+	}
+
+	maxRetries := dlqConfig.MaxRetries
+	if maxRetries <= 0 {
+		maxRetries = 3 // Default
+	}
+
+	if retryCount >= maxRetries {
+		// Max retries exceeded, send to DLQ
+		c.logger.Warn("max retries exceeded, sending to DLQ",
+			"routing_key", delivery.RoutingKey,
+			"retry_count", retryCount,
+			"max_retries", maxRetries,
+		)
+		// Reject without requeue - RabbitMQ will route to DLX/DLQ
+		return delivery.Reject(false)
+	}
+
+	// Increment retry count and republish
+	retryCount++
+	c.logger.Debug("retrying message",
+		"routing_key", delivery.RoutingKey,
+		"retry_count", retryCount,
+		"max_retries", maxRetries,
+	)
+
+	// Build new headers with updated retry count
+	newHeaders := make(amqp.Table)
+	for k, v := range delivery.Headers {
+		newHeaders[k] = v
+	}
+	newHeaders[retryHeader] = int32(retryCount)
+	newHeaders["x-last-error"] = handlerErr.Error()
+
+	// Determine exchange and routing key for retry
+	exchange := delivery.Exchange
+	routingKey := delivery.RoutingKey
+
+	// Publish retry message
+	err := c.channel.PublishWithContext(
+		context.Background(),
+		exchange,
+		routingKey,
+		false, // mandatory
+		false, // immediate
+		amqp.Publishing{
+			Headers:         newHeaders,
+			ContentType:     delivery.ContentType,
+			ContentEncoding: delivery.ContentEncoding,
+			DeliveryMode:    delivery.DeliveryMode,
+			Priority:        delivery.Priority,
+			CorrelationId:   delivery.CorrelationId,
+			ReplyTo:         delivery.ReplyTo,
+			Expiration:      delivery.Expiration,
+			MessageId:       delivery.MessageId,
+			Timestamp:       delivery.Timestamp,
+			Type:            delivery.Type,
+			UserId:          delivery.UserId,
+			AppId:           delivery.AppId,
+			Body:            delivery.Body,
+		},
+	)
+	if err != nil {
+		c.logger.Error("failed to publish retry message",
+			"error", err,
+			"routing_key", routingKey,
+		)
+		// If we can't republish, reject to DLQ
+		return delivery.Reject(false)
+	}
+
+	// Acknowledge the original message (it's been republished)
+	return delivery.Ack(false)
 }
 
 // findHandler finds a handler for the given routing key.

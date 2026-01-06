@@ -6,12 +6,22 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql" // MySQL driver
 
 	"github.com/matutetandil/mycel/internal/connector"
 )
+
+// ReplicaConfig holds configuration for a read replica.
+type ReplicaConfig struct {
+	Host     string
+	Port     int
+	Weight   int // For weighted round-robin (default: 1)
+	MaxConns int // Max connections for this replica
+}
 
 // Connector implements a MySQL database connector.
 type Connector struct {
@@ -22,12 +32,19 @@ type Connector struct {
 	user     string
 	password string
 	charset  string
-	db       *sql.DB
+	db       *sql.DB // Primary connection
 
 	// Connection pool settings
 	maxOpenConns    int
 	maxIdleConns    int
 	connMaxLifetime time.Duration
+
+	// Read replicas
+	replicas       []ReplicaConfig
+	replicaDBs     []*sql.DB
+	replicaMu      sync.RWMutex
+	replicaCounter uint64 // For round-robin selection
+	useReplicas    bool   // Whether to route reads to replicas
 }
 
 // New creates a new MySQL connector.
@@ -66,6 +83,23 @@ func (c *Connector) SetPoolConfig(maxOpen, maxIdle int, maxLifetime time.Duratio
 	}
 }
 
+// AddReplica adds a read replica configuration.
+func (c *Connector) AddReplica(replica ReplicaConfig) {
+	if replica.Port == 0 {
+		replica.Port = 3306
+	}
+	if replica.Weight <= 0 {
+		replica.Weight = 1
+	}
+	c.replicas = append(c.replicas, replica)
+	c.useReplicas = true
+}
+
+// SetUseReplicas enables or disables routing reads to replicas.
+func (c *Connector) SetUseReplicas(use bool) {
+	c.useReplicas = use
+}
+
 // Name returns the connector name.
 func (c *Connector) Name() string {
 	return c.name
@@ -78,6 +112,7 @@ func (c *Connector) Type() string {
 
 // Connect establishes the database connection.
 func (c *Connector) Connect(ctx context.Context) error {
+	// Connect to primary
 	// MySQL DSN format: user:password@tcp(host:port)/database?charset=utf8mb4&parseTime=True
 	dsn := fmt.Sprintf(
 		"%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=True&loc=Local",
@@ -97,19 +132,104 @@ func (c *Connector) Connect(ctx context.Context) error {
 	// Verify connection
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
-		return fmt.Errorf("failed to ping mysql: %w", err)
+		return fmt.Errorf("failed to ping mysql primary: %w", err)
 	}
 
 	c.db = db
+
+	// Connect to replicas if configured
+	if len(c.replicas) > 0 {
+		if err := c.connectReplicas(ctx); err != nil {
+			// Log warning but don't fail - primary is available
+			fmt.Printf("warning: failed to connect to some replicas: %v\n", err)
+		}
+	}
+
 	return nil
+}
+
+// connectReplicas connects to all configured read replicas.
+func (c *Connector) connectReplicas(ctx context.Context) error {
+	c.replicaMu.Lock()
+	defer c.replicaMu.Unlock()
+
+	var lastErr error
+	for _, replica := range c.replicas {
+		dsn := fmt.Sprintf(
+			"%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=True&loc=Local",
+			c.user, c.password, replica.Host, replica.Port, c.database, c.charset,
+		)
+
+		db, err := sql.Open("mysql", dsn)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to open replica %s:%d: %w", replica.Host, replica.Port, err)
+			continue
+		}
+
+		// Configure replica connection pool
+		maxConns := replica.MaxConns
+		if maxConns <= 0 {
+			maxConns = c.maxOpenConns
+		}
+		db.SetMaxOpenConns(maxConns)
+		db.SetMaxIdleConns(c.maxIdleConns)
+		db.SetConnMaxLifetime(c.connMaxLifetime)
+
+		// Verify connection
+		if err := db.PingContext(ctx); err != nil {
+			db.Close()
+			lastErr = fmt.Errorf("failed to ping replica %s:%d: %w", replica.Host, replica.Port, err)
+			continue
+		}
+
+		c.replicaDBs = append(c.replicaDBs, db)
+	}
+
+	return lastErr
+}
+
+// getReplicaDB returns a replica connection using round-robin selection.
+// Falls back to primary if no replicas are available.
+func (c *Connector) getReplicaDB() *sql.DB {
+	if !c.useReplicas {
+		return c.db
+	}
+
+	c.replicaMu.RLock()
+	defer c.replicaMu.RUnlock()
+
+	if len(c.replicaDBs) == 0 {
+		return c.db // Fallback to primary
+	}
+
+	// Round-robin selection
+	counter := atomic.AddUint64(&c.replicaCounter, 1)
+	idx := int(counter % uint64(len(c.replicaDBs)))
+	return c.replicaDBs[idx]
 }
 
 // Close closes the database connection.
 func (c *Connector) Close(ctx context.Context) error {
-	if c.db != nil {
-		return c.db.Close()
+	var lastErr error
+
+	// Close replica connections
+	c.replicaMu.Lock()
+	for _, db := range c.replicaDBs {
+		if err := db.Close(); err != nil {
+			lastErr = err
+		}
 	}
-	return nil
+	c.replicaDBs = nil
+	c.replicaMu.Unlock()
+
+	// Close primary connection
+	if c.db != nil {
+		if err := c.db.Close(); err != nil {
+			lastErr = err
+		}
+	}
+
+	return lastErr
 }
 
 // Health checks if the connector is healthy.
@@ -121,6 +241,7 @@ func (c *Connector) Health(ctx context.Context) error {
 }
 
 // Read executes a query and returns results (implements connector.Reader).
+// If replicas are configured, reads are routed to replicas using round-robin.
 func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector.Result, error) {
 	if c.db == nil {
 		return nil, fmt.Errorf("database not connected")
@@ -136,7 +257,9 @@ func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector
 		sqlQuery, args = c.buildSelectQuery(query)
 	}
 
-	rows, err := c.db.QueryContext(ctx, sqlQuery, args...)
+	// Use replica for reads if available
+	db := c.getReplicaDB()
+	rows, err := db.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query failed: %w", err)
 	}

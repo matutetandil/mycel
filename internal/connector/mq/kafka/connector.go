@@ -28,6 +28,9 @@ type Connector struct {
 	// Writer for producing
 	writer *kafka.Writer
 
+	// Schema Registry client
+	schemaRegistry *SchemaRegistryClient
+
 	// Handler registration
 	handlers map[string]HandlerFunc // topic -> handler
 	mu       sync.RWMutex
@@ -84,6 +87,12 @@ func (c *Connector) Connect(ctx context.Context) error {
 		}
 	}
 
+	// Initialize Schema Registry client if configured
+	if c.config.SchemaRegistry != nil && c.config.SchemaRegistry.URL != "" {
+		c.schemaRegistry = NewSchemaRegistryClient(c.config.SchemaRegistry)
+		c.logger.Info("schema registry enabled", "url", c.config.SchemaRegistry.URL)
+	}
+
 	// Initialize producer if configured
 	if c.config.IsProducer() {
 		if err := c.initProducer(); err != nil {
@@ -138,6 +147,11 @@ func (c *Connector) Close(ctx context.Context) error {
 
 	c.logger.Info("disconnected from Kafka")
 	return nil
+}
+
+// GetSchemaRegistry returns the Schema Registry client (may be nil if not configured).
+func (c *Connector) GetSchemaRegistry() *SchemaRegistryClient {
+	return c.schemaRegistry
 }
 
 // Health checks if the connector is healthy.
@@ -248,6 +262,31 @@ func (c *Connector) initProducer() error {
 		BatchSize:    producerCfg.BatchSize,
 		RequiredAcks: requiredAcks,
 		Compression:  compression,
+	}
+
+	// Configure Transport for TLS/SASL if needed
+	if c.config.TLS != nil || c.config.SASL != nil {
+		transport := &kafka.Transport{}
+
+		// TLS configuration
+		if c.config.TLS != nil && c.config.TLS.Enabled {
+			tlsConfig, err := c.config.TLS.BuildTLSConfig()
+			if err != nil {
+				return fmt.Errorf("failed to build TLS config for producer: %w", err)
+			}
+			transport.TLS = tlsConfig
+		}
+
+		// SASL configuration
+		if c.config.SASL != nil {
+			mechanism, err := c.buildSASLMechanism()
+			if err != nil {
+				return fmt.Errorf("failed to build SASL mechanism for producer: %w", err)
+			}
+			transport.SASL = mechanism
+		}
+
+		c.writer.Transport = transport
 	}
 
 	return nil

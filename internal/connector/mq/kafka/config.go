@@ -20,6 +20,9 @@ type Config struct {
 	SASL *SASLConfig
 	TLS  *TLSConfig
 
+	// Schema Registry
+	SchemaRegistry *SchemaRegistryConfig
+
 	// Consumer settings
 	Consumer *ConsumerConfig
 
@@ -79,6 +82,39 @@ type ProducerConfig struct {
 
 	// Compression
 	Compression string // none, gzip, snappy, lz4, zstd
+}
+
+// SchemaRegistryConfig holds Schema Registry configuration.
+type SchemaRegistryConfig struct {
+	// URL is the Schema Registry endpoint
+	URL string
+
+	// Authentication
+	Username string
+	Password string
+
+	// Schema settings
+	SubjectNameStrategy string // topic, record, topic_record
+
+	// Auto-register schemas
+	AutoRegister bool
+
+	// Schema format: avro, json, protobuf
+	Format string
+
+	// Specific schemas per topic
+	Schemas map[string]*TopicSchema
+}
+
+// TopicSchema holds schema configuration for a specific topic.
+type TopicSchema struct {
+	// Key schema ID or subject
+	KeySchema   string
+	KeySchemaID int
+
+	// Value schema ID or subject
+	ValueSchema   string
+	ValueSchemaID int
 }
 
 // DefaultConfig returns a Config with sensible defaults.

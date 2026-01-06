@@ -419,15 +419,36 @@ func (c *Connector) setupTopology() error {
 		)
 	}
 
+	// Setup DLQ infrastructure if enabled
+	dlqConfig := c.getDLQConfig()
+	if dlqConfig != nil && dlqConfig.Enabled {
+		if err := c.setupDLQ(dlqConfig); err != nil {
+			return fmt.Errorf("failed to setup DLQ: %w", err)
+		}
+	}
+
 	// Declare queue if configured
 	if c.config.Queue != nil && c.config.Queue.Name != "" {
+		// Add dead letter exchange argument if DLQ is enabled
+		args := c.config.Queue.Args
+		if dlqConfig != nil && dlqConfig.Enabled {
+			if args == nil {
+				args = make(map[string]interface{})
+			}
+			dlxExchange := c.getDLXExchangeName(dlqConfig)
+			args["x-dead-letter-exchange"] = dlxExchange
+			if dlqConfig.RoutingKey != "" {
+				args["x-dead-letter-routing-key"] = dlqConfig.RoutingKey
+			}
+		}
+
 		_, err := c.channel.QueueDeclare(
 			c.config.Queue.Name,
 			c.config.Queue.Durable,
 			c.config.Queue.AutoDelete,
 			c.config.Queue.Exclusive,
 			c.config.Queue.NoWait,
-			c.config.Queue.Args,
+			args,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to declare queue: %w", err)
@@ -458,6 +479,95 @@ func (c *Connector) setupTopology() error {
 			)
 		}
 	}
+
+	return nil
+}
+
+// getDLQConfig returns the DLQ configuration if available.
+func (c *Connector) getDLQConfig() *DLQConfig {
+	if c.config.Consumer != nil && c.config.Consumer.DLQ != nil {
+		return c.config.Consumer.DLQ
+	}
+	return nil
+}
+
+// getDLXExchangeName returns the dead letter exchange name.
+func (c *Connector) getDLXExchangeName(dlqConfig *DLQConfig) string {
+	if dlqConfig.Exchange != "" {
+		return dlqConfig.Exchange
+	}
+	if c.config.Exchange != nil && c.config.Exchange.Name != "" {
+		return c.config.Exchange.Name + ".dlx"
+	}
+	return "dlx"
+}
+
+// getDLQQueueName returns the dead letter queue name.
+func (c *Connector) getDLQQueueName(dlqConfig *DLQConfig) string {
+	if dlqConfig.Queue != "" {
+		return dlqConfig.Queue
+	}
+	if c.config.Queue != nil && c.config.Queue.Name != "" {
+		return c.config.Queue.Name + ".dlq"
+	}
+	return "dlq"
+}
+
+// setupDLQ sets up the dead letter exchange and queue.
+func (c *Connector) setupDLQ(dlqConfig *DLQConfig) error {
+	dlxExchange := c.getDLXExchangeName(dlqConfig)
+	dlqQueue := c.getDLQQueueName(dlqConfig)
+
+	// Declare DLX exchange
+	err := c.channel.ExchangeDeclare(
+		dlxExchange,
+		"direct",
+		true,  // durable
+		false, // auto-delete
+		false, // internal
+		false, // no-wait
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to declare DLX exchange: %w", err)
+	}
+	c.logger.Debug("declared DLX exchange", "name", dlxExchange)
+
+	// Declare DLQ queue
+	_, err = c.channel.QueueDeclare(
+		dlqQueue,
+		true,  // durable
+		false, // auto-delete
+		false, // exclusive
+		false, // no-wait
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to declare DLQ queue: %w", err)
+	}
+	c.logger.Debug("declared DLQ queue", "name", dlqQueue)
+
+	// Bind DLQ to DLX
+	routingKey := dlqConfig.RoutingKey
+	if routingKey == "" {
+		routingKey = "#" // Catch all
+	}
+
+	err = c.channel.QueueBind(
+		dlqQueue,
+		routingKey,
+		dlxExchange,
+		false,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to bind DLQ queue: %w", err)
+	}
+	c.logger.Debug("bound DLQ queue to DLX",
+		"queue", dlqQueue,
+		"exchange", dlxExchange,
+		"routing_key", routingKey,
+	)
 
 	return nil
 }

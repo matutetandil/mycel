@@ -199,6 +199,7 @@ service {
 
 ## Documentation
 
+- **[Concepts](docs/CONCEPTS.md)** - What is a connector, flow, transform, and more
 - **[Configuration Reference](docs/CONFIGURATION.md)** - Complete HCL syntax reference
 - **[Integration Patterns](docs/integration-patterns.md)** - Common use cases
 - **[Transformations](docs/transformations.md)** - CEL transformation guide

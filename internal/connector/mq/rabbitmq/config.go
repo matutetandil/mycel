@@ -91,6 +91,37 @@ type ConsumerConfig struct {
 	Concurrency int
 	Prefetch    int
 	Args        map[string]interface{}
+
+	// Dead Letter Queue configuration
+	DLQ *DLQConfig
+}
+
+// DLQConfig holds Dead Letter Queue configuration.
+type DLQConfig struct {
+	// Enabled controls whether DLQ processing is enabled
+	Enabled bool
+
+	// Exchange is the DLQ exchange name (default: <main-exchange>.dlx)
+	Exchange string
+
+	// Queue is the DLQ queue name (default: <main-queue>.dlq)
+	Queue string
+
+	// RoutingKey is the routing key for DLQ messages
+	RoutingKey string
+
+	// MaxRetries is the maximum number of retry attempts before routing to DLQ
+	// Default: 3
+	MaxRetries int
+
+	// RetryDelay is the delay before requeuing a message for retry
+	// If set, messages are delayed using RabbitMQ's delayed message plugin
+	// or a TTL-based approach
+	RetryDelay time.Duration
+
+	// RetryHeader is the header name used to track retry count
+	// Default: x-retry-count
+	RetryHeader string
 }
 
 // PublisherConfig holds publisher options.
@@ -148,6 +179,15 @@ func DefaultConsumerConfig() *ConsumerConfig {
 		NoWait:      false,
 		Concurrency: 1,
 		Prefetch:    10,
+	}
+}
+
+// DefaultDLQConfig returns default DLQ configuration.
+func DefaultDLQConfig() *DLQConfig {
+	return &DLQConfig{
+		Enabled:     true,
+		MaxRetries:  3,
+		RetryHeader: "x-retry-count",
 	}
 }
 

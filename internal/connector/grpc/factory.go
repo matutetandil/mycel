@@ -71,7 +71,92 @@ func (f *Factory) createServer(config *connector.Config) (connector.Connector, e
 		serverConfig.TLS = parseTLSConfig(tlsCfg)
 	}
 
+	// Auth
+	if authCfg, ok := config.Properties["auth"].(map[string]interface{}); ok {
+		serverConfig.Auth = parseAuthConfig(authCfg)
+	}
+
 	return NewServerConnector(config.Name, serverConfig, f.logger), nil
+}
+
+// parseAuthConfig parses authentication configuration.
+func parseAuthConfig(props map[string]interface{}) *AuthConfig {
+	cfg := &AuthConfig{
+		Type: getString(props, "type", ""),
+	}
+
+	// Parse public methods
+	if public, ok := props["public"].([]interface{}); ok {
+		for _, p := range public {
+			if s, ok := p.(string); ok {
+				cfg.Public = append(cfg.Public, s)
+			}
+		}
+	}
+
+	// Parse JWT config
+	if cfg.Type == "jwt" {
+		cfg.JWT = parseJWTAuthConfig(props)
+	}
+
+	// Parse API Key config
+	if cfg.Type == "api_key" {
+		cfg.APIKey = parseAPIKeyConfig(props)
+	}
+
+	return cfg
+}
+
+// parseJWTAuthConfig parses JWT authentication configuration.
+func parseJWTAuthConfig(props map[string]interface{}) *JWTAuthConfig {
+	cfg := &JWTAuthConfig{
+		Secret:   getString(props, "secret", ""),
+		JWKSURL:  getString(props, "jwks_url", ""),
+		Issuer:   getString(props, "issuer", ""),
+	}
+
+	// Audience can be string or array
+	if aud, ok := props["audience"].(string); ok {
+		cfg.Audience = []string{aud}
+	} else if aud, ok := props["audience"].([]interface{}); ok {
+		for _, a := range aud {
+			if s, ok := a.(string); ok {
+				cfg.Audience = append(cfg.Audience, s)
+			}
+		}
+	}
+
+	// Algorithms
+	if algs, ok := props["algorithms"].([]interface{}); ok {
+		for _, a := range algs {
+			if s, ok := a.(string); ok {
+				cfg.Algorithms = append(cfg.Algorithms, s)
+			}
+		}
+	}
+
+	return cfg
+}
+
+// parseAPIKeyConfig parses API key authentication configuration.
+func parseAPIKeyConfig(props map[string]interface{}) *APIKeyConfig {
+	cfg := &APIKeyConfig{
+		Header:   getString(props, "header", "x-api-key"),
+		Metadata: getString(props, "metadata", "api-key"),
+	}
+
+	// Keys can be single string or array
+	if key, ok := props["keys"].(string); ok {
+		cfg.Keys = []string{key}
+	} else if keys, ok := props["keys"].([]interface{}); ok {
+		for _, k := range keys {
+			if s, ok := k.(string); ok {
+				cfg.Keys = append(cfg.Keys, s)
+			}
+		}
+	}
+
+	return cfg
 }
 
 // createClient creates a gRPC client connector.
@@ -104,6 +189,11 @@ func (f *Factory) createClient(config *connector.Config) (connector.Connector, e
 		clientConfig.Insecure = false
 	}
 
+	// Auth
+	if authCfg, ok := config.Properties["auth"].(map[string]interface{}); ok {
+		clientConfig.Auth = parseClientAuthConfig(authCfg)
+	}
+
 	// Keep-alive
 	if kaCfg, ok := config.Properties["keep_alive"].(map[string]interface{}); ok {
 		clientConfig.KeepAlive = &KeepAliveConfig{
@@ -113,6 +203,42 @@ func (f *Factory) createClient(config *connector.Config) (connector.Connector, e
 	}
 
 	return NewClientConnector(config.Name, clientConfig), nil
+}
+
+// parseClientAuthConfig parses client authentication configuration.
+func parseClientAuthConfig(props map[string]interface{}) *ClientAuthConfig {
+	cfg := &ClientAuthConfig{
+		Type:  getString(props, "type", ""),
+		Token: getString(props, "token", ""),
+	}
+
+	// API Key config
+	if cfg.Type == "api_key" {
+		cfg.APIKey = &ClientAPIKeyConfig{
+			Key:      getString(props, "api_key", ""),
+			Metadata: getString(props, "metadata", "api-key"),
+		}
+	}
+
+	// OAuth2 config
+	if cfg.Type == "oauth2" || cfg.Type == "client_credentials" {
+		cfg.OAuth2 = &OAuth2Config{
+			TokenURL:     getString(props, "token_url", ""),
+			ClientID:     getString(props, "client_id", ""),
+			ClientSecret: getString(props, "client_secret", ""),
+		}
+
+		// Scopes
+		if scopes, ok := props["scopes"].([]interface{}); ok {
+			for _, s := range scopes {
+				if str, ok := s.(string); ok {
+					cfg.OAuth2.Scopes = append(cfg.OAuth2.Scopes, str)
+				}
+			}
+		}
+	}
+
+	return cfg
 }
 
 // parseTLSConfig parses TLS configuration from properties.

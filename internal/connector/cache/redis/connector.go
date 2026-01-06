@@ -11,18 +11,36 @@ import (
 	"github.com/matutetandil/mycel/internal/connector/cache/types"
 )
 
-// Connector implements a Redis cache connector.
+// UniversalClient is the interface that all Redis client types share.
+type UniversalClient interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Set(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.StatusCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
+	Exists(ctx context.Context, keys ...string) *redis.IntCmd
+	TTL(ctx context.Context, key string) *redis.DurationCmd
+	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
+	Ping(ctx context.Context) *redis.StatusCmd
+	Close() error
+}
+
+// Connector implements a Redis cache connector supporting standalone, cluster, and sentinel modes.
 type Connector struct {
 	name   string
 	config *types.Config
-	client *redis.Client
+	client UniversalClient
+	mode   string // standalone, cluster, sentinel
 }
 
 // New creates a new Redis cache connector.
 func New(name string, config *types.Config) *Connector {
+	mode := config.Mode
+	if mode == "" {
+		mode = "standalone"
+	}
 	return &Connector{
 		name:   name,
 		config: config,
+		mode:   mode,
 	}
 }
 
@@ -38,9 +56,57 @@ func (c *Connector) Type() string {
 
 // Connect establishes the Redis connection.
 func (c *Connector) Connect(ctx context.Context) error {
+	var err error
+
+	switch c.mode {
+	case "cluster":
+		err = c.connectCluster(ctx)
+	case "sentinel":
+		err = c.connectSentinel(ctx)
+	default:
+		err = c.connectStandalone(ctx)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	// Test connection
+	if err := c.client.Ping(ctx).Err(); err != nil {
+		return fmt.Errorf("failed to connect to redis (%s): %w", c.mode, err)
+	}
+
+	return nil
+}
+
+// connectStandalone connects to a standalone Redis instance.
+func (c *Connector) connectStandalone(ctx context.Context) error {
 	opts, err := redis.ParseURL(c.config.URL)
 	if err != nil {
 		return fmt.Errorf("invalid redis URL: %w", err)
+	}
+
+	c.applyPoolConfig(opts)
+	c.client = redis.NewClient(opts)
+	return nil
+}
+
+// connectCluster connects to a Redis Cluster.
+func (c *Connector) connectCluster(ctx context.Context) error {
+	if c.config.Cluster == nil || len(c.config.Cluster.Nodes) == 0 {
+		return fmt.Errorf("cluster nodes are required for cluster mode")
+	}
+
+	opts := &redis.ClusterOptions{
+		Addrs:          c.config.Cluster.Nodes,
+		Password:       c.config.Cluster.Password,
+		RouteByLatency: c.config.Cluster.RouteByLatency,
+		RouteRandomly:  c.config.Cluster.RouteRandomly,
+		ReadOnly:       c.config.Cluster.ReadOnly,
+	}
+
+	if c.config.Cluster.MaxRedirects > 0 {
+		opts.MaxRedirects = c.config.Cluster.MaxRedirects
 	}
 
 	// Apply pool configuration
@@ -57,14 +123,62 @@ func (c *Connector) Connect(ctx context.Context) error {
 		opts.DialTimeout = c.config.Pool.ConnectTimeout
 	}
 
-	c.client = redis.NewClient(opts)
+	c.client = redis.NewClusterClient(opts)
+	return nil
+}
 
-	// Test connection
-	if err := c.client.Ping(ctx).Err(); err != nil {
-		return fmt.Errorf("failed to connect to redis: %w", err)
+// connectSentinel connects to Redis via Sentinel.
+func (c *Connector) connectSentinel(ctx context.Context) error {
+	if c.config.Sentinel == nil || c.config.Sentinel.MasterName == "" {
+		return fmt.Errorf("sentinel master name is required for sentinel mode")
+	}
+	if len(c.config.Sentinel.Nodes) == 0 {
+		return fmt.Errorf("sentinel nodes are required for sentinel mode")
 	}
 
+	opts := &redis.FailoverOptions{
+		MasterName:       c.config.Sentinel.MasterName,
+		SentinelAddrs:    c.config.Sentinel.Nodes,
+		SentinelPassword: c.config.Sentinel.Password,
+		Password:         c.config.Sentinel.MasterPassword,
+		DB:               c.config.Sentinel.DB,
+		RouteByLatency:   c.config.Sentinel.RouteByLatency,
+		RouteRandomly:    c.config.Sentinel.RouteRandomly,
+		ReplicaOnly:      c.config.Sentinel.ReplicaOnly,
+	}
+
+	// Apply pool configuration
+	if c.config.Pool.MaxConnections > 0 {
+		opts.PoolSize = c.config.Pool.MaxConnections
+	}
+	if c.config.Pool.MinIdle > 0 {
+		opts.MinIdleConns = c.config.Pool.MinIdle
+	}
+	if c.config.Pool.MaxIdleTime > 0 {
+		opts.ConnMaxIdleTime = c.config.Pool.MaxIdleTime
+	}
+	if c.config.Pool.ConnectTimeout > 0 {
+		opts.DialTimeout = c.config.Pool.ConnectTimeout
+	}
+
+	c.client = redis.NewFailoverClient(opts)
 	return nil
+}
+
+// applyPoolConfig applies pool configuration to redis options.
+func (c *Connector) applyPoolConfig(opts *redis.Options) {
+	if c.config.Pool.MaxConnections > 0 {
+		opts.PoolSize = c.config.Pool.MaxConnections
+	}
+	if c.config.Pool.MinIdle > 0 {
+		opts.MinIdleConns = c.config.Pool.MinIdle
+	}
+	if c.config.Pool.MaxIdleTime > 0 {
+		opts.ConnMaxIdleTime = c.config.Pool.MaxIdleTime
+	}
+	if c.config.Pool.ConnectTimeout > 0 {
+		opts.DialTimeout = c.config.Pool.ConnectTimeout
+	}
 }
 
 // Close closes the Redis connection.
@@ -81,6 +195,11 @@ func (c *Connector) Health(ctx context.Context) error {
 		return fmt.Errorf("redis not connected")
 	}
 	return c.client.Ping(ctx).Err()
+}
+
+// Mode returns the current Redis mode.
+func (c *Connector) Mode() string {
+	return c.mode
 }
 
 // buildKey constructs the full cache key with prefix.
@@ -210,6 +329,23 @@ func (c *Connector) TTL(ctx context.Context, key string) (time.Duration, error) 
 }
 
 // Client returns the underlying Redis client for advanced operations.
+// Note: Returns nil for cluster/sentinel modes - use ClusterClient() or FailoverClient() instead.
 func (c *Connector) Client() *redis.Client {
+	if client, ok := c.client.(*redis.Client); ok {
+		return client
+	}
+	return nil
+}
+
+// ClusterClient returns the underlying Redis Cluster client (nil if not in cluster mode).
+func (c *Connector) ClusterClient() *redis.ClusterClient {
+	if client, ok := c.client.(*redis.ClusterClient); ok {
+		return client
+	}
+	return nil
+}
+
+// UniversalRedisClient returns the underlying universal client interface.
+func (c *Connector) UniversalRedisClient() UniversalClient {
 	return c.client
 }
