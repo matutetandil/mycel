@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Phase 4.2 Runtime Integration
+- **SyncManager**: Unified manager for sync primitives (Lock, Semaphore, Coordinator)
+  - Memory and Redis backends for all primitives
+  - Automatic resource cleanup on shutdown
+  - Stats collection for monitoring
+- **Flow execution with sync primitives**
+  - Locks: Execute flows with distributed mutex protection
+  - Semaphores: Limit concurrent flow executions
+  - Coordinator: Signal/wait pattern for flow dependencies
+  - CEL expression evaluation for dynamic sync keys
+- **Scheduler integration**: Cron-based flow triggers fully integrated
+  - Flows with `when` attribute automatically scheduled
+  - Support for cron expressions, intervals, and shortcuts
+
 ### Added - Enterprise Connector Examples
 - **Dynamic API Key Validation** (`examples/dynamic-api-key/`)
   - Validates API keys against database instead of static config

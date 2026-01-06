@@ -12,7 +12,8 @@ type MemoryCoordinator struct {
 	signals map[string]time.Time       // signal -> expiresAt
 	waiters map[string][]chan struct{} // signal -> waiting channels
 
-	done chan struct{}
+	done   chan struct{}
+	closed bool
 }
 
 // NewMemoryCoordinator creates a new in-memory coordinator.
@@ -155,12 +156,16 @@ func (c *MemoryCoordinator) Exists(ctx context.Context, signal string) (bool, er
 
 // Close stops the cleanup goroutine and notifies all waiters.
 func (c *MemoryCoordinator) Close() error {
-	close(c.done)
-
-	// Notify all waiters that we're shutting down
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.closed {
+		return nil
+	}
+	c.closed = true
+	close(c.done)
+
+	// Notify all waiters that we're shutting down
 	for signal, waiters := range c.waiters {
 		for _, ch := range waiters {
 			select {

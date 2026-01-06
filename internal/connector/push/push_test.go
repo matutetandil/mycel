@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 func TestNewFCMConnector(t *testing.T) {
@@ -307,21 +309,28 @@ func TestAPNsConnector_Close(t *testing.T) {
 func TestFactory(t *testing.T) {
 	factory := NewFactory()
 
-	if factory.Type() != "push" {
-		t.Errorf("expected type 'push', got %s", factory.Type())
+	if !factory.Supports("push", "") {
+		t.Error("expected factory to support 'push' type")
+	}
+	if factory.Supports("email", "") {
+		t.Error("factory should not support 'email' type")
 	}
 }
 
 func TestFactory_CreateFCM(t *testing.T) {
 	factory := NewFactory()
 
-	config := map[string]interface{}{
-		"driver":     "fcm",
-		"server_key": "test-key",
-		"project_id": "my-project",
+	config := &connector.Config{
+		Name: "test",
+		Type: "push",
+		Properties: map[string]interface{}{
+			"driver":     "fcm",
+			"server_key": "test-key",
+			"project_id": "my-project",
+		},
 	}
 
-	conn, err := factory.Create("test", config)
+	conn, err := factory.Create(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -342,16 +351,20 @@ func TestFactory_CreateFCM(t *testing.T) {
 func TestFactory_CreateAPNs(t *testing.T) {
 	factory := NewFactory()
 
-	config := map[string]interface{}{
-		"driver":      "apns",
-		"team_id":     "TEAM123",
-		"key_id":      "KEY123",
-		"private_key": "test-key",
-		"bundle_id":   "com.example.app",
-		"production":  true,
+	config := &connector.Config{
+		Name: "test",
+		Type: "push",
+		Properties: map[string]interface{}{
+			"driver":      "apns",
+			"team_id":     "TEAM123",
+			"key_id":      "KEY123",
+			"private_key": "test-key",
+			"bundle_id":   "com.example.app",
+			"production":  true,
+		},
 	}
 
-	conn, err := factory.Create("test", config)
+	conn, err := factory.Create(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -378,11 +391,15 @@ func TestFactory_CreateAPNs(t *testing.T) {
 func TestFactory_CreateDefaultDriver(t *testing.T) {
 	factory := NewFactory()
 
-	config := map[string]interface{}{
-		"server_key": "test-key",
+	config := &connector.Config{
+		Name: "test",
+		Type: "push",
+		Properties: map[string]interface{}{
+			"server_key": "test-key",
+		},
 	}
 
-	conn, err := factory.Create("test", config)
+	conn, err := factory.Create(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -396,11 +413,15 @@ func TestFactory_CreateDefaultDriver(t *testing.T) {
 func TestFactory_CreateUnknownDriver(t *testing.T) {
 	factory := NewFactory()
 
-	config := map[string]interface{}{
-		"driver": "unknown",
+	config := &connector.Config{
+		Name: "test",
+		Type: "push",
+		Properties: map[string]interface{}{
+			"driver": "unknown",
+		},
 	}
 
-	_, err := factory.Create("test", config)
+	_, err := factory.Create(context.Background(), config)
 	if err == nil {
 		t.Error("expected error for unknown driver")
 	}

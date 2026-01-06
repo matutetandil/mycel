@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 func TestNewSMTPConnector(t *testing.T) {
@@ -290,21 +292,28 @@ func TestNewSESConnector(t *testing.T) {
 func TestFactory(t *testing.T) {
 	factory := NewFactory()
 
-	if factory.Type() != "email" {
-		t.Errorf("expected type 'email', got %s", factory.Type())
+	if !factory.Supports("email", "") {
+		t.Error("expected factory to support 'email' type")
+	}
+	if factory.Supports("slack", "") {
+		t.Error("factory should not support 'slack' type")
 	}
 }
 
 func TestFactory_CreateSMTP(t *testing.T) {
 	factory := NewFactory()
 
-	config := map[string]interface{}{
-		"driver": "smtp",
-		"host":   "localhost",
-		"port":   587,
+	config := &connector.Config{
+		Name: "test",
+		Type: "email",
+		Properties: map[string]interface{}{
+			"driver": "smtp",
+			"host":   "localhost",
+			"port":   587,
+		},
 	}
 
-	conn, err := factory.Create("test", config)
+	conn, err := factory.Create(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -317,12 +326,16 @@ func TestFactory_CreateSMTP(t *testing.T) {
 func TestFactory_CreateSendGrid(t *testing.T) {
 	factory := NewFactory()
 
-	config := map[string]interface{}{
-		"driver":  "sendgrid",
-		"api_key": "test-key",
+	config := &connector.Config{
+		Name: "test",
+		Type: "email",
+		Properties: map[string]interface{}{
+			"driver":  "sendgrid",
+			"api_key": "test-key",
+		},
 	}
 
-	conn, err := factory.Create("test", config)
+	conn, err := factory.Create(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -335,12 +348,16 @@ func TestFactory_CreateSendGrid(t *testing.T) {
 func TestFactory_CreateSES(t *testing.T) {
 	factory := NewFactory()
 
-	config := map[string]interface{}{
-		"driver": "ses",
-		"region": "us-east-1",
+	config := &connector.Config{
+		Name: "test",
+		Type: "email",
+		Properties: map[string]interface{}{
+			"driver": "ses",
+			"region": "us-east-1",
+		},
 	}
 
-	conn, err := factory.Create("test", config)
+	conn, err := factory.Create(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -353,11 +370,15 @@ func TestFactory_CreateSES(t *testing.T) {
 func TestFactory_CreateUnknownDriver(t *testing.T) {
 	factory := NewFactory()
 
-	config := map[string]interface{}{
-		"driver": "unknown",
+	config := &connector.Config{
+		Name: "test",
+		Type: "email",
+		Properties: map[string]interface{}{
+			"driver": "unknown",
+		},
 	}
 
-	_, err := factory.Create("test", config)
+	_, err := factory.Create(context.Background(), config)
 	if err == nil {
 		t.Error("expected error for unknown driver")
 	}

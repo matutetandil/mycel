@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 func TestNewConnector(t *testing.T) {
@@ -330,22 +332,29 @@ func TestConnector_Close(t *testing.T) {
 func TestFactory(t *testing.T) {
 	factory := NewFactory()
 
-	if factory.Type() != "slack" {
-		t.Errorf("expected type 'slack', got %s", factory.Type())
+	if !factory.Supports("slack", "") {
+		t.Error("expected factory to support 'slack' type")
+	}
+	if factory.Supports("email", "") {
+		t.Error("factory should not support 'email' type")
 	}
 }
 
 func TestFactory_Create(t *testing.T) {
 	factory := NewFactory()
 
-	config := map[string]interface{}{
-		"webhook_url": "https://hooks.slack.com/test",
-		"channel":     "#general",
-		"username":    "mybot",
-		"icon_emoji":  ":robot:",
+	config := &connector.Config{
+		Name: "test",
+		Type: "slack",
+		Properties: map[string]interface{}{
+			"webhook_url": "https://hooks.slack.com/test",
+			"channel":     "#general",
+			"username":    "mybot",
+			"icon_emoji":  ":robot:",
+		},
 	}
 
-	conn, err := factory.Create("test", config)
+	conn, err := factory.Create(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}

@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 func TestNewTwilioConnector(t *testing.T) {
@@ -258,22 +260,29 @@ func TestSNSConnector_Close(t *testing.T) {
 func TestFactory(t *testing.T) {
 	factory := NewFactory()
 
-	if factory.Type() != "sms" {
-		t.Errorf("expected type 'sms', got %s", factory.Type())
+	if !factory.Supports("sms", "") {
+		t.Error("expected factory to support 'sms' type")
+	}
+	if factory.Supports("email", "") {
+		t.Error("factory should not support 'email' type")
 	}
 }
 
 func TestFactory_CreateTwilio(t *testing.T) {
 	factory := NewFactory()
 
-	config := map[string]interface{}{
-		"driver":      "twilio",
-		"account_sid": "AC123",
-		"auth_token":  "token123",
-		"from":        "+1234567890",
+	config := &connector.Config{
+		Name: "test",
+		Type: "sms",
+		Properties: map[string]interface{}{
+			"driver":      "twilio",
+			"account_sid": "AC123",
+			"auth_token":  "token123",
+			"from":        "+1234567890",
+		},
 	}
 
-	conn, err := factory.Create("test", config)
+	conn, err := factory.Create(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -286,12 +295,16 @@ func TestFactory_CreateTwilio(t *testing.T) {
 func TestFactory_CreateSNS(t *testing.T) {
 	factory := NewFactory()
 
-	config := map[string]interface{}{
-		"driver": "sns",
-		"region": "us-west-2",
+	config := &connector.Config{
+		Name: "test",
+		Type: "sms",
+		Properties: map[string]interface{}{
+			"driver": "sns",
+			"region": "us-west-2",
+		},
 	}
 
-	conn, err := factory.Create("test", config)
+	conn, err := factory.Create(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -309,12 +322,16 @@ func TestFactory_CreateSNS(t *testing.T) {
 func TestFactory_CreateDefaultDriver(t *testing.T) {
 	factory := NewFactory()
 
-	config := map[string]interface{}{
-		"account_sid": "AC123",
-		"auth_token":  "token123",
+	config := &connector.Config{
+		Name: "test",
+		Type: "sms",
+		Properties: map[string]interface{}{
+			"account_sid": "AC123",
+			"auth_token":  "token123",
+		},
 	}
 
-	conn, err := factory.Create("test", config)
+	conn, err := factory.Create(context.Background(), config)
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
@@ -328,11 +345,15 @@ func TestFactory_CreateDefaultDriver(t *testing.T) {
 func TestFactory_CreateUnknownDriver(t *testing.T) {
 	factory := NewFactory()
 
-	config := map[string]interface{}{
-		"driver": "unknown",
+	config := &connector.Config{
+		Name: "test",
+		Type: "sms",
+		Properties: map[string]interface{}{
+			"driver": "unknown",
+		},
 	}
 
-	_, err := factory.Create("test", config)
+	_, err := factory.Create(context.Background(), config)
 	if err == nil {
 		t.Error("expected error for unknown driver")
 	}

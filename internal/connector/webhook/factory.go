@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -15,20 +16,21 @@ func NewFactory() *Factory {
 	return &Factory{}
 }
 
-// Type returns the connector type this factory handles
-func (f *Factory) Type() string {
-	return "webhook"
+// Supports returns true if this factory can create the given connector type.
+func (f *Factory) Supports(connectorType, driver string) bool {
+	return connectorType == "webhook"
 }
 
 // Create creates a new webhook connector from configuration
-func (f *Factory) Create(name string, config map[string]interface{}) (connector.Connector, error) {
-	mode := getString(config, "mode", "outbound")
+func (f *Factory) Create(ctx context.Context, config *connector.Config) (connector.Connector, error) {
+	props := config.Properties
+	mode := getString(props, "mode", "outbound")
 
 	switch mode {
 	case "inbound", "receive", "server":
-		return f.createInbound(name, config)
+		return f.createInbound(config.Name, props)
 	case "outbound", "send", "client":
-		return f.createOutbound(name, config)
+		return f.createOutbound(config.Name, props)
 	default:
 		return nil, fmt.Errorf("unknown webhook mode: %s (use 'inbound' or 'outbound')", mode)
 	}

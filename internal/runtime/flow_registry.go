@@ -13,6 +13,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector/cache"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/functions"
+	msync "github.com/matutetandil/mycel/internal/sync"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
 )
@@ -101,6 +102,9 @@ type FlowHandler struct {
 
 	// FunctionsRegistry provides access to WASM functions for CEL expressions.
 	FunctionsRegistry *functions.Registry
+
+	// SyncManager provides distributed locks, semaphores, and coordination.
+	SyncManager *msync.Manager
 }
 
 // HandleRequest processes an incoming request through the flow.
@@ -208,6 +212,104 @@ func (h *FlowHandler) resultToConnectorResult(result interface{}) *connector.Res
 
 // executeFlowCore executes the core flow logic without aspects.
 func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+	// Build the core execution function
+	executeCore := func() (interface{}, error) {
+		return h.executeFlowCoreInternal(ctx, input)
+	}
+
+	// Wrap with sync primitives if configured
+	if h.SyncManager != nil {
+		// Handle lock
+		if h.Config.Lock != nil {
+			lockKey := h.evaluateSyncKey(ctx, h.Config.Lock.Key, input)
+			lockCfg := &msync.FlowLockConfig{
+				Storage: h.Config.Lock.Storage,
+				Key:     h.Config.Lock.Key,
+				Timeout: h.Config.Lock.Timeout,
+				Wait:    h.Config.Lock.Wait,
+				Retry:   h.Config.Lock.Retry,
+			}
+			return h.SyncManager.ExecuteWithLock(ctx, lockCfg, lockKey, executeCore)
+		}
+
+		// Handle semaphore
+		if h.Config.Semaphore != nil {
+			semKey := h.evaluateSyncKey(ctx, h.Config.Semaphore.Key, input)
+			semCfg := &msync.FlowSemaphoreConfig{
+				Storage:    h.Config.Semaphore.Storage,
+				Key:        h.Config.Semaphore.Key,
+				MaxPermits: h.Config.Semaphore.MaxPermits,
+				Timeout:    h.Config.Semaphore.Timeout,
+				Lease:      h.Config.Semaphore.Lease,
+			}
+			return h.SyncManager.ExecuteWithSemaphore(ctx, semCfg, semKey, executeCore)
+		}
+
+		// Handle coordinate
+		if h.Config.Coordinate != nil {
+			var waitKey, signalKey string
+			if h.Config.Coordinate.Wait != nil {
+				waitKey = h.evaluateSyncKey(ctx, h.Config.Coordinate.Wait.For, input)
+			}
+			if h.Config.Coordinate.Signal != nil {
+				signalKey = h.evaluateSyncKey(ctx, h.Config.Coordinate.Signal.Emit, input)
+			}
+
+			var waitCfg *msync.FlowWaitConfig
+			if h.Config.Coordinate.Wait != nil {
+				waitCfg = &msync.FlowWaitConfig{
+					When: h.Config.Coordinate.Wait.When,
+					For:  h.Config.Coordinate.Wait.For,
+				}
+			}
+			var signalFlowCfg *msync.FlowSignalConfig
+			if h.Config.Coordinate.Signal != nil {
+				signalFlowCfg = &msync.FlowSignalConfig{
+					When: h.Config.Coordinate.Signal.When,
+					Emit: h.Config.Coordinate.Signal.Emit,
+					TTL:  h.Config.Coordinate.Signal.TTL,
+				}
+			}
+
+			coordCfg := &msync.FlowCoordinateConfig{
+				Storage:            h.Config.Coordinate.Storage,
+				Wait:               waitCfg,
+				Signal:             signalFlowCfg,
+				Timeout:            h.Config.Coordinate.Timeout,
+				OnTimeout:          h.Config.Coordinate.OnTimeout,
+				MaxRetries:         h.Config.Coordinate.MaxRetries,
+				MaxConcurrentWaits: h.Config.Coordinate.MaxConcurrentWaits,
+			}
+			return h.SyncManager.ExecuteWithCoordinate(ctx, coordCfg, signalKey, waitKey, executeCore)
+		}
+	}
+
+	// No sync primitives, execute directly
+	return executeCore()
+}
+
+// evaluateSyncKey evaluates a CEL expression for sync key, or returns the key as-is if not a CEL expression.
+func (h *FlowHandler) evaluateSyncKey(ctx context.Context, keyExpr string, input map[string]interface{}) string {
+	if keyExpr == "" {
+		return ""
+	}
+
+	// If it looks like a CEL expression (contains operators or function calls), evaluate it
+	if h.Transformer != nil && (strings.Contains(keyExpr, "+") || strings.Contains(keyExpr, "(") || strings.Contains(keyExpr, "input.")) {
+		result, err := h.Transformer.EvaluateExpression(ctx, input, nil, keyExpr)
+		if err == nil {
+			if s, ok := result.(string); ok {
+				return s
+			}
+			return fmt.Sprintf("%v", result)
+		}
+	}
+
+	return keyExpr
+}
+
+// executeFlowCoreInternal contains the actual flow logic.
+func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[string]interface{}) (interface{}, error) {
 	// Determine operation type from the flow config
 	operation := parseOperation(h.Config.From.Operation)
 

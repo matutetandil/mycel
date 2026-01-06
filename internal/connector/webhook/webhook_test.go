@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 func TestSignatureVerifier_Sign(t *testing.T) {
@@ -405,13 +407,17 @@ func TestFactory_Create(t *testing.T) {
 	f := NewFactory()
 
 	t.Run("Create outbound", func(t *testing.T) {
-		config := map[string]interface{}{
-			"mode":   "outbound",
-			"url":    "https://example.com/webhook",
-			"secret": "test-secret",
+		config := &connector.Config{
+			Name: "test",
+			Type: "webhook",
+			Properties: map[string]interface{}{
+				"mode":   "outbound",
+				"url":    "https://example.com/webhook",
+				"secret": "test-secret",
+			},
 		}
 
-		c, err := f.Create("test", config)
+		c, err := f.Create(context.Background(), config)
 		if err != nil {
 			t.Fatalf("Create() error = %v", err)
 		}
@@ -430,13 +436,17 @@ func TestFactory_Create(t *testing.T) {
 	})
 
 	t.Run("Create inbound", func(t *testing.T) {
-		config := map[string]interface{}{
-			"mode":   "inbound",
-			"path":   "/webhooks/stripe",
-			"secret": "stripe-secret",
+		config := &connector.Config{
+			Name: "test",
+			Type: "webhook",
+			Properties: map[string]interface{}{
+				"mode":   "inbound",
+				"path":   "/webhooks/stripe",
+				"secret": "stripe-secret",
+			},
 		}
 
-		c, err := f.Create("test", config)
+		c, err := f.Create(context.Background(), config)
 		if err != nil {
 			t.Fatalf("Create() error = %v", err)
 		}

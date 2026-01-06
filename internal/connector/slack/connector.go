@@ -355,25 +355,26 @@ func NewFactory() *Factory {
 	return &Factory{}
 }
 
-// Type returns the connector type
-func (f *Factory) Type() string {
-	return "slack"
+// Supports returns true if this factory can create the given connector type.
+func (f *Factory) Supports(connectorType, driver string) bool {
+	return connectorType == "slack"
 }
 
 // Create creates a new Slack connector
-func (f *Factory) Create(name string, config map[string]interface{}) (connector.Connector, error) {
+func (f *Factory) Create(ctx context.Context, config *connector.Config) (connector.Connector, error) {
+	props := config.Properties
 	cfg := &Config{
-		Name:           name,
-		WebhookURL:     getString(config, "webhook_url", ""),
-		Token:          getString(config, "token", ""),
-		DefaultChannel: getString(config, "channel", ""),
-		Username:       getString(config, "username", ""),
-		IconEmoji:      getString(config, "icon_emoji", ""),
-		IconURL:        getString(config, "icon_url", ""),
-		Timeout:        getDuration(config, "timeout", 30*time.Second),
+		Name:           config.Name,
+		WebhookURL:     getString(props, "webhook_url", ""),
+		Token:          getString(props, "token", ""),
+		DefaultChannel: getString(props, "channel", ""),
+		Username:       getString(props, "username", ""),
+		IconEmoji:      getString(props, "icon_emoji", ""),
+		IconURL:        getString(props, "icon_url", ""),
+		Timeout:        getDuration(props, "timeout", 30*time.Second),
 	}
 
-	return NewConnector(name, cfg), nil
+	return NewConnector(config.Name, cfg), nil
 }
 
 func getString(m map[string]interface{}, key, defaultVal string) string {

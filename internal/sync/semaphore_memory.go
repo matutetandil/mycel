@@ -14,6 +14,7 @@ type MemorySemaphore struct {
 	semaphores map[string]*semaphoreState
 	maxPermits int
 	done       chan struct{}
+	closed     bool
 }
 
 type semaphoreState struct {
@@ -153,7 +154,12 @@ func (m *MemorySemaphore) Available(ctx context.Context, key string) (int, error
 
 // Close stops the cleanup goroutine.
 func (m *MemorySemaphore) Close() error {
-	close(m.done)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.closed {
+		m.closed = true
+		close(m.done)
+	}
 	return nil
 }
 

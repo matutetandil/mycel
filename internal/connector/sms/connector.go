@@ -268,37 +268,42 @@ var (
 type Factory struct{}
 
 func NewFactory() *Factory { return &Factory{} }
-func (f *Factory) Type() string { return "sms" }
 
-func (f *Factory) Create(name string, config map[string]interface{}) (connector.Connector, error) {
-	driver := getString(config, "driver", "twilio")
+// Supports returns true if this factory can create the given connector type.
+func (f *Factory) Supports(connectorType, driver string) bool {
+	return connectorType == "sms"
+}
 
-	cfg := &Config{
-		Name:   name,
+func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.Connector, error) {
+	props := cfg.Properties
+	driver := getString(props, "driver", "twilio")
+
+	smsCfg := &Config{
+		Name:   cfg.Name,
 		Driver: driver,
-		From:   getString(config, "from", ""),
+		From:   getString(props, "from", ""),
 	}
 
 	switch driver {
 	case "twilio":
-		cfg.Twilio = &TwilioConfig{
-			AccountSID: getString(config, "account_sid", ""),
-			AuthToken:  getString(config, "auth_token", ""),
-			From:       getString(config, "from", ""),
-			Timeout:    getDuration(config, "timeout", 30*time.Second),
+		smsCfg.Twilio = &TwilioConfig{
+			AccountSID: getString(props, "account_sid", ""),
+			AuthToken:  getString(props, "auth_token", ""),
+			From:       getString(props, "from", ""),
+			Timeout:    getDuration(props, "timeout", 30*time.Second),
 		}
-		return NewTwilioConnector(name, cfg), nil
+		return NewTwilioConnector(cfg.Name, smsCfg), nil
 
 	case "sns":
-		cfg.SNS = &SNSConfig{
-			Region:          getString(config, "region", "us-east-1"),
-			AccessKeyID:     getString(config, "access_key_id", ""),
-			SecretAccessKey: getString(config, "secret_access_key", ""),
-			SenderID:        getString(config, "sender_id", ""),
-			SMSType:         getString(config, "sms_type", "Transactional"),
-			Timeout:         getDuration(config, "timeout", 30*time.Second),
+		smsCfg.SNS = &SNSConfig{
+			Region:          getString(props, "region", "us-east-1"),
+			AccessKeyID:     getString(props, "access_key_id", ""),
+			SecretAccessKey: getString(props, "secret_access_key", ""),
+			SenderID:        getString(props, "sender_id", ""),
+			SMSType:         getString(props, "sms_type", "Transactional"),
+			Timeout:         getDuration(props, "timeout", 30*time.Second),
 		}
-		return NewSNSConnector(name, cfg), nil
+		return NewSNSConnector(cfg.Name, smsCfg), nil
 
 	default:
 		return nil, fmt.Errorf("unknown SMS driver: %s", driver)

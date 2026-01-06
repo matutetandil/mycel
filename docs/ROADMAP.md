@@ -2,7 +2,7 @@
 
 This document tracks the implementation status and future plans for Mycel.
 
-## Current Status: Phase 6 Complete (Notifications)
+## Current Status: Phase 6 Complete (All Core Features)
 
 ## Connector Support
 
@@ -126,20 +126,22 @@ This document tracks the implementation status and future plans for Mycel.
 - Docker path standardized to `/etc/mycel`
 - JSON logging for production environments
 
-### Phase 4.2 - Synchronization (Spec Ready)
+### Phase 4.2 - Synchronization (Complete)
 > Full specification: [docs/PHASE-4.2-SYNC.md](./PHASE-4.2-SYNC.md)
 
-- **MQ Headers Access**: `input.body`, `input.headers`, `input.properties` for RabbitMQ/Kafka
-- **Lock (Mutex)**: Distributed locks by key with Redis/Memory backends
-- **Semaphore**: Limit concurrent executions (e.g., max 10 parallel API calls)
-- **Coordinate**: Signal/Wait pattern for dependency coordination
+- ✅ **MQ Headers Access**: `input.body`, `input.headers`, `input.properties` for RabbitMQ/Kafka
+- ✅ **Lock (Mutex)**: Distributed locks by key with Redis/Memory backends
+- ✅ **Semaphore**: Limit concurrent executions (e.g., max 10 parallel API calls)
+- ✅ **Coordinate**: Signal/Wait pattern for dependency coordination
   - Wait for parent entity before processing child
   - Preflight checks against database
   - Configurable timeout behavior (fail/retry/skip/pass)
-- **Flow Triggers**: `when` attribute for cron/interval scheduling
+- ✅ **Flow Triggers**: `when` attribute for cron/interval scheduling
   - `when = "0 3 * * *"` (cron)
   - `when = "@every 5m"` (interval)
   - `when = "@daily"` (shortcuts)
+- ✅ **SyncManager**: Unified manager for sync primitives integrated with flow execution
+- ✅ **Scheduler**: Cron-based flow triggers integrated with runtime
 
 ### Phase 4.3 - Connector Profiles (Complete)
 > Full specification: [docs/PHASE-4.3-PROFILES.md](./PHASE-4.3-PROFILES.md)
@@ -156,7 +158,7 @@ This document tracks the implementation status and future plans for Mycel.
   - Read replicas vs primary database
   - Gradual migration between systems
 
-### Phase 5 - Extensibility & Documentation (In Progress)
+### Phase 5 - Extensibility & Documentation (Complete)
 - ✅ **Aspects (AOP)** for cross-cutting concerns
   - Pattern matching on flows (e.g., `flows/**/create_*.hcl`)
   - When: before, after, around

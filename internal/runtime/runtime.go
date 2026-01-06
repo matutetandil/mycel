@@ -18,7 +18,13 @@ import (
 	"github.com/matutetandil/mycel/internal/banner"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/cache"
+	"github.com/matutetandil/mycel/internal/connector/discord"
+	"github.com/matutetandil/mycel/internal/connector/email"
 	"github.com/matutetandil/mycel/internal/connector/profile"
+	"github.com/matutetandil/mycel/internal/connector/push"
+	"github.com/matutetandil/mycel/internal/connector/slack"
+	"github.com/matutetandil/mycel/internal/connector/sms"
+	"github.com/matutetandil/mycel/internal/connector/webhook"
 	"github.com/matutetandil/mycel/internal/connector/database/mongodb"
 	"github.com/matutetandil/mycel/internal/connector/database/mysql"
 	"github.com/matutetandil/mycel/internal/connector/database/postgres"
@@ -41,6 +47,8 @@ import (
 	"github.com/matutetandil/mycel/internal/parser"
 	"github.com/matutetandil/mycel/internal/plugin"
 	"github.com/matutetandil/mycel/internal/ratelimit"
+	"github.com/matutetandil/mycel/internal/scheduler"
+	msync "github.com/matutetandil/mycel/internal/sync"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
 )
@@ -79,6 +87,12 @@ type Runtime struct {
 	// Auth manager for authentication system
 	authManager *auth.Manager
 	authHandler *auth.Handler
+
+	// Sync manager for distributed locks, semaphores, and coordination
+	syncManager *msync.Manager
+
+	// Scheduler for cron-based flow triggers
+	scheduler *scheduler.Scheduler
 
 	// Hot reload components
 	hotReloadEnabled bool
@@ -267,6 +281,9 @@ func New(opts Options) (*Runtime, error) {
 			"preset", config.Auth.Preset)
 	}
 
+	// Create scheduler for cron-based flows
+	sched := scheduler.New()
+
 	return &Runtime{
 		config:            config,
 		connectors:        registry,
@@ -282,6 +299,7 @@ func New(opts Options) (*Runtime, error) {
 		pluginRegistry:    pluginReg,
 		authManager:       authMgr,
 		authHandler:       authHdl,
+		scheduler:         sched,
 		logger:            opts.Logger,
 		environment:       env,
 		configDir:         opts.ConfigDir,
@@ -330,6 +348,14 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 	// Cache connector (Redis, Memory)
 	registry.RegisterFactory(cache.NewFactory())
 
+	// Notification connectors
+	registry.RegisterFactory(email.NewFactory())
+	registry.RegisterFactory(slack.NewFactory())
+	registry.RegisterFactory(discord.NewFactory())
+	registry.RegisterFactory(sms.NewFactory())
+	registry.RegisterFactory(push.NewFactory())
+	registry.RegisterFactory(webhook.NewFactory())
+
 	// Profile connector (must be registered last - uses other factories)
 	registry.RegisterFactory(profile.NewFactory(registry))
 }
@@ -362,6 +388,9 @@ func (r *Runtime) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize connectors: %w", err)
 	}
 
+	// Initialize sync manager (needs connectors to be ready)
+	r.syncManager = msync.NewManager(r.connectors)
+
 	// Create aspect executor (needs connectors to be initialized)
 	if err := r.initAspects(); err != nil {
 		banner.PrintError(err.Error())
@@ -378,6 +407,14 @@ func (r *Runtime) Start(ctx context.Context) error {
 	if err := r.startServers(ctx); err != nil {
 		banner.PrintError(err.Error())
 		return fmt.Errorf("failed to start servers: %w", err)
+	}
+
+	// Start the scheduler for cron-based flows
+	if r.scheduler != nil {
+		r.scheduler.Start()
+		if entries := r.scheduler.Entries(); len(entries) > 0 {
+			r.logger.Info("scheduler started", "scheduled_flows", len(entries))
+		}
 	}
 
 	banner.PrintReady()
@@ -642,9 +679,33 @@ func (r *Runtime) registerFlows() error {
 			NamedCaches:       r.namedCaches,
 			AspectExecutor:    r.aspectExecutor,
 			FunctionsRegistry: r.functionsRegistry,
+			SyncManager:       r.syncManager,
 		}
 
 		r.flows.Register(cfg.Name, handler)
+
+		// Schedule flow if it has a cron/interval trigger
+		if cfg.When != "" && cfg.When != "always" {
+			flowHandler := handler
+			schedCfg := &scheduler.ScheduleConfig{
+				FlowName: cfg.Name,
+				When:     cfg.When,
+				Handler: func(ctx context.Context) error {
+					_, err := flowHandler.HandleRequest(ctx, nil)
+					return err
+				},
+			}
+			if err := r.scheduler.Schedule(schedCfg); err != nil {
+				r.logger.Warn("failed to schedule flow",
+					"flow", cfg.Name,
+					"when", cfg.When,
+					"error", err)
+			} else {
+				r.logger.Info("flow scheduled",
+					"flow", cfg.Name,
+					"when", cfg.When)
+			}
+		}
 
 		// Parse operation to get method and path
 		method, path := r.parseFlowOperation(cfg.From.Connector, cfg.From.Operation)
@@ -790,6 +851,18 @@ func (r *Runtime) Shutdown() error {
 
 	// Mark service as not ready (stop accepting new traffic)
 	r.health.SetReady(false)
+
+	// Stop the scheduler
+	if r.scheduler != nil {
+		<-r.scheduler.Stop().Done()
+	}
+
+	// Close sync manager
+	if r.syncManager != nil {
+		if err := r.syncManager.Close(); err != nil {
+			r.logger.Warn("error closing sync manager", "error", err)
+		}
+	}
 
 	// Close all connectors
 	if err := r.connectors.CloseAll(ctx); err != nil {

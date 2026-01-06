@@ -22,30 +22,31 @@ func NewFactory() *Factory {
 	return &Factory{}
 }
 
-// Type returns the connector type this factory handles
-func (f *Factory) Type() string {
-	return "email"
+// Supports returns true if this factory can create the given connector type.
+func (f *Factory) Supports(connectorType, driver string) bool {
+	return connectorType == "email"
 }
 
 // Create creates a new email connector from configuration
-func (f *Factory) Create(name string, config map[string]interface{}) (connector.Connector, error) {
-	driver := getString(config, "driver", "smtp")
+func (f *Factory) Create(ctx context.Context, config *connector.Config) (connector.Connector, error) {
+	props := config.Properties
+	driver := getString(props, "driver", "smtp")
 
 	cfg := &Config{
-		Name:     name,
+		Name:     config.Name,
 		Driver:   driver,
-		From:     getString(config, "from", ""),
-		FromName: getString(config, "from_name", ""),
-		ReplyTo:  getString(config, "reply_to", ""),
+		From:     getString(props, "from", ""),
+		FromName: getString(props, "from_name", ""),
+		ReplyTo:  getString(props, "reply_to", ""),
 	}
 
 	switch driver {
 	case "smtp":
-		return f.createSMTP(name, cfg, config)
+		return f.createSMTP(config.Name, cfg, props)
 	case "sendgrid":
-		return f.createSendGrid(name, cfg, config)
+		return f.createSendGrid(config.Name, cfg, props)
 	case "ses":
-		return f.createSES(name, cfg, config)
+		return f.createSES(config.Name, cfg, props)
 	default:
 		return nil, fmt.Errorf("unknown email driver: %s (use 'smtp', 'sendgrid', or 'ses')", driver)
 	}

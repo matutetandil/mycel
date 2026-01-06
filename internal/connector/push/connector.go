@@ -440,36 +440,41 @@ var (
 type Factory struct{}
 
 func NewFactory() *Factory { return &Factory{} }
-func (f *Factory) Type() string { return "push" }
 
-func (f *Factory) Create(name string, config map[string]interface{}) (connector.Connector, error) {
-	driver := getString(config, "driver", "fcm")
+// Supports returns true if this factory can create the given connector type.
+func (f *Factory) Supports(connectorType, driver string) bool {
+	return connectorType == "push"
+}
+
+func (f *Factory) Create(ctx context.Context, connCfg *connector.Config) (connector.Connector, error) {
+	props := connCfg.Properties
+	driver := getString(props, "driver", "fcm")
 
 	cfg := &Config{
-		Name:   name,
+		Name:   connCfg.Name,
 		Driver: driver,
 	}
 
 	switch driver {
 	case "fcm":
 		cfg.FCM = &FCMConfig{
-			ServerKey:          getString(config, "server_key", ""),
-			ProjectID:          getString(config, "project_id", ""),
-			ServiceAccountJSON: getString(config, "service_account_json", ""),
-			Timeout:            getDuration(config, "timeout", 30*time.Second),
+			ServerKey:          getString(props, "server_key", ""),
+			ProjectID:          getString(props, "project_id", ""),
+			ServiceAccountJSON: getString(props, "service_account_json", ""),
+			Timeout:            getDuration(props, "timeout", 30*time.Second),
 		}
-		return NewFCMConnector(name, cfg), nil
+		return NewFCMConnector(connCfg.Name, cfg), nil
 
 	case "apns":
 		cfg.APNs = &APNsConfig{
-			TeamID:     getString(config, "team_id", ""),
-			KeyID:      getString(config, "key_id", ""),
-			PrivateKey: getString(config, "private_key", ""),
-			BundleID:   getString(config, "bundle_id", ""),
-			Production: getBool(config, "production", false),
-			Timeout:    getDuration(config, "timeout", 30*time.Second),
+			TeamID:     getString(props, "team_id", ""),
+			KeyID:      getString(props, "key_id", ""),
+			PrivateKey: getString(props, "private_key", ""),
+			BundleID:   getString(props, "bundle_id", ""),
+			Production: getBool(props, "production", false),
+			Timeout:    getDuration(props, "timeout", 30*time.Second),
 		}
-		return NewAPNsConnector(name, cfg), nil
+		return NewAPNsConnector(connCfg.Name, cfg), nil
 
 	default:
 		return nil, fmt.Errorf("unknown push driver: %s", driver)

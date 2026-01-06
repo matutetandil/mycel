@@ -383,24 +383,25 @@ func NewFactory() *Factory {
 	return &Factory{}
 }
 
-// Type returns the connector type
-func (f *Factory) Type() string {
-	return "discord"
+// Supports returns true if this factory can create the given connector type.
+func (f *Factory) Supports(connectorType, driver string) bool {
+	return connectorType == "discord"
 }
 
 // Create creates a new Discord connector
-func (f *Factory) Create(name string, config map[string]interface{}) (connector.Connector, error) {
+func (f *Factory) Create(ctx context.Context, config *connector.Config) (connector.Connector, error) {
+	props := config.Properties
 	cfg := &Config{
-		Name:             name,
-		WebhookURL:       getString(config, "webhook_url", ""),
-		BotToken:         getString(config, "bot_token", ""),
-		DefaultChannelID: getString(config, "channel_id", ""),
-		Username:         getString(config, "username", ""),
-		AvatarURL:        getString(config, "avatar_url", ""),
-		Timeout:          getDuration(config, "timeout", 30*time.Second),
+		Name:             config.Name,
+		WebhookURL:       getString(props, "webhook_url", ""),
+		BotToken:         getString(props, "bot_token", ""),
+		DefaultChannelID: getString(props, "channel_id", ""),
+		Username:         getString(props, "username", ""),
+		AvatarURL:        getString(props, "avatar_url", ""),
+		Timeout:          getDuration(props, "timeout", 30*time.Second),
 	}
 
-	return NewConnector(name, cfg), nil
+	return NewConnector(config.Name, cfg), nil
 }
 
 func getString(m map[string]interface{}, key, defaultVal string) string {
