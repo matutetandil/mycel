@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Event-Driven Integration Examples
+- **RabbitMQ → REST** (`examples/integration/rabbit-to-rest/`)
+  - Consume messages and call external REST APIs
+  - Includes DLQ, circuit breaker, and retry configuration
+  - Order processing and CRM sync examples
+- **RabbitMQ → GraphQL** (`examples/integration/rabbit-to-graphql/`)
+  - Consume messages and call GraphQL APIs
+  - Inventory updates and user sync examples
+  - Bulk operations and query-before-mutation patterns
+- **RabbitMQ → Exec** (`examples/integration/rabbit-to-exec/`)
+  - Consume messages and execute processes/scripts
+  - PDF generation, image processing, video transcoding
+  - Semaphore-based concurrency control examples
+- **REST → RabbitMQ** (`examples/integration/rest-to-rabbit/`)
+  - API Gateway pattern: receive HTTP, queue for processing
+  - Webhook receiver with dynamic routing
+  - Bulk event ingestion and request-reply patterns
+- **File → RabbitMQ** (`examples/integration/file-to-rabbit/`)
+  - Scheduled file imports (cron-based)
+  - Drop folder watching with polling
+  - S3 file processing and log streaming
+  - CSV, JSON, XML file processing examples
+- **Integration Patterns Documentation** (`docs/INTEGRATION-PATTERNS.md`)
+  - Event-driven architecture patterns section
+  - Best practices: DLQ, semaphores, locks, circuit breakers
+  - Complete order processing pipeline example
+
 ### Added - Phase 4.2 Runtime Integration
 - **SyncManager**: Unified manager for sync primitives (Lock, Semaphore, Coordinator)
   - Memory and Redis backends for all primitives
