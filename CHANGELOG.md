@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Enterprise Connector Examples
+- **Dynamic API Key Validation** (`examples/dynamic-api-key/`)
+  - Validates API keys against database instead of static config
+  - Supports user association, expiration, and metadata
+  - Auth context available in flows via `auth.user_id` and `auth.claims`
+- **gRPC Load Balancing** (`examples/grpc-loadbalancing/`)
+  - Client-side load balancing with `round_robin` and `pick_first` policies
+  - DNS-based service discovery support
+  - Client-side health checking
+- **Redis Cluster/Sentinel** (`examples/redis-cluster/`)
+  - Redis Cluster mode for horizontal sharding
+  - Redis Sentinel mode for automatic failover
+  - Connection pooling and timeout configuration
+- **Database Read Replicas** (`examples/read-replicas/`)
+  - Automatic read/write routing for PostgreSQL and MySQL
+  - Load balancing strategies: round_robin, random, least_conn
+  - Replication lag handling with max_lag configuration
+- **Validators README** (`examples/validators/README.md`)
+  - Documentation for regex and CEL validators
+  - Usage examples and best practices
+
 ### Added - Documentation Improvements
 - **Getting Started Guide** (`docs/GETTING_STARTED.md`)
   - Step-by-step tutorial from zero to running service
