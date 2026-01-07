@@ -147,6 +147,11 @@ type ToConfig struct {
 	// Target is the destination target (e.g., table name, collection, endpoint).
 	Target string
 
+	// Operation is the type of write operation to perform.
+	// Examples: INSERT_ONE, UPDATE_ONE, DELETE_ONE, UPDATE_MANY, DELETE_MANY,
+	// WRITE (files/S3), READ, DELETE, LIST, PRESIGN, COPY
+	Operation string
+
 	// Filter is an optional filter expression for the destination.
 	Filter string
 
@@ -161,6 +166,10 @@ type ToConfig struct {
 	// Update is an optional update document for NoSQL UPDATE operations (MongoDB).
 	// Example: {"$set": {"status": "active"}, "$inc": {"count": 1}}
 	Update map[string]interface{}
+
+	// Params contains additional parameters for the operation.
+	// Example: S3 COPY operation uses {source: "...", dest: "..."}
+	Params map[string]interface{}
 }
 
 // ValidateConfig holds validation configuration.

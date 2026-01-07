@@ -12,19 +12,28 @@ connector "api" {
   port = 3000
 }
 
-# MongoDB connection
-# Use host/port/user/password instead of uri (uri is handled by factory but not in parser schema)
+# MongoDB connection using URI
 connector "mongo" {
   type     = "database"
   driver   = "mongodb"
-  host     = "localhost"
-  port     = 27017
+  uri      = "mongodb://admin:secret@localhost:27017/myapp?authSource=admin"
   database = "myapp"
-  user     = "admin"
-  password = "secret"
 
   pool {
     max = 100
     min = 10
   }
 }
+
+# Alternative: MongoDB connection using individual parameters
+# connector "mongo_alt" {
+#   type     = "database"
+#   driver   = "mongodb"
+#   host     = "localhost"
+#   port     = 27017
+#   database = "myapp"
+#   user     = "admin"
+#   password = "secret"
+#   auth_source = "admin"
+#   replica_set = "rs0"  # For replica sets
+# }

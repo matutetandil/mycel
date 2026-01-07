@@ -602,8 +602,9 @@ func TestIntegration_GraphQL_Dynamic(t *testing.T) {
 		}
 
 		body, _ := io.ReadAll(resp.Body)
-		if !bytes.Contains(body, []byte("GraphQL Playground")) {
-			t.Error("expected playground HTML response")
+		// Check for GraphiQL (the default IDE) - title tag contains "GraphiQL"
+		if !bytes.Contains(body, []byte("GraphiQL")) {
+			t.Error("expected GraphiQL HTML response")
 		}
 	})
 }

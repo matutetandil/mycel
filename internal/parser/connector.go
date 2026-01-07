@@ -34,18 +34,27 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "base_url"},
 			{Name: "timeout"},
 			{Name: "retry_count"},
+
 			// GraphQL specific
 			{Name: "endpoint"},
 			{Name: "playground"},
 			{Name: "playground_path"},
+			{Name: "introspection"},
+
 			// TCP specific
 			{Name: "protocol"},
 			{Name: "max_connections"},
 			{Name: "read_timeout"},
 			{Name: "write_timeout"},
-			// MQ specific
+
+			// MQ specific (RabbitMQ)
 			{Name: "brokers"},
-			{Name: "vhost"}, // RabbitMQ virtual host
+			{Name: "vhost"},           // RabbitMQ virtual host
+			{Name: "connection_name"}, // Connection identifier
+			{Name: "max_reconnects"},  // Max reconnection attempts
+			// MQ specific (Kafka)
+			{Name: "client_id"},
+
 			// Exec specific
 			{Name: "command"},
 			{Name: "args"},
@@ -55,10 +64,112 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "input_format"},
 			{Name: "output_format"},
 			{Name: "retry_delay"},
+
 			// Profile-specific attributes
 			{Name: "select"},   // CEL expression for profile selection
 			{Name: "default"},  // Default profile name
 			{Name: "fallback"}, // Fallback profile list
+
+			// Cache specific
+			{Name: "mode"},        // standalone/cluster/sentinel
+			{Name: "url"},         // Redis connection URL
+			{Name: "prefix"},      // Key prefix for namespacing
+			{Name: "max_items"},   // Memory cache max items
+			{Name: "eviction"},    // Eviction policy (lru)
+			{Name: "default_ttl"}, // Default TTL for entries
+			{Name: "address"},     // Redis address
+
+			// gRPC specific
+			{Name: "proto_path"},     // Path to .proto files directory
+			{Name: "proto_files"},    // Specific .proto files to load
+			{Name: "reflection"},     // Enable gRPC reflection
+			{Name: "max_recv_mb"},    // Max receive message size (MB)
+			{Name: "max_send_mb"},    // Max send message size (MB)
+			{Name: "target"},         // Server address (host:port) for client
+			{Name: "insecure"},       // Disable TLS
+			{Name: "wait_for_ready"}, // Wait for server ready
+
+			// File connector specific
+			{Name: "base_path"},      // Base directory for operations
+			{Name: "format"},         // Default format (json/csv/text/binary)
+			{Name: "watch"},          // Enable file watching
+			{Name: "watch_interval"}, // Polling interval
+			{Name: "create_dirs"},    // Auto-create directories
+			{Name: "permissions"},    // Default file permissions
+
+			// S3 connector specific
+			{Name: "bucket"},         // S3 bucket name
+			{Name: "region"},         // AWS region
+			{Name: "access_key"},     // AWS access key ID
+			{Name: "secret_key"},     // AWS secret access key
+			{Name: "session_token"},  // AWS session token (STS)
+			{Name: "use_path_style"}, // Use path-style URLs (MinIO)
+
+			// MongoDB specific
+			{Name: "uri"},          // MongoDB connection URI
+			{Name: "replica_set"},  // Replica set name
+			{Name: "auth_source"},  // Authentication database
+			{Name: "auth_db"},      // Alias for auth_source
+			{Name: "max_pool"},     // Max pool size
+			{Name: "min_pool"},     // Min pool size
+			{Name: "srv"},          // Use SRV record lookup
+			{Name: "direct"},       // Direct connection mode
+			{Name: "read_concern"}, // Read concern level
+
+			// PostgreSQL/MySQL specific
+			{Name: "sslmode"},      // SSL mode
+			{Name: "ssl_mode"},     // Alias for sslmode
+			{Name: "charset"},      // Character set (MySQL)
+			{Name: "replicas"},     // Read replicas configuration
+			{Name: "use_replicas"}, // Enable read replicas
+
+			// Email connector specific
+			{Name: "from"},       // From email address
+			{Name: "from_name"},  // From display name
+			{Name: "reply_to"},   // Reply-to address
+			{Name: "api_key"},    // SendGrid API key
+			{Name: "pool_size"},  // Connection pool size
+
+			// Slack/Discord connector specific
+			{Name: "webhook_url"}, // Webhook URL
+			{Name: "token"},       // Bot token
+			{Name: "channel"},     // Default channel
+			{Name: "icon_emoji"},  // Icon emoji
+			{Name: "icon_url"},    // Icon URL
+			{Name: "bot_token"},   // Discord bot token
+			{Name: "channel_id"},  // Discord channel ID
+			{Name: "avatar_url"},  // Discord avatar URL
+
+			// SMS connector specific (Twilio)
+			{Name: "account_sid"}, // Twilio account SID
+			{Name: "auth_token"},  // Twilio auth token
+
+			// AWS specific (SES, SNS)
+			{Name: "access_key_id"},     // AWS access key
+			{Name: "secret_access_key"}, // AWS secret key
+			{Name: "configuration_set"}, // SES configuration set
+			{Name: "sender_id"},         // SNS sender ID
+			{Name: "sms_type"},          // SNS SMS type
+
+			// Push connector specific (FCM)
+			{Name: "server_key"},           // FCM server key (legacy)
+			{Name: "project_id"},           // Firebase project ID
+			{Name: "service_account_json"}, // Service account JSON
+			// Push connector specific (APNS)
+			{Name: "team_id"},     // Apple team ID
+			{Name: "key_id"},      // Apple key ID
+			{Name: "private_key"}, // Private key (PEM)
+			{Name: "bundle_id"},   // iOS bundle ID
+			{Name: "production"},  // Use production APNS
+
+			// Webhook connector specific
+			{Name: "secret"},              // Signature secret
+			{Name: "signature_header"},    // Signature header name
+			{Name: "signature_algorithm"}, // hmac-sha256, etc
+			{Name: "path"},                // Webhook endpoint path
+			{Name: "timestamp_header"},    // Timestamp header
+			{Name: "timestamp_tolerance"}, // Tolerance duration
+			{Name: "method"},              // HTTP method
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "pool"},
@@ -69,7 +180,7 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Type: "headers"},
 			{Type: "schema"},
 			{Type: "ssh"},
-			{Type: "tls"}, // TLS configuration for HTTP client
+			{Type: "tls"}, // TLS configuration for HTTP/gRPC
 			{Type: "queue"},
 			{Type: "exchange"}, // MQ exchange configuration
 			{Type: "publisher"},
@@ -77,6 +188,15 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Type: "producer"},
 			{Type: "federation"},
 			{Type: "profile", LabelNames: []string{"name"}}, // Profile blocks
+			// Redis Cluster/Sentinel blocks
+			{Type: "cluster"},  // Redis Cluster configuration
+			{Type: "sentinel"}, // Redis Sentinel configuration
+			// gRPC blocks
+			{Type: "keep_alive"},     // gRPC keep-alive settings
+			{Type: "load_balancing"}, // gRPC load balancing config
+			// Kafka blocks
+			{Type: "sasl"},            // Kafka SASL authentication
+			{Type: "schema_registry"}, // Kafka Schema Registry config
 		},
 	}
 
@@ -239,6 +359,54 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 				config.Properties["_profiles"] = profiles
 			}
 			profiles.Profiles[profileDef.Name] = profileDef
+
+		// Redis Cluster block
+		case "cluster":
+			cluster, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("cluster block error: %w", err)
+			}
+			config.Properties["cluster"] = cluster
+
+		// Redis Sentinel block
+		case "sentinel":
+			sentinel, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("sentinel block error: %w", err)
+			}
+			config.Properties["sentinel"] = sentinel
+
+		// gRPC keep-alive block
+		case "keep_alive":
+			keepAlive, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("keep_alive block error: %w", err)
+			}
+			config.Properties["keep_alive"] = keepAlive
+
+		// gRPC load balancing block
+		case "load_balancing":
+			loadBalancing, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("load_balancing block error: %w", err)
+			}
+			config.Properties["load_balancing"] = loadBalancing
+
+		// Kafka SASL block
+		case "sasl":
+			sasl, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("sasl block error: %w", err)
+			}
+			config.Properties["sasl"] = sasl
+
+		// Kafka Schema Registry block
+		case "schema_registry":
+			schemaRegistry, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("schema_registry block error: %w", err)
+			}
+			config.Properties["schema_registry"] = schemaRegistry
 		}
 	}
 
@@ -286,6 +454,7 @@ func parseProfileBlock(block *hcl.Block, ctx *hcl.EvalContext) (*profile.Profile
 			{Name: "port"},
 			{Name: "database"},
 			{Name: "user"},
+			{Name: "username"},
 			{Name: "password"},
 			{Name: "base_url"},
 			{Name: "timeout"},
@@ -302,12 +471,37 @@ func parseProfileBlock(block *hcl.Block, ctx *hcl.EvalContext) (*profile.Profile
 			{Name: "secret_key"},
 			{Name: "charset"},
 			{Name: "ssl_mode"},
+			{Name: "sslmode"},
+			// Cache attributes
+			{Name: "mode"},
+			{Name: "prefix"},
+			{Name: "max_items"},
+			{Name: "eviction"},
+			{Name: "default_ttl"},
+			// gRPC attributes
+			{Name: "proto_path"},
+			{Name: "proto_files"},
+			{Name: "reflection"},
+			{Name: "target"},
+			{Name: "insecure"},
+			// File attributes
+			{Name: "base_path"},
+			{Name: "format"},
+			{Name: "permissions"},
+			// S3 attributes
+			{Name: "use_path_style"},
+			// MongoDB attributes
+			{Name: "replica_set"},
+			{Name: "auth_source"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "pool"},
 			{Type: "auth"},
 			{Type: "headers"},
 			{Type: "transform"},
+			{Type: "tls"},
+			{Type: "cluster"},
+			{Type: "sentinel"},
 		},
 	}
 
@@ -373,6 +567,27 @@ func parseProfileBlock(block *hcl.Block, ctx *hcl.EvalContext) (*profile.Profile
 				return nil, fmt.Errorf("transform block error: %w", err)
 			}
 			profileDef.Transform = transform
+
+		case "tls":
+			tls, err := parseTLSBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("tls block error: %w", err)
+			}
+			connConfig.Properties["tls"] = tls
+
+		case "cluster":
+			cluster, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("cluster block error: %w", err)
+			}
+			connConfig.Properties["cluster"] = cluster
+
+		case "sentinel":
+			sentinel, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("sentinel block error: %w", err)
+			}
+			connConfig.Properties["sentinel"] = sentinel
 		}
 	}
 

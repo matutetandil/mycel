@@ -27,15 +27,14 @@ connector "db" {
 # =====================
 # Fast in-memory cache with LRU eviction.
 # Best for: development, testing, single-instance deployments.
-#
-# NOTE: Memory cache uses built-in defaults:
-# - LRU eviction policy
-# - 10000 max items
-# - 5m default TTL
-# See internal/connector/cache/factory.go for defaults.
 connector "memory_cache" {
   type   = "cache"
   driver = "memory"
+
+  max_items   = 10000  # Maximum items in cache
+  eviction    = "lru"  # Eviction policy: lru, lfu
+  default_ttl = "5m"   # Default TTL for entries
+  prefix      = "myapp" # Key prefix
 }
 
 # =====================
@@ -50,22 +49,59 @@ connector "memory_cache" {
 #   type   = "cache"
 #   driver = "redis"
 #
-#   # Redis connection URL
-#   # Format: redis://[:password@]host:port[/db]
-#   url = env("REDIS_URL", "redis://localhost:6379")
-#
-#   # Key prefix for namespace isolation
-#   # All keys will be prefixed: "myapp:products:123"
-#   prefix = "myapp"
-#
-#   # Default TTL for entries without explicit TTL
+#   # Redis connection
+#   url         = "redis://localhost:6379"
+#   address     = "localhost:6379"
+#   prefix      = "myapp"
 #   default_ttl = "5m"
 #
 #   # Connection pool settings
 #   pool {
-#     max_connections = 10    # Maximum number of connections
-#     min_idle        = 2     # Minimum idle connections to maintain
-#     max_idle_time   = "30s" # Close idle connections after this time
-#     connect_timeout = "5s"  # Timeout for new connections
+#     max = 10
+#     min = 2
+#   }
+# }
+
+# =====================
+# Redis Cluster (High Availability)
+# =====================
+# For production with high availability requirements.
+#
+# connector "redis_cluster_cache" {
+#   type   = "cache"
+#   driver = "redis"
+#   mode   = "cluster"
+#
+#   cluster {
+#     nodes = [
+#       "redis-1:6379",
+#       "redis-2:6379",
+#       "redis-3:6379"
+#     ]
+#     password         = "cluster-password"
+#     max_redirects    = 3
+#     route_by_latency = true
+#   }
+# }
+
+# =====================
+# Redis Sentinel (Failover)
+# =====================
+# For production with automatic failover.
+#
+# connector "redis_sentinel_cache" {
+#   type   = "cache"
+#   driver = "redis"
+#   mode   = "sentinel"
+#
+#   sentinel {
+#     master_name = "mymaster"
+#     nodes = [
+#       "sentinel-1:26379",
+#       "sentinel-2:26379",
+#       "sentinel-3:26379"
+#     ]
+#     password        = "sentinel-password"
+#     master_password = "master-password"
 #   }
 # }

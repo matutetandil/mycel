@@ -13,20 +13,19 @@ connector "api" {
 }
 
 # Local file system connector
-#
-# NOTE: File connector uses current directory as base path.
-# The connector will create directories as needed (create_dirs=true by default).
-# Format defaults to "json". See internal/connector/file/factory.go for options.
 connector "storage" {
   type   = "file"
   driver = "local"
 
-  # NOTE: base_path and permissions block need parser support:
-  # base_path = "./data/files"
-  # permissions {
-  #   file_mode = "0644"
-  #   dir_mode  = "0755"
-  # }
+  # File connector configuration
+  base_path   = "./data/files"
+  format      = "json"
+  create_dirs = true
+  permissions = "0644"
+
+  # Optional: Watch for file changes
+  watch          = true
+  watch_interval = "5s"
 }
 
 # Database to track file metadata

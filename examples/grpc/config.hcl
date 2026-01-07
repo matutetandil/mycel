@@ -7,10 +7,6 @@ service {
 }
 
 # gRPC Server - Expose a gRPC service
-#
-# NOTE: The gRPC connector expects .proto files in the working directory.
-# Configure proto_path and reflection in the connector factory directly
-# (see internal/connector/grpc for implementation details).
 connector "grpc_api" {
   type   = "grpc"
   driver = "server"
@@ -18,43 +14,46 @@ connector "grpc_api" {
   host = "0.0.0.0"
   port = 50051
 
-  # NOTE: proto_path and reflection are handled by the connector internally
-  # proto_path = "./protos"
-  # reflection = true  # Enable for grpcurl/grpcui tools
+  # Proto file configuration
+  proto_path  = "./protos"
+  proto_files = ["user.proto"]
+  reflection  = true  # Enable for grpcurl/grpcui tools
 
   # Optional TLS configuration
   # tls {
-  #   enabled   = true
-  #   cert_file = "/path/to/server.crt"
-  #   key_file  = "/path/to/server.key"
+  #   ca_cert     = "/path/to/ca.crt"
+  #   client_cert = "/path/to/server.crt"
+  #   client_key  = "/path/to/server.key"
   # }
 }
 
 # gRPC Client - Call external gRPC services
-#
-# NOTE: Client options like target, proto_path, insecure, and retry settings
-# are handled internally by the connector factory.
 connector "user_service" {
   type   = "grpc"
   driver = "client"
 
-  host    = "user-service"
-  port    = 50051
-  timeout = "30s"
+  host     = "user-service"
+  port     = 50051
+  timeout  = "30s"
+  target   = "user-service:50051"
+  insecure = true  # Set to false in production
 
-  # NOTE: These settings are configured internally:
-  # target     = "user-service:50051"
-  # proto_path = "./protos"
-  # insecure   = true  # Set to false in production
-  # connect_timeout = "10s"
-  # retry_count     = 3
-  # retry_backoff   = "100ms"
+  # Proto file configuration
+  proto_path     = "./protos"
+  proto_files    = ["user.proto"]
+  wait_for_ready = true
+
+  # Keep-alive settings
+  keep_alive {
+    time    = "10s"
+    timeout = "5s"
+  }
 
   # Optional TLS configuration for secure connections
   # tls {
-  #   enabled     = true
-  #   ca_file     = "/path/to/ca.crt"
-  #   server_name = "user-service"
+  #   ca_cert     = "/path/to/ca.crt"
+  #   client_cert = "/path/to/client.crt"
+  #   client_key  = "/path/to/client.key"
   # }
 }
 
@@ -104,28 +103,6 @@ flow "grpc_create_user" {
   to {
     connector = "db"
     target    = "users"
+    operation = "INSERT"
   }
 }
-
-# =========================================
-# Advanced Features (Documented, Need Parser Support)
-# =========================================
-# The following patterns require parser enhancements:
-#
-# 1. 'operation' in 'to' block (e.g., operation = "INSERT"):
-#    to {
-#      connector = "db"
-#      target    = "users"
-#      operation = "INSERT"  # Not supported in to block
-#    }
-#
-# 2. Enrichment with external gRPC service:
-#    enrich "profile" {
-#      connector = "user_service"
-#      operation = "ProfileService/GetProfile"
-#      params {
-#        user_id = "input.id"
-#      }
-#    }
-#
-# See docs/INTEGRATION-PATTERNS.md for full documentation.

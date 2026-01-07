@@ -218,6 +218,7 @@ func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, e
 //	to {
 //	  connector = "postgres"
 //	  target    = "users"
+//	  operation = "INSERT_ONE"  // optional, for specifying write operation type
 //	  filter    = "user_id = ${context.user_id}"  // optional
 //	  query     = "SELECT * FROM users WHERE id = :id"  // optional, for SQL
 //	  query_filter = { status = "active" }  // optional, for NoSQL (MongoDB)
@@ -228,10 +229,12 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		Attributes: []hcl.AttributeSchema{
 			{Name: "connector", Required: true},
 			{Name: "target"},
+			{Name: "operation"}, // Operation type: INSERT_ONE, UPDATE_ONE, DELETE_ONE, etc.
 			{Name: "filter"},
 			{Name: "query"},
 			{Name: "query_filter"},
 			{Name: "update"},
+			{Name: "params"}, // Parameters for operations like S3 COPY
 		},
 	}
 
@@ -256,6 +259,24 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 			return nil, fmt.Errorf("to target error: %s", diags.Error())
 		}
 		to.Target = val.AsString()
+	}
+
+	// Parse operation for write operations (INSERT_ONE, UPDATE_ONE, DELETE_ONE, etc.)
+	if attr, ok := content.Attributes["operation"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("to operation error: %s", diags.Error())
+		}
+		to.Operation = val.AsString()
+	}
+
+	// Parse params for operations like S3 COPY
+	if attr, ok := content.Attributes["params"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("to params error: %s", diags.Error())
+		}
+		to.Params = ctyValueToMap(val)
 	}
 
 	if attr, ok := content.Attributes["filter"]; ok {
