@@ -4,7 +4,7 @@ connector "tcp_api" {
   driver = "server"
 
   host     = "0.0.0.0"
-  port     = 9000
+  port     = 9100
   protocol = "json"
 
   max_connections = 100
@@ -25,7 +25,6 @@ connector "api" {
   port = 3000
 
   cors {
-    enabled = true
     origins = ["*"]
   }
 }

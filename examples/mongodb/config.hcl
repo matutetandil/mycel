@@ -13,15 +13,18 @@ connector "api" {
 }
 
 # MongoDB connection
+# Use host/port/user/password instead of uri (uri is handled by factory but not in parser schema)
 connector "mongo" {
   type     = "database"
   driver   = "mongodb"
-  uri      = env("MONGO_URI")
+  host     = "localhost"
+  port     = 27017
   database = "myapp"
+  user     = "admin"
+  password = "secret"
 
   pool {
-    max             = 100
-    min             = 10
-    connect_timeout = 30
+    max = 100
+    min = 10
   }
 }

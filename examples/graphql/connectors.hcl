@@ -25,14 +25,7 @@ connector "database" {
 
   database = "./data/users.db"
 
-  init_sql = <<-SQL
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT UNIQUE NOT NULL,
-      name TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-  SQL
+  # Note: init_sql is not supported - create tables manually or use setup.sql
 }
 
 # GraphQL Client Connector (optional)

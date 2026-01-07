@@ -1,67 +1,9 @@
 # File Operations Flows
+# NOTE: This is a simplified example. Advanced features like
+# 'operation' in 'to' blocks and 'after' blocks with nested 'to'
+# require parser support.
 
-# Upload a file
-flow "upload_file" {
-  from {
-    connector = "api"
-    operation = "POST /files"
-  }
-
-  transform {
-    id         = "uuid()"
-    filename   = "input.filename"
-    path       = "'/uploads/' + uuid() + '/' + input.filename"
-    size       = "input.size"
-    mime_type  = "input.mime_type"
-    created_at = "now()"
-  }
-
-  to {
-    connector = "storage"
-    operation = "WRITE"
-    target    = "input.path"
-  }
-
-  # Also save metadata to database
-  after {
-    to {
-      connector = "db"
-      target    = "files"
-      operation = "INSERT"
-    }
-  }
-}
-
-# Download a file
-flow "download_file" {
-  from {
-    connector = "api"
-    operation = "GET /files/:id/download"
-  }
-
-  # Get file metadata from DB
-  to {
-    connector = "db"
-    target    = "files"
-  }
-
-  # Return file content
-  enrich "content" {
-    connector = "storage"
-    operation = "READ"
-    params {
-      path = "output.path"
-    }
-  }
-
-  transform {
-    filename = "output.filename"
-    content  = "enriched.content.data"
-    mime_type = "output.mime_type"
-  }
-}
-
-# List files
+# List files from database metadata
 flow "list_files" {
   from {
     connector = "api"
@@ -87,48 +29,51 @@ flow "get_file" {
   }
 }
 
-# Delete a file
-flow "delete_file" {
-  from {
-    connector = "api"
-    operation = "DELETE /files/:id"
-  }
-
-  # Get file path from DB
-  to {
-    connector = "db"
-    target    = "files"
-  }
-
-  # Delete from storage
-  after {
-    to {
-      connector = "storage"
-      operation = "DELETE"
-      target    = "output.path"
-    }
-  }
-
-  # Delete metadata from DB
-  after {
-    to {
-      connector = "db"
-      target    = "files"
-      operation = "DELETE"
-    }
-  }
-}
-
-# List files in a directory
-flow "list_directory" {
-  from {
-    connector = "api"
-    operation = "GET /files/dir/:path"
-  }
-
-  to {
-    connector = "storage"
-    operation = "LIST"
-    target    = "input.path"
-  }
-}
+# =========================================
+# Advanced Features (Documented, Need Parser Support)
+# =========================================
+# The following patterns require parser enhancements:
+#
+# 1. File upload with transform and storage operation:
+#    flow "upload_file" {
+#      from {
+#        connector = "api"
+#        operation = "POST /files"
+#      }
+#      transform { ... }
+#      to {
+#        connector = "storage"
+#        operation = "WRITE"     # Not supported in to block
+#        target    = "input.path"
+#      }
+#    }
+#
+# 2. After hooks with nested operations:
+#    after {
+#      to {
+#        connector = "db"
+#        target    = "files"
+#        operation = "INSERT"
+#      }
+#    }
+#
+# 3. File download with enrichment:
+#    enrich "content" {
+#      connector = "storage"
+#      operation = "READ"
+#      params {
+#        path = "output.path"
+#      }
+#    }
+#
+# 4. Directory listing:
+#    flow "list_directory" {
+#      from { connector = "api", operation = "GET /files/dir/:path" }
+#      to {
+#        connector = "storage"
+#        operation = "LIST"      # Not supported in to block
+#        target    = "input.path"
+#      }
+#    }
+#
+# See docs/INTEGRATION-PATTERNS.md for full documentation.

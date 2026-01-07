@@ -1,18 +1,15 @@
 # Cache Example - Flow Definitions
 # =================================
-# Demonstrates different caching strategies with Mycel.
+# Demonstrates caching with Mycel.
 #
-# Caching patterns shown:
-# 1. Inline cache configuration (simple, one-off)
-# 2. Named cache references (reusable, DRY)
-# 3. Cache invalidation after writes
-# 4. Pattern-based invalidation with wildcards
+# NOTE: This is a simplified example. Advanced features like
+# variable interpolation in cache keys (${input.id}) and
+# after/invalidate blocks are documented but require parser support.
 
 # =========================================
-# PATTERN 1: Inline Cache Configuration
+# PATTERN 1: Simple Cache Configuration
 # =========================================
-# Use for simple, one-off cache needs.
-# All settings are defined directly in the flow.
+# Basic caching with static keys.
 
 flow "get_product" {
   from {
@@ -25,42 +22,18 @@ flow "get_product" {
     target    = "products"
   }
 
-  # Inline cache - all settings defined here
+  # Cache with static key
   cache {
-    storage = "memory_cache"      # Which cache connector to use
-    ttl     = "5m"                # Cache for 5 minutes
-    key     = "product:${input.id}"  # Cache key with variable interpolation
+    storage = "memory_cache"
+    ttl     = "5m"
+    key     = "products:item"
   }
 }
 
 # =========================================
-# PATTERN 2: Named Cache Reference
+# PATTERN 2: List Caching
 # =========================================
-# Use for consistent caching across multiple flows.
-# Settings are defined in caches.hcl and referenced here.
-
-flow "get_user" {
-  from {
-    connector = "api"
-    operation = "GET /users/:id"
-  }
-
-  to {
-    connector = "db"
-    target    = "users"
-  }
-
-  # Reference named cache - inherits TTL, prefix from cache definition
-  cache {
-    use = "users"                    # References cache "users" from caches.hcl
-    key = "user:${input.id}"         # Custom key for this flow
-  }
-}
-
-# =========================================
-# PATTERN 3: List Caching
-# =========================================
-# Cache list endpoints with appropriate TTLs.
+# Cache list endpoints.
 
 flow "list_products" {
   from {
@@ -74,8 +47,9 @@ flow "list_products" {
   }
 
   cache {
-    use = "lists"
-    key = "products:all"
+    storage = "memory_cache"
+    ttl     = "1m"
+    key     = "products:all"
   }
 }
 
@@ -91,39 +65,16 @@ flow "list_users" {
   }
 
   cache {
-    use = "lists"
-    key = "users:all"
-  }
-}
-
-# =========================================
-# PATTERN 4: Pagination Caching
-# =========================================
-# Cache paginated results with query parameters in key.
-
-flow "list_products_paginated" {
-  from {
-    connector = "api"
-    operation = "GET /products/page"
-  }
-
-  to {
-    connector = "db"
-    target    = "products"
-  }
-
-  cache {
     storage = "memory_cache"
     ttl     = "1m"
-    # Include pagination params in cache key
-    key = "products:page=${input.page}:limit=${input.limit}"
+    key     = "users:all"
   }
 }
 
 # =========================================
-# PATTERN 5: Cache Invalidation on Create
+# PATTERN 3: Write Operations (No Cache)
 # =========================================
-# Invalidate related caches when new data is created.
+# Write operations should not be cached.
 
 flow "create_product" {
   from {
@@ -135,17 +86,7 @@ flow "create_product" {
     connector = "db"
     target    = "products"
   }
-
-  # Invalidate caches after successful creation
-  after {
-    invalidate {
-      storage = "memory_cache"
-      patterns = [
-        "products:*",       # All individual product caches
-        "lists:products:*"  # All product list caches
-      ]
-    }
-  }
+  # No cache block - writes go directly to database
 }
 
 flow "create_user" {
@@ -158,120 +99,12 @@ flow "create_user" {
     connector = "db"
     target    = "users"
   }
-
-  after {
-    invalidate {
-      storage  = "memory_cache"
-      patterns = ["users:*", "lists:users:*"]
-    }
-  }
 }
 
 # =========================================
-# PATTERN 6: Targeted Invalidation on Update
-# =========================================
-# Invalidate only the specific item + related lists.
-
-flow "update_product" {
-  from {
-    connector = "api"
-    operation = "PUT /products/:id"
-  }
-
-  to {
-    connector = "db"
-    target    = "products"
-  }
-
-  after {
-    invalidate {
-      storage = "memory_cache"
-      # Specific key invalidation - more efficient than patterns
-      keys = [
-        "product:${input.id}"  # Only this product
-      ]
-      # Pattern invalidation for related caches
-      patterns = [
-        "lists:products:*"     # All product lists (they might contain this product)
-      ]
-    }
-  }
-}
-
-flow "update_user" {
-  from {
-    connector = "api"
-    operation = "PUT /users/:id"
-  }
-
-  to {
-    connector = "db"
-    target    = "users"
-  }
-
-  after {
-    invalidate {
-      storage = "memory_cache"
-      keys     = ["user:${input.id}"]
-      patterns = ["lists:users:*"]
-    }
-  }
-}
-
-# =========================================
-# PATTERN 7: Complete Invalidation on Delete
-# =========================================
-# Clean up all related cache entries when deleting.
-
-flow "delete_product" {
-  from {
-    connector = "api"
-    operation = "DELETE /products/:id"
-  }
-
-  to {
-    connector = "db"
-    target    = "products"
-  }
-
-  after {
-    invalidate {
-      storage = "memory_cache"
-      keys = [
-        "product:${input.id}"
-      ]
-      patterns = [
-        "lists:products:*"
-      ]
-    }
-  }
-}
-
-flow "delete_user" {
-  from {
-    connector = "api"
-    operation = "DELETE /users/:id"
-  }
-
-  to {
-    connector = "db"
-    target    = "users"
-  }
-
-  after {
-    invalidate {
-      storage = "memory_cache"
-      keys     = ["user:${input.id}"]
-      patterns = ["lists:users:*"]
-    }
-  }
-}
-
-# =========================================
-# PATTERN 8: No Cache (Write-Through)
+# PATTERN 4: Health Check (No Cache)
 # =========================================
 # Some endpoints shouldn't be cached.
-# Simply omit the cache block.
 
 flow "health_check" {
   from {
@@ -281,7 +114,33 @@ flow "health_check" {
 
   to {
     connector = "db"
-    target    = "products"  # Just count products as a health check
+    target    = "products"
   }
   # No cache block - always hits the database
 }
+
+# =========================================
+# Advanced Features (Documented, Need Parser Support)
+# =========================================
+# The following patterns are documented but require parser enhancements:
+#
+# 1. Dynamic cache keys with variable interpolation:
+#    cache {
+#      key = "product:${input.id}"
+#    }
+#
+# 2. Cache invalidation after writes:
+#    after {
+#      invalidate {
+#        storage  = "memory_cache"
+#        keys     = ["product:${input.id}"]
+#        patterns = ["products:*"]
+#      }
+#    }
+#
+# 3. Named cache references from caches.hcl:
+#    cache {
+#      use = "users"
+#    }
+#
+# See docs/INTEGRATION-PATTERNS.md for full documentation.

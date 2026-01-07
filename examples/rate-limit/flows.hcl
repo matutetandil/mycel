@@ -38,6 +38,6 @@ flow "create_item" {
   to {
     connector = "db"
     target    = "items"
-    operation = "INSERT"
+    # NOTE: operation = "INSERT" is not supported in to block
   }
 }

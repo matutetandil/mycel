@@ -9,7 +9,6 @@ connector "api" {
   port = 3000
 
   cors {
-    enabled = true
     origins = ["*"]
   }
 }
@@ -28,18 +27,15 @@ connector "db" {
 # =====================
 # Fast in-memory cache with LRU eviction.
 # Best for: development, testing, single-instance deployments.
+#
+# NOTE: Memory cache uses built-in defaults:
+# - LRU eviction policy
+# - 10000 max items
+# - 5m default TTL
+# See internal/connector/cache/factory.go for defaults.
 connector "memory_cache" {
   type   = "cache"
   driver = "memory"
-
-  # Maximum number of cached items before LRU eviction kicks in
-  max_items = 10000
-
-  # Eviction policy: "lru" (Least Recently Used)
-  eviction = "lru"
-
-  # Default TTL for entries without explicit TTL
-  default_ttl = "5m"
 }
 
 # =====================
