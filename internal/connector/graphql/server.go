@@ -329,10 +329,10 @@ func (c *ServerConnector) handleGraphQL(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// handlePlayground serves the GraphQL Playground UI.
+// handlePlayground serves the GraphiQL IDE.
 func (c *ServerConnector) handlePlayground(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(PlaygroundHTML(c.config.Endpoint)))
+	w.Write([]byte(GraphiQLHTML(c.config.Endpoint)))
 }
 
 // corsMiddleware adds CORS headers to responses.

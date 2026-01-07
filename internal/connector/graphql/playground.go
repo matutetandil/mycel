@@ -2,7 +2,58 @@ package graphql
 
 import "fmt"
 
-// PlaygroundHTML returns the HTML for GraphQL Playground.
+// GraphiQL IDE
+// This is the default GraphQL IDE used by Mycel.
+// https://github.com/graphql/graphiql
+
+// GraphiQLHTML returns the HTML for GraphiQL IDE.
+// GraphiQL is the official GraphQL Foundation IDE with:
+// - Schema documentation explorer
+// - Query autocompletion
+// - Syntax highlighting
+// - Query history
+// - Prettify queries
+func GraphiQLHTML(endpoint string) string {
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GraphiQL</title>
+  <link href="https://unpkg.com/graphiql@2.4.7/graphiql.min.css" rel="stylesheet" />
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #graphiql {
+      height: 100vh;
+    }
+  </style>
+</head>
+<body>
+  <div id="graphiql"></div>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/graphiql@2.4.7/graphiql.min.js"></script>
+  <script>
+    const fetcher = GraphiQL.createFetcher({
+      url: '%s',
+    });
+    const root = ReactDOM.createRoot(document.getElementById('graphiql'));
+    root.render(React.createElement(GraphiQL, { fetcher: fetcher }));
+  </script>
+</body>
+</html>`, endpoint)
+}
+
+// Legacy GraphQL Playground (Prisma)
+// Deprecated: Use GraphiQL instead. Kept for backwards compatibility.
+
+// PlaygroundHTML returns the HTML for GraphQL Playground (legacy).
+// Deprecated: GraphQL Playground from Prisma is no longer maintained.
+// This function is kept for backwards compatibility only.
 func PlaygroundHTML(endpoint string) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
@@ -65,34 +116,6 @@ func PlaygroundHTML(endpoint string) string {
         }
       })
     })
-  </script>
-</body>
-</html>`, endpoint)
-}
-
-// GraphiQLHTML returns the HTML for GraphiQL (alternative to Playground).
-func GraphiQLHTML(endpoint string) string {
-	return fmt.Sprintf(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>GraphiQL</title>
-  <link href="https://unpkg.com/graphiql@2.4.7/graphiql.min.css" rel="stylesheet" />
-</head>
-<body style="margin: 0;">
-  <div id="graphiql" style="height: 100vh;"></div>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/graphiql@2.4.7/graphiql.min.js"></script>
-  <script>
-    const fetcher = GraphiQL.createFetcher({
-      url: '%s',
-    });
-    ReactDOM.render(
-      React.createElement(GraphiQL, { fetcher: fetcher }),
-      document.getElementById('graphiql'),
-    );
   </script>
 </body>
 </html>`, endpoint)
