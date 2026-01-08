@@ -93,12 +93,40 @@ step "enrichment_with_fallback" {
 }
 ```
 
+## Request Filtering
+
+Use `filter` in the `from` block to skip requests that don't match a condition:
+
+```hcl
+flow "process_external_orders" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+    filter    = "input.metadata.origin != 'internal'"  # Skip internal orders
+  }
+  # ... rest of flow
+}
+
+flow "high_value_only" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+    filter    = "input.total >= 1000"  # Only process orders >= $1000
+  }
+  # ... rest of flow
+}
+```
+
+When filter evaluates to `false`, the request is skipped (returns `FilteredResult`).
+
 ## Examples in This Directory
 
 1. **create_order**: Basic multi-step flow - lookup user, product, pricing, then create order
 2. **get_product_details**: Conditional steps - optionally include pricing and inventory
 3. **get_order_details**: Chained steps - each step uses results from previous steps
 4. **process_payment**: Error handling - different strategies for different steps
+5. **process_external_orders**: Request filtering - skip internal requests
+6. **process_high_value_orders**: Request filtering - only process high-value orders
 
 ## Running the Example
 

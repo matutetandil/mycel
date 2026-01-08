@@ -248,3 +248,71 @@ flow "process_payment" {
     target    = "payments"
   }
 }
+
+# =============================================================================
+# Example 5: Request Filtering
+# =============================================================================
+# Use filter in from block to skip certain requests before processing.
+# Filter is a CEL expression that must evaluate to true for processing.
+
+flow "process_external_orders" {
+  from {
+    connector = "api"
+    operation = "POST /external-orders"
+    # Only process orders from external sources (not internal)
+    filter    = "input.metadata.origin != 'internal'"
+  }
+
+  step "validate" {
+    connector = "db"
+    query     = "SELECT 1 FROM allowed_sources WHERE source = :source"
+    params = {
+      source = "input.metadata.origin"
+    }
+    on_error = "fail"
+  }
+
+  transform {
+    id         = "uuid()"
+    source     = "input.metadata.origin"
+    payload    = "input.data"
+    created_at = "now()"
+  }
+
+  to {
+    connector = "db"
+    target    = "external_orders"
+  }
+}
+
+# Another filter example: Only process high-value orders
+flow "process_high_value_orders" {
+  from {
+    connector = "api"
+    operation = "POST /orders/high-value"
+    # Only process orders with total >= 1000
+    filter    = "input.total >= 1000"
+  }
+
+  step "user" {
+    connector = "db"
+    query     = "SELECT * FROM vip_users WHERE id = :user_id"
+    params = {
+      user_id = "input.user_id"
+    }
+  }
+
+  transform {
+    id           = "uuid()"
+    user_id      = "input.user_id"
+    total        = "input.total"
+    is_vip       = "step.user.id != null"
+    priority     = "'high'"
+    processed_at = "now()"
+  }
+
+  to {
+    connector = "db"
+    target    = "high_value_orders"
+  }
+}

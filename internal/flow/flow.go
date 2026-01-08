@@ -184,6 +184,11 @@ type FromConfig struct {
 
 	// Operation is the trigger operation (e.g., "GET /users", "topic:orders").
 	Operation string
+
+	// Filter is a CEL expression to filter incoming requests/messages.
+	// If the expression evaluates to false, the request is skipped.
+	// Example: "input.metadata.origin != 'internal'"
+	Filter string
 }
 
 // ToConfig defines the flow destination.

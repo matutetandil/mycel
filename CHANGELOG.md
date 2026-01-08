@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `skip`: Skip the step and continue with nil result
   - `default`: Use a default value if step fails
 - **Step timeout configuration** with `timeout` attribute
+- **Request filtering** with `filter` in `from` block
+  - CEL expression evaluated before any processing
+  - Returns `FilteredResult` when filter evaluates to false
+  - Example: `filter = "input.total >= 1000"` for high-value orders only
 - **New CEL transformer methods**
   - `EvaluateCondition`: Evaluate boolean CEL expressions
   - `TransformWithSteps`: Transform with step results available
@@ -29,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Conditional steps (optional pricing/inventory)
   - Chained steps (step results used in subsequent steps)
   - Error handling strategies
+  - Request filtering examples
 
 ### Added - Event-Driven Integration Examples
 - **RabbitMQ → REST** (`examples/integration/rabbit-to-rest/`)

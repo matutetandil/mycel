@@ -181,12 +181,14 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 //	from {
 //	  connector = "api"
 //	  operation = "GET /users"
+//	  filter    = "input.metadata.origin != 'internal'"
 //	}
 func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "connector", Required: true},
 			{Name: "operation", Required: true},
+			{Name: "filter"},
 		},
 	}
 
@@ -211,6 +213,14 @@ func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, e
 			return nil, fmt.Errorf("from operation error: %s", diags.Error())
 		}
 		from.Operation = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["filter"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("from filter error: %s", diags.Error())
+		}
+		from.Filter = val.AsString()
 	}
 
 	if from.Connector == "" {

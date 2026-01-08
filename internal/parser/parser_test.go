@@ -217,6 +217,46 @@ connector "db" {
 	}
 }
 
+func TestParseFlowWithFilter(t *testing.T) {
+	hcl := `
+flow "process_orders" {
+  from {
+    connector = "rabbit"
+    operation = "orders.new"
+    filter    = "input.metadata.origin != 'internal'"
+  }
+
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.Flows) != 1 {
+		t.Fatalf("expected 1 flow, got %d", len(config.Flows))
+	}
+
+	flow := config.Flows[0]
+	if flow.Name != "process_orders" {
+		t.Errorf("expected name 'process_orders', got '%s'", flow.Name)
+	}
+	if flow.From.Filter != "input.metadata.origin != 'internal'" {
+		t.Errorf("expected filter expression, got '%s'", flow.From.Filter)
+	}
+}
+
 func TestParseFlowWithSteps(t *testing.T) {
 	hcl := `
 flow "create_order" {

@@ -107,8 +107,23 @@ type FlowHandler struct {
 	SyncManager *msync.Manager
 }
 
+// FilteredResult is returned when a request is filtered out by the from.filter expression.
+var FilteredResult = &struct{ Filtered bool }{Filtered: true}
+
 // HandleRequest processes an incoming request through the flow.
 func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+	// Check filter condition first (before any processing)
+	if h.Config.From != nil && h.Config.From.Filter != "" {
+		shouldProcess, err := h.evaluateFilter(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("filter evaluation error: %w", err)
+		}
+		if !shouldProcess {
+			// Request filtered out - return special result
+			return FilteredResult, nil
+		}
+	}
+
 	// Validate input if schema is configured
 	if err := h.validateInput(ctx, input); err != nil {
 		return nil, err
@@ -121,6 +136,31 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 
 	// Execute without aspects
 	return h.executeFlowCore(ctx, input)
+}
+
+// evaluateFilter evaluates the from.filter CEL expression.
+// Returns true if the request should be processed, false if filtered out.
+func (h *FlowHandler) evaluateFilter(ctx context.Context, input map[string]interface{}) (bool, error) {
+	if h.Config.From.Filter == "" {
+		return true, nil
+	}
+
+	// Initialize transformer if needed
+	if h.Transformer == nil {
+		var err error
+		celOptions := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
+		h.Transformer, err = transform.NewCELTransformerWithOptions(celOptions...)
+		if err != nil {
+			return false, fmt.Errorf("failed to create CEL transformer: %w", err)
+		}
+	}
+
+	// Build context for filter evaluation
+	data := map[string]interface{}{
+		"input": input,
+	}
+
+	return h.Transformer.EvaluateCondition(ctx, data, h.Config.From.Filter)
 }
 
 // handleRequestWithAspects wraps flow execution with aspect executor.
