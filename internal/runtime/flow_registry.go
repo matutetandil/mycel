@@ -129,13 +129,176 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		return nil, err
 	}
 
-	// If aspect executor is configured, wrap execution with aspects
-	if h.AspectExecutor != nil && h.FlowPath != "" {
-		return h.handleRequestWithAspects(ctx, input)
+	// Core execution function
+	executeFn := func() (interface{}, error) {
+		// If aspect executor is configured, wrap execution with aspects
+		if h.AspectExecutor != nil && h.FlowPath != "" {
+			return h.handleRequestWithAspects(ctx, input)
+		}
+		// Execute without aspects
+		return h.executeFlowCore(ctx, input)
 	}
 
-	// Execute without aspects
-	return h.executeFlowCore(ctx, input)
+	// If error handling is configured, wrap with retry logic
+	if h.Config.ErrorHandling != nil {
+		return h.executeWithRetry(ctx, input, executeFn)
+	}
+
+	// Execute without error handling wrapper
+	return executeFn()
+}
+
+// executeWithRetry executes the flow with retry and fallback handling.
+func (h *FlowHandler) executeWithRetry(ctx context.Context, input map[string]interface{}, executeFn func() (interface{}, error)) (interface{}, error) {
+	eh := h.Config.ErrorHandling
+	maxAttempts := 1
+	delay := time.Second
+	maxDelay := 30 * time.Second
+	backoff := "constant"
+
+	if eh.Retry != nil {
+		if eh.Retry.Attempts > 0 {
+			maxAttempts = eh.Retry.Attempts
+		}
+		if eh.Retry.Delay != "" {
+			if d, err := time.ParseDuration(eh.Retry.Delay); err == nil {
+				delay = d
+			}
+		}
+		if eh.Retry.MaxDelay != "" {
+			if d, err := time.ParseDuration(eh.Retry.MaxDelay); err == nil {
+				maxDelay = d
+			}
+		}
+		if eh.Retry.Backoff != "" {
+			backoff = eh.Retry.Backoff
+		}
+	}
+
+	var lastErr error
+	currentDelay := delay
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		result, err := executeFn()
+		if err == nil {
+			return result, nil
+		}
+
+		lastErr = err
+
+		// Don't retry if context is cancelled
+		if ctx.Err() != nil {
+			break
+		}
+
+		// Don't sleep after last attempt
+		if attempt < maxAttempts {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(currentDelay):
+			}
+
+			// Calculate next delay based on backoff strategy
+			switch backoff {
+			case "exponential":
+				currentDelay = currentDelay * 2
+				if currentDelay > maxDelay {
+					currentDelay = maxDelay
+				}
+			case "linear":
+				currentDelay = currentDelay + delay
+				if currentDelay > maxDelay {
+					currentDelay = maxDelay
+				}
+			// "constant" - delay stays the same
+			}
+		}
+	}
+
+	// All retries exhausted, check for fallback
+	if eh.Fallback != nil {
+		if fallbackErr := h.sendToFallback(ctx, input, lastErr); fallbackErr != nil {
+			// Return both errors
+			return nil, fmt.Errorf("flow failed after %d attempts: %w (fallback also failed: %v)", maxAttempts, lastErr, fallbackErr)
+		}
+		// Fallback succeeded
+		return nil, fmt.Errorf("flow failed after %d attempts, sent to fallback: %w", maxAttempts, lastErr)
+	}
+
+	return nil, fmt.Errorf("flow failed after %d attempts: %w", maxAttempts, lastErr)
+}
+
+// sendToFallback sends the failed message to the fallback connector (DLQ).
+func (h *FlowHandler) sendToFallback(ctx context.Context, input map[string]interface{}, flowErr error) error {
+	fb := h.Config.ErrorHandling.Fallback
+
+	// Build fallback message
+	message := make(map[string]interface{})
+
+	// Include original input
+	message["original_input"] = input
+
+	// Include error details if configured
+	if fb.IncludeError {
+		message["error"] = map[string]interface{}{
+			"message":   flowErr.Error(),
+			"flow_name": h.Config.Name,
+			"timestamp": time.Now().UTC().Format(time.RFC3339),
+		}
+	}
+
+	// Apply transform if configured
+	if len(fb.Transform) > 0 && h.Transformer != nil {
+		rules := make([]transform.Rule, 0, len(fb.Transform))
+		for target, expr := range fb.Transform {
+			rules = append(rules, transform.Rule{Target: target, Expression: expr})
+		}
+		// Build context with input and error
+		data := map[string]interface{}{
+			"input": input,
+			"error": map[string]interface{}{
+				"message": flowErr.Error(),
+			},
+		}
+		transformed, err := h.Transformer.Transform(ctx, data, rules)
+		if err == nil {
+			message = transformed
+		}
+	}
+
+	// Get fallback connector from registry
+	fallbackConn := h.getConnector(fb.Connector)
+	if fallbackConn == nil {
+		return fmt.Errorf("fallback connector '%s' not found", fb.Connector)
+	}
+
+	// Send to fallback
+	writer, ok := fallbackConn.(connector.Writer)
+	if !ok {
+		return fmt.Errorf("fallback connector '%s' does not support writing", fb.Connector)
+	}
+
+	data := &connector.Data{
+		Target:    fb.Target,
+		Operation: "INSERT", // Default operation for DLQ
+		Payload:   message,
+	}
+
+	_, err := writer.Write(ctx, data)
+	return err
+}
+
+// getConnector gets a connector from the handler's connector registry.
+func (h *FlowHandler) getConnector(name string) connector.Connector {
+	if h.Connectors == nil {
+		return nil
+	}
+	conn, err := h.Connectors.Get(name)
+	if err != nil {
+		return nil
+	}
+	return conn
 }
 
 // evaluateFilter evaluates the from.filter CEL expression.

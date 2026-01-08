@@ -37,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `sum(list)`, `avg(list)`: Aggregate numeric values
   - `min_val(list)`, `max_val(list)`: Find min/max values
   - `sort_by(list, key)`: Sort list of maps by a key
+- **Flow-level error handling** with `error_handling` block
+  - `retry`: Automatic retries with configurable backoff (constant, linear, exponential)
+  - `fallback`: Send failed messages to DLQ (Dead Letter Queue)
+  - `include_error`: Include error details in fallback message
+  - `max_delay`: Cap delay for exponential backoff
 - **New example** (`examples/steps/`)
   - Basic multi-step flow (user/product lookup → order creation)
   - Conditional steps (optional pricing/inventory)
@@ -44,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Error handling strategies
   - Request filtering examples
   - Array transforms with aggregation functions
+  - Retry with exponential backoff and DLQ fallback
 
 ### Added - Event-Driven Integration Examples
 - **RabbitMQ → REST** (`examples/integration/rabbit-to-rest/`)

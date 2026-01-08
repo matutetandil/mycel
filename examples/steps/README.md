@@ -148,6 +148,55 @@ transform {
 }
 ```
 
+## Error Handling with Retry and Fallback
+
+Use `error_handling` block to define retry policies and DLQ (Dead Letter Queue) fallback:
+
+```hcl
+flow "process_order" {
+  from {
+    connector = "rabbit"
+    operation = "orders.new"
+  }
+
+  error_handling {
+    retry {
+      attempts  = 3           # Max retry attempts
+      delay     = "1s"        # Initial delay between retries
+      max_delay = "30s"       # Max delay (for exponential backoff)
+      backoff   = "exponential"  # exponential, linear, or constant
+    }
+
+    fallback {
+      connector     = "dlq"
+      target        = "orders.failed"
+      include_error = true    # Include error details in DLQ message
+    }
+  }
+
+  # ... steps and transform ...
+
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+```
+
+### Backoff Strategies
+
+- `constant`: Same delay between each retry
+- `linear`: Delay increases by initial delay each retry (1s, 2s, 3s, ...)
+- `exponential`: Delay doubles each retry (1s, 2s, 4s, 8s, ...) capped by max_delay
+
+### Fallback Options
+
+| Option | Description |
+|--------|-------------|
+| `connector` | Target connector for failed messages (required) |
+| `target` | Destination (table, topic, exchange, etc.) (required) |
+| `include_error` | Include error details in fallback message |
+
 ## Examples in This Directory
 
 1. **create_order**: Basic multi-step flow - lookup user, product, pricing, then create order
@@ -157,6 +206,7 @@ transform {
 5. **process_external_orders**: Request filtering - skip internal requests
 6. **process_high_value_orders**: Request filtering - only process high-value orders
 7. **get_order_summary**: Array transforms - aggregate data using array helper functions
+8. **process_order_with_retry**: Error handling - retry with exponential backoff and DLQ fallback
 
 ## Running the Example
 

@@ -366,3 +366,69 @@ flow "get_order_summary" {
     target    = "order_summaries"
   }
 }
+
+# =============================================================================
+# Example 7: Error Handling with Retry and Fallback
+# =============================================================================
+# Demonstrate retry policies and DLQ (Dead Letter Queue) fallback.
+# - retry: Automatic retries with configurable backoff
+# - fallback: Send to DLQ when all retries exhausted
+
+flow "process_order_with_retry" {
+  from {
+    connector = "api"
+    operation = "POST /orders/process"
+  }
+
+  # Retry on failure with exponential backoff
+  error_handling {
+    retry {
+      attempts  = 3         # Max 3 attempts
+      delay     = "1s"      # Initial delay
+      max_delay = "30s"     # Max delay for exponential backoff
+      backoff   = "exponential"  # exponential, linear, or constant
+    }
+
+    # If all retries fail, send to DLQ
+    fallback {
+      connector     = "db"
+      target        = "failed_orders"
+      include_error = true   # Include error details in DLQ message
+    }
+  }
+
+  # Step 1: Validate inventory
+  step "inventory" {
+    connector = "inventory_db"
+    query     = "SELECT available FROM inventory WHERE product_id = :product_id"
+    params = {
+      product_id = "input.product_id"
+    }
+    on_error = "fail"  # Fail the flow if inventory check fails
+  }
+
+  # Step 2: Process payment (might fail and trigger retry)
+  step "payment" {
+    connector = "db"
+    query     = "INSERT INTO payments (order_id, amount, status) VALUES (:order_id, :amount, 'pending')"
+    params = {
+      order_id = "input.order_id"
+      amount   = "input.amount"
+    }
+  }
+
+  transform {
+    id           = "uuid()"
+    order_id     = "input.order_id"
+    product_id   = "input.product_id"
+    amount       = "input.amount"
+    available    = "step.inventory.available"
+    status       = "'processed'"
+    processed_at = "now()"
+  }
+
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}

@@ -780,6 +780,7 @@ func parseErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Erro
 	schema := &hcl.BodySchema{
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "retry"},
+			{Type: "fallback"},
 		},
 	}
 
@@ -791,12 +792,19 @@ func parseErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Erro
 	eh := &flow.ErrorHandlingConfig{}
 
 	for _, nestedBlock := range content.Blocks {
-		if nestedBlock.Type == "retry" {
+		switch nestedBlock.Type {
+		case "retry":
 			retry, err := parseRetryConfigBlock(nestedBlock, ctx)
 			if err != nil {
 				return nil, fmt.Errorf("retry block error: %w", err)
 			}
 			eh.Retry = retry
+		case "fallback":
+			fallback, err := parseFallbackConfigBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("fallback block error: %w", err)
+			}
+			eh.Fallback = fallback
 		}
 	}
 
@@ -809,6 +817,7 @@ func parseRetryConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryC
 		Attributes: []hcl.AttributeSchema{
 			{Name: "attempts"},
 			{Name: "delay"},
+			{Name: "max_delay"},
 			{Name: "backoff"},
 		},
 	}
@@ -838,6 +847,14 @@ func parseRetryConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryC
 		retry.Delay = val.AsString()
 	}
 
+	if attr, ok := content.Attributes["max_delay"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("retry max_delay error: %s", diags.Error())
+		}
+		retry.MaxDelay = val.AsString()
+	}
+
 	if attr, ok := content.Attributes["backoff"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -847,6 +864,89 @@ func parseRetryConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryC
 	}
 
 	return retry, nil
+}
+
+// parseFallbackConfigBlock parses a fallback block within error_handling.
+func parseFallbackConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FallbackConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "connector", Required: true},
+			{Name: "target", Required: true},
+			{Name: "include_error"},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "transform"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("fallback block content error: %s", diags.Error())
+	}
+
+	fallback := &flow.FallbackConfig{}
+
+	if attr, ok := content.Attributes["connector"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("fallback connector error: %s", diags.Error())
+		}
+		fallback.Connector = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["target"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("fallback target error: %s", diags.Error())
+		}
+		fallback.Target = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["include_error"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("fallback include_error error: %s", diags.Error())
+		}
+		fallback.IncludeError = val.True()
+	}
+
+	// Parse optional transform block
+	for _, nestedBlock := range content.Blocks {
+		if nestedBlock.Type == "transform" {
+			mappings, err := parseTransformMappings(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("fallback transform error: %w", err)
+			}
+			fallback.Transform = mappings
+		}
+	}
+
+	return fallback, nil
+}
+
+// parseTransformMappings parses transform mappings as map[string]string.
+func parseTransformMappings(block *hcl.Block, ctx *hcl.EvalContext) (map[string]string, error) {
+	attrs, diags := block.Body.JustAttributes()
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("transform attributes error: %s", diags.Error())
+	}
+
+	mappings := make(map[string]string)
+
+	for name, attr := range attrs {
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			mappings[name] = val.AsString()
+		} else {
+			// Try to extract raw expression
+			exprStr := extractExpressionText(attr.Expr)
+			if exprStr != "" {
+				mappings[name] = exprStr
+			}
+		}
+	}
+
+	return mappings, nil
 }
 
 // parseNamedTransformBlock parses a named transform block.

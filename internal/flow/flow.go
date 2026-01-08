@@ -274,8 +274,11 @@ type RequireConfig struct {
 
 // ErrorHandlingConfig holds error handling settings.
 type ErrorHandlingConfig struct {
-	// Retry settings.
+	// Retry settings for automatic retries on failure.
 	Retry *RetryConfig
+
+	// Fallback defines where to send failed messages (DLQ).
+	Fallback *FallbackConfig
 }
 
 // RetryConfig holds retry settings.
@@ -283,11 +286,30 @@ type RetryConfig struct {
 	// Attempts is the maximum number of retry attempts.
 	Attempts int
 
-	// Delay is the initial delay between retries.
+	// Delay is the initial delay between retries (e.g., "1s", "500ms").
 	Delay string
 
-	// Backoff is the backoff strategy (linear, exponential).
+	// MaxDelay is the maximum delay between retries (e.g., "30s").
+	// Used with exponential backoff to cap the delay.
+	MaxDelay string
+
+	// Backoff is the backoff strategy: "linear", "exponential", or "constant".
 	Backoff string
+}
+
+// FallbackConfig holds fallback/DLQ settings.
+type FallbackConfig struct {
+	// Connector is the fallback connector name (e.g., a queue for DLQ).
+	Connector string
+
+	// Target is the destination (exchange, topic, table, etc.).
+	Target string
+
+	// IncludeError indicates whether to include error details in the fallback message.
+	IncludeError bool
+
+	// Transform is an optional transformation to apply before sending to fallback.
+	Transform map[string]string
 }
 
 // CacheConfig holds caching configuration for a flow.

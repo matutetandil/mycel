@@ -374,3 +374,90 @@ flow "create_order" {
 		t.Errorf("expected user_email mapping, got '%s'", flow.Transform.Mappings["user_email"])
 	}
 }
+
+func TestParseFlowWithErrorHandling(t *testing.T) {
+	hcl := `
+flow "process_orders" {
+  from {
+    connector = "rabbit"
+    operation = "orders.new"
+  }
+
+  error_handling {
+    retry {
+      attempts  = 3
+      delay     = "1s"
+      max_delay = "30s"
+      backoff   = "exponential"
+    }
+
+    fallback {
+      connector     = "dlq"
+      target        = "orders.failed"
+      include_error = true
+    }
+  }
+
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.Flows) != 1 {
+		t.Fatalf("expected 1 flow, got %d", len(config.Flows))
+	}
+
+	flow := config.Flows[0]
+	if flow.Name != "process_orders" {
+		t.Errorf("expected name 'process_orders', got '%s'", flow.Name)
+	}
+
+	// Check error_handling
+	if flow.ErrorHandling == nil {
+		t.Fatal("expected error_handling block")
+	}
+
+	// Check retry
+	if flow.ErrorHandling.Retry == nil {
+		t.Fatal("expected retry block")
+	}
+	if flow.ErrorHandling.Retry.Attempts != 3 {
+		t.Errorf("expected 3 attempts, got %d", flow.ErrorHandling.Retry.Attempts)
+	}
+	if flow.ErrorHandling.Retry.Delay != "1s" {
+		t.Errorf("expected delay '1s', got '%s'", flow.ErrorHandling.Retry.Delay)
+	}
+	if flow.ErrorHandling.Retry.MaxDelay != "30s" {
+		t.Errorf("expected max_delay '30s', got '%s'", flow.ErrorHandling.Retry.MaxDelay)
+	}
+	if flow.ErrorHandling.Retry.Backoff != "exponential" {
+		t.Errorf("expected backoff 'exponential', got '%s'", flow.ErrorHandling.Retry.Backoff)
+	}
+
+	// Check fallback
+	if flow.ErrorHandling.Fallback == nil {
+		t.Fatal("expected fallback block")
+	}
+	if flow.ErrorHandling.Fallback.Connector != "dlq" {
+		t.Errorf("expected fallback connector 'dlq', got '%s'", flow.ErrorHandling.Fallback.Connector)
+	}
+	if flow.ErrorHandling.Fallback.Target != "orders.failed" {
+		t.Errorf("expected fallback target 'orders.failed', got '%s'", flow.ErrorHandling.Fallback.Target)
+	}
+	if !flow.ErrorHandling.Fallback.IncludeError {
+		t.Error("expected include_error to be true")
+	}
+}
