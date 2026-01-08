@@ -3,6 +3,7 @@ package ratelimit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -310,3 +311,27 @@ func (el *EndpointLimiter) Close() {
 		l.Close()
 	}
 }
+
+// AllowKey checks if a request with the given key is allowed.
+// Returns true if the request is allowed, false if rate limited.
+// This method is useful for programmatic rate limiting outside of HTTP middleware.
+func (l *Limiter) AllowKey(key string) bool {
+	if !l.config.Enabled {
+		return true
+	}
+	limiter := l.getLimiter(key)
+	return limiter.Allow()
+}
+
+// AllowKeyN checks if n requests with the given key are allowed.
+// Returns true if the requests are allowed, false if rate limited.
+func (l *Limiter) AllowKeyN(key string, n int) bool {
+	if !l.config.Enabled {
+		return true
+	}
+	limiter := l.getLimiter(key)
+	return limiter.AllowN(time.Now(), n)
+}
+
+// ErrRateLimited is returned when a request is rate limited.
+var ErrRateLimited = errors.New("rate limit exceeded")

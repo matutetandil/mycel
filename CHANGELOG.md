@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Phase 5 Complete: Aspects Runtime (AOP)
+- **Aspect-Oriented Programming (AOP)** for cross-cutting concerns
+  - Pattern-based matching with glob patterns (`**/create_*.hcl`, `flows/**/*.hcl`)
+  - Before/After/Around execution points
+  - Priority ordering for multiple matching aspects
+  - Conditional execution with `if` CEL expressions
+- **Cache aspects** for transparent caching
+  - Automatic cache lookup before flow execution
+  - Cache storage after successful flow completion
+  - Template-based cache keys with `${input.id}` interpolation
+- **Cache invalidation aspects**
+  - Invalidate specific keys after mutations
+  - Pattern-based invalidation with wildcards
+  - Template interpolation in keys and patterns
+- **Rate limiting aspects**
+  - Integrated with ratelimit package
+  - Per-key rate limiting with CEL key expressions
+  - Configurable RPS and burst limits
+- **Circuit breaker aspects**
+  - Integrated with circuitbreaker package
+  - Automatic circuit state management
+  - Configurable failure/success thresholds and timeout
+- **Action aspects** for side effects
+  - Execute connector operations (audit logs, notifications)
+  - Transform expressions for building action data
+  - Access to flow result in after aspects
+- **Parser improvements**
+  - Fixed template expression parsing in cache keys (`${input.id}`)
+  - Fixed array parsing with template expressions in invalidate keys/patterns
+
 ### Added - Phase 7 Flow Orchestration: Step Blocks
 - **Multi-step flow execution** with intermediate connector calls
   - Steps execute in order before the transform

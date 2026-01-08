@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/matutetandil/mycel/internal/circuitbreaker"
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/ratelimit"
 	"github.com/matutetandil/mycel/internal/transform"
 )
 
@@ -19,6 +22,14 @@ type Executor struct {
 	registry   *Registry
 	cel        *transform.CELTransformer
 	connectors *connector.Registry
+
+	// Rate limiters by config key (rps:burst)
+	rateLimiters   map[string]*ratelimit.Limiter
+	rateLimitersMu sync.RWMutex
+
+	// Circuit breakers by name
+	circuitBreakers   map[string]*circuitbreaker.Breaker
+	circuitBreakersMu sync.RWMutex
 }
 
 // NewExecutor creates a new aspect executor.
@@ -29,9 +40,11 @@ func NewExecutor(registry *Registry, connectors *connector.Registry) (*Executor,
 	}
 
 	return &Executor{
-		registry:   registry,
-		cel:        cel,
-		connectors: connectors,
+		registry:        registry,
+		cel:             cel,
+		connectors:      connectors,
+		rateLimiters:    make(map[string]*ratelimit.Limiter),
+		circuitBreakers: make(map[string]*circuitbreaker.Breaker),
 	}, nil
 }
 
@@ -463,20 +476,146 @@ func (e *Executor) executeInvalidate(ctx context.Context, invalidate *Invalidate
 }
 
 // executeRateLimit checks rate limit before flow execution.
-func (e *Executor) executeRateLimit(ctx context.Context, rateLimit *RateLimitConfig, input map[string]interface{}) error {
-	// This would integrate with the ratelimit package
-	// For now, log and continue
-	slog.Debug("rate limit check",
-		"key", rateLimit.Key,
-		"rps", rateLimit.RequestsPerSecond)
+func (e *Executor) executeRateLimit(ctx context.Context, rl *RateLimitConfig, input map[string]interface{}) error {
+	// Evaluate key expression to get the rate limit key
+	key, err := e.interpolateString(ctx, rl.Key, input)
+	if err != nil {
+		slog.Warn("rate limit key evaluation error", "error", err)
+		// Continue without rate limiting on key error
+		return nil
+	}
+
+	// Get or create rate limiter for this config
+	limiter := e.getOrCreateRateLimiter(rl)
+
+	// Check if request is allowed
+	if !limiter.AllowKey(key) {
+		slog.Debug("rate limit exceeded",
+			"key", key,
+			"rps", rl.RequestsPerSecond)
+		return ratelimit.ErrRateLimited
+	}
+
+	slog.Debug("rate limit allowed",
+		"key", key,
+		"rps", rl.RequestsPerSecond)
 	return nil
+}
+
+// getOrCreateRateLimiter gets or creates a rate limiter for the given config.
+func (e *Executor) getOrCreateRateLimiter(rl *RateLimitConfig) *ratelimit.Limiter {
+	// Create config key from RPS and burst
+	configKey := fmt.Sprintf("%.2f:%d", rl.RequestsPerSecond, rl.Burst)
+
+	e.rateLimitersMu.RLock()
+	limiter, exists := e.rateLimiters[configKey]
+	e.rateLimitersMu.RUnlock()
+
+	if exists {
+		return limiter
+	}
+
+	e.rateLimitersMu.Lock()
+	defer e.rateLimitersMu.Unlock()
+
+	// Double-check after acquiring write lock
+	if limiter, exists = e.rateLimiters[configKey]; exists {
+		return limiter
+	}
+
+	// Create new limiter
+	burst := rl.Burst
+	if burst == 0 {
+		burst = int(rl.RequestsPerSecond * 2) // Default burst is 2x RPS
+	}
+
+	limiter = ratelimit.New(&ratelimit.Config{
+		Enabled:           true,
+		RequestsPerSecond: rl.RequestsPerSecond,
+		Burst:             burst,
+		KeyExtractor:      "custom", // We handle key extraction ourselves
+	})
+
+	e.rateLimiters[configKey] = limiter
+	return limiter
 }
 
 // executeCircuitBreaker wraps flow with circuit breaker.
 func (e *Executor) executeCircuitBreaker(ctx context.Context, cb *CircuitBreakerConfig, input map[string]interface{}, next FlowFunc) (*connector.Result, error) {
-	// This would integrate with the circuitbreaker package
-	// For now, just execute the flow
-	return next(ctx, input)
+	breaker := e.getOrCreateCircuitBreaker(cb)
+
+	// Execute through circuit breaker
+	result, err := breaker.ExecuteWithResult(ctx, func() (interface{}, error) {
+		return next(ctx, input)
+	})
+
+	if err != nil {
+		// Check if it's a circuit breaker error
+		if err == circuitbreaker.ErrCircuitOpen {
+			slog.Debug("circuit breaker open",
+				"name", cb.Name,
+				"state", breaker.State().String())
+			return nil, fmt.Errorf("circuit breaker %s is open: %w", cb.Name, err)
+		}
+		return nil, err
+	}
+
+	if connResult, ok := result.(*connector.Result); ok {
+		return connResult, nil
+	}
+
+	return nil, nil
+}
+
+// getOrCreateCircuitBreaker gets or creates a circuit breaker for the given config.
+func (e *Executor) getOrCreateCircuitBreaker(cb *CircuitBreakerConfig) *circuitbreaker.Breaker {
+	e.circuitBreakersMu.RLock()
+	breaker, exists := e.circuitBreakers[cb.Name]
+	e.circuitBreakersMu.RUnlock()
+
+	if exists {
+		return breaker
+	}
+
+	e.circuitBreakersMu.Lock()
+	defer e.circuitBreakersMu.Unlock()
+
+	// Double-check after acquiring write lock
+	if breaker, exists = e.circuitBreakers[cb.Name]; exists {
+		return breaker
+	}
+
+	// Create new circuit breaker
+	timeout := parseDuration(cb.Timeout)
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+
+	failureThreshold := cb.FailureThreshold
+	if failureThreshold == 0 {
+		failureThreshold = 5
+	}
+
+	successThreshold := cb.SuccessThreshold
+	if successThreshold == 0 {
+		successThreshold = 2
+	}
+
+	breaker = circuitbreaker.New(&circuitbreaker.Config{
+		Name:             cb.Name,
+		FailureThreshold: failureThreshold,
+		SuccessThreshold: successThreshold,
+		Timeout:          timeout,
+		OnStateChange: func(name string, from, to circuitbreaker.State) {
+			slog.Info("circuit breaker state change",
+				"name", name,
+				"from", from.String(),
+				"to", to.String())
+		},
+	})
+
+	e.circuitBreakers[cb.Name] = breaker
+	return breaker
 }
 
 // interpolateString interpolates ${...} expressions in a string.
