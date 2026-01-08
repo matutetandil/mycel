@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Named Operations for Connectors
+- **Named operations** for better encapsulation and reusability
+  - Connectors define their operations with metadata
+  - Flows reference operations by name
+  - Improves maintainability and enables mycel-studio introspection
+- **Operation block syntax** in connector definitions
+  ```hcl
+  connector "api" {
+    type = "rest"
+    port = 8080
+
+    operation "list_users" {
+      method      = "GET"
+      path        = "/users"
+      description = "List all users"
+
+      param "limit" {
+        type    = "number"
+        default = 100
+      }
+    }
+  }
+  ```
+- **Parameter definitions** with type, required, default, and validation
+  - `type`: string, number, boolean, array, object
+  - `required`: mark parameters as mandatory
+  - `default`: provide default values
+  - `description`: documentation for the parameter
+  - Validation constraints: min, max, min_length, max_length, pattern, enum
+- **OperationResolver** for operation resolution
+  - Automatic resolution based on connector type
+  - Parameter validation and default value application
+- **Supported operation attributes per connector type**
+  - REST: method, path
+  - Database: query, table
+  - GraphQL: operation_type, field
+  - gRPC: service, rpc
+  - MQ: exchange, routing_key, queue
+  - TCP: protocol, action
+  - File/S3: path_pattern
+  - Cache: key_pattern, ttl
+  - Exec: command, args
+- **New example**: `examples/named-operations/`
+
 ### Added - Phase 8: GraphQL Federation Complete
 - **GraphQL Subscriptions with WebSocket transport**
   - Full `graphql-transport-ws` protocol support

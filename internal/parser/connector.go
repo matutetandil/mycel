@@ -198,6 +198,8 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			// Kafka blocks
 			{Type: "sasl"},            // Kafka SASL authentication
 			{Type: "schema_registry"}, // Kafka Schema Registry config
+			// Named operations
+			{Type: "operation", LabelNames: []string{"name"}}, // Named operations for flows
 		},
 	}
 
@@ -415,6 +417,17 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 				return nil, fmt.Errorf("schema_registry block error: %w", err)
 			}
 			config.Properties["schema_registry"] = schemaRegistry
+
+		// Named operations
+		case "operation":
+			if len(nestedBlock.Labels) < 1 {
+				return nil, fmt.Errorf("operation block requires a name label")
+			}
+			operation, err := parseOperationBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("operation %s error: %w", nestedBlock.Labels[0], err)
+			}
+			config.Operations = append(config.Operations, operation)
 		}
 	}
 
@@ -960,4 +973,241 @@ func ctyValueToGo(val cty.Value) interface{} {
 
 		return val.GoString()
 	}
+}
+
+// parseOperationBlock parses an operation block inside a connector.
+func parseOperationBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.OperationDef, error) {
+	opName := block.Labels[0]
+
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			// Common
+			{Name: "description"},
+			{Name: "input"},
+			{Name: "output"},
+			{Name: "timeout"},
+
+			// REST-specific
+			{Name: "method"},
+			{Name: "path"},
+
+			// Database-specific
+			{Name: "query"},
+			{Name: "table"},
+
+			// GraphQL-specific
+			{Name: "operation_type"}, // Query, Mutation, Subscription
+			{Name: "field"},
+
+			// gRPC-specific
+			{Name: "service"},
+			{Name: "rpc"},
+
+			// MQ-specific
+			{Name: "exchange"},
+			{Name: "routing_key"},
+			{Name: "queue"},
+
+			// TCP-specific
+			{Name: "protocol"},
+			{Name: "action"},
+
+			// File/S3-specific
+			{Name: "path_pattern"},
+
+			// Cache-specific
+			{Name: "key_pattern"},
+			{Name: "ttl"},
+
+			// Exec-specific
+			{Name: "command"},
+			{Name: "args"},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "param", LabelNames: []string{"name"}},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("operation content error: %s", diags.Error())
+	}
+
+	operation := &connector.OperationDef{
+		Name:   opName,
+		Params: make([]*connector.ParamDef, 0),
+	}
+
+	// Parse attributes
+	for name, attr := range content.Attributes {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("attribute %s error: %s", name, diags.Error())
+		}
+
+		switch name {
+		// Common
+		case "description":
+			operation.Description = val.AsString()
+		case "input":
+			operation.Input = val.AsString()
+		case "output":
+			operation.Output = val.AsString()
+		case "timeout":
+			operation.Timeout = toInt(ctyValueToGo(val))
+
+		// REST
+		case "method":
+			operation.Method = val.AsString()
+		case "path":
+			operation.Path = val.AsString()
+
+		// Database
+		case "query":
+			operation.Query = val.AsString()
+		case "table":
+			operation.Table = val.AsString()
+
+		// GraphQL
+		case "operation_type":
+			operation.OperationType = val.AsString()
+		case "field":
+			operation.Field = val.AsString()
+
+		// gRPC
+		case "service":
+			operation.Service = val.AsString()
+		case "rpc":
+			operation.RPC = val.AsString()
+
+		// MQ
+		case "exchange":
+			operation.Exchange = val.AsString()
+		case "routing_key":
+			operation.RoutingKey = val.AsString()
+		case "queue":
+			operation.Queue = val.AsString()
+
+		// TCP
+		case "protocol":
+			operation.Protocol = val.AsString()
+		case "action":
+			operation.Action = val.AsString()
+
+		// File/S3
+		case "path_pattern":
+			operation.PathPattern = val.AsString()
+
+		// Cache
+		case "key_pattern":
+			operation.KeyPattern = val.AsString()
+		case "ttl":
+			operation.TTL = toInt(ctyValueToGo(val))
+
+		// Exec
+		case "command":
+			operation.Command = val.AsString()
+		case "args":
+			args := ctyValueToGo(val)
+			if arr, ok := args.([]interface{}); ok {
+				for _, a := range arr {
+					if s, ok := a.(string); ok {
+						operation.Args = append(operation.Args, s)
+					}
+				}
+			}
+		}
+	}
+
+	// Parse param blocks
+	for _, paramBlock := range content.Blocks {
+		if paramBlock.Type == "param" {
+			if len(paramBlock.Labels) < 1 {
+				return nil, fmt.Errorf("param block requires a name label")
+			}
+			param, err := parseParamBlock(paramBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("param %s error: %w", paramBlock.Labels[0], err)
+			}
+			operation.Params = append(operation.Params, param)
+		}
+	}
+
+	return operation, nil
+}
+
+// parseParamBlock parses a param block inside an operation.
+func parseParamBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.ParamDef, error) {
+	paramName := block.Labels[0]
+
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "type"},
+			{Name: "required"},
+			{Name: "default"},
+			{Name: "description"},
+			{Name: "in"},
+			{Name: "min"},
+			{Name: "max"},
+			{Name: "min_length"},
+			{Name: "max_length"},
+			{Name: "pattern"},
+			{Name: "enum"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("param content error: %s", diags.Error())
+	}
+
+	param := &connector.ParamDef{
+		Name: paramName,
+	}
+
+	// Parse attributes
+	for name, attr := range content.Attributes {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("attribute %s error: %s", name, diags.Error())
+		}
+
+		switch name {
+		case "type":
+			param.Type = val.AsString()
+		case "required":
+			param.Required = val.True()
+		case "default":
+			param.Default = ctyValueToGo(val)
+		case "description":
+			param.Description = val.AsString()
+		case "in":
+			param.In = val.AsString()
+		case "min":
+			v := toFloat64(ctyValueToGo(val))
+			param.Min = &v
+		case "max":
+			v := toFloat64(ctyValueToGo(val))
+			param.Max = &v
+		case "min_length":
+			v := toInt(ctyValueToGo(val))
+			param.MinLength = &v
+		case "max_length":
+			v := toInt(ctyValueToGo(val))
+			param.MaxLength = &v
+		case "pattern":
+			param.Pattern = val.AsString()
+		case "enum":
+			enumVals := ctyValueToGo(val)
+			if arr, ok := enumVals.([]interface{}); ok {
+				for _, e := range arr {
+					if s, ok := e.(string); ok {
+						param.Enum = append(param.Enum, s)
+					}
+				}
+			}
+		}
+	}
+
+	return param, nil
 }

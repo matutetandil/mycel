@@ -91,6 +91,9 @@ type FlowHandler struct {
 	// Connectors registry for enrichment lookups.
 	Connectors *connector.Registry
 
+	// OperationResolver resolves named operations to inline format.
+	OperationResolver *connector.OperationResolver
+
 	// CacheConnector is the cache connector for this flow (if configured).
 	CacheConnector cache.Cache
 

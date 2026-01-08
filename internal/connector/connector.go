@@ -158,6 +158,29 @@ type Config struct {
 
 	// Properties contains all connector-specific settings.
 	Properties map[string]interface{}
+
+	// Operations are named operations defined on this connector.
+	Operations []*OperationDef
+}
+
+// GetOperation finds an operation by name.
+func (c *Config) GetOperation(name string) *OperationDef {
+	for _, op := range c.Operations {
+		if op.Name == name {
+			return op
+		}
+	}
+	return nil
+}
+
+// HasOperation checks if an operation exists.
+func (c *Config) HasOperation(name string) bool {
+	return c.GetOperation(name) != nil
+}
+
+// ListOperations returns all defined operations.
+func (c *Config) ListOperations() []*OperationDef {
+	return c.Operations
 }
 
 // GetString retrieves a string property from the config.

@@ -58,18 +58,19 @@ const Version = "0.1.0"
 
 // Runtime orchestrates the lifecycle of a Mycel service.
 type Runtime struct {
-	config      *parser.Configuration
-	connectors  *connector.Registry
-	flows       *FlowRegistry
-	transforms  map[string]*transform.Config
-	types       map[string]*validate.TypeSchema
-	namedCaches map[string]*flow.NamedCacheConfig
-	health      *health.Manager
-	metrics     *metrics.Registry
-	rateLimiter *ratelimit.Limiter
-	logger      *slog.Logger
-	environment string
-	configDir   string
+	config            *parser.Configuration
+	connectors        *connector.Registry
+	operationResolver *connector.OperationResolver
+	flows             *FlowRegistry
+	transforms        map[string]*transform.Config
+	types             map[string]*validate.TypeSchema
+	namedCaches       map[string]*flow.NamedCacheConfig
+	health            *health.Manager
+	metrics           *metrics.Registry
+	rateLimiter       *ratelimit.Limiter
+	logger            *slog.Logger
+	environment       string
+	configDir         string
 
 	// Aspect-Oriented Programming (AOP) components
 	aspectRegistry *aspect.Registry
@@ -159,6 +160,9 @@ func New(opts Options) (*Runtime, error) {
 
 	// Create connector registry
 	registry := connector.NewRegistry()
+
+	// Create operation resolver for named operations
+	opResolver := connector.NewOperationResolver()
 
 	// Register built-in connector factories
 	registerBuiltinFactories(registry, opts.Logger)
@@ -287,6 +291,7 @@ func New(opts Options) (*Runtime, error) {
 	return &Runtime{
 		config:            config,
 		connectors:        registry,
+		operationResolver: opResolver,
 		flows:             NewFlowRegistry(),
 		transforms:        transforms,
 		types:             types,
@@ -449,6 +454,9 @@ func (r *Runtime) initConnectors(ctx context.Context) error {
 	fmt.Println("    Connectors:")
 
 	for _, cfg := range r.config.Connectors {
+		// Register connector config with operation resolver
+		r.operationResolver.Register(cfg)
+
 		if err := r.connectors.Register(ctx, cfg); err != nil {
 			return fmt.Errorf("failed to register connector %s: %w", cfg.Name, err)
 		}
@@ -676,6 +684,7 @@ func (r *Runtime) registerFlows() error {
 			NamedTransforms:   r.transforms,
 			Types:             r.types,
 			Connectors:        r.connectors,
+			OperationResolver: r.operationResolver,
 			NamedCaches:       r.namedCaches,
 			AspectExecutor:    r.aspectExecutor,
 			FunctionsRegistry: r.functionsRegistry,
@@ -717,7 +726,17 @@ func (r *Runtime) registerFlows() error {
 }
 
 // parseFlowOperation parses a flow operation based on the connector type.
+// It resolves named operations to their inline format for display.
 func (r *Runtime) parseFlowOperation(connectorName, operation string) (method, path string) {
+	// Resolve named operation
+	if r.operationResolver != nil {
+		resolved, err := r.operationResolver.Resolve(connectorName, operation)
+		if err == nil {
+			// Use resolved inline format
+			operation = resolved.Inline
+		}
+	}
+
 	// Check connector type
 	for _, cfg := range r.config.Connectors {
 		if cfg.Name == connectorName {
@@ -1101,10 +1120,14 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 	newRegistry := connector.NewRegistry()
 	registerBuiltinFactories(newRegistry, r.logger)
 
+	// Create new operation resolver
+	newResolver := connector.NewOperationResolver()
+
 	// Update runtime state
 	oldConfig := r.config
 	r.config = newConfig
 	r.connectors = newRegistry
+	r.operationResolver = newResolver
 
 	// Rebuild transforms map
 	r.transforms = make(map[string]*transform.Config)
