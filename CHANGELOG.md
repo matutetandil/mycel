@@ -49,6 +49,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Conditional writes with `when` CEL expressions
   - Per-destination transforms with access to `output.*`
   - Use cases: event broadcasting, data replication, audit logging
+- **Message deduplication** with `dedupe` block
+  - Prevent duplicate message processing using cache-based deduplication
+  - Configurable key expression (CEL) for unique message identification
+  - TTL-based expiration for dedup keys
+  - Behavior on duplicate: `skip` (silent) or `fail` (return error)
+  - Fail-open design: continues processing if cache is unavailable
+  - Use cases: idempotent APIs, message queue exactly-once processing, payment idempotency
 - **Flow-level error handling** with `error_handling` block
   - `retry`: Automatic retries with configurable backoff (constant, linear, exponential)
   - `fallback`: Send failed messages to DLQ (Dead Letter Queue)
@@ -64,6 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Retry with exponential backoff and DLQ fallback
   - Response composition with merge/omit/pick functions
   - API Gateway aggregation pattern
+  - Multi-destination fan-out examples
+  - Message deduplication examples (order processing, idempotent payments)
 
 ### Added - Event-Driven Integration Examples
 - **RabbitMQ → REST** (`examples/integration/rabbit-to-rest/`)

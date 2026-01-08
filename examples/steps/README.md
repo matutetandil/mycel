@@ -323,6 +323,58 @@ flow "process_order" {
 | `target` | Destination (table, topic, exchange, etc.) (required) |
 | `include_error` | Include error details in fallback message |
 
+## Message Deduplication
+
+Prevent duplicate message processing using cache-based deduplication. This is essential for message queue consumers that may receive the same message twice due to at-least-once delivery semantics.
+
+```hcl
+flow "process_order_with_dedupe" {
+  from {
+    connector = "rabbit"
+    operation = "orders.new"
+  }
+
+  dedupe {
+    storage      = "redis_cache"           # Cache connector for dedup keys
+    key          = "'order:' + input.order_id"  # CEL expression for unique key
+    ttl          = "24h"                   # How long to remember keys
+    on_duplicate = "skip"                  # "skip" (silent) or "fail" (error)
+  }
+
+  # ... steps and transform ...
+
+  to {
+    connector = "orders_db"
+    target    = "orders"
+  }
+}
+```
+
+### Dedupe Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `storage` | Cache connector name (required) | - |
+| `key` | CEL expression for the dedup key (required) | - |
+| `ttl` | How long to remember keys | `1h` |
+| `on_duplicate` | What to do on duplicate: `skip` or `fail` | `skip` |
+
+### Use Cases
+
+- **Idempotent API Endpoints**: Use request ID or idempotency key as dedup key
+- **Message Queue Processing**: Prevent reprocessing on redelivery
+- **Event Sourcing**: Ensure events are processed exactly once
+- **Payment Processing**: Prevent double-charging with idempotency keys
+
+### How It Works
+
+1. When a message arrives, the `key` expression is evaluated
+2. If the key exists in cache → duplicate detected
+   - `on_duplicate = "skip"`: Return silently (no error)
+   - `on_duplicate = "fail"`: Return error to caller
+3. If key doesn't exist → store key with TTL and process message
+4. On cache errors, flow continues (fail-open for availability)
+
 ## Examples in This Directory
 
 1. **create_order**: Basic multi-step flow - lookup user, product, pricing, then create order
@@ -337,6 +389,8 @@ flow "process_order" {
 10. **get_product_full**: API Gateway aggregation - merge multiple microservice responses
 11. **fan_out_order**: Multi-destination fan-out - write to multiple destinations with conditions
 12. **broadcast_user_update**: Event broadcasting - publish to multiple queues on update
+13. **process_order_with_dedupe**: Message deduplication - prevent duplicate processing
+14. **process_payment_idempotent**: Idempotent payments - use idempotency keys for dedup
 
 ## Running the Example
 

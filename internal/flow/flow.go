@@ -136,6 +136,9 @@ type Config struct {
 
 	// ErrorHandling defines error handling behavior.
 	ErrorHandling *ErrorHandlingConfig
+
+	// Dedupe defines deduplication behavior for the flow.
+	Dedupe *DedupeConfig
 }
 
 // StepConfig defines an intermediate connector call within a flow.
@@ -328,6 +331,32 @@ type FallbackConfig struct {
 	// Transform is an optional transformation to apply before sending to fallback.
 	Transform map[string]string
 }
+
+// DedupeConfig holds deduplication configuration for a flow.
+// Used to prevent processing duplicate messages (e.g., from message queues).
+type DedupeConfig struct {
+	// Storage is the connector for storing dedup state (typically Redis or cache).
+	Storage string
+
+	// Key is a CEL expression that generates the deduplication key.
+	// Example: "input.message_id" or "'order:' + input.order_id"
+	Key string
+
+	// TTL is how long to remember seen keys (e.g., "1h", "24h").
+	// After TTL expires, the same key can be processed again.
+	TTL string
+
+	// OnDuplicate defines behavior when duplicate is found: "skip" or "fail".
+	// - "skip": Silently skip the duplicate (default)
+	// - "fail": Return an error for duplicates
+	OnDuplicate string
+}
+
+// DuplicateResult is returned when a message is identified as duplicate.
+var DuplicateResult = &struct {
+	Duplicate bool   `json:"duplicate"`
+	Reason    string `json:"reason"`
+}{Duplicate: true, Reason: "duplicate message"}
 
 // CacheConfig holds caching configuration for a flow.
 type CacheConfig struct {

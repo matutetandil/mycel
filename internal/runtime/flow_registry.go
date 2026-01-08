@@ -124,6 +124,21 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		}
 	}
 
+	// Check for duplicate messages (deduplication)
+	if h.Config.Dedupe != nil {
+		isDuplicate, err := h.checkDedupe(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("dedupe check error: %w", err)
+		}
+		if isDuplicate {
+			if h.Config.Dedupe.OnDuplicate == "fail" {
+				return nil, fmt.Errorf("duplicate message detected")
+			}
+			// Default: skip silently
+			return flow.DuplicateResult, nil
+		}
+	}
+
 	// Validate input if schema is configured
 	if err := h.validateInput(ctx, input); err != nil {
 		return nil, err
@@ -324,6 +339,93 @@ func (h *FlowHandler) evaluateFilter(ctx context.Context, input map[string]inter
 	}
 
 	return h.Transformer.EvaluateCondition(ctx, data, h.Config.From.Filter)
+}
+
+// checkDedupe checks if a message is a duplicate based on the dedupe configuration.
+// Returns true if the message is a duplicate, false otherwise.
+// If not a duplicate, stores the key in the cache with the configured TTL.
+func (h *FlowHandler) checkDedupe(ctx context.Context, input map[string]interface{}) (bool, error) {
+	dedupe := h.Config.Dedupe
+	if dedupe == nil {
+		return false, nil
+	}
+
+	// Initialize transformer if needed
+	if h.Transformer == nil {
+		var err error
+		celOptions := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
+		h.Transformer, err = transform.NewCELTransformerWithOptions(celOptions...)
+		if err != nil {
+			return false, fmt.Errorf("failed to create CEL transformer: %w", err)
+		}
+	}
+
+	// Evaluate the key expression
+	data := map[string]interface{}{
+		"input": input,
+	}
+
+	keyResult, err := h.Transformer.EvaluateExpression(ctx, data, nil, dedupe.Key)
+	if err != nil {
+		return false, fmt.Errorf("dedupe key evaluation error: %w", err)
+	}
+
+	// Convert key to string
+	var dedupeKey string
+	switch v := keyResult.(type) {
+	case string:
+		dedupeKey = v
+	default:
+		dedupeKey = fmt.Sprintf("%v", v)
+	}
+
+	if dedupeKey == "" {
+		return false, fmt.Errorf("dedupe key evaluated to empty string")
+	}
+
+	// Prefix the key to avoid collisions
+	cacheKey := "dedupe:" + h.Config.Name + ":" + dedupeKey
+
+	// Get the storage connector
+	storageConn, err := h.Connectors.Get(dedupe.Storage)
+	if err != nil {
+		return false, fmt.Errorf("dedupe storage connector not found: %s: %w", dedupe.Storage, err)
+	}
+
+	// Check if key exists using the cache interface
+	cacheStorage, ok := storageConn.(cache.Cache)
+	if !ok {
+		return false, fmt.Errorf("dedupe storage %s does not implement cache interface", dedupe.Storage)
+	}
+
+	// Try to get the key
+	_, exists, err := cacheStorage.Get(ctx, cacheKey)
+	if err != nil {
+		// Log error but continue (fail open to avoid blocking messages on cache errors)
+		// In production, you might want different behavior
+		return false, nil
+	}
+
+	if exists {
+		// Duplicate found
+		return true, nil
+	}
+
+	// Not a duplicate - store the key with TTL
+	ttl := time.Hour // Default TTL
+	if dedupe.TTL != "" {
+		if d, parseErr := time.ParseDuration(dedupe.TTL); parseErr == nil {
+			ttl = d
+		}
+	}
+
+	// Store a simple marker value
+	if setErr := cacheStorage.Set(ctx, cacheKey, []byte("1"), ttl); setErr != nil {
+		// Log error but continue (fail open)
+		// The message will be processed even if we can't store the dedup key
+	}
+
+	return false, nil
 }
 
 // handleRequestWithAspects wraps flow execution with aspect executor.

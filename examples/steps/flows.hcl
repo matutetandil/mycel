@@ -706,3 +706,90 @@ flow "broadcast_user_update" {
     }
   }
 }
+
+# =============================================================================
+# Example 13: Message Deduplication
+# =============================================================================
+# Prevent duplicate message processing using a cache backend.
+# Useful for message queue consumers that may receive the same message twice
+# due to at-least-once delivery semantics.
+#
+# dedupe block options:
+# - storage:      Cache connector for storing dedup keys (required)
+# - key:          CEL expression for the deduplication key (required)
+# - ttl:          How long to remember keys (default: 1h)
+# - on_duplicate: "skip" (silent) or "fail" (return error) - default: "skip"
+
+flow "process_order_with_dedupe" {
+  from {
+    connector = "rabbit"
+    operation = "orders.new"
+  }
+
+  # Dedupe using order_id - same order won't be processed twice within 24h
+  dedupe {
+    storage      = "redis_cache"
+    key          = "'order:' + input.order_id"
+    ttl          = "24h"
+    on_duplicate = "skip"
+  }
+
+  step "validate" {
+    connector = "db"
+    query     = "SELECT 1 FROM products WHERE id = :product_id AND stock > 0"
+    params = {
+      product_id = "input.product_id"
+    }
+    on_error = "fail"
+  }
+
+  transform {
+    id           = "uuid()"
+    order_id     = "input.order_id"
+    product_id   = "input.product_id"
+    quantity     = "input.quantity"
+    status       = "'pending'"
+    created_at   = "now()"
+  }
+
+  to {
+    connector = "orders_db"
+    target    = "orders"
+  }
+}
+
+# Example: Idempotent payment processing with dedupe
+flow "process_payment_idempotent" {
+  from {
+    connector = "rabbit"
+    operation = "payments.process"
+  }
+
+  # Use idempotency_key from the message for deduplication
+  dedupe {
+    storage      = "redis_cache"
+    key          = "'payment:' + input.idempotency_key"
+    ttl          = "7d"
+    on_duplicate = "skip"  # Silently skip duplicates
+  }
+
+  step "check_balance" {
+    connector = "db"
+    query     = "SELECT balance FROM accounts WHERE id = :account_id"
+    params    = { account_id = "input.account_id" }
+  }
+
+  transform {
+    id              = "uuid()"
+    idempotency_key = "input.idempotency_key"
+    account_id      = "input.account_id"
+    amount          = "input.amount"
+    status          = "step.check_balance.balance >= input.amount ? 'approved' : 'declined'"
+    processed_at    = "now()"
+  }
+
+  to {
+    connector = "payments_db"
+    target    = "payments"
+  }
+}

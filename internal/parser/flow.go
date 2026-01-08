@@ -42,6 +42,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			{Type: "require"},
 			{Type: "after"},
 			{Type: "error_handling"},
+			{Type: "dedupe"}, // Deduplication
 		},
 	}
 
@@ -172,6 +173,13 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 				return nil, fmt.Errorf("error_handling block error: %w", err)
 			}
 			config.ErrorHandling = eh
+
+		case "dedupe":
+			dedupe, err := parseDedupeBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("dedupe block error: %w", err)
+			}
+			config.Dedupe = dedupe
 		}
 	}
 
@@ -1000,6 +1008,79 @@ func parseTransformMappings(block *hcl.Block, ctx *hcl.EvalContext) (map[string]
 	}
 
 	return mappings, nil
+}
+
+// parseDedupeBlock parses a dedupe block for deduplication configuration.
+// Example:
+//
+//	dedupe {
+//	  storage      = "redis"
+//	  key          = "input.message_id"
+//	  ttl          = "1h"
+//	  on_duplicate = "skip"
+//	}
+func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "storage", Required: true},
+			{Name: "key", Required: true},
+			{Name: "ttl"},
+			{Name: "on_duplicate"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("dedupe block content error: %s", diags.Error())
+	}
+
+	dedupe := &flow.DedupeConfig{
+		OnDuplicate: "skip", // Default behavior
+	}
+
+	if attr, ok := content.Attributes["storage"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("dedupe storage error: %s", diags.Error())
+		}
+		dedupe.Storage = parseConnectorReference(val.AsString())
+	}
+
+	if attr, ok := content.Attributes["key"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			// Try to extract raw expression for CEL expressions
+			dedupe.Key = extractExpressionText(attr.Expr)
+		} else {
+			dedupe.Key = val.AsString()
+		}
+	}
+
+	if attr, ok := content.Attributes["ttl"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("dedupe ttl error: %s", diags.Error())
+		}
+		dedupe.TTL = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["on_duplicate"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("dedupe on_duplicate error: %s", diags.Error())
+		}
+		dedupe.OnDuplicate = val.AsString()
+	}
+
+	if dedupe.Storage == "" {
+		return nil, fmt.Errorf("dedupe block must specify a storage connector")
+	}
+
+	if dedupe.Key == "" {
+		return nil, fmt.Errorf("dedupe block must specify a key expression")
+	}
+
+	return dedupe, nil
 }
 
 // parseNamedTransformBlock parses a named transform block.

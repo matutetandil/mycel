@@ -570,3 +570,65 @@ flow "fan_out_order" {
 		t.Error("expected third dest parallel to be false")
 	}
 }
+
+func TestParseFlowWithDedupe(t *testing.T) {
+	hcl := `
+flow "process_order" {
+  from {
+    connector = "rabbit"
+    operation = "orders.new"
+  }
+
+  dedupe {
+    storage      = "redis_cache"
+    key          = "'order:' + input.order_id"
+    ttl          = "24h"
+    on_duplicate = "skip"
+  }
+
+  transform {
+    id       = "uuid()"
+    order_id = "input.order_id"
+    status   = "'processing'"
+  }
+
+  to {
+    connector = "orders_db"
+    target    = "orders"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.Flows) != 1 {
+		t.Fatalf("expected 1 flow, got %d", len(config.Flows))
+	}
+
+	flow := config.Flows[0]
+	if flow.Dedupe == nil {
+		t.Fatal("expected dedupe config to be set")
+	}
+
+	if flow.Dedupe.Storage != "redis_cache" {
+		t.Errorf("expected dedupe storage 'redis_cache', got '%s'", flow.Dedupe.Storage)
+	}
+	if flow.Dedupe.Key != "'order:' + input.order_id" {
+		t.Errorf("expected dedupe key \"'order:' + input.order_id\", got '%s'", flow.Dedupe.Key)
+	}
+	if flow.Dedupe.TTL != "24h" {
+		t.Errorf("expected dedupe TTL '24h', got '%s'", flow.Dedupe.TTL)
+	}
+	if flow.Dedupe.OnDuplicate != "skip" {
+		t.Errorf("expected dedupe on_duplicate 'skip', got '%s'", flow.Dedupe.OnDuplicate)
+	}
+}
