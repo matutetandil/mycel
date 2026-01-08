@@ -341,7 +341,17 @@ func runValidate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("  Flows: %d\n", len(config.Flows))
 	for _, f := range config.Flows {
-		fmt.Printf("    - %s: %s → %s\n", f.Name, f.From.Operation, f.To.Target)
+		fromOp := ""
+		if f.From != nil {
+			fromOp = f.From.Operation
+		}
+		toTarget := ""
+		if f.To != nil {
+			toTarget = f.To.Target
+		} else if len(f.MultiTo) > 0 {
+			toTarget = fmt.Sprintf("%d destinations", len(f.MultiTo))
+		}
+		fmt.Printf("    - %s: %s → %s\n", f.Name, fromOp, toTarget)
 	}
 
 	fmt.Printf("  Types: %d\n", len(config.Types))
