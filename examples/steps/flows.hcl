@@ -566,3 +566,143 @@ flow "get_product_full" {
     target    = "product_cache"
   }
 }
+
+# =============================================================================
+# Example 9: Multi-Destination Fan-Out
+# =============================================================================
+# Write to multiple destinations from a single flow.
+# Supports parallel execution, conditional writes, and per-destination transforms.
+
+flow "fan_out_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders/fanout"
+  }
+
+  # Steps to gather data
+  step "user" {
+    connector = "db"
+    query     = "SELECT * FROM users WHERE id = :user_id"
+    params    = { user_id = "input.user_id" }
+  }
+
+  # Main transform for the base payload
+  transform {
+    id           = "uuid()"
+    user_id      = "input.user_id"
+    user_email   = "step.user.email"
+    product_id   = "input.product_id"
+    quantity     = "input.quantity"
+    total        = "input.total"
+    status       = "'pending'"
+    created_at   = "now()"
+  }
+
+  # Primary destination: Orders database
+  to {
+    connector = "orders_db"
+    target    = "orders"
+  }
+
+  # Analytics: Track order creation events (parallel)
+  to {
+    connector = "analytics_db"
+    target    = "order_events"
+    transform {
+      event_type = "'order_created'"
+      order_id   = "output.id"
+      user_id    = "output.user_id"
+      amount     = "output.total"
+      timestamp  = "now()"
+    }
+  }
+
+  # Notification queue: Only for high-value orders (conditional)
+  to {
+    connector = "rabbit"
+    target    = "orders.high-value"
+    when      = "output.total >= 1000"
+    transform {
+      order_id    = "output.id"
+      user_email  = "output.user_email"
+      total       = "output.total"
+      notify_type = "'high_value_order'"
+    }
+  }
+
+  # Audit log: Sequential write for compliance (parallel = false)
+  to {
+    connector = "audit_db"
+    target    = "audit_log"
+    parallel  = false
+    transform {
+      action      = "'CREATE_ORDER'"
+      entity_type = "'order'"
+      entity_id   = "output.id"
+      user_id     = "output.user_id"
+      timestamp   = "now()"
+      details     = "merge(pick(output, 'product_id', 'quantity', 'total'), {'source': 'api'})"
+    }
+  }
+}
+
+# Another multi-destination example: Event broadcasting
+flow "broadcast_user_update" {
+  from {
+    connector = "api"
+    operation = "PUT /users/:id"
+  }
+
+  step "old_user" {
+    connector = "db"
+    query     = "SELECT * FROM users WHERE id = :id"
+    params    = { id = "input.id" }
+  }
+
+  transform {
+    id         = "input.id"
+    name       = "input.name"
+    email      = "input.email"
+    updated_at = "now()"
+  }
+
+  # Update user in database
+  to {
+    connector = "db"
+    target    = "users"
+    operation = "UPDATE"
+  }
+
+  # Publish to multiple queues for different consumers
+  to {
+    connector = "rabbit"
+    target    = "users.updated"
+    transform {
+      event      = "'user.updated'"
+      user_id    = "output.id"
+      changes    = "omit(output, 'id')"
+      old_values = "pick(step.old_user, 'name', 'email')"
+    }
+  }
+
+  # Cache invalidation queue
+  to {
+    connector = "rabbit"
+    target    = "cache.invalidate"
+    transform {
+      keys = "['user:' + string(output.id), 'user_profile:' + string(output.id)]"
+    }
+  }
+
+  # Webhook delivery queue (only if user has webhooks configured)
+  to {
+    connector = "rabbit"
+    target    = "webhooks.deliver"
+    when      = "step.old_user.webhook_url != null"
+    transform {
+      webhook_url = "step.old_user.webhook_url"
+      event       = "'user.updated'"
+      payload     = "output"
+    }
+  }
+}

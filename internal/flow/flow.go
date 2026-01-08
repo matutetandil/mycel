@@ -90,8 +90,12 @@ type Config struct {
 	// From defines the source of the flow.
 	From *FromConfig
 
-	// To defines the destination of the flow.
+	// To defines the destination of the flow (single destination).
 	To *ToConfig
+
+	// MultiTo defines multiple destinations for the flow (fan-out pattern).
+	// When specified, writes to all destinations (in parallel by default).
+	MultiTo []*ToConfig
 
 	// Returns specifies the GraphQL return type for this flow.
 	// Used in HCL-first mode to define typed responses.
@@ -222,6 +226,19 @@ type ToConfig struct {
 	// Params contains additional parameters for the operation.
 	// Example: S3 COPY operation uses {source: "...", dest: "..."}
 	Params map[string]interface{}
+
+	// When is a CEL expression that determines if this destination should be written to.
+	// If empty or evaluates to true, the write executes.
+	// Example: "output.total > 1000"
+	When string
+
+	// Transform is an optional per-destination transformation.
+	// If specified, this transform is applied instead of the flow's main transform.
+	Transform map[string]string
+
+	// Parallel indicates if this destination should be written in parallel with others.
+	// Default is true. Set to false for sequential writes.
+	Parallel bool
 }
 
 // ValidateConfig holds validation configuration.

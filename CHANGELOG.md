@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `pick(map, key1, ...)`: Select only specified keys from a map
   - Supports 2-4 maps for merge, 1-4 keys for omit/pick
   - Ideal for API Gateway aggregation and data sanitization
+- **Multi-destination fan-out** for writing to multiple destinations
+  - Multiple `to` blocks in a single flow
+  - Parallel execution by default (configurable per destination)
+  - Conditional writes with `when` CEL expressions
+  - Per-destination transforms with access to `output.*`
+  - Use cases: event broadcasting, data replication, audit logging
 - **Flow-level error handling** with `error_handling` block
   - `retry`: Automatic retries with configurable backoff (constant, linear, exponential)
   - `fallback`: Send failed messages to DLQ (Dead Letter Queue)

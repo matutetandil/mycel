@@ -527,26 +527,33 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 		}
 	}
 
-	// Get the destination as a reader/writer
-	dest, ok := h.Dest.(connector.ReadWriter)
 	var result interface{}
 	var err error
 
-	if !ok {
-		// Try just reader or writer based on operation
-		result, err = h.handleSimpleRequest(ctx, input)
+	// Check for multi-destination writes
+	if len(h.Config.MultiTo) > 0 && operation.Method != "GET" {
+		result, err = h.handleMultiDestWrite(ctx, input, operation)
 	} else {
-		switch operation.Method {
-		case "GET":
-			result, err = h.handleRead(ctx, input, dest)
-		case "POST":
-			result, err = h.handleCreate(ctx, input, dest)
-		case "PUT", "PATCH":
-			result, err = h.handleUpdate(ctx, input, dest)
-		case "DELETE":
-			result, err = h.handleDelete(ctx, input, dest)
-		default:
-			return nil, fmt.Errorf("unsupported operation: %s", operation.Method)
+		// Single destination (original behavior)
+		// Get the destination as a reader/writer
+		dest, ok := h.Dest.(connector.ReadWriter)
+
+		if !ok {
+			// Try just reader or writer based on operation
+			result, err = h.handleSimpleRequest(ctx, input)
+		} else {
+			switch operation.Method {
+			case "GET":
+				result, err = h.handleRead(ctx, input, dest)
+			case "POST":
+				result, err = h.handleCreate(ctx, input, dest)
+			case "PUT", "PATCH":
+				result, err = h.handleUpdate(ctx, input, dest)
+			case "DELETE":
+				result, err = h.handleDelete(ctx, input, dest)
+			default:
+				return nil, fmt.Errorf("unsupported operation: %s", operation.Method)
+			}
 		}
 	}
 
@@ -798,6 +805,212 @@ func (h *FlowHandler) handleSimpleRequest(ctx context.Context, input map[string]
 	}
 
 	return nil, fmt.Errorf("destination connector does not support required operation")
+}
+
+// MultiDestResult contains results from writing to multiple destinations.
+type MultiDestResult struct {
+	// Results contains the result from each destination, keyed by connector name.
+	Results map[string]interface{} `json:"results"`
+	// Errors contains any errors, keyed by connector name.
+	Errors map[string]string `json:"errors,omitempty"`
+	// Success indicates if all writes succeeded.
+	Success bool `json:"success"`
+}
+
+// handleMultiDestWrite handles writing to multiple destinations (fan-out pattern).
+func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string]interface{}, operation Operation) (interface{}, error) {
+	if len(h.Config.MultiTo) == 0 {
+		return nil, fmt.Errorf("no destinations configured")
+	}
+
+	// Apply the main transform first to get the base payload
+	basePayload, err := h.applyTransforms(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("transform error: %w", err)
+	}
+
+	// Determine which destinations should be written in parallel
+	var parallelDests []*flow.ToConfig
+	var sequentialDests []*flow.ToConfig
+
+	for _, dest := range h.Config.MultiTo {
+		if dest.Parallel {
+			parallelDests = append(parallelDests, dest)
+		} else {
+			sequentialDests = append(sequentialDests, dest)
+		}
+	}
+
+	result := &MultiDestResult{
+		Results: make(map[string]interface{}),
+		Errors:  make(map[string]string),
+		Success: true,
+	}
+
+	// Execute parallel destinations concurrently
+	if len(parallelDests) > 0 {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+
+		for _, destConfig := range parallelDests {
+			wg.Add(1)
+			go func(dc *flow.ToConfig) {
+				defer wg.Done()
+
+				destResult, destErr := h.writeToDestination(ctx, input, basePayload, dc, operation)
+
+				mu.Lock()
+				defer mu.Unlock()
+				if destErr != nil {
+					result.Errors[dc.Connector] = destErr.Error()
+					result.Success = false
+				} else {
+					result.Results[dc.Connector] = destResult
+				}
+			}(destConfig)
+		}
+		wg.Wait()
+	}
+
+	// Execute sequential destinations one by one
+	for _, destConfig := range sequentialDests {
+		destResult, destErr := h.writeToDestination(ctx, input, basePayload, destConfig, operation)
+		if destErr != nil {
+			result.Errors[destConfig.Connector] = destErr.Error()
+			result.Success = false
+		} else {
+			result.Results[destConfig.Connector] = destResult
+		}
+	}
+
+	// If all writes failed, return error
+	if len(result.Results) == 0 && len(result.Errors) > 0 {
+		return nil, fmt.Errorf("all destination writes failed: %v", result.Errors)
+	}
+
+	return result, nil
+}
+
+// writeToDestination writes data to a single destination.
+func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload map[string]interface{}, destConfig *flow.ToConfig, operation Operation) (interface{}, error) {
+	// Check when condition if specified
+	if destConfig.When != "" {
+		// Build context with output (the transformed data)
+		evalInput := make(map[string]interface{})
+		for k, v := range input {
+			evalInput[k] = v
+		}
+		evalInput["output"] = basePayload
+
+		shouldWrite, err := h.Transformer.EvaluateCondition(ctx, evalInput, destConfig.When)
+		if err != nil {
+			return nil, fmt.Errorf("when condition error: %w", err)
+		}
+		if !shouldWrite {
+			return map[string]interface{}{"skipped": true, "reason": "condition not met"}, nil
+		}
+	}
+
+	// Get the destination connector
+	destConn, err := h.Connectors.Get(destConfig.Connector)
+	if err != nil {
+		return nil, fmt.Errorf("connector not found: %s: %w", destConfig.Connector, err)
+	}
+
+	writer, ok := destConn.(connector.Writer)
+	if !ok {
+		return nil, fmt.Errorf("connector %s does not support write operations", destConfig.Connector)
+	}
+
+	// Determine payload: use per-destination transform or base payload
+	var payload map[string]interface{}
+	if len(destConfig.Transform) > 0 {
+		// Apply per-destination transform
+		// Build input context with access to input and output (base payload)
+		transformInput := make(map[string]interface{})
+		for k, v := range input {
+			transformInput[k] = v
+		}
+		transformInput["output"] = basePayload
+
+		// Convert map[string]string to []transform.Rule
+		var rules []transform.Rule
+		for target, expr := range destConfig.Transform {
+			rules = append(rules, transform.Rule{
+				Target:     target,
+				Expression: expr,
+			})
+		}
+
+		transformedPayload, err := h.Transformer.TransformWithSteps(ctx, transformInput, nil, nil, rules)
+		if err != nil {
+			return nil, fmt.Errorf("per-destination transform error: %w", err)
+		}
+		payload = transformedPayload
+	} else {
+		payload = basePayload
+	}
+
+	// Build data for write
+	data := &connector.Data{
+		Target:  destConfig.Target,
+		Payload: payload,
+	}
+
+	// Set operation type
+	switch operation.Method {
+	case "POST":
+		data.Operation = "INSERT"
+	case "PUT", "PATCH":
+		data.Operation = "UPDATE"
+	case "DELETE":
+		data.Operation = "DELETE"
+	default:
+		data.Operation = "INSERT"
+	}
+
+	// Set operation override if specified in config
+	if destConfig.Operation != "" {
+		data.Operation = destConfig.Operation
+	}
+
+	// Set raw SQL if configured
+	if destConfig.Query != "" {
+		data.RawSQL = destConfig.Query
+		// Pass all input as params for named parameter substitution
+		data.Filters = make(map[string]interface{})
+		for key, val := range input {
+			data.Filters[key] = val
+		}
+	}
+
+	// Set query filter for NoSQL (MongoDB)
+	if len(destConfig.QueryFilter) > 0 {
+		data.Filters = destConfig.QueryFilter
+	}
+
+	// Set update document for NoSQL
+	if len(destConfig.Update) > 0 {
+		data.Update = destConfig.Update
+	}
+
+	writeResult, err := writer.Write(ctx, data)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return appropriate result
+	if len(writeResult.Rows) > 0 {
+		if len(writeResult.Rows) == 1 {
+			return writeResult.Rows[0], nil
+		}
+		return writeResult.Rows, nil
+	}
+
+	return map[string]interface{}{
+		"id":       writeResult.LastID,
+		"affected": writeResult.Affected,
+	}, nil
 }
 
 // Operation represents a parsed HTTP operation from flow config.

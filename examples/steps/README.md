@@ -200,6 +200,80 @@ transform {
 - **Selective Responses**: Use `pick` to create different views (admin vs public)
 - **Default Values**: Merge user data with defaults `merge(defaults, step.user)`
 
+## Multi-Destination Fan-Out
+
+Write to multiple destinations from a single flow using multiple `to` blocks:
+
+```hcl
+flow "fan_out_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+
+  transform {
+    id      = "uuid()"
+    user_id = "input.user_id"
+    total   = "input.total"
+  }
+
+  # Primary destination
+  to {
+    connector = "orders_db"
+    target    = "orders"
+  }
+
+  # Analytics - with per-destination transform
+  to {
+    connector = "analytics_db"
+    target    = "order_events"
+    transform {
+      event_type = "'order_created'"
+      order_id   = "output.id"
+    }
+  }
+
+  # Notification queue - conditional write
+  to {
+    connector = "rabbit"
+    target    = "orders.high-value"
+    when      = "output.total >= 1000"  # Only for high-value orders
+  }
+
+  # Audit log - sequential write
+  to {
+    connector = "audit_db"
+    target    = "audit_log"
+    parallel  = false  # Wait for this to complete before returning
+  }
+}
+```
+
+### Multi-Destination Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `connector` | Target connector name (required) | - |
+| `target` | Destination table/topic/etc. | - |
+| `when` | CEL condition for conditional writes | - (always write) |
+| `parallel` | Execute in parallel with other destinations | `true` |
+| `transform` | Per-destination transform block | - (use main transform) |
+
+### Execution Behavior
+
+- **Parallel** (default): All destinations with `parallel = true` are written concurrently
+- **Sequential**: Destinations with `parallel = false` are written one by one after parallel writes
+- **Conditional**: Destinations with `when` condition only write if condition evaluates to `true`
+- **Per-destination transforms**: Use `output.*` to reference the main transform result
+
+### Use Cases
+
+- **Event Broadcasting**: Publish to multiple queues (orders, analytics, notifications)
+- **Data Replication**: Write to multiple databases (primary, replica, archive)
+- **Audit Logging**: Add audit entries alongside main writes
+- **Cache Invalidation**: Trigger cache updates when data changes
+- **Conditional Routing**: Send to different destinations based on data values
+
 ## Error Handling with Retry and Fallback
 
 Use `error_handling` block to define retry policies and DLQ (Dead Letter Queue) fallback:
@@ -261,6 +335,8 @@ flow "process_order" {
 8. **process_order_with_retry**: Error handling - retry with exponential backoff and DLQ fallback
 9. **get_customer_profile**: Response composition - merge, omit, and pick functions
 10. **get_product_full**: API Gateway aggregation - merge multiple microservice responses
+11. **fan_out_order**: Multi-destination fan-out - write to multiple destinations with conditions
+12. **broadcast_user_update**: Event broadcasting - publish to multiple queues on update
 
 ## Running the Example
 

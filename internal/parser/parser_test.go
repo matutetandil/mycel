@@ -461,3 +461,112 @@ flow "process_orders" {
 		t.Error("expected include_error to be true")
 	}
 }
+
+func TestParseFlowWithMultiTo(t *testing.T) {
+	hcl := `
+flow "fan_out_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+
+  transform {
+    id         = "uuid()"
+    user_id    = "input.user_id"
+    product_id = "input.product_id"
+    total      = "input.total"
+    created_at = "now()"
+  }
+
+  # Primary destination
+  to {
+    connector = "orders_db"
+    target    = "orders"
+  }
+
+  # Analytics - parallel
+  to {
+    connector = "analytics_db"
+    target    = "order_events"
+    transform {
+      event_type = "'order_created'"
+      order_id   = "output.id"
+      timestamp  = "now()"
+    }
+  }
+
+  # Notification queue - conditional, sequential
+  to {
+    connector = "rabbit"
+    target    = "orders.created"
+    when      = "output.total > 1000"
+    parallel  = false
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.Flows) != 1 {
+		t.Fatalf("expected 1 flow, got %d", len(config.Flows))
+	}
+
+	flow := config.Flows[0]
+	if flow.Name != "fan_out_order" {
+		t.Errorf("expected flow name 'fan_out_order', got '%s'", flow.Name)
+	}
+
+	// Should have MultiTo, not single To
+	if flow.To != nil {
+		t.Error("expected single To to be nil when multiple to blocks exist")
+	}
+
+	if len(flow.MultiTo) != 3 {
+		t.Fatalf("expected 3 multi-to destinations, got %d", len(flow.MultiTo))
+	}
+
+	// Check first destination (orders_db)
+	dest1 := flow.MultiTo[0]
+	if dest1.Connector != "orders_db" {
+		t.Errorf("expected first dest connector 'orders_db', got '%s'", dest1.Connector)
+	}
+	if dest1.Target != "orders" {
+		t.Errorf("expected first dest target 'orders', got '%s'", dest1.Target)
+	}
+	if !dest1.Parallel {
+		t.Error("expected first dest parallel to be true (default)")
+	}
+
+	// Check second destination (analytics_db with transform)
+	dest2 := flow.MultiTo[1]
+	if dest2.Connector != "analytics_db" {
+		t.Errorf("expected second dest connector 'analytics_db', got '%s'", dest2.Connector)
+	}
+	if len(dest2.Transform) == 0 {
+		t.Error("expected second dest to have per-destination transform")
+	}
+	if dest2.Transform["event_type"] != "'order_created'" {
+		t.Errorf("expected transform event_type to be \"'order_created'\", got '%s'", dest2.Transform["event_type"])
+	}
+
+	// Check third destination (rabbit with when condition)
+	dest3 := flow.MultiTo[2]
+	if dest3.Connector != "rabbit" {
+		t.Errorf("expected third dest connector 'rabbit', got '%s'", dest3.Connector)
+	}
+	if dest3.When != "output.total > 1000" {
+		t.Errorf("expected third dest when condition, got '%s'", dest3.When)
+	}
+	if dest3.Parallel {
+		t.Error("expected third dest parallel to be false")
+	}
+}

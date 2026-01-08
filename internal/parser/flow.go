@@ -76,6 +76,9 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 		}
 	}
 
+	// Collect all 'to' blocks first
+	var toBlocks []*flow.ToConfig
+
 	// Parse nested blocks
 	for _, nestedBlock := range content.Blocks {
 		switch nestedBlock.Type {
@@ -91,7 +94,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			if err != nil {
 				return nil, fmt.Errorf("to block error: %w", err)
 			}
-			config.To = to
+			toBlocks = append(toBlocks, to)
 
 		case "step":
 			step, err := parseStepBlock(nestedBlock, ctx)
@@ -172,6 +175,13 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 		}
 	}
 
+	// Assign to blocks: single -> To, multiple -> MultiTo
+	if len(toBlocks) == 1 {
+		config.To = toBlocks[0]
+	} else if len(toBlocks) > 1 {
+		config.MultiTo = toBlocks
+	}
+
 	return config, nil
 }
 
@@ -241,6 +251,9 @@ func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, e
 //	  query     = "SELECT * FROM users WHERE id = :id"  // optional, for SQL
 //	  query_filter = { status = "active" }  // optional, for NoSQL (MongoDB)
 //	  update    = { "$set" = { status = "active" } }  // optional, for NoSQL updates
+//	  when      = "output.total > 1000"  // optional, conditional write
+//	  parallel  = true  // optional, parallel execution (default true)
+//	  transform { ... }  // optional, per-destination transform
 //	}
 func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error) {
 	schema := &hcl.BodySchema{
@@ -252,7 +265,12 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 			{Name: "query"},
 			{Name: "query_filter"},
 			{Name: "update"},
-			{Name: "params"}, // Parameters for operations like S3 COPY
+			{Name: "params"},   // Parameters for operations like S3 COPY
+			{Name: "when"},     // Conditional write
+			{Name: "parallel"}, // Parallel execution (default true)
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "transform"}, // Per-destination transform
 		},
 	}
 
@@ -261,7 +279,9 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		return nil, fmt.Errorf("to block content error: %s", diags.Error())
 	}
 
-	to := &flow.ToConfig{}
+	to := &flow.ToConfig{
+		Parallel: true, // Default to parallel execution
+	}
 
 	if attr, ok := content.Attributes["connector"]; ok {
 		val, diags := attr.Expr.Value(ctx)
@@ -329,6 +349,39 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 			return nil, fmt.Errorf("to update error: %s", diags.Error())
 		}
 		to.Update = ctyValueToMap(val)
+	}
+
+	// Parse when (conditional write)
+	if attr, ok := content.Attributes["when"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			// Try to extract raw expression
+			to.When = extractExpressionText(attr.Expr)
+		} else {
+			to.When = val.AsString()
+		}
+	}
+
+	// Parse parallel (default true)
+	if attr, ok := content.Attributes["parallel"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("to parallel error: %s", diags.Error())
+		}
+		if val.Type() == cty.Bool {
+			to.Parallel = val.True()
+		}
+	}
+
+	// Parse nested transform block
+	for _, nestedBlock := range content.Blocks {
+		if nestedBlock.Type == "transform" {
+			transformMappings, err := parseTransformMappings(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("to transform error: %w", err)
+			}
+			to.Transform = transformMappings
+		}
 	}
 
 	if to.Connector == "" {
