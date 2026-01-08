@@ -71,6 +71,9 @@ func baseCELOptions() []cel.EnvOption {
 		// Enriched variable - for data fetched from external sources
 		cel.Variable("enriched", cel.MapType(cel.StringType, cel.DynType)),
 
+		// Step variable - for intermediate connector call results
+		cel.Variable("step", cel.MapType(cel.StringType, cel.DynType)),
+
 		// Result variable - for aspect conditions (after execution)
 		cel.Variable("result", cel.MapType(cel.StringType, cel.DynType)),
 
@@ -471,6 +474,16 @@ func (t *CELTransformer) EvaluateExpression(ctx context.Context, input map[strin
 
 // TransformWithEnriched applies transformation rules with enriched data available.
 func (t *CELTransformer) TransformWithEnriched(ctx context.Context, input map[string]interface{}, enriched map[string]interface{}, rules []Rule) (map[string]interface{}, error) {
+	return t.TransformWithContext(ctx, input, enriched, nil, rules)
+}
+
+// TransformWithSteps applies transformation rules with step results available.
+func (t *CELTransformer) TransformWithSteps(ctx context.Context, input map[string]interface{}, enriched map[string]interface{}, steps map[string]interface{}, rules []Rule) (map[string]interface{}, error) {
+	return t.TransformWithContext(ctx, input, enriched, steps, rules)
+}
+
+// TransformWithContext applies transformation rules with all context data available.
+func (t *CELTransformer) TransformWithContext(ctx context.Context, input map[string]interface{}, enriched map[string]interface{}, steps map[string]interface{}, rules []Rule) (map[string]interface{}, error) {
 	output := make(map[string]interface{})
 
 	// Ensure enriched is not nil
@@ -478,12 +491,18 @@ func (t *CELTransformer) TransformWithEnriched(ctx context.Context, input map[st
 		enriched = make(map[string]interface{})
 	}
 
-	// Build activation with input, output, and enriched data
+	// Ensure steps is not nil
+	if steps == nil {
+		steps = make(map[string]interface{})
+	}
+
+	// Build activation with input, output, enriched, and step data
 	activation := map[string]interface{}{
 		"input":    input,
 		"output":   output,
 		"ctx":      make(map[string]interface{}),
 		"enriched": enriched,
+		"step":     steps,
 	}
 
 	for _, rule := range rules {
@@ -510,4 +529,48 @@ func (t *CELTransformer) TransformWithEnriched(ctx context.Context, input map[st
 	}
 
 	return output, nil
+}
+
+// EvaluateCondition evaluates a boolean CEL expression.
+// Used for step conditions and other conditional logic.
+func (t *CELTransformer) EvaluateCondition(ctx context.Context, data map[string]interface{}, expr string) (bool, error) {
+	prog, err := t.Compile(expr)
+	if err != nil {
+		return false, err
+	}
+
+	// Build activation with all available data
+	activation := map[string]interface{}{
+		"input":    make(map[string]interface{}),
+		"output":   make(map[string]interface{}),
+		"ctx":      make(map[string]interface{}),
+		"enriched": make(map[string]interface{}),
+		"step":     make(map[string]interface{}),
+		"result":   make(map[string]interface{}),
+		"error":    "",
+		// Flow metadata defaults
+		"_flow":      "",
+		"_operation": "",
+		"_target":    "",
+		"_timestamp": int64(0),
+	}
+
+	// Merge provided data into activation
+	for key, val := range data {
+		activation[key] = val
+	}
+
+	// Evaluate
+	result, _, err := prog.Eval(activation)
+	if err != nil {
+		return false, fmt.Errorf("CEL condition eval error: %w", err)
+	}
+
+	// Convert result to boolean
+	switch v := result.Value().(type) {
+	case bool:
+		return v, nil
+	default:
+		return false, fmt.Errorf("condition expression must return boolean, got %T", result.Value())
+	}
 }

@@ -31,6 +31,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "from"},
 			{Type: "to"},
+			{Type: "step", LabelNames: []string{"name"}}, // Intermediate connector calls
 			{Type: "lock"},
 			{Type: "semaphore"},
 			{Type: "coordinate"},
@@ -91,6 +92,13 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 				return nil, fmt.Errorf("to block error: %w", err)
 			}
 			config.To = to
+
+		case "step":
+			step, err := parseStepBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("step block error: %w", err)
+			}
+			config.Steps = append(config.Steps, step)
 
 		case "lock":
 			lock, err := parseLockBlock(nestedBlock, ctx)
@@ -318,6 +326,142 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 	}
 
 	return to, nil
+}
+
+// parseStepBlock parses a step block for intermediate connector calls.
+// Example:
+//
+//	step "get_customer" {
+//	  connector = "customers_db"
+//	  operation = "query"
+//	  query     = "SELECT * FROM customers WHERE id = ?"
+//	  params    = [input.customer_id]
+//	  when      = "input.customer_id != ''"
+//	  timeout   = "5s"
+//	  on_error  = "skip"
+//	}
+func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("step block requires a name label")
+	}
+
+	step := &flow.StepConfig{
+		Name:   block.Labels[0],
+		Params: make(map[string]interface{}),
+		Body:   make(map[string]interface{}),
+	}
+
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "connector", Required: true},
+			{Name: "operation"},
+			{Name: "when"},
+			{Name: "query"},
+			{Name: "target"},
+			{Name: "params"},
+			{Name: "body"},
+			{Name: "timeout"},
+			{Name: "on_error"},
+			{Name: "default"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("step block content error: %s", diags.Error())
+	}
+
+	// Parse connector (required)
+	if attr, ok := content.Attributes["connector"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("step connector error: %s", diags.Error())
+		}
+		step.Connector = parseConnectorReference(val.AsString())
+	}
+
+	// Parse operation
+	if attr, ok := content.Attributes["operation"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("step operation error: %s", diags.Error())
+		}
+		step.Operation = val.AsString()
+	}
+
+	// Parse when (conditional execution)
+	if attr, ok := content.Attributes["when"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("step when error: %s", diags.Error())
+		}
+		step.When = val.AsString()
+	}
+
+	// Parse query (for database connectors)
+	if attr, ok := content.Attributes["query"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("step query error: %s", diags.Error())
+		}
+		step.Query = val.AsString()
+	}
+
+	// Parse target
+	if attr, ok := content.Attributes["target"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("step target error: %s", diags.Error())
+		}
+		step.Target = val.AsString()
+	}
+
+	// Parse params (can be map or list)
+	if attr, ok := content.Attributes["params"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("step params error: %s", diags.Error())
+		}
+		step.Params = ctyValueToMap(val)
+	}
+
+	// Parse body (for HTTP connectors)
+	if attr, ok := content.Attributes["body"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("step body error: %s", diags.Error())
+		}
+		step.Body = ctyValueToMap(val)
+	}
+
+	// Parse timeout
+	if attr, ok := content.Attributes["timeout"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("step timeout error: %s", diags.Error())
+		}
+		step.Timeout = val.AsString()
+	}
+
+	// Parse on_error
+	if attr, ok := content.Attributes["on_error"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("step on_error error: %s", diags.Error())
+		}
+		step.OnError = val.AsString()
+	}
+
+	// Parse default value
+	if attr, ok := content.Attributes["default"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("step default error: %s", diags.Error())
+		}
+		step.Default = ctyValueToInterface(val)
+	}
+
+	return step, nil
 }
 
 // parseValidateBlock parses a validate block.

@@ -271,6 +271,7 @@ service {
 | [enrich](examples/enrich) | Data enrichment from services |
 | [mongodb](examples/mongodb) | MongoDB NoSQL operations |
 | [exec](examples/exec) | Execute shell commands |
+| [steps](examples/steps) | Multi-step flow orchestration |
 
 ## Requirements
 

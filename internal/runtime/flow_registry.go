@@ -733,6 +733,232 @@ func splitPath(path string) []string {
 	return parts
 }
 
+// executeSteps executes intermediate connector calls and returns their results.
+// Results are available as step.<name>.* in transform expressions.
+func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	if len(h.Config.Steps) == 0 {
+		return make(map[string]interface{}), nil
+	}
+
+	stepResults := make(map[string]interface{})
+
+	for _, step := range h.Config.Steps {
+		// Evaluate the "when" condition if present
+		if step.When != "" && h.Transformer != nil {
+			// Build context with input and previous step results
+			evalCtx := map[string]interface{}{
+				"input": input,
+				"step":  stepResults,
+			}
+			shouldExecute, err := h.Transformer.EvaluateCondition(ctx, evalCtx, step.When)
+			if err != nil {
+				// If condition evaluation fails, skip the step (or fail based on on_error)
+				if step.OnError == "skip" {
+					continue
+				}
+				return nil, fmt.Errorf("step %s: failed to evaluate condition: %w", step.Name, err)
+			}
+			if !shouldExecute {
+				// Condition is false, skip this step
+				if step.Default != nil {
+					stepResults[step.Name] = step.Default
+				}
+				continue
+			}
+		}
+
+		// Get the connector for this step
+		conn, err := h.Connectors.Get(step.Connector)
+		if err != nil {
+			if step.OnError == "skip" {
+				if step.Default != nil {
+					stepResults[step.Name] = step.Default
+				}
+				continue
+			}
+			if step.OnError == "default" && step.Default != nil {
+				stepResults[step.Name] = step.Default
+				continue
+			}
+			return nil, fmt.Errorf("step %s: connector not found: %w", step.Name, err)
+		}
+
+		// Build params by evaluating CEL expressions if needed
+		params := make(map[string]interface{})
+		if h.Transformer != nil && len(step.Params) > 0 {
+			evalCtx := map[string]interface{}{
+				"input": input,
+				"step":  stepResults,
+			}
+			for key, val := range step.Params {
+				// If value is a string that looks like an expression, evaluate it
+				if strVal, ok := val.(string); ok {
+					if strings.Contains(strVal, "input.") || strings.Contains(strVal, "step.") {
+						result, err := h.Transformer.EvaluateExpression(ctx, evalCtx, nil, strVal)
+						if err != nil {
+							return nil, fmt.Errorf("step %s: failed to evaluate param %s: %w", step.Name, key, err)
+						}
+						params[key] = result
+						continue
+					}
+				}
+				params[key] = val
+			}
+		} else {
+			for key, val := range step.Params {
+				params[key] = val
+			}
+		}
+
+		// Execute the step based on connector type and operation
+		var result interface{}
+
+		// Database query
+		if step.Query != "" {
+			if reader, ok := conn.(connector.Reader); ok {
+				query := connector.Query{
+					Target:    step.Target,
+					Operation: "SELECT",
+					RawSQL:    step.Query,
+					Filters:   params,
+				}
+				readResult, err := reader.Read(ctx, query)
+				if err != nil {
+					if step.OnError == "skip" {
+						if step.Default != nil {
+							stepResults[step.Name] = step.Default
+						}
+						continue
+					}
+					if step.OnError == "default" && step.Default != nil {
+						stepResults[step.Name] = step.Default
+						continue
+					}
+					return nil, fmt.Errorf("step %s: query failed: %w", step.Name, err)
+				}
+				// Return single row if only one result
+				if len(readResult.Rows) == 1 {
+					result = readResult.Rows[0]
+				} else {
+					result = readResult.Rows
+				}
+			}
+		} else if step.Operation != "" {
+			// HTTP/REST or other operation-based connector
+			if caller, ok := conn.(Caller); ok {
+				// For Caller interface (TCP, HTTP client, gRPC)
+				callParams := params
+				if len(step.Body) > 0 {
+					callParams = step.Body
+				}
+				callResult, err := caller.Call(ctx, step.Operation, callParams)
+				if err != nil {
+					if step.OnError == "skip" {
+						if step.Default != nil {
+							stepResults[step.Name] = step.Default
+						}
+						continue
+					}
+					if step.OnError == "default" && step.Default != nil {
+						stepResults[step.Name] = step.Default
+						continue
+					}
+					return nil, fmt.Errorf("step %s: call failed: %w", step.Name, err)
+				}
+				result = callResult
+			} else if reader, ok := conn.(connector.Reader); ok {
+				// For Reader interface (database SELECT)
+				query := connector.Query{
+					Target:    step.Target,
+					Operation: step.Operation,
+					Filters:   params,
+				}
+				readResult, err := reader.Read(ctx, query)
+				if err != nil {
+					if step.OnError == "skip" {
+						if step.Default != nil {
+							stepResults[step.Name] = step.Default
+						}
+						continue
+					}
+					if step.OnError == "default" && step.Default != nil {
+						stepResults[step.Name] = step.Default
+						continue
+					}
+					return nil, fmt.Errorf("step %s: read failed: %w", step.Name, err)
+				}
+				if len(readResult.Rows) == 1 {
+					result = readResult.Rows[0]
+				} else {
+					result = readResult.Rows
+				}
+			} else if writer, ok := conn.(connector.Writer); ok {
+				// For Writer interface (INSERT, UPDATE, DELETE)
+				data := &connector.Data{
+					Target:    step.Target,
+					Operation: step.Operation,
+					Payload:   step.Body,
+					Filters:   params,
+				}
+				writeResult, err := writer.Write(ctx, data)
+				if err != nil {
+					if step.OnError == "skip" {
+						if step.Default != nil {
+							stepResults[step.Name] = step.Default
+						}
+						continue
+					}
+					if step.OnError == "default" && step.Default != nil {
+						stepResults[step.Name] = step.Default
+						continue
+					}
+					return nil, fmt.Errorf("step %s: write failed: %w", step.Name, err)
+				}
+				if len(writeResult.Rows) > 0 {
+					result = writeResult.Rows
+				} else {
+					result = map[string]interface{}{
+						"affected": writeResult.Affected,
+						"id":       writeResult.LastID,
+					}
+				}
+			}
+		} else if step.Target != "" {
+			// Simple target-based read
+			if reader, ok := conn.(connector.Reader); ok {
+				query := connector.Query{
+					Target:    step.Target,
+					Operation: "SELECT",
+					Filters:   params,
+				}
+				readResult, err := reader.Read(ctx, query)
+				if err != nil {
+					if step.OnError == "skip" {
+						if step.Default != nil {
+							stepResults[step.Name] = step.Default
+						}
+						continue
+					}
+					if step.OnError == "default" && step.Default != nil {
+						stepResults[step.Name] = step.Default
+						continue
+					}
+					return nil, fmt.Errorf("step %s: read failed: %w", step.Name, err)
+				}
+				if len(readResult.Rows) == 1 {
+					result = readResult.Rows[0]
+				} else {
+					result = readResult.Rows
+				}
+			}
+		}
+
+		stepResults[step.Name] = result
+	}
+
+	return stepResults, nil
+}
+
 // executeEnrichments fetches data from external connectors for enrichment.
 // Returns a map of enrichment names to their fetched data.
 func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]interface{}, enrichments []*flow.EnrichConfig) (map[string]interface{}, error) {
@@ -806,8 +1032,8 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 
 // applyTransforms applies configured transformations to the input data.
 func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
-	// No transform configured - return input as-is
-	if h.Config.Transform == nil && len(h.Config.Enrichments) == 0 {
+	// No transform configured and no steps - return input as-is
+	if h.Config.Transform == nil && len(h.Config.Enrichments) == 0 && len(h.Config.Steps) == 0 {
 		return input, nil
 	}
 
@@ -820,6 +1046,12 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 		if err != nil {
 			return nil, fmt.Errorf("failed to create CEL transformer: %w", err)
 		}
+	}
+
+	// Execute steps first (their results are available in transforms)
+	stepResults, err := h.executeSteps(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("step execution failed: %w", err)
 	}
 
 	// Collect all enrichments (flow-level + transform-level)
@@ -853,7 +1085,7 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 		return nil, fmt.Errorf("enrichment failed: %w", err)
 	}
 
-	// No transform configured, just return input (enrichments were for side effects)
+	// No transform configured, just return input (steps and enrichments were for side effects)
 	if h.Config.Transform == nil {
 		return input, nil
 	}
@@ -888,8 +1120,8 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 		return input, nil
 	}
 
-	// Apply transforms using CEL with enriched data
-	return h.Transformer.TransformWithEnriched(ctx, input, enriched, rules)
+	// Apply transforms using CEL with enriched data and step results
+	return h.Transformer.TransformWithSteps(ctx, input, enriched, stepResults, rules)
 }
 
 // validateInput validates input data against the configured input type schema.

@@ -216,3 +216,121 @@ connector "db" {
 		t.Errorf("expected host 'testhost', got '%v'", config.Connectors[0].Properties["host"])
 	}
 }
+
+func TestParseFlowWithSteps(t *testing.T) {
+	hcl := `
+flow "create_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+
+  step "get_user" {
+    connector = "db"
+    query     = "SELECT * FROM users WHERE id = :user_id"
+    params    = { user_id = "input.user_id" }
+  }
+
+  step "get_prices" {
+    connector = "pricing_api"
+    operation = "GET /prices"
+    when      = "input.include_prices == true"
+    on_error  = "skip"
+    default   = []
+  }
+
+  step "calculate" {
+    connector = "calculator"
+    operation = "POST /calculate"
+    body      = { items = "input.items", prices = "step.get_prices" }
+    timeout   = "30s"
+  }
+
+  transform {
+    user_email = "step.get_user.email"
+    total      = "step.calculate.total"
+    items      = "input.items"
+  }
+
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.Flows) != 1 {
+		t.Fatalf("expected 1 flow, got %d", len(config.Flows))
+	}
+
+	flow := config.Flows[0]
+	if flow.Name != "create_order" {
+		t.Errorf("expected name 'create_order', got '%s'", flow.Name)
+	}
+
+	// Check steps
+	if len(flow.Steps) != 3 {
+		t.Fatalf("expected 3 steps, got %d", len(flow.Steps))
+	}
+
+	// Check step 1: get_user
+	step1 := flow.Steps[0]
+	if step1.Name != "get_user" {
+		t.Errorf("expected step name 'get_user', got '%s'", step1.Name)
+	}
+	if step1.Connector != "db" {
+		t.Errorf("expected connector 'db', got '%s'", step1.Connector)
+	}
+	if step1.Query != "SELECT * FROM users WHERE id = :user_id" {
+		t.Errorf("expected query, got '%s'", step1.Query)
+	}
+	if step1.Params["user_id"] != "input.user_id" {
+		t.Errorf("expected param user_id='input.user_id', got '%v'", step1.Params["user_id"])
+	}
+
+	// Check step 2: get_prices (with conditional)
+	step2 := flow.Steps[1]
+	if step2.Name != "get_prices" {
+		t.Errorf("expected step name 'get_prices', got '%s'", step2.Name)
+	}
+	if step2.When != "input.include_prices == true" {
+		t.Errorf("expected when condition, got '%s'", step2.When)
+	}
+	if step2.OnError != "skip" {
+		t.Errorf("expected on_error 'skip', got '%s'", step2.OnError)
+	}
+
+	// Check step 3: calculate (with body and timeout)
+	step3 := flow.Steps[2]
+	if step3.Name != "calculate" {
+		t.Errorf("expected step name 'calculate', got '%s'", step3.Name)
+	}
+	if step3.Operation != "POST /calculate" {
+		t.Errorf("expected operation 'POST /calculate', got '%s'", step3.Operation)
+	}
+	if step3.Timeout != "30s" {
+		t.Errorf("expected timeout '30s', got '%s'", step3.Timeout)
+	}
+	if step3.Body["items"] != "input.items" {
+		t.Errorf("expected body.items='input.items', got '%v'", step3.Body["items"])
+	}
+
+	// Check transform references step results
+	if flow.Transform == nil {
+		t.Fatal("expected transform block")
+	}
+	if flow.Transform.Mappings["user_email"] != "step.get_user.email" {
+		t.Errorf("expected user_email mapping, got '%s'", flow.Transform.Mappings["user_email"])
+	}
+}

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Phase 7 Flow Orchestration: Step Blocks
+- **Multi-step flow execution** with intermediate connector calls
+  - Steps execute in order before the transform
+  - Results available as `step.<name>.*` in subsequent steps and transforms
+  - Support for database queries, HTTP operations, and all connector types
+- **Conditional step execution** with `when` clause
+  - CEL expressions to conditionally execute steps
+  - Access to `input.*` and previous `step.*` results in conditions
+- **Error handling per step** with `on_error` attribute
+  - `fail`: Fail the entire flow if step fails (default)
+  - `skip`: Skip the step and continue with nil result
+  - `default`: Use a default value if step fails
+- **Step timeout configuration** with `timeout` attribute
+- **New CEL transformer methods**
+  - `EvaluateCondition`: Evaluate boolean CEL expressions
+  - `TransformWithSteps`: Transform with step results available
+  - `TransformWithContext`: Unified transform with enriched and step data
+- **New example** (`examples/steps/`)
+  - Basic multi-step flow (user/product lookup → order creation)
+  - Conditional steps (optional pricing/inventory)
+  - Chained steps (step results used in subsequent steps)
+  - Error handling strategies
+
 ### Added - Event-Driven Integration Examples
 - **RabbitMQ → REST** (`examples/integration/rabbit-to-rest/`)
   - Consume messages and call external REST APIs

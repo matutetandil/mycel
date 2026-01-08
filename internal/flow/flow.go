@@ -113,6 +113,10 @@ type Config struct {
 	// Validate defines validation rules.
 	Validate *ValidateConfig
 
+	// Steps are intermediate connector calls executed before transform.
+	// Results are available as step.<name>.* in transform expressions.
+	Steps []*StepConfig
+
 	// Enrichments are data lookups from other connectors (flow-level).
 	// These are executed before transform and results are available as enriched.*
 	Enrichments []*EnrichConfig
@@ -128,6 +132,49 @@ type Config struct {
 
 	// ErrorHandling defines error handling behavior.
 	ErrorHandling *ErrorHandlingConfig
+}
+
+// StepConfig defines an intermediate connector call within a flow.
+// Steps allow calling connectors and using their results in subsequent
+// steps or transforms.
+type StepConfig struct {
+	// Name is the step identifier (used as step.<name> in expressions).
+	Name string
+
+	// Connector is the connector to call.
+	Connector string
+
+	// Operation is the operation to perform on the connector.
+	// Examples: "query", "GET /users", "POST /api/calculate"
+	Operation string
+
+	// When is a CEL expression that determines if this step should execute.
+	// If empty or evaluates to true, the step executes.
+	// Example: "input.include_prices == true"
+	When string
+
+	// Params are parameters to pass to the connector operation.
+	// Values can be CEL expressions referencing input.* or previous step.* results.
+	Params map[string]interface{}
+
+	// Query is an optional SQL query for database connectors.
+	Query string
+
+	// Body is the request body for HTTP connectors.
+	// Can be a map or a CEL expression.
+	Body map[string]interface{}
+
+	// Target is the target resource (table, collection, endpoint).
+	Target string
+
+	// Timeout is the maximum time to wait for this step (e.g., "30s").
+	Timeout string
+
+	// OnError defines what to do if this step fails: "fail", "skip", "default".
+	OnError string
+
+	// Default is the default value to use if OnError is "default".
+	Default interface{}
 }
 
 // FromConfig defines the flow source.

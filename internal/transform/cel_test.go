@@ -656,3 +656,245 @@ func TestCELTransformer_TransformWithEnriched_NestedEnriched(t *testing.T) {
 		t.Errorf("category: expected 'Electronics', got %v", result["category"])
 	}
 }
+
+func TestCELTransformer_EvaluateCondition(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		data     map[string]interface{}
+		expr     string
+		expected bool
+	}{
+		{
+			name: "simple true condition",
+			data: map[string]interface{}{
+				"input": map[string]interface{}{"enabled": true},
+			},
+			expr:     "input.enabled == true",
+			expected: true,
+		},
+		{
+			name: "simple false condition",
+			data: map[string]interface{}{
+				"input": map[string]interface{}{"enabled": false},
+			},
+			expr:     "input.enabled == true",
+			expected: false,
+		},
+		{
+			name: "string comparison",
+			data: map[string]interface{}{
+				"input": map[string]interface{}{"type": "premium"},
+			},
+			expr:     "input.type == 'premium'",
+			expected: true,
+		},
+		{
+			name: "numeric comparison",
+			data: map[string]interface{}{
+				"input": map[string]interface{}{"quantity": 5},
+			},
+			expr:     "input.quantity > 0",
+			expected: true,
+		},
+		{
+			name: "step result condition",
+			data: map[string]interface{}{
+				"input": map[string]interface{}{"user_id": "123"},
+				"step": map[string]interface{}{
+					"user": map[string]interface{}{
+						"status": "active",
+					},
+				},
+			},
+			expr:     "step.user.status == 'active'",
+			expected: true,
+		},
+		{
+			name: "combined input and step condition",
+			data: map[string]interface{}{
+				"input": map[string]interface{}{"include_prices": true},
+				"step": map[string]interface{}{
+					"product": map[string]interface{}{"price": 100},
+				},
+			},
+			expr:     "input.include_prices && step.product.price > 0",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := transformer.EvaluateCondition(context.Background(), tt.data, tt.expr)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestCELTransformer_EvaluateCondition_InvalidReturnType(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	data := map[string]interface{}{
+		"input": map[string]interface{}{"name": "test"},
+	}
+
+	// Expression returns string, not boolean
+	_, err = transformer.EvaluateCondition(context.Background(), data, "input.name")
+	if err == nil {
+		t.Error("expected error for non-boolean return type")
+	}
+}
+
+func TestCELTransformer_TransformWithSteps(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"user_id":  "user-123",
+		"quantity": 3,
+	}
+
+	enriched := map[string]interface{}{
+		"pricing": map[string]interface{}{
+			"base_price": 100.0,
+		},
+	}
+
+	steps := map[string]interface{}{
+		"user": map[string]interface{}{
+			"email":    "user@example.com",
+			"name":     "John Doe",
+			"discount": 0.1,
+		},
+		"inventory": map[string]interface{}{
+			"available": 50,
+		},
+	}
+
+	rules := []Rule{
+		{Target: "user_email", Expression: "step.user.email"},
+		{Target: "user_name", Expression: "step.user.name"},
+		{Target: "base_price", Expression: "enriched.pricing.base_price"},
+		{Target: "discount", Expression: "step.user.discount"},
+		{Target: "final_price", Expression: "enriched.pricing.base_price * (1.0 - step.user.discount)"},
+		{Target: "in_stock", Expression: "step.inventory.available >= input.quantity"},
+	}
+
+	result, err := transformer.TransformWithSteps(context.Background(), input, enriched, steps, rules)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result["user_email"] != "user@example.com" {
+		t.Errorf("user_email: expected 'user@example.com', got %v", result["user_email"])
+	}
+
+	if result["user_name"] != "John Doe" {
+		t.Errorf("user_name: expected 'John Doe', got %v", result["user_name"])
+	}
+
+	if result["base_price"] != 100.0 {
+		t.Errorf("base_price: expected 100.0, got %v", result["base_price"])
+	}
+
+	if result["discount"] != 0.1 {
+		t.Errorf("discount: expected 0.1, got %v", result["discount"])
+	}
+
+	if result["final_price"] != 90.0 {
+		t.Errorf("final_price: expected 90.0, got %v", result["final_price"])
+	}
+
+	if result["in_stock"] != true {
+		t.Errorf("in_stock: expected true, got %v", result["in_stock"])
+	}
+}
+
+func TestCELTransformer_TransformWithSteps_NilSteps(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"name": "test",
+	}
+
+	rules := []Rule{
+		{Target: "name", Expression: "upper(input.name)"},
+	}
+
+	// Should work even with nil steps
+	result, err := transformer.TransformWithSteps(context.Background(), input, nil, nil, rules)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result["name"] != "TEST" {
+		t.Errorf("expected 'TEST', got %v", result["name"])
+	}
+}
+
+func TestCELTransformer_TransformWithSteps_ChainedSteps(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"order_id": "order-123",
+	}
+
+	// Simulate chained step results where step2 uses step1 result
+	steps := map[string]interface{}{
+		"step1": map[string]interface{}{
+			"customer_id": "cust-456",
+		},
+		"step2": map[string]interface{}{
+			"customer_email": "customer@example.com",
+			"customer_name":  "Jane Smith",
+		},
+	}
+
+	rules := []Rule{
+		{Target: "order_id", Expression: "input.order_id"},
+		{Target: "customer_id", Expression: "step.step1.customer_id"},
+		{Target: "email", Expression: "step.step2.customer_email"},
+		{Target: "name", Expression: "step.step2.customer_name"},
+	}
+
+	result, err := transformer.TransformWithSteps(context.Background(), input, nil, steps, rules)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result["order_id"] != "order-123" {
+		t.Errorf("order_id: expected 'order-123', got %v", result["order_id"])
+	}
+
+	if result["customer_id"] != "cust-456" {
+		t.Errorf("customer_id: expected 'cust-456', got %v", result["customer_id"])
+	}
+
+	if result["email"] != "customer@example.com" {
+		t.Errorf("email: expected 'customer@example.com', got %v", result["email"])
+	}
+
+	if result["name"] != "Jane Smith" {
+		t.Errorf("name: expected 'Jane Smith', got %v", result["name"])
+	}
+}
