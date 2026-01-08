@@ -552,7 +552,182 @@ func baseCELOptions() []cel.EnvOption {
 				}),
 			),
 		),
+
+		// merge(map1, map2, ...) - Merge multiple maps into one (later values override earlier)
+		cel.Function("merge",
+			// Two maps
+			cel.Overload("merge_two_maps",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.MapType(cel.StringType, cel.DynType)},
+				cel.MapType(cel.StringType, cel.DynType),
+				cel.BinaryBinding(func(m1, m2 ref.Val) ref.Val {
+					return mergeMaps(m1, m2)
+				}),
+			),
+			// Three maps
+			cel.Overload("merge_three_maps",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.MapType(cel.StringType, cel.DynType), cel.MapType(cel.StringType, cel.DynType)},
+				cel.MapType(cel.StringType, cel.DynType),
+				cel.FunctionBinding(func(args ...ref.Val) ref.Val {
+					result := mergeMaps(args[0], args[1])
+					return mergeMaps(result, args[2])
+				}),
+			),
+			// Four maps
+			cel.Overload("merge_four_maps",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.MapType(cel.StringType, cel.DynType), cel.MapType(cel.StringType, cel.DynType), cel.MapType(cel.StringType, cel.DynType)},
+				cel.MapType(cel.StringType, cel.DynType),
+				cel.FunctionBinding(func(args ...ref.Val) ref.Val {
+					result := mergeMaps(args[0], args[1])
+					result = mergeMaps(result, args[2])
+					return mergeMaps(result, args[3])
+				}),
+			),
+		),
+
+		// omit(map, key1, key2, ...) - Return map without specified keys
+		cel.Function("omit",
+			cel.Overload("omit_map_string",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.StringType},
+				cel.MapType(cel.StringType, cel.DynType),
+				cel.BinaryBinding(func(mapVal, keyVal ref.Val) ref.Val {
+					return omitKeys(mapVal, keyVal)
+				}),
+			),
+			cel.Overload("omit_map_two_strings",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.StringType, cel.StringType},
+				cel.MapType(cel.StringType, cel.DynType),
+				cel.FunctionBinding(func(args ...ref.Val) ref.Val {
+					result := omitKeys(args[0], args[1])
+					return omitKeys(result, args[2])
+				}),
+			),
+			cel.Overload("omit_map_three_strings",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.StringType, cel.StringType, cel.StringType},
+				cel.MapType(cel.StringType, cel.DynType),
+				cel.FunctionBinding(func(args ...ref.Val) ref.Val {
+					result := omitKeys(args[0], args[1])
+					result = omitKeys(result, args[2])
+					return omitKeys(result, args[3])
+				}),
+			),
+		),
+
+		// pick(map, key1, key2, ...) - Return map with only specified keys
+		cel.Function("pick",
+			cel.Overload("pick_map_string",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.StringType},
+				cel.MapType(cel.StringType, cel.DynType),
+				cel.BinaryBinding(func(mapVal, keyVal ref.Val) ref.Val {
+					return pickKeys(mapVal, keyVal)
+				}),
+			),
+			cel.Overload("pick_map_two_strings",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.StringType, cel.StringType},
+				cel.MapType(cel.StringType, cel.DynType),
+				cel.FunctionBinding(func(args ...ref.Val) ref.Val {
+					return pickKeysMultiple(args[0], args[1:]...)
+				}),
+			),
+			cel.Overload("pick_map_three_strings",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.StringType, cel.StringType, cel.StringType},
+				cel.MapType(cel.StringType, cel.DynType),
+				cel.FunctionBinding(func(args ...ref.Val) ref.Val {
+					return pickKeysMultiple(args[0], args[1:]...)
+				}),
+			),
+		),
 	}
+}
+
+// mergeMaps merges two maps, with values from m2 overriding m1.
+func mergeMaps(m1, m2 ref.Val) ref.Val {
+	mapper1, ok1 := m1.(traits.Mapper)
+	mapper2, ok2 := m2.(traits.Mapper)
+	if !ok1 || !ok2 {
+		return types.NewErr("merge requires map arguments")
+	}
+
+	result := make(map[string]interface{})
+
+	// Copy all keys from first map
+	it1 := mapper1.Iterator()
+	for it1.HasNext() == types.True {
+		key := it1.Next()
+		keyStr := key.(types.String)
+		val := mapper1.Get(key)
+		result[string(keyStr)] = val.Value()
+	}
+
+	// Override/add keys from second map
+	it2 := mapper2.Iterator()
+	for it2.HasNext() == types.True {
+		key := it2.Next()
+		keyStr := key.(types.String)
+		val := mapper2.Get(key)
+		result[string(keyStr)] = val.Value()
+	}
+
+	return types.DefaultTypeAdapter.NativeToValue(result)
+}
+
+// omitKeys returns a map without the specified key.
+func omitKeys(mapVal, keyVal ref.Val) ref.Val {
+	mapper, ok := mapVal.(traits.Mapper)
+	if !ok {
+		return types.NewErr("omit requires a map argument")
+	}
+
+	keyToOmit := string(keyVal.(types.String))
+	result := make(map[string]interface{})
+
+	it := mapper.Iterator()
+	for it.HasNext() == types.True {
+		key := it.Next()
+		keyStr := string(key.(types.String))
+		if keyStr != keyToOmit {
+			result[keyStr] = mapper.Get(key).Value()
+		}
+	}
+
+	return types.DefaultTypeAdapter.NativeToValue(result)
+}
+
+// pickKeys returns a map with only the specified key.
+func pickKeys(mapVal, keyVal ref.Val) ref.Val {
+	mapper, ok := mapVal.(traits.Mapper)
+	if !ok {
+		return types.NewErr("pick requires a map argument")
+	}
+
+	keyToPick := string(keyVal.(types.String))
+	result := make(map[string]interface{})
+
+	val := mapper.Get(keyVal)
+	if val != nil && val.Type() != types.ErrType {
+		result[keyToPick] = val.Value()
+	}
+
+	return types.DefaultTypeAdapter.NativeToValue(result)
+}
+
+// pickKeysMultiple returns a map with only the specified keys.
+func pickKeysMultiple(mapVal ref.Val, keys ...ref.Val) ref.Val {
+	mapper, ok := mapVal.(traits.Mapper)
+	if !ok {
+		return types.NewErr("pick requires a map argument")
+	}
+
+	result := make(map[string]interface{})
+
+	for _, keyVal := range keys {
+		keyStr := string(keyVal.(types.String))
+		val := mapper.Get(keyVal)
+		if val != nil && val.Type() != types.ErrType {
+			result[keyStr] = val.Value()
+		}
+	}
+
+	return types.DefaultTypeAdapter.NativeToValue(result)
 }
 
 // compare compares two ref.Val values and returns -1, 0, or 1.

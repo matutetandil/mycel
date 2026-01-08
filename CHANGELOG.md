@@ -37,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `sum(list)`, `avg(list)`: Aggregate numeric values
   - `min_val(list)`, `max_val(list)`: Find min/max values
   - `sort_by(list, key)`: Sort list of maps by a key
+- **Map helper functions** for response composition
+  - `merge(map1, map2, ...)`: Combine multiple maps (later values override earlier)
+  - `omit(map, key1, ...)`: Remove specified keys from a map
+  - `pick(map, key1, ...)`: Select only specified keys from a map
+  - Supports 2-4 maps for merge, 1-4 keys for omit/pick
+  - Ideal for API Gateway aggregation and data sanitization
 - **Flow-level error handling** with `error_handling` block
   - `retry`: Automatic retries with configurable backoff (constant, linear, exponential)
   - `fallback`: Send failed messages to DLQ (Dead Letter Queue)
@@ -50,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Request filtering examples
   - Array transforms with aggregation functions
   - Retry with exponential backoff and DLQ fallback
+  - Response composition with merge/omit/pick functions
+  - API Gateway aggregation pattern
 
 ### Added - Event-Driven Integration Examples
 - **RabbitMQ → REST** (`examples/integration/rabbit-to-rest/`)

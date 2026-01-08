@@ -1072,3 +1072,161 @@ func TestCELTransformer_ArrayHelperFunctions(t *testing.T) {
 		}
 	})
 }
+
+func TestCELTransformer_MapHelperFunctions(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"user": map[string]interface{}{
+			"id":    "123",
+			"name":  "John",
+			"email": "john@example.com",
+		},
+		"prices": map[string]interface{}{
+			"base":     100.0,
+			"discount": 10.0,
+		},
+		"metadata": map[string]interface{}{
+			"source":    "api",
+			"timestamp": "2024-01-01T00:00:00Z",
+		},
+	}
+
+	t.Run("merge two maps", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `merge(input.user, input.prices)`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		resultMap, ok := result.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected map, got %T", result)
+		}
+		// Should have keys from both maps
+		if resultMap["id"] != "123" {
+			t.Errorf("expected id '123', got %v", resultMap["id"])
+		}
+		if resultMap["base"] != 100.0 {
+			t.Errorf("expected base 100.0, got %v", resultMap["base"])
+		}
+	})
+
+	t.Run("merge three maps", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `merge(input.user, input.prices, input.metadata)`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		resultMap, ok := result.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected map, got %T", result)
+		}
+		// Should have keys from all three maps
+		if resultMap["id"] != "123" {
+			t.Errorf("expected id '123', got %v", resultMap["id"])
+		}
+		if resultMap["base"] != 100.0 {
+			t.Errorf("expected base 100.0, got %v", resultMap["base"])
+		}
+		if resultMap["source"] != "api" {
+			t.Errorf("expected source 'api', got %v", resultMap["source"])
+		}
+	})
+
+	t.Run("merge with override", func(t *testing.T) {
+		// When same key exists, later map wins
+		input2 := map[string]interface{}{
+			"a": map[string]interface{}{"key": "value1"},
+			"b": map[string]interface{}{"key": "value2"},
+		}
+		result, err := transformer.Evaluate(context.Background(), `merge(input.a, input.b)`, input2)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		resultMap, ok := result.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected map, got %T", result)
+		}
+		if resultMap["key"] != "value2" {
+			t.Errorf("expected key 'value2' (from second map), got %v", resultMap["key"])
+		}
+	})
+
+	t.Run("omit single key", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `omit(input.user, "email")`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		resultMap, ok := result.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected map, got %T", result)
+		}
+		if resultMap["id"] != "123" {
+			t.Errorf("expected id '123', got %v", resultMap["id"])
+		}
+		if resultMap["name"] != "John" {
+			t.Errorf("expected name 'John', got %v", resultMap["name"])
+		}
+		if _, exists := resultMap["email"]; exists {
+			t.Error("expected email to be omitted")
+		}
+	})
+
+	t.Run("omit multiple keys", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `omit(input.user, "email", "name")`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		resultMap, ok := result.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected map, got %T", result)
+		}
+		if resultMap["id"] != "123" {
+			t.Errorf("expected id '123', got %v", resultMap["id"])
+		}
+		if _, exists := resultMap["email"]; exists {
+			t.Error("expected email to be omitted")
+		}
+		if _, exists := resultMap["name"]; exists {
+			t.Error("expected name to be omitted")
+		}
+	})
+
+	t.Run("pick single key", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `pick(input.user, "id")`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		resultMap, ok := result.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected map, got %T", result)
+		}
+		if resultMap["id"] != "123" {
+			t.Errorf("expected id '123', got %v", resultMap["id"])
+		}
+		if len(resultMap) != 1 {
+			t.Errorf("expected 1 key, got %d", len(resultMap))
+		}
+	})
+
+	t.Run("pick multiple keys", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `pick(input.user, "id", "name")`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		resultMap, ok := result.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected map, got %T", result)
+		}
+		if resultMap["id"] != "123" {
+			t.Errorf("expected id '123', got %v", resultMap["id"])
+		}
+		if resultMap["name"] != "John" {
+			t.Errorf("expected name 'John', got %v", resultMap["name"])
+		}
+		if len(resultMap) != 2 {
+			t.Errorf("expected 2 keys, got %d", len(resultMap))
+		}
+	})
+}

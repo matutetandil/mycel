@@ -148,6 +148,58 @@ transform {
 }
 ```
 
+## Map Helper Functions
+
+Mycel provides functions for composing and manipulating maps (objects):
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `merge(map1, map2, ...)` | Combine maps (later values override) | `merge(step.user, step.prefs)` |
+| `omit(map, key1, ...)` | Remove specified keys | `omit(step.user, 'password')` |
+| `pick(map, key1, ...)` | Select only specified keys | `pick(step.user, 'id', 'name')` |
+
+### Response Composition with Merge
+
+Use `merge` to combine data from multiple sources without listing every field:
+
+```hcl
+step "user" {
+  connector = "db"
+  query     = "SELECT * FROM users WHERE id = :id"
+  params    = { id = "input.id" }
+}
+
+step "preferences" {
+  connector = "db"
+  query     = "SELECT * FROM preferences WHERE user_id = :id"
+  params    = { id = "input.id" }
+}
+
+step "subscription" {
+  connector = "billing_db"
+  query     = "SELECT plan, status FROM subscriptions WHERE user_id = :id"
+  params    = { id = "input.id" }
+}
+
+transform {
+  # Merge all data (later maps override earlier for duplicate keys)
+  profile = "merge(step.user, step.preferences, step.subscription)"
+
+  # Remove sensitive fields before merging
+  safe_profile = "merge(omit(step.user, 'password', 'ssn'), step.preferences)"
+
+  # Pick only specific fields from each source
+  summary = "merge(pick(step.user, 'id', 'name'), pick(step.subscription, 'plan'))"
+}
+```
+
+### Use Cases
+
+- **API Gateway Aggregation**: Merge responses from multiple microservices
+- **Data Sanitization**: Remove sensitive fields with `omit` before returning
+- **Selective Responses**: Use `pick` to create different views (admin vs public)
+- **Default Values**: Merge user data with defaults `merge(defaults, step.user)`
+
 ## Error Handling with Retry and Fallback
 
 Use `error_handling` block to define retry policies and DLQ (Dead Letter Queue) fallback:
@@ -207,6 +259,8 @@ flow "process_order" {
 6. **process_high_value_orders**: Request filtering - only process high-value orders
 7. **get_order_summary**: Array transforms - aggregate data using array helper functions
 8. **process_order_with_retry**: Error handling - retry with exponential backoff and DLQ fallback
+9. **get_customer_profile**: Response composition - merge, omit, and pick functions
+10. **get_product_full**: API Gateway aggregation - merge multiple microservice responses
 
 ## Running the Example
 

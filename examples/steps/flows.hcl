@@ -432,3 +432,137 @@ flow "process_order_with_retry" {
     target    = "orders"
   }
 }
+
+# =============================================================================
+# Example 8: Response Composition with Merge
+# =============================================================================
+# Demonstrate merge, omit, and pick functions for composing responses
+# from multiple data sources without explicitly listing every field.
+#
+# Available functions:
+# - merge(map1, map2, ...) - Combine maps (later values override earlier)
+# - omit(map, key1, ...) - Remove specified keys from map
+# - pick(map, key1, ...) - Select only specified keys from map
+
+flow "get_customer_profile" {
+  from {
+    connector = "api"
+    operation = "GET /customers/:id/profile"
+  }
+
+  # Step 1: Get customer base data
+  step "customer" {
+    connector = "db"
+    query     = "SELECT * FROM customers WHERE id = :id"
+    params = {
+      id = "input.id"
+    }
+  }
+
+  # Step 2: Get customer preferences
+  step "preferences" {
+    connector = "db"
+    query     = "SELECT * FROM customer_preferences WHERE customer_id = :id"
+    params = {
+      id = "input.id"
+    }
+    on_error = "default"
+    default = {
+      theme    = "light"
+      language = "en"
+      timezone = "UTC"
+    }
+  }
+
+  # Step 3: Get subscription info
+  step "subscription" {
+    connector = "billing_db"
+    query     = "SELECT plan, status, expires_at FROM subscriptions WHERE customer_id = :id"
+    params = {
+      id = "input.id"
+    }
+    on_error = "default"
+    default = {
+      plan   = "free"
+      status = "active"
+    }
+  }
+
+  # Use merge to combine all data sources
+  # omit removes sensitive fields, pick selects specific fields
+  transform {
+    # Merge customer data (without password) with preferences and subscription
+    profile = "merge(omit(step.customer, 'password', 'password_hash'), step.preferences, step.subscription)"
+
+    # Or build a custom response selecting specific fields:
+    id       = "step.customer.id"
+    name     = "step.customer.name"
+    email    = "step.customer.email"
+
+    # Pick only public preferences
+    settings = "pick(step.preferences, 'theme', 'language', 'timezone')"
+
+    # Pick subscription summary
+    plan     = "step.subscription.plan"
+    status   = "step.subscription.status"
+  }
+
+  to {
+    connector = "db"
+    target    = "customer_profiles"
+  }
+}
+
+# Another merge example: API Gateway aggregation
+flow "get_product_full" {
+  from {
+    connector = "api"
+    operation = "GET /products/:id/full"
+  }
+
+  # Fetch from multiple microservices
+  step "product" {
+    connector = "product_db"
+    query     = "SELECT * FROM products WHERE id = :id"
+    params = { id = "input.id" }
+  }
+
+  step "inventory" {
+    connector = "inventory_db"
+    query     = "SELECT available, reserved, warehouse FROM inventory WHERE product_id = :id"
+    params = { id = "input.id" }
+    on_error = "default"
+    default = { available = 0, reserved = 0 }
+  }
+
+  step "pricing" {
+    connector = "pricing_db"
+    query     = "SELECT price, currency, discount FROM prices WHERE product_id = :id"
+    params = { id = "input.id" }
+    on_error = "default"
+    default = { price = 0, currency = "USD" }
+  }
+
+  step "reviews" {
+    connector = "reviews_db"
+    query     = "SELECT AVG(rating) as avg_rating, COUNT(*) as review_count FROM reviews WHERE product_id = :id"
+    params = { id = "input.id" }
+    on_error = "default"
+    default = { avg_rating = 0, review_count = 0 }
+  }
+
+  # Merge everything into a single response
+  # This avoids having to list 20+ fields manually
+  transform {
+    # Full merged response
+    data = "merge(step.product, step.inventory, step.pricing, step.reviews)"
+
+    # Or with selective omission of internal fields
+    public_data = "omit(merge(step.product, step.pricing), 'cost', 'supplier_id', 'internal_sku')"
+  }
+
+  to {
+    connector = "db"
+    target    = "product_cache"
+  }
+}
