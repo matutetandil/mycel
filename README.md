@@ -180,6 +180,56 @@ Flags take precedence over environment variables.
 | Health Checks | ✅ | `/health`, `/health/live`, `/health/ready` |
 | Prometheus Metrics | ✅ | `/metrics` |
 
+## What Mycel Can (and Cannot) Do
+
+Mycel is designed to replace the **"plumbing" code** that makes up 70-80% of typical microservices. It excels at data transformation, protocol bridging, and integration patterns—but it's not a silver bullet.
+
+### ✅ Perfect Fit (Use Mycel)
+
+| Use Case | Examples |
+|----------|----------|
+| **Data APIs** | CRUD REST/GraphQL, API gateways, BFF (Backend for Frontend) |
+| **Event Processing** | Queue consumers, webhook handlers, event routing |
+| **Data Integration** | DB ↔ API sync, ETL pipelines, data enrichment |
+| **Protocol Bridging** | REST → gRPC, GraphQL → REST, TCP → Queue |
+| **Scheduled Tasks** | Cron jobs, cleanup tasks, report generation |
+| **Notifications** | Email, Slack, SMS, Push notifications |
+| **Auth & Security** | JWT auth, rate limiting, circuit breaker |
+
+### ⚠️ Partial Fit (Mycel + External Services)
+
+| Use Case | Mycel Handles | External Service Handles |
+|----------|---------------|--------------------------|
+| **Search APIs** | REST/GraphQL API, caching, auth | Elasticsearch queries |
+| **Recommendations** | API layer, caching, response formatting | ML model inference |
+| **Image Processing** | Upload/download, S3 storage | ImageMagick, Cloudinary |
+| **Complex Workflows** | Multi-step orchestration | Stateful saga coordination |
+
+### ❌ Not a Fit (Use Custom Code)
+
+| Use Case | Why Not Mycel | Better Alternative |
+|----------|---------------|-------------------|
+| **ML/AI Inference** | Requires GPU, complex models | Python + TensorFlow/PyTorch |
+| **Video/Audio Processing** | Heavy computation | FFmpeg, AWS MediaConvert |
+| **Custom Protocols** | Proprietary binary formats | Go/Rust custom service |
+| **Real-time Gaming** | Sub-millisecond latency, UDP | Custom game server |
+| **Blockchain/DeFi** | Specialized cryptographic ops | Dedicated blockchain node |
+
+### The Right Mental Model
+
+Think of Mycel like **nginx for microservices**:
+- nginx handles HTTP routing, SSL, rate limiting—you don't write that code
+- Mycel handles data flows, transformations, integrations—you don't write that code
+- Both let you focus on what makes your application unique
+
+**Philosophy:**
+> Use Mycel for everything you can. Write custom code only for what truly requires it.
+
+In a typical enterprise, this means:
+- **70% of microservices** → Mycel (CRUD APIs, integrations, event handlers)
+- **20% of microservices** → Mycel + external services (ML, search, complex processing)
+- **10% of microservices** → Custom code (proprietary algorithms, heavy computation)
+
 ## Service Configuration
 
 ```hcl
