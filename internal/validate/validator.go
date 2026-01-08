@@ -20,6 +20,26 @@ type TypeSchema struct {
 
 	// Fields are the schema fields.
 	Fields []FieldSchema
+
+	// Federation directives (GraphQL Federation v2 support)
+
+	// Keys defines the @key directive fields for federated entities.
+	// Each key string represents fields for entity resolution (e.g., "id", "id name").
+	Keys []string
+
+	// Shareable marks the type with @shareable directive (Federation v2).
+	// Allows multiple subgraphs to resolve this type.
+	Shareable bool
+
+	// Inaccessible marks the type with @inaccessible directive (Federation v2).
+	// Hides the type from the composed supergraph schema.
+	Inaccessible bool
+
+	// InterfaceNames lists the interfaces this type implements.
+	InterfaceNames []string
+
+	// Description provides documentation for the type.
+	Description string
 }
 
 // FieldSchema represents a field in a type schema.
@@ -38,6 +58,33 @@ type FieldSchema struct {
 
 	// ValidatorRef is a reference to a custom validator (e.g., "validator.phone_ar").
 	ValidatorRef string
+
+	// Federation field-level directives (GraphQL Federation v2 support)
+
+	// External marks the field with @external directive.
+	// Indicates this field is defined in another subgraph.
+	External bool
+
+	// Provides is the @provides directive value.
+	// Lists fields from the return type that this resolver provides.
+	Provides string
+
+	// Requires is the @requires directive value.
+	// Lists fields that must be fetched from other subgraphs before resolving this field.
+	Requires string
+
+	// Shareable marks the field with @shareable directive.
+	Shareable bool
+
+	// Inaccessible marks the field with @inaccessible directive.
+	Inaccessible bool
+
+	// Override is the @override directive value (subgraph name).
+	// Indicates this subgraph is taking ownership of this field.
+	Override string
+
+	// Description provides documentation for the field.
+	Description string
 }
 
 // Constraint represents a validation constraint.

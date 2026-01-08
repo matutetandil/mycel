@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Phase 8: GraphQL Federation Complete
+- **GraphQL Subscriptions with WebSocket transport**
+  - Full `graphql-transport-ws` protocol support
+  - WebSocket handler with connection management
+  - PubSub mechanism for subscription events
+  - Keep-alive ping/pong handling
+  - Configurable via HCL `subscriptions` block
+  - Path customization (default: `/subscriptions`)
+  - Integration with GraphQL server connector
+- **Federation directives support in HCL types**
+  - Type-level federation directives:
+    - `_key = "id"` or `_key = ["id", "email name"]` for @key directive
+    - `_shareable = true` for @shareable directive
+    - `_inaccessible = true` for @inaccessible directive
+    - `_implements = ["Node", "Entity"]` for interface implementations
+    - `_description = "..."` for type documentation
+  - Field-level federation directives:
+    - `external = true` for @external directive
+    - `provides = "field1 field2"` for @provides directive
+    - `requires = "otherField"` for @requires directive
+    - `shareable = true` for @shareable directive
+    - `inaccessible = true` for @inaccessible directive
+    - `override = "subgraph-name"` for @override directive
+    - `description = "..."` for field documentation
+  - SDL generation with federation directives
+  - Parser support for underscore-prefixed type directives
+- **New HCL syntax for federated types**
+  ```hcl
+  type "User" {
+    _key         = "id"
+    _shareable   = true
+    _description = "A user entity"
+
+    id    = string
+    email = string { external = true }
+    name  = string { requires = "email" }
+  }
+  ```
+
 ### Added - Phase 5 Complete: Aspects Runtime (AOP)
 - **Aspect-Oriented Programming (AOP)** for cross-cutting concerns
   - Pattern-based matching with glob patterns (`**/create_*.hcl`, `flows/**/*.hcl`)

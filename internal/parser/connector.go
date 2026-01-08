@@ -187,6 +187,7 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Type: "consumer"},
 			{Type: "producer"},
 			{Type: "federation"},
+			{Type: "subscriptions"}, // GraphQL subscriptions configuration
 			{Type: "profile", LabelNames: []string{"name"}}, // Profile blocks
 			// Redis Cluster/Sentinel blocks
 			{Type: "cluster"},  // Redis Cluster configuration
@@ -340,6 +341,13 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 				return nil, fmt.Errorf("federation block error: %w", err)
 			}
 			config.Properties["federation"] = federation
+
+		case "subscriptions":
+			subscriptions, err := parseSubscriptionsBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("subscriptions block error: %w", err)
+			}
+			config.Properties["subscriptions"] = subscriptions
 
 		case "profile":
 			if len(nestedBlock.Labels) < 1 {
@@ -642,6 +650,38 @@ func parseFederationBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]in
 	}
 
 	return federation, nil
+}
+
+// parseSubscriptionsBlock parses a GraphQL subscriptions configuration block.
+func parseSubscriptionsBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interface{}, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "enabled"},
+			{Name: "path"},
+			{Name: "keep_alive_interval"},
+			{Name: "connection_timeout"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("subscriptions block content error: %s", diags.Error())
+	}
+
+	subscriptions := make(map[string]interface{})
+
+	// Default enabled to true if block exists
+	subscriptions["enabled"] = true
+
+	for name, attr := range content.Attributes {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("subscriptions %s error: %s", name, diags.Error())
+		}
+		subscriptions[name] = ctyValueToGo(val)
+	}
+
+	return subscriptions, nil
 }
 
 // parseGenericBlock parses a block with arbitrary attributes.

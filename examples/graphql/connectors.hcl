@@ -14,6 +14,12 @@ connector "graphql_api" {
     methods = ["GET", "POST", "OPTIONS"]
     headers = ["Content-Type", "Authorization"]
   }
+
+  # Enable GraphQL subscriptions over WebSocket
+  subscriptions {
+    enabled = true
+    path    = "/subscriptions"
+  }
 }
 
 # SQLite Database Connector

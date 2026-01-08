@@ -102,10 +102,16 @@ func (c *HCLConverter) convertTypeSchema(name string, schema *validate.TypeSchem
 		fields[field.Name] = gqlField
 	}
 
+	// Use schema description if provided, otherwise generate one
+	description := schema.Description
+	if description == "" {
+		description = fmt.Sprintf("Type %s generated from HCL", name)
+	}
+
 	// Create the object type with fields
 	c.types[name] = graphql.NewObject(graphql.ObjectConfig{
 		Name:        name,
-		Description: fmt.Sprintf("Type %s generated from HCL", name),
+		Description: description,
 		Fields:      fields,
 	})
 
@@ -122,14 +128,20 @@ func (c *HCLConverter) convertField(field *validate.FieldSchema) (*graphql.Field
 		return nil, err
 	}
 
-	// Apply non-null if required
-	if field.Required {
+	// Apply non-null if required (but not for external fields)
+	if field.Required && !field.External {
 		gqlType = graphql.NewNonNull(gqlType)
+	}
+
+	// Use field description if provided
+	description := field.Description
+	if description == "" {
+		description = fmt.Sprintf("Field %s", field.Name)
 	}
 
 	return &graphql.Field{
 		Type:        gqlType,
-		Description: fmt.Sprintf("Field %s", field.Name),
+		Description: description,
 	}, nil
 }
 
@@ -385,23 +397,36 @@ func (c *HCLConverter) GenerateSDL() string {
 		sb.WriteString("}\n\n")
 	}
 
-	// Generate type definitions
+	// Generate type definitions with federation directives
 	for name, schema := range c.typeSchemas {
-		sb.WriteString(fmt.Sprintf("type %s {\n", name))
+		sb.WriteString(fmt.Sprintf("type %s", name))
+
+		// Add type-level federation directives
+		directives := c.typeDirectivesToSDL(schema)
+		if directives != "" {
+			sb.WriteString(" " + directives)
+		}
+
+		sb.WriteString(" {\n")
 		for _, field := range schema.Fields {
 			gqlType := c.fieldTypeToSDL(&field)
-			if field.Required {
+			if field.Required && !field.External {
 				gqlType += "!"
 			}
-			sb.WriteString(fmt.Sprintf("  %s: %s\n", field.Name, gqlType))
+			fieldDirectives := c.fieldDirectivesToSDL(&field)
+			sb.WriteString(fmt.Sprintf("  %s: %s%s\n", field.Name, gqlType, fieldDirectives))
 		}
 		sb.WriteString("}\n\n")
 	}
 
-	// Generate input type definitions
+	// Generate input type definitions (no federation directives on inputs)
 	for name, schema := range c.typeSchemas {
 		sb.WriteString(fmt.Sprintf("input %sInput {\n", name))
 		for _, field := range schema.Fields {
+			// Skip external fields in input types
+			if field.External {
+				continue
+			}
 			gqlType := c.fieldTypeToSDL(&field)
 			if field.Required {
 				gqlType += "!"
@@ -412,6 +437,73 @@ func (c *HCLConverter) GenerateSDL() string {
 	}
 
 	return sb.String()
+}
+
+// typeDirectivesToSDL generates federation directives for a type.
+func (c *HCLConverter) typeDirectivesToSDL(schema *validate.TypeSchema) string {
+	var directives []string
+
+	// @key directive(s)
+	for _, key := range schema.Keys {
+		directives = append(directives, fmt.Sprintf("@key(fields: \"%s\")", key))
+	}
+
+	// @shareable directive
+	if schema.Shareable {
+		directives = append(directives, "@shareable")
+	}
+
+	// @inaccessible directive
+	if schema.Inaccessible {
+		directives = append(directives, "@inaccessible")
+	}
+
+	// implements interfaces
+	if len(schema.InterfaceNames) > 0 {
+		directives = append(directives, fmt.Sprintf("implements %s", strings.Join(schema.InterfaceNames, " & ")))
+	}
+
+	return strings.Join(directives, " ")
+}
+
+// fieldDirectivesToSDL generates federation directives for a field.
+func (c *HCLConverter) fieldDirectivesToSDL(field *validate.FieldSchema) string {
+	var directives []string
+
+	// @external directive
+	if field.External {
+		directives = append(directives, "@external")
+	}
+
+	// @provides directive
+	if field.Provides != "" {
+		directives = append(directives, fmt.Sprintf("@provides(fields: \"%s\")", field.Provides))
+	}
+
+	// @requires directive
+	if field.Requires != "" {
+		directives = append(directives, fmt.Sprintf("@requires(fields: \"%s\")", field.Requires))
+	}
+
+	// @shareable directive
+	if field.Shareable {
+		directives = append(directives, "@shareable")
+	}
+
+	// @inaccessible directive
+	if field.Inaccessible {
+		directives = append(directives, "@inaccessible")
+	}
+
+	// @override directive
+	if field.Override != "" {
+		directives = append(directives, fmt.Sprintf("@override(from: \"%s\")", field.Override))
+	}
+
+	if len(directives) == 0 {
+		return ""
+	}
+	return " " + strings.Join(directives, " ")
 }
 
 // fieldTypeToSDL converts a field type to SDL string representation.

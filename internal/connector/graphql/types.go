@@ -34,6 +34,9 @@ type ServerConfig struct {
 
 	// Federation enables Apollo Federation v2 support.
 	Federation *FederationServerConfig
+
+	// Subscriptions enables GraphQL subscriptions over WebSocket.
+	Subscriptions *SubscriptionsConfig
 }
 
 // SchemaConfig holds schema loading configuration.
@@ -166,6 +169,21 @@ type FederationServerConfig struct {
 
 	// Version is the Federation version (1 or 2). Defaults to 2.
 	Version int
+}
+
+// SubscriptionsConfig holds configuration for GraphQL subscriptions.
+type SubscriptionsConfig struct {
+	// Enabled enables subscription support (default: true if this block exists).
+	Enabled bool
+
+	// Path is the WebSocket endpoint path (default: /subscriptions).
+	Path string
+
+	// KeepAliveInterval is the interval for sending keep-alive pings.
+	KeepAliveInterval time.Duration
+
+	// ConnectionTimeout is the timeout for establishing a connection.
+	ConnectionTimeout time.Duration
 }
 
 // EntityConfig represents a federated entity configuration in HCL.

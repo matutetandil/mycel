@@ -20,16 +20,17 @@ type TypeSchema = validate.TypeSchema
 
 // ServerConnector exposes a GraphQL API endpoint.
 type ServerConnector struct {
-	name           string
-	config         *ServerConfig
-	schemaBuilder  *SchemaBuilder
-	schema         *graphql.Schema
-	server         *http.Server
-	mux            *http.ServeMux
-	logger         *slog.Logger
-	mu             sync.RWMutex
-	started        bool
-	schemaBuilt    bool
+	name                string
+	config              *ServerConfig
+	schemaBuilder       *SchemaBuilder
+	schema              *graphql.Schema
+	server              *http.Server
+	mux                 *http.ServeMux
+	logger              *slog.Logger
+	mu                  sync.RWMutex
+	started             bool
+	schemaBuilt         bool
+	subscriptionManager *SubscriptionManager
 }
 
 // NewServer creates a new GraphQL server connector.
@@ -166,6 +167,11 @@ func (c *ServerConnector) Close(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Close subscription manager first
+	if c.subscriptionManager != nil {
+		c.subscriptionManager.Close()
+	}
+
 	if c.server != nil && c.started {
 		c.logger.Info("shutting down GraphQL server", "connector", c.name)
 		return c.server.Shutdown(ctx)
@@ -224,6 +230,14 @@ func (c *ServerConnector) Start(ctx context.Context) error {
 	c.schema = schema
 	c.schemaBuilt = true
 
+	// Initialize subscription manager if subscriptions are configured
+	if c.config.Subscriptions != nil && c.config.Subscriptions.Enabled {
+		c.subscriptionManager = NewSubscriptionManager(c.schema, c.logger)
+		c.logger.Info("initialized GraphQL subscription manager",
+			"connector", c.name,
+		)
+	}
+
 	// Set up HTTP handlers
 	c.setupHandlers()
 
@@ -266,6 +280,19 @@ func (c *ServerConnector) setupHandlers() {
 	// Playground endpoint
 	if c.config.Playground {
 		c.mux.HandleFunc(c.config.PlaygroundPath, c.handlePlayground)
+	}
+
+	// Subscriptions WebSocket endpoint
+	if c.subscriptionManager != nil {
+		subscriptionPath := "/subscriptions"
+		if c.config.Subscriptions != nil && c.config.Subscriptions.Path != "" {
+			subscriptionPath = c.config.Subscriptions.Path
+		}
+		c.mux.HandleFunc(subscriptionPath, c.subscriptionManager.Handler())
+		c.logger.Info("registered GraphQL subscription endpoint",
+			"path", subscriptionPath,
+			"connector", c.name,
+		)
 	}
 
 	// Health check
@@ -376,6 +403,19 @@ func (c *ServerConnector) corsMiddleware(next http.Handler) http.Handler {
 // Port returns the configured port.
 func (c *ServerConnector) Port() int {
 	return c.config.Port
+}
+
+// Publish sends data to all subscribers of a topic.
+// Use this from flows to trigger subscription updates.
+func (c *ServerConnector) Publish(topic string, data interface{}) {
+	if c.subscriptionManager != nil {
+		c.subscriptionManager.Broadcast(topic, data)
+	}
+}
+
+// GetSubscriptionManager returns the subscription manager for advanced usage.
+func (c *ServerConnector) GetSubscriptionManager() *SubscriptionManager {
+	return c.subscriptionManager
 }
 
 // writeGraphQLError writes a GraphQL error response.

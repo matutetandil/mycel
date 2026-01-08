@@ -84,6 +84,16 @@ func (f *Factory) createServer(cfg *connector.Config) (*ServerConnector, error) 
 		}
 	}
 
+	// Parse Subscriptions configuration
+	if subsCfg := getMap(cfg.Properties, "subscriptions"); subsCfg != nil {
+		config.Subscriptions = &SubscriptionsConfig{
+			Enabled:           getBool(subsCfg, "enabled", true),
+			Path:              getString(subsCfg, "path", "/subscriptions"),
+			KeepAliveInterval: getDuration(subsCfg, "keep_alive_interval", 30*time.Second),
+			ConnectionTimeout: getDuration(subsCfg, "connection_timeout", 60*time.Second),
+		}
+	}
+
 	return NewServer(cfg.Name, config, f.logger), nil
 }
 

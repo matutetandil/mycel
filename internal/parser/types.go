@@ -18,6 +18,19 @@ import (
 //	  email = string { format = "email" }
 //	  age   = number { min = 0, max = 150 }
 //	}
+//
+// Federation directives can be added with underscore-prefixed attributes:
+//
+//	type "User" {
+//	  _key         = "id"              # @key directive
+//	  _shareable   = true              # @shareable directive
+//	  _inaccessible = false            # @inaccessible directive
+//	  _description = "A user entity"  # Type description
+//	  _implements  = ["Node", "Entity"] # Interface implementations
+//
+//	  id    = string
+//	  email = string { external = true }  # Field-level federation
+//	}
 func parseTypeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*validate.TypeSchema, error) {
 	if len(block.Labels) < 1 {
 		return nil, fmt.Errorf("type block requires a name label")
@@ -26,6 +39,7 @@ func parseTypeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*validate.TypeSchem
 	schema := &validate.TypeSchema{
 		Name:   block.Labels[0],
 		Fields: make([]validate.FieldSchema, 0),
+		Keys:   make([]string, 0),
 	}
 
 	// Get the raw attributes - type definitions are special
@@ -36,6 +50,14 @@ func parseTypeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*validate.TypeSchem
 	}
 
 	for name, attr := range attrs {
+		// Handle federation directive attributes (underscore-prefixed)
+		if strings.HasPrefix(name, "_") {
+			if err := parseTypeDirective(schema, name, attr, ctx); err != nil {
+				return nil, fmt.Errorf("directive %s error: %w", name, err)
+			}
+			continue
+		}
+
 		field, err := parseFieldDefinition(name, attr, ctx)
 		if err != nil {
 			return nil, fmt.Errorf("field %s error: %w", name, err)
@@ -46,11 +68,55 @@ func parseTypeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*validate.TypeSchem
 	return schema, nil
 }
 
+// parseTypeDirective parses a federation directive attribute on a type.
+func parseTypeDirective(schema *validate.TypeSchema, name string, attr *hcl.Attribute, ctx *hcl.EvalContext) error {
+	val, diags := attr.Expr.Value(ctx)
+	if diags.HasErrors() {
+		return fmt.Errorf("directive value error: %s", diags.Error())
+	}
+
+	switch name {
+	case "_key":
+		// Can be a single string or list of strings
+		if val.Type().IsTupleType() || val.Type().IsListType() {
+			for it := val.ElementIterator(); it.Next(); {
+				_, v := it.Element()
+				schema.Keys = append(schema.Keys, v.AsString())
+			}
+		} else {
+			schema.Keys = append(schema.Keys, val.AsString())
+		}
+
+	case "_shareable":
+		schema.Shareable = val.True()
+
+	case "_inaccessible":
+		schema.Inaccessible = val.True()
+
+	case "_description":
+		schema.Description = val.AsString()
+
+	case "_implements":
+		// List of interface names
+		if val.Type().IsTupleType() || val.Type().IsListType() {
+			for it := val.ElementIterator(); it.Next(); {
+				_, v := it.Element()
+				schema.InterfaceNames = append(schema.InterfaceNames, v.AsString())
+			}
+		} else {
+			schema.InterfaceNames = append(schema.InterfaceNames, val.AsString())
+		}
+	}
+
+	return nil
+}
+
 // parseFieldDefinition parses a field definition.
 // Formats:
 // - fieldName = string
 // - fieldName = number { min = 0, max = 150 }
 // - fieldName = string { format = "email" }
+// - fieldName = string { external = true, requires = "otherField" }  # Federation
 func parseFieldDefinition(name string, attr *hcl.Attribute, ctx *hcl.EvalContext) (*validate.FieldSchema, error) {
 	field := &validate.FieldSchema{
 		Name:        name,
@@ -68,12 +134,10 @@ func parseFieldDefinition(name string, attr *hcl.Attribute, ctx *hcl.EvalContext
 		// Function call with constraints: email = string { format = "email" }
 		// This is actually parsed as a function call in HCL
 		field.Type = expr.Name
-		// Parse arguments as constraints
-		constraints, err := parseConstraintsFromArgs(expr.Args, ctx)
-		if err != nil {
+		// Parse arguments as constraints and federation directives
+		if err := parseConstraintsAndDirectives(field, expr.Args, ctx); err != nil {
 			return nil, fmt.Errorf("constraint parse error: %w", err)
 		}
-		field.Constraints = constraints
 
 	case *hclsyntax.ObjectConsExpr:
 		// Object type with nested fields
@@ -108,7 +172,93 @@ func traversalToString(traversal hcl.Traversal) string {
 	return strings.Join(parts, ".")
 }
 
-// parseConstraintsFromArgs parses constraints from function arguments.
+// parseConstraintsAndDirectives parses constraints and federation directives from function arguments.
+func parseConstraintsAndDirectives(field *validate.FieldSchema, args []hclsyntax.Expression, ctx *hcl.EvalContext) error {
+	for _, arg := range args {
+		// Each argument should be an object with constraint/directive definitions
+		if objExpr, ok := arg.(*hclsyntax.ObjectConsExpr); ok {
+			for _, item := range objExpr.Items {
+				keyVal, diags := item.KeyExpr.Value(ctx)
+				if diags.HasErrors() {
+					continue
+				}
+				key := keyVal.AsString()
+
+				val, diags := item.ValueExpr.Value(ctx)
+				if diags.HasErrors() {
+					continue
+				}
+
+				value := ctyValueToGo(val)
+
+				// Check for federation directives first
+				if handled := parseFieldDirective(field, key, value); handled {
+					continue
+				}
+
+				// Otherwise treat as validation constraint
+				constraint := createConstraint(key, value)
+				if constraint != nil {
+					field.Constraints = append(field.Constraints, constraint)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// parseFieldDirective parses a federation directive for a field.
+// Returns true if the key was a directive (handled), false otherwise.
+func parseFieldDirective(field *validate.FieldSchema, key string, value interface{}) bool {
+	switch key {
+	case "external":
+		if b, ok := value.(bool); ok {
+			field.External = b
+		}
+		return true
+
+	case "provides":
+		if s, ok := value.(string); ok {
+			field.Provides = s
+		}
+		return true
+
+	case "requires":
+		if s, ok := value.(string); ok {
+			field.Requires = s
+		}
+		return true
+
+	case "shareable":
+		if b, ok := value.(bool); ok {
+			field.Shareable = b
+		}
+		return true
+
+	case "inaccessible":
+		if b, ok := value.(bool); ok {
+			field.Inaccessible = b
+		}
+		return true
+
+	case "override":
+		if s, ok := value.(string); ok {
+			field.Override = s
+		}
+		return true
+
+	case "description":
+		if s, ok := value.(string); ok {
+			field.Description = s
+		}
+		return true
+	}
+
+	return false
+}
+
+// parseConstraintsFromArgs parses constraints from function arguments (legacy).
 func parseConstraintsFromArgs(args []hclsyntax.Expression, ctx *hcl.EvalContext) ([]validate.Constraint, error) {
 	constraints := make([]validate.Constraint, 0)
 
