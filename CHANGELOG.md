@@ -28,12 +28,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `EvaluateCondition`: Evaluate boolean CEL expressions
   - `TransformWithSteps`: Transform with step results available
   - `TransformWithContext`: Unified transform with enriched and step data
+- **Array helper functions** for data manipulation in transforms
+  - `first(list)`, `last(list)`: Get first/last element
+  - `unique(list)`: Remove duplicates
+  - `reverse(list)`: Reverse list order
+  - `flatten(list)`: Flatten nested lists
+  - `pluck(list, key)`: Extract field from list of maps
+  - `sum(list)`, `avg(list)`: Aggregate numeric values
+  - `min_val(list)`, `max_val(list)`: Find min/max values
+  - `sort_by(list, key)`: Sort list of maps by a key
 - **New example** (`examples/steps/`)
   - Basic multi-step flow (user/product lookup → order creation)
   - Conditional steps (optional pricing/inventory)
   - Chained steps (step results used in subsequent steps)
   - Error handling strategies
   - Request filtering examples
+  - Array transforms with aggregation functions
 
 ### Added - Event-Driven Integration Examples
 - **RabbitMQ → REST** (`examples/integration/rabbit-to-rest/`)

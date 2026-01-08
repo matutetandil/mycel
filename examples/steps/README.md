@@ -119,6 +119,35 @@ flow "high_value_only" {
 
 When filter evaluates to `false`, the request is skipped (returns `FilteredResult`).
 
+## Array Helper Functions
+
+Mycel provides powerful array manipulation functions for use in transforms:
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `first(list)` | Get the first element | `first(step.orders)` |
+| `last(list)` | Get the last element | `last(step.orders)` |
+| `unique(list)` | Remove duplicates | `unique(step.items)` |
+| `reverse(list)` | Reverse list order | `reverse(step.orders)` |
+| `flatten(list)` | Flatten nested lists | `flatten(step.nested)` |
+| `pluck(list, key)` | Extract field from list of maps | `pluck(step.orders, 'total')` |
+| `sum(list)` | Sum numeric values | `sum(pluck(step.orders, 'total'))` |
+| `avg(list)` | Average of values | `avg(pluck(step.orders, 'total'))` |
+| `min_val(list)` | Minimum value | `min_val(pluck(step.orders, 'total'))` |
+| `max_val(list)` | Maximum value | `max_val(pluck(step.orders, 'total'))` |
+| `sort_by(list, key)` | Sort list of maps by key | `sort_by(step.orders, 'created_at')` |
+
+These can be combined for powerful data transformations:
+
+```hcl
+transform {
+  total_spent     = "sum(pluck(step.orders, 'total'))"
+  average_order   = "avg(pluck(step.orders, 'total'))"
+  first_order     = "first(sort_by(step.orders, 'created_at'))"
+  unique_products = "size(unique(pluck(step.items, 'product_id')))"
+}
+```
+
 ## Examples in This Directory
 
 1. **create_order**: Basic multi-step flow - lookup user, product, pricing, then create order
@@ -127,6 +156,7 @@ When filter evaluates to `false`, the request is skipped (returns `FilteredResul
 4. **process_payment**: Error handling - different strategies for different steps
 5. **process_external_orders**: Request filtering - skip internal requests
 6. **process_high_value_orders**: Request filtering - only process high-value orders
+7. **get_order_summary**: Array transforms - aggregate data using array helper functions
 
 ## Running the Example
 

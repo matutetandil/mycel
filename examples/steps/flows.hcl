@@ -316,3 +316,53 @@ flow "process_high_value_orders" {
     target    = "high_value_orders"
   }
 }
+
+# =============================================================================
+# Example 6: Array Transforms
+# =============================================================================
+# Demonstrate array helper functions for data manipulation.
+# Available functions: first, last, unique, reverse, flatten, pluck,
+#                      sum, avg, min_val, max_val, sort_by
+
+flow "get_order_summary" {
+  from {
+    connector = "api"
+    operation = "GET /orders/:user_id/summary"
+  }
+
+  # Step 1: Get all orders for the user
+  step "orders" {
+    connector = "db"
+    query     = "SELECT * FROM orders WHERE user_id = :user_id"
+    params = {
+      user_id = "input.user_id"
+    }
+  }
+
+  # Step 2: Get all order items
+  step "items" {
+    connector = "db"
+    query     = "SELECT * FROM order_items WHERE order_id IN (:order_ids)"
+    params = {
+      order_ids = "pluck(step.orders, 'id')"
+    }
+  }
+
+  transform {
+    user_id         = "input.user_id"
+    total_orders    = "size(step.orders)"
+    total_spent     = "sum(pluck(step.orders, 'total'))"
+    average_order   = "avg(pluck(step.orders, 'total'))"
+    min_order       = "min_val(pluck(step.orders, 'total'))"
+    max_order       = "max_val(pluck(step.orders, 'total'))"
+    first_order     = "first(sort_by(step.orders, 'created_at'))"
+    last_order      = "last(sort_by(step.orders, 'created_at'))"
+    unique_products = "unique(pluck(step.items, 'product_id'))"
+    product_count   = "size(unique(pluck(step.items, 'product_id')))"
+  }
+
+  to {
+    connector = "db"
+    target    = "order_summaries"
+  }
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
+	"github.com/google/cel-go/common/types/traits"
 	"github.com/google/cel-go/ext"
 	"github.com/google/uuid"
 )
@@ -296,7 +297,297 @@ func baseCELOptions() []cel.EnvOption {
 				}),
 			),
 		),
+
+		// Array/List helper functions
+
+		cel.Function("first",
+			cel.Overload("first_list",
+				[]*cel.Type{cel.ListType(cel.DynType)},
+				cel.DynType,
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					list := val.(traits.Lister)
+					if list.Size().(types.Int) == 0 {
+						return types.NullValue
+					}
+					return list.Get(types.Int(0))
+				}),
+			),
+		),
+
+		cel.Function("last",
+			cel.Overload("last_list",
+				[]*cel.Type{cel.ListType(cel.DynType)},
+				cel.DynType,
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					list := val.(traits.Lister)
+					size := list.Size().(types.Int)
+					if size == 0 {
+						return types.NullValue
+					}
+					return list.Get(size - 1)
+				}),
+			),
+		),
+
+		cel.Function("flatten",
+			cel.Overload("flatten_list",
+				[]*cel.Type{cel.ListType(cel.ListType(cel.DynType))},
+				cel.ListType(cel.DynType),
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					list := val.(traits.Lister)
+					var result []ref.Val
+					size := int(list.Size().(types.Int))
+					for i := 0; i < size; i++ {
+						item := list.Get(types.Int(i))
+						if innerList, ok := item.(traits.Lister); ok {
+							innerSize := int(innerList.Size().(types.Int))
+							for j := 0; j < innerSize; j++ {
+								result = append(result, innerList.Get(types.Int(j)))
+							}
+						} else {
+							result = append(result, item)
+						}
+					}
+					return types.NewDynamicList(types.DefaultTypeAdapter, result)
+				}),
+			),
+		),
+
+		cel.Function("unique",
+			cel.Overload("unique_list",
+				[]*cel.Type{cel.ListType(cel.DynType)},
+				cel.ListType(cel.DynType),
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					list := val.(traits.Lister)
+					seen := make(map[interface{}]bool)
+					var result []ref.Val
+					size := int(list.Size().(types.Int))
+					for i := 0; i < size; i++ {
+						item := list.Get(types.Int(i))
+						key := item.Value()
+						if !seen[key] {
+							seen[key] = true
+							result = append(result, item)
+						}
+					}
+					return types.NewDynamicList(types.DefaultTypeAdapter, result)
+				}),
+			),
+		),
+
+		cel.Function("reverse",
+			cel.Overload("reverse_list",
+				[]*cel.Type{cel.ListType(cel.DynType)},
+				cel.ListType(cel.DynType),
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					list := val.(traits.Lister)
+					size := int(list.Size().(types.Int))
+					result := make([]ref.Val, size)
+					for i := 0; i < size; i++ {
+						result[size-1-i] = list.Get(types.Int(i))
+					}
+					return types.NewDynamicList(types.DefaultTypeAdapter, result)
+				}),
+			),
+		),
+
+		cel.Function("pluck",
+			cel.Overload("pluck_list_string",
+				[]*cel.Type{cel.ListType(cel.MapType(cel.StringType, cel.DynType)), cel.StringType},
+				cel.ListType(cel.DynType),
+				cel.BinaryBinding(func(lhs, rhs ref.Val) ref.Val {
+					list := lhs.(traits.Lister)
+					key := string(rhs.(types.String))
+					var result []ref.Val
+					size := int(list.Size().(types.Int))
+					for i := 0; i < size; i++ {
+						item := list.Get(types.Int(i))
+						if mapper, ok := item.(traits.Mapper); ok {
+							val := mapper.Get(types.String(key))
+							result = append(result, val)
+						}
+					}
+					return types.NewDynamicList(types.DefaultTypeAdapter, result)
+				}),
+			),
+		),
+
+		cel.Function("sum",
+			cel.Overload("sum_list_int",
+				[]*cel.Type{cel.ListType(cel.IntType)},
+				cel.IntType,
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					list := val.(traits.Lister)
+					var sum int64
+					size := int(list.Size().(types.Int))
+					for i := 0; i < size; i++ {
+						item := list.Get(types.Int(i))
+						if num, ok := item.(types.Int); ok {
+							sum += int64(num)
+						}
+					}
+					return types.Int(sum)
+				}),
+			),
+			cel.Overload("sum_list_double",
+				[]*cel.Type{cel.ListType(cel.DoubleType)},
+				cel.DoubleType,
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					list := val.(traits.Lister)
+					var sum float64
+					size := int(list.Size().(types.Int))
+					for i := 0; i < size; i++ {
+						item := list.Get(types.Int(i))
+						if num, ok := item.(types.Double); ok {
+							sum += float64(num)
+						}
+					}
+					return types.Double(sum)
+				}),
+			),
+		),
+
+		cel.Function("avg",
+			cel.Overload("avg_list",
+				[]*cel.Type{cel.ListType(cel.DynType)},
+				cel.DoubleType,
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					list := val.(traits.Lister)
+					size := int(list.Size().(types.Int))
+					if size == 0 {
+						return types.Double(0)
+					}
+					var sum float64
+					for i := 0; i < size; i++ {
+						item := list.Get(types.Int(i))
+						switch v := item.(type) {
+						case types.Int:
+							sum += float64(v)
+						case types.Double:
+							sum += float64(v)
+						}
+					}
+					return types.Double(sum / float64(size))
+				}),
+			),
+		),
+
+		cel.Function("min_val",
+			cel.Overload("min_val_list",
+				[]*cel.Type{cel.ListType(cel.DynType)},
+				cel.DynType,
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					list := val.(traits.Lister)
+					size := int(list.Size().(types.Int))
+					if size == 0 {
+						return types.NullValue
+					}
+					minVal := list.Get(types.Int(0))
+					for i := 1; i < size; i++ {
+						item := list.Get(types.Int(i))
+						if compare(item, minVal) < 0 {
+							minVal = item
+						}
+					}
+					return minVal
+				}),
+			),
+		),
+
+		cel.Function("max_val",
+			cel.Overload("max_val_list",
+				[]*cel.Type{cel.ListType(cel.DynType)},
+				cel.DynType,
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					list := val.(traits.Lister)
+					size := int(list.Size().(types.Int))
+					if size == 0 {
+						return types.NullValue
+					}
+					maxVal := list.Get(types.Int(0))
+					for i := 1; i < size; i++ {
+						item := list.Get(types.Int(i))
+						if compare(item, maxVal) > 0 {
+							maxVal = item
+						}
+					}
+					return maxVal
+				}),
+			),
+		),
+
+		// sort_by(list, key) - Sort list of maps by a key (ascending)
+		cel.Function("sort_by",
+			cel.Overload("sort_by_list_string",
+				[]*cel.Type{cel.ListType(cel.DynType), cel.StringType},
+				cel.ListType(cel.DynType),
+				cel.BinaryBinding(func(listVal, keyVal ref.Val) ref.Val {
+					list := listVal.(traits.Lister)
+					key := string(keyVal.(types.String))
+					size := int(list.Size().(types.Int))
+					if size == 0 {
+						return listVal
+					}
+
+					// Copy list items to slice for sorting
+					items := make([]ref.Val, size)
+					for i := 0; i < size; i++ {
+						items[i] = list.Get(types.Int(i))
+					}
+
+					// Sort using bubble sort (simple, stable)
+					for i := 0; i < size-1; i++ {
+						for j := 0; j < size-i-1; j++ {
+							item1 := items[j].(traits.Mapper)
+							item2 := items[j+1].(traits.Mapper)
+							val1 := item1.Get(types.String(key))
+							val2 := item2.Get(types.String(key))
+							if compare(val1, val2) > 0 {
+								items[j], items[j+1] = items[j+1], items[j]
+							}
+						}
+					}
+
+					return types.DefaultTypeAdapter.NativeToValue(items)
+				}),
+			),
+		),
 	}
+}
+
+// compare compares two ref.Val values and returns -1, 0, or 1.
+func compare(a, b ref.Val) int {
+	switch av := a.(type) {
+	case types.Int:
+		if bv, ok := b.(types.Int); ok {
+			if av < bv {
+				return -1
+			} else if av > bv {
+				return 1
+			}
+			return 0
+		}
+	case types.Double:
+		if bv, ok := b.(types.Double); ok {
+			if av < bv {
+				return -1
+			} else if av > bv {
+				return 1
+			}
+			return 0
+		}
+	case types.String:
+		if bv, ok := b.(types.String); ok {
+			as, bs := string(av), string(bv)
+			if as < bs {
+				return -1
+			} else if as > bs {
+				return 1
+			}
+			return 0
+		}
+	}
+	return 0
 }
 
 // Compile compiles a CEL expression and caches the program.

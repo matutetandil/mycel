@@ -2,6 +2,7 @@ package transform
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -897,4 +898,177 @@ func TestCELTransformer_TransformWithSteps_ChainedSteps(t *testing.T) {
 	if result["name"] != "Jane Smith" {
 		t.Errorf("name: expected 'Jane Smith', got %v", result["name"])
 	}
+}
+
+func TestCELTransformer_ArrayHelperFunctions(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	input := map[string]interface{}{
+		"numbers":    []interface{}{5, 3, 8, 1, 9, 3},
+		"strings":    []interface{}{"apple", "banana", "cherry"},
+		"empty":      []interface{}{},
+		"duplicates": []interface{}{"a", "b", "a", "c", "b"},
+		"nested":     []interface{}{[]interface{}{1, 2}, []interface{}{3, 4}, []interface{}{5}},
+		"users": []interface{}{
+			map[string]interface{}{"name": "Alice", "age": 30},
+			map[string]interface{}{"name": "Bob", "age": 25},
+			map[string]interface{}{"name": "Charlie", "age": 35},
+		},
+	}
+
+	t.Run("first returns first element", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "first(input.numbers)", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != int64(5) {
+			t.Errorf("expected 5, got %v (%T)", result, result)
+		}
+	})
+
+	t.Run("first returns null for empty list", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "first(input.empty)", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// CEL null value converts to types.NullValue which prints as "NULL_VALUE"
+		str := fmt.Sprintf("%v", result)
+		if result != nil && str != "NULL_VALUE" && str != "null" {
+			t.Errorf("expected null, got %v", result)
+		}
+	})
+
+	t.Run("last returns last element", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "last(input.numbers)", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != int64(3) {
+			t.Errorf("expected 3, got %v (%T)", result, result)
+		}
+	})
+
+	t.Run("last returns null for empty list", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "last(input.empty)", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// CEL null value converts to types.NullValue which prints as "NULL_VALUE"
+		str := fmt.Sprintf("%v", result)
+		if result != nil && str != "NULL_VALUE" && str != "null" {
+			t.Errorf("expected null, got %v", result)
+		}
+	})
+
+	t.Run("unique removes duplicates", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "size(unique(input.duplicates))", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != int64(3) {
+			t.Errorf("expected 3, got %v", result)
+		}
+	})
+
+	t.Run("reverse reverses list", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "first(reverse(input.strings))", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != "cherry" {
+			t.Errorf("expected 'cherry', got %v", result)
+		}
+	})
+
+	t.Run("flatten flattens nested lists", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "size(flatten(input.nested))", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != int64(5) {
+			t.Errorf("expected 5, got %v", result)
+		}
+	})
+
+	t.Run("pluck extracts field from list of maps", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `first(pluck(input.users, "name"))`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != "Alice" {
+			t.Errorf("expected 'Alice', got %v", result)
+		}
+	})
+
+	t.Run("sum calculates sum", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "sum(input.numbers)", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// 5 + 3 + 8 + 1 + 9 + 3 = 29
+		// sum returns the same type as the input (int64 for integers)
+		if result != int64(29) {
+			t.Errorf("expected 29, got %v (%T)", result, result)
+		}
+	})
+
+	t.Run("avg calculates average", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "avg(input.numbers)", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// 29 / 6 ≈ 4.833...
+		avg, ok := result.(float64)
+		if !ok {
+			t.Fatalf("expected float64, got %T", result)
+		}
+		if avg < 4.8 || avg > 4.9 {
+			t.Errorf("expected ~4.83, got %v", avg)
+		}
+	})
+
+	t.Run("min_val finds minimum", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "min_val(input.numbers)", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != int64(1) {
+			t.Errorf("expected 1, got %v (%T)", result, result)
+		}
+	})
+
+	t.Run("max_val finds maximum", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), "max_val(input.numbers)", input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != int64(9) {
+			t.Errorf("expected 9, got %v (%T)", result, result)
+		}
+	})
+
+	t.Run("sort_by sorts by field", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `first(pluck(sort_by(input.users, "age"), "name"))`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Bob has age 25, should be first after sorting by age
+		if result != "Bob" {
+			t.Errorf("expected 'Bob', got %v", result)
+		}
+	})
+
+	t.Run("sort_by descending", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `last(pluck(sort_by(input.users, "age"), "name"))`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Charlie has age 35, should be last after sorting by age ascending
+		if result != "Charlie" {
+			t.Errorf("expected 'Charlie', got %v", result)
+		}
+	})
 }
