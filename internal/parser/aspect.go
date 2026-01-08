@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/matutetandil/mycel/internal/aspect"
@@ -237,9 +238,12 @@ func parseAspectCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Cach
 	if attr, ok := content.Attributes["key"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("cache 'key' error: %s", diags.Error())
+			// Key may contain template expressions like ${input.id}
+			// Extract raw text instead of evaluating
+			cache.Key = extractExpressionText(attr.Expr)
+		} else {
+			cache.Key = val.AsString()
 		}
-		cache.Key = val.AsString()
 	}
 
 	return cache, nil
@@ -273,9 +277,10 @@ func parseAspectInvalidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect
 	if attr, ok := content.Attributes["keys"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("invalidate 'keys' error: %s", diags.Error())
-		}
-		if val.Type().IsTupleType() || val.Type().IsListType() {
+			// Keys may contain template expressions like ${input.id}
+			// Extract raw elements from the tuple expression
+			invalidate.Keys = extractTupleElements(attr.Expr)
+		} else if val.Type().IsTupleType() || val.Type().IsListType() {
 			for _, v := range val.AsValueSlice() {
 				invalidate.Keys = append(invalidate.Keys, v.AsString())
 			}
@@ -285,9 +290,9 @@ func parseAspectInvalidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect
 	if attr, ok := content.Attributes["patterns"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("invalidate 'patterns' error: %s", diags.Error())
-		}
-		if val.Type().IsTupleType() || val.Type().IsListType() {
+			// Patterns may contain template expressions
+			invalidate.Patterns = extractTupleElements(attr.Expr)
+		} else if val.Type().IsTupleType() || val.Type().IsListType() {
 			for _, v := range val.AsValueSlice() {
 				invalidate.Patterns = append(invalidate.Patterns, v.AsString())
 			}
@@ -396,4 +401,23 @@ func parseAspectCircuitBreakerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*as
 	}
 
 	return cb, nil
+}
+
+// extractTupleElements extracts string elements from a tuple expression
+// without evaluating variables. Used for templates like ["products:${input.id}"].
+func extractTupleElements(expr hcl.Expression) []string {
+	var result []string
+
+	// Try to cast to hclsyntax.TupleConsExpr
+	if tupleExpr, ok := expr.(*hclsyntax.TupleConsExpr); ok {
+		for _, elem := range tupleExpr.Exprs {
+			// Extract the raw text of each element
+			elemText := extractExpressionText(elem)
+			if elemText != "" {
+				result = append(result, elemText)
+			}
+		}
+	}
+
+	return result
 }
