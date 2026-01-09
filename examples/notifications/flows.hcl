@@ -2,11 +2,12 @@
 flow "notify_email" {
   from {
     connector = "api"
-    path      = "POST /api/notify/email"
+    operation = "POST /api/notify/email"
   }
 
   to {
     connector = "email_smtp"
+    operation = "send"
   }
 
   transform {
@@ -21,11 +22,12 @@ flow "notify_email" {
 flow "notify_slack" {
   from {
     connector = "api"
-    path      = "POST /api/notify/slack"
+    operation = "POST /api/notify/slack"
   }
 
   to {
     connector = "slack"
+    operation = "send"
   }
 
   transform {
@@ -38,11 +40,12 @@ flow "notify_slack" {
 flow "notify_discord" {
   from {
     connector = "api"
-    path      = "POST /api/notify/discord"
+    operation = "POST /api/notify/discord"
   }
 
   to {
     connector = "discord"
+    operation = "send"
   }
 
   transform {
@@ -54,11 +57,12 @@ flow "notify_discord" {
 flow "notify_sms" {
   from {
     connector = "api"
-    path      = "POST /api/notify/sms"
+    operation = "POST /api/notify/sms"
   }
 
   to {
     connector = "sms"
+    operation = "send"
   }
 
   transform {
@@ -71,11 +75,12 @@ flow "notify_sms" {
 flow "notify_push" {
   from {
     connector = "api"
-    path      = "POST /api/notify/push"
+    operation = "POST /api/notify/push"
   }
 
   to {
     connector = "push"
+    operation = "send"
   }
 
   transform {
@@ -90,10 +95,12 @@ flow "notify_push" {
 flow "receive_webhook" {
   from {
     connector = "webhooks_in"
+    operation = "receive"
   }
 
   to {
     connector = "slack"
+    operation = "send"
   }
 
   transform {
@@ -106,11 +113,12 @@ flow "receive_webhook" {
 flow "forward_webhook" {
   from {
     connector = "api"
-    path      = "POST /api/forward"
+    operation = "POST /api/forward"
   }
 
   to {
     connector = "webhooks_out"
+    operation = "send"
   }
 
   transform {

@@ -16,13 +16,6 @@ connector "rabbit" {
   password = env("RABBIT_PASS", "guest")
   vhost    = "/"
 
-  prefetch = 10
-
-  reconnect {
-    enabled      = true
-    interval     = "5s"
-    max_attempts = 0
-  }
 }
 
 connector "fulfillment_api" {
@@ -31,31 +24,6 @@ connector "fulfillment_api" {
   base_url = env("FULFILLMENT_API_URL", "https://api.fulfillment.example.com")
 
   timeout = "30s"
-
-  auth {
-    type = "bearer"
-    bearer {
-      token = env("FULFILLMENT_API_TOKEN")
-    }
-  }
-
-  headers {
-    "Content-Type" = "application/json"
-    "Accept"       = "application/json"
-  }
-
-  retry {
-    attempts = 3
-    backoff  = "exponential"
-    initial  = "1s"
-    max      = "30s"
-  }
-
-  circuit_breaker {
-    threshold         = 5
-    timeout           = "30s"
-    success_threshold = 2
-  }
 }
 
 connector "notification_api" {
@@ -64,12 +32,4 @@ connector "notification_api" {
   base_url = env("NOTIFICATION_API_URL", "https://api.notifications.example.com")
 
   timeout = "10s"
-
-  auth {
-    type = "api_key"
-    api_key {
-      header = "X-API-Key"
-      value  = env("NOTIFICATION_API_KEY")
-    }
-  }
 }

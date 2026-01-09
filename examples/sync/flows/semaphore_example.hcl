@@ -18,7 +18,7 @@ flow "call_external_api" {
 
   to {
     connector = "external_api"
-    target    = "POST /post"
+    operation = "POST /post"
   }
 }
 
@@ -39,6 +39,6 @@ flow "call_external_api_rest" {
 
   to {
     connector = "external_api"
-    target    = "POST /post"
+    operation = "POST /post"
   }
 }

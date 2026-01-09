@@ -6,6 +6,6 @@
 # 3. Configure automatic fallback chains
 
 service {
-  name = "pricing-service"
-  port = 3000
+  name    = "pricing-service"
+  version = "1.0.0"
 }

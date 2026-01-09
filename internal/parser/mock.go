@@ -71,21 +71,28 @@ func parseConnectorMocks(block *hcl.Block, config *mock.Config) error {
 
 		if val.Type().IsObjectType() {
 			connConfig := &mock.ConnectorMockConfig{}
+			objType := val.Type()
 
-			if v := val.GetAttr("latency"); !v.IsNull() && v.Type() == cty.String {
-				if d, err := time.ParseDuration(v.AsString()); err == nil {
-					connConfig.Latency = d
+			if objType.HasAttribute("latency") {
+				if v := val.GetAttr("latency"); !v.IsNull() && v.Type() == cty.String {
+					if d, err := time.ParseDuration(v.AsString()); err == nil {
+						connConfig.Latency = d
+					}
 				}
 			}
 
-			if v := val.GetAttr("fail_rate"); !v.IsNull() && v.Type() == cty.Number {
-				n, _ := v.AsBigFloat().Int64()
-				connConfig.FailRate = int(n)
+			if objType.HasAttribute("fail_rate") {
+				if v := val.GetAttr("fail_rate"); !v.IsNull() && v.Type() == cty.Number {
+					n, _ := v.AsBigFloat().Int64()
+					connConfig.FailRate = int(n)
+				}
 			}
 
-			if v := val.GetAttr("enabled"); !v.IsNull() && v.Type() == cty.Bool {
-				enabled := v.True()
-				connConfig.Enabled = &enabled
+			if objType.HasAttribute("enabled") {
+				if v := val.GetAttr("enabled"); !v.IsNull() && v.Type() == cty.Bool {
+					enabled := v.True()
+					connConfig.Enabled = &enabled
+				}
 			}
 
 			config.Connectors[name] = connConfig

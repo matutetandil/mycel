@@ -18,15 +18,15 @@ flow "process_payment" {
   }
 
   transform {
-    output.user_id    = "input.body.user_id"
-    output.amount     = "input.body.amount"
-    output.status     = "'processed'"
-    output.created_at = "now()"
+    user_id    = "input.body.user_id"
+    amount     = "input.body.amount"
+    status     = "'processed'"
+    created_at = "now()"
   }
 
   to {
     connector = "postgres"
-    target    = "payments"
+    operation = "payments"
   }
 }
 
@@ -46,14 +46,14 @@ flow "process_payment_rest" {
   }
 
   transform {
-    output.user_id    = "input.data.user_id"
-    output.amount     = "input.data.amount"
-    output.status     = "'processed'"
-    output.created_at = "now()"
+    user_id    = "input.data.user_id"
+    amount     = "input.data.amount"
+    status     = "'processed'"
+    created_at = "now()"
   }
 
   to {
     connector = "postgres"
-    target    = "payments"
+    operation = "payments"
   }
 }

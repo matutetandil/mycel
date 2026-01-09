@@ -26,10 +26,9 @@ connector "redis" {
 
 # RabbitMQ for message processing examples
 connector "rabbitmq" {
-  type     = "mq"
-  driver   = "rabbitmq"
-  url      = env("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
-  exchange = "mycel"
+  type   = "mq"
+  driver = "rabbitmq"
+  url    = env("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 }
 
 # External API (mock for semaphore example)

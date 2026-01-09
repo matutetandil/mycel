@@ -3,11 +3,8 @@
 # Store session in Redis cluster
 flow "create_session" {
   from {
-    connector.api = "POST /sessions"
-  }
-
-  input {
-    type = "session"
+    connector = "api"
+    operation = "POST /sessions"
   }
 
   transform {
@@ -18,21 +15,16 @@ flow "create_session" {
 
   # Uses cluster - data is sharded across nodes
   to {
-    connector.redis_cluster = "SET"
-  }
-
-  response {
-    transform {
-      success = "true"
-      key     = "key"
-    }
+    connector = "redis_cluster"
+    operation = "SET"
   }
 }
 
 # Get session from cluster (reads from replicas)
 flow "get_session" {
   from {
-    connector.api = "GET /sessions/:user_id"
+    connector = "api"
+    operation = "GET /sessions/:user_id"
   }
 
   transform {
@@ -40,18 +32,16 @@ flow "get_session" {
   }
 
   to {
-    connector.redis_cluster = "GET"
-  }
-
-  response {
-    type = "session"
+    connector = "redis_cluster"
+    operation = "GET"
   }
 }
 
 # Using Sentinel for auth tokens (automatic failover)
 flow "store_auth_token" {
   from {
-    connector.api = "POST /auth/token"
+    connector = "api"
+    operation = "POST /auth/token"
   }
 
   transform {
@@ -62,14 +52,16 @@ flow "store_auth_token" {
 
   # Sentinel handles master discovery and failover
   to {
-    connector.redis_sentinel = "SET"
+    connector = "redis_sentinel"
+    operation = "SET"
   }
 }
 
 # Cache with cluster - demonstrates sharding
 flow "cache_product" {
   from {
-    connector.api = "POST /cache/products/:id"
+    connector = "api"
+    operation = "POST /cache/products/:id"
   }
 
   transform {
@@ -80,6 +72,7 @@ flow "cache_product" {
   }
 
   to {
-    connector.redis_cluster = "SET"
+    connector = "redis_cluster"
+    operation = "SET"
   }
 }

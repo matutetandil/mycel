@@ -11,19 +11,6 @@ connector "api" {
   type = "rest"
   mode = "server"
   port = env("API_PORT", 8080)
-
-  cors {
-    origins     = ["*"]
-    methods     = ["GET", "POST", "PUT", "DELETE"]
-    headers     = ["Authorization", "Content-Type", "X-Request-ID"]
-    credentials = true
-  }
-
-  rate_limit {
-    requests = 1000
-    window   = "1m"
-    by       = "ip"
-  }
 }
 
 connector "rabbit" {
@@ -35,17 +22,4 @@ connector "rabbit" {
   username = env("RABBIT_USER", "guest")
   password = env("RABBIT_PASS", "guest")
   vhost    = "/"
-
-  exchange {
-    name        = "events"
-    type        = "topic"
-    durable     = true
-    auto_delete = false
-  }
-
-  reconnect {
-    enabled      = true
-    interval     = "5s"
-    max_attempts = 0
-  }
 }

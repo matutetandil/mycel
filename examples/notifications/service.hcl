@@ -1,6 +1,6 @@
 service {
-  name = "notifications"
-  port = 8080
+  name    = "notifications"
+  version = "1.0.0"
 }
 
 # REST API for sending notifications
@@ -18,16 +18,7 @@ connector "email_smtp" {
   username = env("SMTP_USER", "")
   password = env("SMTP_PASS", "")
   from     = env("SMTP_FROM", "notifications@example.com")
-  tls      = "starttls"
 }
-
-# Email via SendGrid (alternative)
-# connector "email_sendgrid" {
-#   type    = "email"
-#   driver  = "sendgrid"
-#   api_key = env("SENDGRID_API_KEY", "")
-#   from    = env("SENDGRID_FROM", "notifications@example.com")
-# }
 
 # Slack
 connector "slack" {
@@ -35,7 +26,6 @@ connector "slack" {
   webhook_url = env("SLACK_WEBHOOK_URL", "")
   channel     = "#notifications"
   username    = "Mycel Bot"
-  icon_emoji  = ":robot_face:"
 }
 
 # Discord
@@ -66,12 +56,6 @@ connector "webhooks_in" {
   type   = "webhook"
   driver = "inbound"
   path   = "/webhooks/events"
-
-  signature {
-    header    = "X-Signature-256"
-    algorithm = "hmac-sha256"
-    secret    = env("WEBHOOK_SECRET", "")
-  }
 }
 
 # Outbound webhooks
@@ -79,16 +63,4 @@ connector "webhooks_out" {
   type   = "webhook"
   driver = "outbound"
   url    = env("WEBHOOK_TARGET_URL", "https://example.com/webhook")
-
-  signature {
-    header    = "X-Signature-256"
-    algorithm = "hmac-sha256"
-    secret    = env("WEBHOOK_SECRET", "")
-  }
-
-  retry {
-    max_attempts = 3
-    initial_delay = "1s"
-    max_delay = "30s"
-  }
 }

@@ -3,7 +3,8 @@
 # Get user via load-balanced gRPC pool
 flow "get_user" {
   from {
-    connector.api = "GET /users/:id"
+    connector = "api"
+    operation = "GET /users/:id"
   }
 
   transform {
@@ -12,33 +13,35 @@ flow "get_user" {
 
   # This call is load-balanced across all healthy backends
   to {
-    connector.backend_pool = "UserService/GetUser"
+    connector = "backend_pool"
+    operation = "UserService/GetUser"
   }
 
-  response {
-    type = "user_response"
-  }
 }
 
 # List users - distributed across backends
 flow "list_users" {
   from {
-    connector.api = "GET /users"
+    connector = "api"
+    operation = "GET /users"
   }
 
   to {
-    connector.backend_pool = "UserService/ListUsers"
+    connector = "backend_pool"
+    operation = "UserService/ListUsers"
   }
 }
 
 # Stateful operation - uses pick_first for session affinity
 flow "update_session" {
   from {
-    connector.api = "POST /session"
+    connector = "api"
+    operation = "POST /session"
   }
 
   # pick_first ensures same backend handles the session
   to {
-    connector.stateful_backend = "SessionService/Update"
+    connector = "stateful_backend"
+    operation = "SessionService/Update"
   }
 }

@@ -3,7 +3,8 @@
 # Get current user info (uses auth context from validated API key)
 flow "get_me" {
   from {
-    connector.api = "GET /me"
+    connector = "api"
+    operation = "GET /me"
   }
 
   # The auth context includes user_id and metadata from the API key validation
@@ -13,18 +14,17 @@ flow "get_me" {
   }
 
   to {
-    connector.keys_db = "SELECT * FROM users WHERE id = :user_id"
+    connector = "keys_db"
+    operation = "SELECT * FROM users WHERE id = :user_id"
   }
 
-  response {
-    type = "user"
-  }
 }
 
 # List resources (protected endpoint)
 flow "list_resources" {
   from {
-    connector.api = "GET /resources"
+    connector = "api"
+    operation = "GET /resources"
   }
 
   # Filter by user's tenant from API key metadata
@@ -33,14 +33,16 @@ flow "list_resources" {
   }
 
   to {
-    connector.keys_db = "SELECT * FROM resources WHERE tenant_id = :tenant_id"
+    connector = "keys_db"
+    operation = "SELECT * FROM resources WHERE tenant_id = :tenant_id"
   }
 }
 
 # Admin endpoint - check role from API key metadata
 flow "admin_stats" {
   from {
-    connector.api = "GET /admin/stats"
+    connector = "api"
+    operation = "GET /admin/stats"
   }
 
   # Validate admin role from API key metadata
@@ -51,6 +53,7 @@ flow "admin_stats" {
 
   # This would fail if role doesn't match (handled by middleware)
   to {
-    connector.keys_db = "SELECT COUNT(*) as total_users FROM users"
+    connector = "keys_db"
+    operation = "SELECT COUNT(*) as total_users FROM users"
   }
 }
