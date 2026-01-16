@@ -51,19 +51,40 @@ func (c *HCLConverter) Convert() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// First pass: create placeholders for all types
-	for name := range c.typeSchemas {
-		c.types[name] = graphql.NewObject(graphql.ObjectConfig{
-			Name:   name,
-			Fields: graphql.Fields{},
-		})
-	}
-
-	// Second pass: fill in fields
+	// Use FieldsThunk (lazy loading) to handle circular references between types.
+	// This allows types to reference each other (e.g., Order -> User, User -> Order)
+	// without requiring a specific conversion order.
 	for name, schema := range c.typeSchemas {
-		if err := c.convertTypeSchema(name, schema); err != nil {
-			return fmt.Errorf("failed to convert type %s: %w", name, err)
+		// Capture variables for closure
+		typeName := name
+		typeSchema := schema
+
+		// Use schema description if provided, otherwise generate one
+		description := typeSchema.Description
+		if description == "" {
+			description = fmt.Sprintf("Type %s generated from HCL", typeName)
 		}
+
+		// Create object with FieldsThunk for lazy field resolution
+		c.types[typeName] = graphql.NewObject(graphql.ObjectConfig{
+			Name:        typeName,
+			Description: description,
+			Fields: graphql.FieldsThunk(func() graphql.Fields {
+				fields := graphql.Fields{}
+				for _, field := range typeSchema.Fields {
+					gqlField, err := c.convertField(&field)
+					if err != nil {
+						// Log error but continue - field will be omitted
+						continue
+					}
+					fields[field.Name] = gqlField
+				}
+				return fields
+			}),
+		})
+
+		// Also create an input type for mutations
+		c.inputs[typeName+"Input"] = c.createInputType(typeName, typeSchema)
 	}
 
 	return nil
@@ -82,43 +103,36 @@ func (c *HCLConverter) ConvertTypeSchema(schema *validate.TypeSchema) (*graphql.
 	// Store the schema
 	c.typeSchemas[schema.Name] = schema
 
-	// Convert
-	if err := c.convertTypeSchema(schema.Name, schema); err != nil {
-		return nil, err
-	}
-
-	return c.types[schema.Name], nil
-}
-
-// convertTypeSchema converts a TypeSchema and fills in the graphql.Object fields.
-func (c *HCLConverter) convertTypeSchema(name string, schema *validate.TypeSchema) error {
-	fields := graphql.Fields{}
-
-	for _, field := range schema.Fields {
-		gqlField, err := c.convertField(&field)
-		if err != nil {
-			return fmt.Errorf("failed to convert field %s: %w", field.Name, err)
-		}
-		fields[field.Name] = gqlField
-	}
-
 	// Use schema description if provided, otherwise generate one
 	description := schema.Description
 	if description == "" {
-		description = fmt.Sprintf("Type %s generated from HCL", name)
+		description = fmt.Sprintf("Type %s generated from HCL", schema.Name)
 	}
 
-	// Create the object type with fields
-	c.types[name] = graphql.NewObject(graphql.ObjectConfig{
-		Name:        name,
+	// Capture schema for closure
+	typeSchema := schema
+
+	// Create object with FieldsThunk for lazy field resolution
+	c.types[schema.Name] = graphql.NewObject(graphql.ObjectConfig{
+		Name:        schema.Name,
 		Description: description,
-		Fields:      fields,
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
+			fields := graphql.Fields{}
+			for _, field := range typeSchema.Fields {
+				gqlField, err := c.convertField(&field)
+				if err != nil {
+					continue
+				}
+				fields[field.Name] = gqlField
+			}
+			return fields
+		}),
 	})
 
 	// Also create an input type for mutations
-	c.inputs[name+"Input"] = c.createInputType(name, schema)
+	c.inputs[schema.Name+"Input"] = c.createInputType(schema.Name, schema)
 
-	return nil
+	return c.types[schema.Name], nil
 }
 
 // convertField converts a FieldSchema to a graphql.Field.

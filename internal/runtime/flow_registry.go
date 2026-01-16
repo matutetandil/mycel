@@ -13,6 +13,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector/cache"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/functions"
+	"github.com/matutetandil/mycel/internal/graphql/optimizer"
 	msync "github.com/matutetandil/mycel/internal/sync"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
@@ -635,8 +636,12 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	var result interface{}
 	var err error
 
-	// Check for multi-destination writes
-	if len(h.Config.MultiTo) > 0 && operation.Method != "GET" {
+	// For flows with steps, execute steps + transform instead of reading from destination
+	// This supports orchestration flows where data comes from multiple sources
+	if len(h.Config.Steps) > 0 && operation.Method == "GET" {
+		result, err = h.handleStepsFlow(ctx, input)
+	} else if len(h.Config.MultiTo) > 0 && operation.Method != "GET" {
+		// Check for multi-destination writes
 		result, err = h.handleMultiDestWrite(ctx, input, operation)
 	} else {
 		// Single destination (original behavior)
@@ -690,19 +695,40 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 		Filters:   make(map[string]interface{}),
 	}
 
+	// GraphQL Query Optimization: Extract requested fields from input
+	// These fields are injected by the GraphQL resolver when field analysis is enabled
+	if topFields := optimizer.TopFieldsFromInput(input); len(topFields) > 0 {
+		// Convert GraphQL camelCase field names to snake_case column names
+		columns := make([]string, len(topFields))
+		for i, f := range topFields {
+			columns[i] = optimizer.CamelToSnake(f)
+		}
+		query.Fields = columns
+	}
+
 	// Use raw SQL query if configured
 	if h.Config.To.Query != "" {
 		query.RawSQL = h.Config.To.Query
 		// Pass all input as filters/params for named parameter substitution
 		for key, val := range input {
+			// Skip internal GraphQL optimization fields
+			if isInternalField(key) {
+				continue
+			}
 			query.Filters[key] = val
+		}
+
+		// GraphQL Query Optimization: Rewrite SELECT * to SELECT specific columns
+		if allFields := optimizer.FieldsFromInput(input); len(allFields) > 0 {
+			optimizedSQL, _ := optimizer.OptimizeQueryWithFields(query.RawSQL, allFields)
+			query.RawSQL = optimizedSQL
 		}
 	} else if isGraphQLOperation(h.Config.From.Operation) {
 		// For GraphQL, use all input arguments as filters
 		// This supports queries like Query.user(id: 1) -> filters by id
 		for key, val := range input {
 			// Skip special keys that aren't filters
-			if key == "parent_id" || hasPrefix(key, "parent_") {
+			if key == "parent_id" || hasPrefix(key, "parent_") || isInternalField(key) {
 				continue
 			}
 			query.Filters[key] = val
@@ -737,13 +763,69 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 	return result.Rows, nil
 }
 
+// handleStepsFlow handles flows with steps where data comes from step execution + transform.
+// This is used for orchestration flows where data is aggregated from multiple sources.
+func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+	// Execute all steps and collect results
+	stepResults, err := h.executeSteps(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("step execution failed: %w", err)
+	}
+
+	// If no transform is configured, return step results directly
+	if h.Config.Transform == nil || len(h.Config.Transform.Mappings) == 0 {
+		// Return the first step's result if available
+		if len(stepResults) > 0 {
+			for _, result := range stepResults {
+				return result, nil
+			}
+		}
+		return nil, nil
+	}
+
+	// Build transform rules from mappings
+	var rules []transform.Rule
+	for target, expr := range h.Config.Transform.Mappings {
+		rules = append(rules, transform.Rule{
+			Target:     target,
+			Expression: expr,
+		})
+	}
+
+	// Create CEL transformer if not already available
+	celTransformer := h.Transformer
+	if celTransformer == nil {
+		celTransformer, err = transform.NewCELTransformer()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create transformer: %w", err)
+		}
+	}
+
+	// Apply transform with step results (no enriched data for steps-only flows)
+	transformResult, err := celTransformer.TransformWithSteps(ctx, input, nil, stepResults, rules)
+	if err != nil {
+		return nil, fmt.Errorf("transform failed: %w", err)
+	}
+
+	return transformResult, nil
+}
+
 // isGraphQLOperation checks if an operation string is a GraphQL operation.
 func isGraphQLOperation(op string) bool {
 	return hasPrefix(op, "Query.") || hasPrefix(op, "Mutation.") || hasPrefix(op, "Subscription.")
 }
 
+// isInternalField checks if a key is an internal field used for query optimization.
+func isInternalField(key string) bool {
+	return key == "__requested_fields" || key == "__requested_top_fields"
+}
+
 // handleCreate handles POST requests.
 func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interface{}, dest connector.Writer) (interface{}, error) {
+	// Remove internal GraphQL optimization fields from input
+	delete(input, "__requested_fields")
+	delete(input, "__requested_top_fields")
+
 	// Apply transforms if configured
 	payload, err := h.applyTransforms(ctx, input)
 	if err != nil {
@@ -806,6 +888,10 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 		id = v
 		delete(input, "id")
 	}
+
+	// Remove internal GraphQL optimization fields from input
+	delete(input, "__requested_fields")
+	delete(input, "__requested_top_fields")
 
 	// Apply transforms if configured
 	payload, err := h.applyTransforms(ctx, input)
@@ -1261,9 +1347,33 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 		return make(map[string]interface{}), nil
 	}
 
+	// Initialize CEL transformer if needed (for evaluating step params and conditions)
+	if h.Transformer == nil {
+		var err error
+		celOptions := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
+		h.Transformer, err = transform.NewCELTransformerWithOptions(celOptions...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create CEL transformer: %w", err)
+		}
+	}
+
 	stepResults := make(map[string]interface{})
 
+	// Analyze step dependencies for optimization (skip unused steps)
+	neededSteps := h.analyzeNeededSteps(input)
+
 	for _, step := range h.Config.Steps {
+		// Step optimization: skip steps whose output isn't requested
+		if neededSteps != nil && !neededSteps[step.Name] {
+			// Step not needed based on requested fields - skip it
+			// Always set a value (nil if no default) so CEL expressions can check "step.X != null"
+			if step.Default != nil {
+				stepResults[step.Name] = step.Default
+			} else {
+				stepResults[step.Name] = nil
+			}
+			continue
+		}
 		// Evaluate the "when" condition if present
 		if step.When != "" && h.Transformer != nil {
 			// Build context with input and previous step results
@@ -1275,14 +1385,18 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 			if err != nil {
 				// If condition evaluation fails, skip the step (or fail based on on_error)
 				if step.OnError == "skip" {
+					stepResults[step.Name] = nil
 					continue
 				}
 				return nil, fmt.Errorf("step %s: failed to evaluate condition: %w", step.Name, err)
 			}
 			if !shouldExecute {
 				// Condition is false, skip this step
+				// Always set a value (nil if no default) so CEL expressions can check "step.X != null"
 				if step.Default != nil {
 					stepResults[step.Name] = step.Default
+				} else {
+					stepResults[step.Name] = nil
 				}
 				continue
 			}
@@ -1294,6 +1408,8 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 			if step.OnError == "skip" {
 				if step.Default != nil {
 					stepResults[step.Name] = step.Default
+				} else {
+					stepResults[step.Name] = nil
 				}
 				continue
 			}
@@ -1307,15 +1423,11 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 		// Build params by evaluating CEL expressions if needed
 		params := make(map[string]interface{})
 		if h.Transformer != nil && len(step.Params) > 0 {
-			evalCtx := map[string]interface{}{
-				"input": input,
-				"step":  stepResults,
-			}
 			for key, val := range step.Params {
 				// If value is a string that looks like an expression, evaluate it
 				if strVal, ok := val.(string); ok {
 					if strings.Contains(strVal, "input.") || strings.Contains(strVal, "step.") {
-						result, err := h.Transformer.EvaluateExpression(ctx, evalCtx, nil, strVal)
+						result, err := h.Transformer.EvaluateExpressionWithSteps(ctx, input, stepResults, strVal)
 						if err != nil {
 							return nil, fmt.Errorf("step %s: failed to evaluate param %s: %w", step.Name, key, err)
 						}
@@ -1348,6 +1460,8 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					if step.OnError == "skip" {
 						if step.Default != nil {
 							stepResults[step.Name] = step.Default
+						} else {
+							stepResults[step.Name] = nil
 						}
 						continue
 					}
@@ -1377,6 +1491,8 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					if step.OnError == "skip" {
 						if step.Default != nil {
 							stepResults[step.Name] = step.Default
+						} else {
+							stepResults[step.Name] = nil
 						}
 						continue
 					}
@@ -1399,6 +1515,8 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					if step.OnError == "skip" {
 						if step.Default != nil {
 							stepResults[step.Name] = step.Default
+						} else {
+							stepResults[step.Name] = nil
 						}
 						continue
 					}
@@ -1426,6 +1544,8 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					if step.OnError == "skip" {
 						if step.Default != nil {
 							stepResults[step.Name] = step.Default
+						} else {
+							stepResults[step.Name] = nil
 						}
 						continue
 					}
@@ -1457,6 +1577,8 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					if step.OnError == "skip" {
 						if step.Default != nil {
 							stepResults[step.Name] = step.Default
+						} else {
+							stepResults[step.Name] = nil
 						}
 						continue
 					}
@@ -1478,6 +1600,33 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 	}
 
 	return stepResults, nil
+}
+
+// analyzeNeededSteps determines which steps are needed based on requested fields.
+// Returns nil if no optimization is possible (execute all steps).
+// Returns a map of step names to whether they should be executed.
+func (h *FlowHandler) analyzeNeededSteps(input map[string]interface{}) map[string]bool {
+	// Check if requested fields info is available
+	requestedFields, ok := input["__requested_top_fields"].([]string)
+	if !ok || len(requestedFields) == 0 {
+		// No field info - execute all steps (no optimization)
+		return nil
+	}
+
+	// Get transform expressions
+	var transformExprs map[string]string
+	if h.Config.Transform != nil && len(h.Config.Transform.Mappings) > 0 {
+		transformExprs = optimizer.ExtractTransformExpressions(h.Config.Transform.Mappings)
+	}
+
+	if len(transformExprs) == 0 {
+		// No transform mappings - execute all steps
+		return nil
+	}
+
+	// Create step optimizer and analyze dependencies
+	stepOptimizer := optimizer.NewStepOptimizer(h.Config.Steps, transformExprs, requestedFields)
+	return stepOptimizer.AnalyzeDependencies()
 }
 
 // executeEnrichments fetches data from external connectors for enrichment.

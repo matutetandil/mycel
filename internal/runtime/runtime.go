@@ -824,14 +824,26 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 		}
 	}
 
-	// Check if this connector supports return type registration
+	// Check if this connector supports typed args registration (preferred)
+	routerWithArgs, hasArgsSupport := conn.(RouteRegistrarWithArgs)
+
+	// Check if this connector supports return type registration (fallback)
 	routerWithReturnType, hasReturnTypeSupport := conn.(RouteRegistrarWithReturnType)
 
 	// Find flows that use this connector as source
 	for _, handler := range r.flows.handlers {
 		if handler.Config.From.Connector == connectorName {
-			// If flow has a return type and connector supports it, use RegisterRouteWithReturnType
-			if hasReturnTypeSupport && handler.Config.Returns != "" {
+			// If flow has a return type and connector supports typed args, use RegisterRouteWithArgs
+			if hasArgsSupport && handler.Config.Returns != "" {
+				args := inferArgsFromFlow(handler.Config)
+				routerWithArgs.RegisterRouteWithArgs(
+					handler.Config.From.Operation,
+					handler.HandleRequest,
+					handler.Config.Returns,
+					args,
+				)
+			} else if hasReturnTypeSupport && handler.Config.Returns != "" {
+				// Fallback to return type only registration
 				routerWithReturnType.RegisterRouteWithReturnType(
 					handler.Config.From.Operation,
 					handler.HandleRequest,
@@ -840,6 +852,62 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 			} else {
 				router.RegisterRoute(handler.Config.From.Operation, handler.HandleRequest)
 			}
+		}
+	}
+}
+
+// inferArgsFromFlow extracts GraphQL arguments from flow step params.
+// It looks for expressions like "input.id", "input.name" in step params
+// and creates typed argument definitions.
+func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
+	args := make(map[string]*ArgDef) // Use map to deduplicate
+
+	// Extract from step params
+	for _, step := range cfg.Steps {
+		for _, value := range step.Params {
+			extractInputArgs(value, args)
+		}
+	}
+
+	// Convert map to slice
+	result := make([]*ArgDef, 0, len(args))
+	for _, arg := range args {
+		result = append(result, arg)
+	}
+
+	return result
+}
+
+// extractInputArgs extracts input.* references from a param value.
+func extractInputArgs(value interface{}, args map[string]*ArgDef) {
+	switch v := value.(type) {
+	case string:
+		// Look for patterns like "input.id", "input.name", etc.
+		// Simple extraction for direct references
+		if len(v) > 6 && v[:6] == "input." {
+			// Extract the field name (handle "input.id", not "input.nested.field")
+			rest := v[6:]
+			// Find end of identifier (before any operator or method call)
+			endIdx := len(rest)
+			for i, ch := range rest {
+				if ch == '.' || ch == ' ' || ch == '!' || ch == '=' || ch == '+' || ch == '-' || ch == '*' || ch == '/' || ch == '(' || ch == ')' || ch == '[' || ch == ']' || ch == '?' || ch == ':' {
+					endIdx = i
+					break
+				}
+			}
+			fieldName := rest[:endIdx]
+			if fieldName != "" && args[fieldName] == nil {
+				args[fieldName] = &ArgDef{
+					Name:        fieldName,
+					Type:        "string", // Default to string, could be improved with type inference
+					Required:    false,    // Don't make required by default
+					Description: fmt.Sprintf("Argument %s (inferred from flow)", fieldName),
+				}
+			}
+		}
+	case map[string]interface{}:
+		for _, subVal := range v {
+			extractInputArgs(subVal, args)
 		}
 	}
 }
@@ -907,6 +975,16 @@ type RouteRegistrar interface {
 type RouteRegistrarWithReturnType interface {
 	RouteRegistrar
 	RegisterRouteWithReturnType(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error), returnType string)
+}
+
+// ArgDef defines an argument for a GraphQL field (re-exported from graphql package).
+type ArgDef = graphql.ArgDef
+
+// RouteRegistrarWithArgs extends RouteRegistrar with typed arguments support.
+// Used by GraphQL connectors to generate proper schema arguments instead of generic JSON input.
+type RouteRegistrarWithArgs interface {
+	RouteRegistrar
+	RegisterRouteWithArgs(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error), returnType string, args []*ArgDef)
 }
 
 // HCLTypeLoader is implemented by connectors that can load HCL types.

@@ -51,6 +51,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Exec: command, args
 - **New example**: `examples/named-operations/`
 
+### Added - Phase 8: GraphQL Query Optimization
+- **Automatic query optimization** - Zero configuration required, same HCL produces optimized execution
+- **Field Analyzer** (`internal/graphql/analyzer/`)
+  - Extract requested fields from GraphQL AST
+  - `FieldTree` hierarchical data structure for field tracking
+  - `RequestedFields` with `Has(path)`, `Get(path)`, `List()`, `ListFlat()`, `SubFields(path)`, `IsEmpty()`
+  - Supports nested fields and arguments extraction
+- **Result Pruner** (`internal/graphql/pruner/`)
+  - Remove unrequested fields from response data (safety net)
+  - `Prune(data, requested)` - prune using RequestedFields
+  - `PruneWithPaths(data, paths)` - prune using path list
+  - Handles nested objects and arrays recursively
+- **Request Context Integration**
+  - `__requested_fields` available in input (flat list of all field paths)
+  - `__requested_top_fields` available in input (top-level fields only)
+  - Automatic injection via `CreateSmartResolver`
+- **CEL Functions** for field-based conditional logic
+  - `has_field(input, path)` - check if field was requested
+  - `field_requested(input, path)` - alias for has_field
+  - `requested_fields(input)` - get all requested field paths
+  - `requested_top_fields(input)` - get top-level fields only
+- **Database Optimizer** (`internal/graphql/optimizer/`)
+  - `SQLOptimizer` rewrites `SELECT *` to only fetch requested columns
+  - `OptimizeQueryWithFields(query, fields)` - optimize any query
+  - `CamelToSnake(field)` - convert GraphQL camelCase to SQL snake_case
+  - `FieldsFromInput(input)`, `TopFieldsFromInput(input)` - extract fields from input
+  - Integrated into runtime `handleRead` for automatic optimization
+- **Step Optimizer** (`internal/graphql/optimizer/step_optimizer.go`)
+  - `StepOptimizer` analyzes dependencies between steps and fields
+  - `AnalyzeDependencies()` - determine which steps are needed
+  - `GetSkippableSteps()` - identify steps that can be skipped
+  - `GenerateStepConditions()` - auto-generate when conditions
+  - `OptimizeFlowSteps(steps, transformExprs)` - return optimized steps
+  - Detects step-to-step dependencies for correct execution order
+- **DataLoader** (`internal/dataloader/`) - N+1 query prevention
+  - Generic `Loader[K, V]` wrapper around graph-gophers/dataloader v7
+  - `LoaderConfig` with BatchSize, Wait, and Cache options
+  - `LoaderCollection` for request-scoped loader management
+  - `WithLoaders(ctx, collection)` / `GetLoaders(ctx)` context integration
+  - `GetOrCreateFromContext[K, V]` for easy loader retrieval
+  - `SQLBatchLoader` helper for creating batch functions from SQL queries
+  - `SQLManyBatchLoader` helper for one-to-many relationships (e.g., user → orders)
+  - `LoaderKey(table, operation)` for generating unique loader keys
+  - Automatic batching with configurable wait time (default: 1ms)
+  - Optional caching per request (default: enabled)
+- **Runtime Integration**
+  - Step Optimizer integrated into `executeSteps` - skips unused steps automatically
+  - `analyzeNeededSteps()` checks `__requested_top_fields` and uses optimizer
+  - DataLoader middleware added to GraphQL server - creates LoaderCollection per request
+  - GraphQL requests now have DataLoader context available for batching
+- **Dependencies added**:
+  - `github.com/graph-gophers/dataloader/v7` - DataLoader implementation
+- **Transparent optimization** - Example:
+  ```hcl
+  # User writes:
+  flow "get_users" {
+    from { connector = "api", operation = "Query.users" }
+    to   { connector = "postgres", target = "users" }
+  }
+
+  # Client requests: query { users { id, name } }
+  # Mycel automatically executes: SELECT id, name FROM users (not SELECT *)
+  ```
+- **New example**: `examples/graphql-optimization/`
+  - Demonstrates Field Selection, Step Skipping, and DataLoader
+  - Complete setup with SQLite database and sample data
+  - README with test queries and optimization explanations
+
+### Fixed - HCL Type Circular References
+- **Bug**: HCL types that reference each other (e.g., `Order { user = User }`) caused schema build error:
+  "User fields must be an object with field names as keys or a function which return such an object"
+- **Cause**: First pass created empty placeholder types, second pass created new objects but other types still referenced the empty placeholders
+- **Fix**: Use `graphql.FieldsThunk` (lazy loading) for all HCL type conversions, allowing circular references to resolve correctly
+- **File**: `internal/connector/graphql/hcl_to_graphql.go`
+
+### Improved - GraphQL Arguments Inference
+- **Before**: All GraphQL queries used generic `input: JSON` argument (e.g., `product(input: {id: "1"})`)
+- **After**: Arguments are automatically inferred from step params (e.g., `product(id: "1")`)
+- **How it works**:
+  - Looks for `input.*` references in step params (e.g., `params = { id = "input.id" }`)
+  - Creates typed `String` arguments for each discovered field
+  - Falls back to `input: JSON` for flows without steps
+- **Schema example**:
+  ```graphql
+  # Before (all flows)
+  product(input: JSON): Product
+
+  # After (flows with steps)
+  product(id: String): Product
+
+  # After (flows without steps - unchanged)
+  users(input: JSON): [User]
+  ```
+- **Files**:
+  - `internal/connector/graphql/schema.go` - Added `ArgDef`, `RegisterHandlerWithArgs`, `buildArgs`, `mapArgType`
+  - `internal/connector/graphql/server.go` - Added `RegisterRouteWithArgs`
+  - `internal/runtime/runtime.go` - Added `RouteRegistrarWithArgs`, `inferArgsFromFlow`, `extractInputArgs`
+
 ### Added - Phase 8: GraphQL Federation Complete
 - **GraphQL Subscriptions with WebSocket transport**
   - Full `graphql-transport-ws` protocol support

@@ -1,9 +1,33 @@
 package graphql
 
 import (
+	"context"
+
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
+
+	"github.com/matutetandil/mycel/internal/graphql/analyzer"
+	"github.com/matutetandil/mycel/internal/graphql/pruner"
 )
+
+// contextKey is a type for context keys in this package.
+type contextKey string
+
+// RequestedFieldsKey is the context key for requested fields.
+const RequestedFieldsKey contextKey = "requested_fields"
+
+// GetRequestedFields retrieves the RequestedFields from context.
+func GetRequestedFields(ctx context.Context) *analyzer.RequestedFields {
+	if rf, ok := ctx.Value(RequestedFieldsKey).(*analyzer.RequestedFields); ok {
+		return rf
+	}
+	return nil
+}
+
+// WithRequestedFields adds RequestedFields to the context.
+func WithRequestedFields(ctx context.Context, rf *analyzer.RequestedFields) context.Context {
+	return context.WithValue(ctx, RequestedFieldsKey, rf)
+}
 
 // ResolverOptions configures how the resolver transforms results.
 type ResolverOptions struct {
@@ -19,6 +43,57 @@ type ResolverOptions struct {
 // CreateResolver wraps a flow handler as a GraphQL resolver function.
 func CreateResolver(handler HandlerFunc) graphql.FieldResolveFn {
 	return CreateResolverWithOptions(handler, ResolverOptions{})
+}
+
+// CreateOptimizedResolver creates a resolver with automatic field extraction and result pruning.
+// This enables query optimization by making requested fields available to the handler
+// and ensuring only requested fields are returned.
+func CreateOptimizedResolver(handler HandlerFunc) graphql.FieldResolveFn {
+	return CreateOptimizedResolverWithOptions(handler, ResolverOptions{})
+}
+
+// CreateOptimizedResolverWithOptions creates an optimized resolver with custom options.
+func CreateOptimizedResolverWithOptions(handler HandlerFunc, opts ResolverOptions) graphql.FieldResolveFn {
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		// Extract requested fields from GraphQL AST
+		fields := analyzer.ExtractFields(p)
+
+		// Add requested fields to context for use in flow execution
+		ctx := p.Context
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		ctx = WithRequestedFields(ctx, fields)
+
+		// Build input from GraphQL arguments
+		input := MapArgsToInput(p)
+
+		// Add requested fields info to input for use in transforms/steps
+		input["__requested_fields"] = fields.ListFlat()
+		input["__requested_top_fields"] = fields.List()
+
+		// Call the flow handler with enriched context
+		result, err := handler(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+
+		// Convert result to GraphQL-compatible format
+		converted := MapResultToGraphQL(result)
+
+		// Apply options
+		if opts.UnwrapSingleResult {
+			converted = unwrapSingleResult(converted)
+		} else if !isListType(p.Info.ReturnType) {
+			// Smart unwrap if not explicitly disabled
+			converted = unwrapSingleResult(converted)
+		}
+
+		// Prune result to only include requested fields
+		converted = pruner.Prune(converted, fields)
+
+		return converted, nil
+	}
 }
 
 // CreateResolverWithOptions wraps a flow handler with custom options.
@@ -47,13 +122,28 @@ func CreateResolverWithOptions(handler HandlerFunc, opts ResolverOptions) graphq
 
 // CreateSmartResolver creates a resolver that automatically detects whether
 // to unwrap results based on the GraphQL return type.
+// It also includes field extraction and result pruning for query optimization.
 func CreateSmartResolver(handler HandlerFunc) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
+		// Extract requested fields from GraphQL AST for optimization
+		fields := analyzer.ExtractFields(p)
+
+		// Add requested fields to context for use in flow execution
+		ctx := p.Context
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		ctx = WithRequestedFields(ctx, fields)
+
 		// Build input from GraphQL arguments
 		input := MapArgsToInput(p)
 
-		// Call the flow handler
-		result, err := handler(p.Context, input)
+		// Add requested fields info to input for use in transforms/steps
+		input["__requested_fields"] = fields.ListFlat()
+		input["__requested_top_fields"] = fields.List()
+
+		// Call the flow handler with enriched context
+		result, err := handler(ctx, input)
 		if err != nil {
 			return nil, err
 		}
@@ -65,6 +155,9 @@ func CreateSmartResolver(handler HandlerFunc) graphql.FieldResolveFn {
 		if !isListType(p.Info.ReturnType) {
 			converted = unwrapSingleResult(converted)
 		}
+
+		// Prune result to only include requested fields (safety net)
+		converted = pruner.Prune(converted, fields)
 
 		return converted, nil
 	}

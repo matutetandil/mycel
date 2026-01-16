@@ -302,9 +302,24 @@ func (b *SchemaBuilder) RegisterHandler(operation string, handler HandlerFunc) e
 	return nil
 }
 
+// ArgDef defines an argument for a GraphQL field.
+type ArgDef struct {
+	Name        string
+	Type        string // string, number, boolean, id, or custom type name
+	Required    bool
+	Default     interface{}
+	Description string
+}
+
 // RegisterHandlerWithReturnType registers a handler with a specific return type.
 // Use this when the return type is defined in HCL types.
 func (b *SchemaBuilder) RegisterHandlerWithReturnType(operation string, handler HandlerFunc, returnType string) error {
+	return b.RegisterHandlerWithArgs(operation, handler, returnType, nil)
+}
+
+// RegisterHandlerWithArgs registers a handler with return type and typed arguments.
+// If args is nil or empty, falls back to generic JSON input argument.
+func (b *SchemaBuilder) RegisterHandlerWithArgs(operation string, handler HandlerFunc, returnType string, args []*ArgDef) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -323,16 +338,14 @@ func (b *SchemaBuilder) RegisterHandlerWithReturnType(operation string, handler 
 	// Resolve the return type
 	gqlType := b.resolveReturnType(returnType)
 
+	// Build arguments
+	gqlArgs := b.buildArgs(args)
+
 	field := &graphql.Field{
 		Type:        gqlType,
 		Description: fmt.Sprintf("Handler for %s", operation),
-		Args: graphql.FieldConfigArgument{
-			"input": &graphql.ArgumentConfig{
-				Type:        JSONScalar,
-				Description: "Input arguments as JSON",
-			},
-		},
-		Resolve: resolver,
+		Args:        gqlArgs,
+		Resolve:     resolver,
 	}
 
 	switch strings.ToLower(typeName) {
@@ -345,6 +358,65 @@ func (b *SchemaBuilder) RegisterHandlerWithReturnType(operation string, handler 
 	}
 
 	return nil
+}
+
+// buildArgs builds GraphQL arguments from ArgDef slice.
+// If args is nil or empty, returns generic JSON input argument.
+func (b *SchemaBuilder) buildArgs(args []*ArgDef) graphql.FieldConfigArgument {
+	// Default to generic JSON input if no args defined
+	if len(args) == 0 {
+		return graphql.FieldConfigArgument{
+			"input": &graphql.ArgumentConfig{
+				Type:        JSONScalar,
+				Description: "Input arguments as JSON",
+			},
+		}
+	}
+
+	// Build typed arguments
+	gqlArgs := graphql.FieldConfigArgument{}
+	for _, arg := range args {
+		argType := b.mapArgType(arg.Type)
+		if arg.Required {
+			argType = graphql.NewNonNull(argType)
+		}
+
+		gqlArgs[arg.Name] = &graphql.ArgumentConfig{
+			Type:         argType,
+			Description:  arg.Description,
+			DefaultValue: arg.Default,
+		}
+	}
+
+	return gqlArgs
+}
+
+// mapArgType maps a type string to a GraphQL input type.
+func (b *SchemaBuilder) mapArgType(typeName string) graphql.Input {
+	switch strings.ToLower(typeName) {
+	case "string":
+		return graphql.String
+	case "number", "float":
+		return graphql.Float
+	case "int", "integer":
+		return graphql.Int
+	case "boolean", "bool":
+		return graphql.Boolean
+	case "id":
+		return graphql.ID
+	default:
+		// Check if it's a known input type
+		if b.hclConverter != nil {
+			if input := b.hclConverter.GetInput(typeName + "Input"); input != nil {
+				return input
+			}
+			if input := b.hclConverter.GetInput(typeName); input != nil {
+				return input
+			}
+		}
+		// Fallback to JSON for unknown types
+		return JSONScalar
+	}
 }
 
 // resolveReturnType parses a return type string and returns the graphql.Output.

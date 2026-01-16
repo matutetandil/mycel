@@ -636,6 +636,58 @@ func baseCELOptions() []cel.EnvOption {
 				}),
 			),
 		),
+
+		// ============================================
+		// GraphQL Field Selection Functions (Phase 8)
+		// ============================================
+
+		// has_field(input, path) - Check if a field was requested in the GraphQL query
+		// Example: has_field(input, "orders") -> true if "orders" was requested
+		// Example: has_field(input, "orders.items") -> true if "orders.items" was requested
+		cel.Function("has_field",
+			cel.Overload("has_field_input_path",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.StringType},
+				cel.BoolType,
+				cel.BinaryBinding(func(inputVal, pathVal ref.Val) ref.Val {
+					return hasRequestedField(inputVal, pathVal)
+				}),
+			),
+		),
+
+		// field_requested(input, path) - Alias for has_field for readability
+		cel.Function("field_requested",
+			cel.Overload("field_requested_input_path",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType), cel.StringType},
+				cel.BoolType,
+				cel.BinaryBinding(func(inputVal, pathVal ref.Val) ref.Val {
+					return hasRequestedField(inputVal, pathVal)
+				}),
+			),
+		),
+
+		// requested_fields(input) - Get all requested fields as a list
+		// Example: requested_fields(input) -> ["id", "name", "orders", "orders.total"]
+		cel.Function("requested_fields",
+			cel.Overload("requested_fields_from_input",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType)},
+				cel.ListType(cel.StringType),
+				cel.UnaryBinding(func(inputVal ref.Val) ref.Val {
+					return getRequestedFields(inputVal)
+				}),
+			),
+		),
+
+		// requested_top_fields(input) - Get only top-level requested fields
+		// Example: requested_top_fields(input) -> ["id", "name", "orders"]
+		cel.Function("requested_top_fields",
+			cel.Overload("requested_top_fields_from_input",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType)},
+				cel.ListType(cel.StringType),
+				cel.UnaryBinding(func(inputVal ref.Val) ref.Val {
+					return getRequestedTopFields(inputVal)
+				}),
+			),
+		),
 	}
 }
 
@@ -938,6 +990,57 @@ func (t *CELTransformer) EvaluateExpression(ctx context.Context, input map[strin
 	return result.Value(), nil
 }
 
+// EvaluateExpressionWithSteps evaluates a single expression with step results available.
+// This is used for evaluating step params that reference input.* or step.* variables.
+func (t *CELTransformer) EvaluateExpressionWithSteps(ctx context.Context, input map[string]interface{}, steps map[string]interface{}, expr string) (interface{}, error) {
+	prog, err := t.Compile(expr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure steps is not nil
+	if steps == nil {
+		steps = make(map[string]interface{})
+	}
+
+	activation := map[string]interface{}{
+		"input":    input,
+		"output":   make(map[string]interface{}),
+		"ctx":      make(map[string]interface{}),
+		"enriched": make(map[string]interface{}),
+		"step":     steps,
+	}
+
+	// For aspect conditions, we need certain variables at the top level of activation.
+	// These are declared in the CEL environment and must be present.
+	topLevelVars := []string{"result", "error", "_flow", "_operation", "_target", "_timestamp"}
+	for _, key := range topLevelVars {
+		if val, ok := input[key]; ok {
+			activation[key] = val
+		} else {
+			// Provide defaults for missing variables to avoid undeclared errors
+			switch key {
+			case "result":
+				activation[key] = map[string]interface{}{}
+			case "error":
+				activation[key] = ""
+			case "_flow", "_operation", "_target":
+				activation[key] = ""
+			case "_timestamp":
+				activation[key] = int64(0)
+			}
+		}
+	}
+
+	// Evaluate
+	result, _, err := prog.Eval(activation)
+	if err != nil {
+		return nil, fmt.Errorf("CEL eval error: %w", err)
+	}
+
+	return result.Value(), nil
+}
+
 // TransformWithEnriched applies transformation rules with enriched data available.
 func (t *CELTransformer) TransformWithEnriched(ctx context.Context, input map[string]interface{}, enriched map[string]interface{}, rules []Rule) (map[string]interface{}, error) {
 	return t.TransformWithContext(ctx, input, enriched, nil, rules)
@@ -1039,4 +1142,84 @@ func (t *CELTransformer) EvaluateCondition(ctx context.Context, data map[string]
 	default:
 		return false, fmt.Errorf("condition expression must return boolean, got %T", result.Value())
 	}
+}
+
+// ============================================
+// GraphQL Field Selection Helper Functions
+// ============================================
+
+// hasRequestedField checks if a field path is in the __requested_fields list.
+func hasRequestedField(inputVal, pathVal ref.Val) ref.Val {
+	mapper, ok := inputVal.(traits.Mapper)
+	if !ok {
+		return types.False
+	}
+
+	// Get the path string
+	path := string(pathVal.(types.String))
+
+	// Get __requested_fields from input
+	fieldsKey := types.String("__requested_fields")
+	fieldsVal := mapper.Get(fieldsKey)
+	if fieldsVal == nil || fieldsVal.Type() == types.ErrType {
+		return types.False
+	}
+
+	// Convert to list
+	lister, ok := fieldsVal.(traits.Lister)
+	if !ok {
+		return types.False
+	}
+
+	// Check if path is in the list
+	size := lister.Size().(types.Int)
+	for i := types.Int(0); i < size; i++ {
+		item := lister.Get(i)
+		if itemStr, ok := item.(types.String); ok {
+			if string(itemStr) == path {
+				return types.True
+			}
+			// Also check if the requested path is a prefix (for nested fields)
+			// e.g., if "orders.items.price" is requested and we check "orders", return true
+			if strings.HasPrefix(string(itemStr), path+".") {
+				return types.True
+			}
+		}
+	}
+
+	return types.False
+}
+
+// getRequestedFields returns the __requested_fields list from input.
+func getRequestedFields(inputVal ref.Val) ref.Val {
+	mapper, ok := inputVal.(traits.Mapper)
+	if !ok {
+		return types.DefaultTypeAdapter.NativeToValue([]string{})
+	}
+
+	// Get __requested_fields from input
+	fieldsKey := types.String("__requested_fields")
+	fieldsVal := mapper.Get(fieldsKey)
+	if fieldsVal == nil || fieldsVal.Type() == types.ErrType {
+		return types.DefaultTypeAdapter.NativeToValue([]string{})
+	}
+
+	return fieldsVal
+}
+
+// getRequestedTopFields returns the __requested_top_fields list from input.
+func getRequestedTopFields(inputVal ref.Val) ref.Val {
+	mapper, ok := inputVal.(traits.Mapper)
+	if !ok {
+		return types.DefaultTypeAdapter.NativeToValue([]string{})
+	}
+
+	// Get __requested_top_fields from input
+	fieldsKey := types.String("__requested_top_fields")
+	fieldsVal := mapper.Get(fieldsKey)
+	if fieldsVal == nil || fieldsVal.Type() == types.ErrType {
+		return types.DefaultTypeAdapter.NativeToValue([]string{})
+	}
+
+	return fieldsVal
 }

@@ -1230,3 +1230,154 @@ func TestCELTransformer_MapHelperFunctions(t *testing.T) {
 		}
 	})
 }
+
+// TestCELTransformer_GraphQLFieldFunctions tests the GraphQL field selection functions
+// used for query optimization (Phase 8).
+func TestCELTransformer_GraphQLFieldFunctions(t *testing.T) {
+	transformer, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to create CEL transformer: %v", err)
+	}
+
+	// Simulate input from a GraphQL resolver with __requested_fields
+	input := map[string]interface{}{
+		"id":   1,
+		"name": "Test",
+		"__requested_fields": []interface{}{
+			"id",
+			"name",
+			"orders",
+			"orders.total",
+			"orders.items",
+			"orders.items.price",
+		},
+		"__requested_top_fields": []interface{}{
+			"id",
+			"name",
+			"orders",
+		},
+	}
+
+	t.Run("has_field returns true for requested field", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `has_field(input, "id")`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != true {
+			t.Errorf("expected true for 'id', got %v", result)
+		}
+	})
+
+	t.Run("has_field returns true for nested requested field", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `has_field(input, "orders.total")`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != true {
+			t.Errorf("expected true for 'orders.total', got %v", result)
+		}
+	})
+
+	t.Run("has_field returns true for parent of nested field", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `has_field(input, "orders")`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != true {
+			t.Errorf("expected true for 'orders', got %v", result)
+		}
+	})
+
+	t.Run("has_field returns false for non-requested field", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `has_field(input, "email")`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != false {
+			t.Errorf("expected false for 'email', got %v", result)
+		}
+	})
+
+	t.Run("has_field returns false for non-requested nested field", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `has_field(input, "orders.status")`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != false {
+			t.Errorf("expected false for 'orders.status', got %v", result)
+		}
+	})
+
+	t.Run("field_requested is alias for has_field", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `field_requested(input, "name")`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != true {
+			t.Errorf("expected true for 'name', got %v", result)
+		}
+	})
+
+	t.Run("requested_fields returns all fields", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `requested_fields(input)`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		fields, ok := result.([]interface{})
+		if !ok {
+			t.Fatalf("expected []interface{}, got %T", result)
+		}
+		if len(fields) != 6 {
+			t.Errorf("expected 6 fields, got %d", len(fields))
+		}
+	})
+
+	t.Run("requested_top_fields returns only top-level fields", func(t *testing.T) {
+		result, err := transformer.Evaluate(context.Background(), `requested_top_fields(input)`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		fields, ok := result.([]interface{})
+		if !ok {
+			t.Fatalf("expected []interface{}, got %T", result)
+		}
+		if len(fields) != 3 {
+			t.Errorf("expected 3 top fields, got %d", len(fields))
+		}
+	})
+
+	t.Run("has_field with empty __requested_fields", func(t *testing.T) {
+		emptyInput := map[string]interface{}{
+			"id": 1,
+		}
+		result, err := transformer.Evaluate(context.Background(), `has_field(input, "id")`, emptyInput)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != false {
+			t.Errorf("expected false when __requested_fields is missing, got %v", result)
+		}
+	})
+
+	t.Run("conditional step execution pattern", func(t *testing.T) {
+		// This tests the typical use case: only execute step if field is requested
+		result, err := transformer.Evaluate(context.Background(),
+			`has_field(input, "orders") ? "execute_orders_step" : "skip"`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result != "execute_orders_step" {
+			t.Errorf("expected 'execute_orders_step', got %v", result)
+		}
+
+		// Test skipping
+		result2, err := transformer.Evaluate(context.Background(),
+			`has_field(input, "reviews") ? "execute_reviews_step" : "skip"`, input)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result2 != "skip" {
+			t.Errorf("expected 'skip', got %v", result2)
+		}
+	})
+}

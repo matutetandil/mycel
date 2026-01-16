@@ -12,6 +12,7 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/dataloader"
 	"github.com/matutetandil/mycel/internal/validate"
 )
 
@@ -126,13 +127,20 @@ func (c *ServerConnector) LoadHCLTypes(types map[string]*TypeSchema) error {
 // RegisterRouteWithReturnType registers a handler with a specific return type.
 // Use this for HCL-first mode where the return type is specified in the flow config.
 func (c *ServerConnector) RegisterRouteWithReturnType(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error), returnType string) {
+	c.RegisterRouteWithArgs(operation, handler, returnType, nil)
+}
+
+// RegisterRouteWithArgs registers a handler with return type and typed arguments.
+// If args is nil or empty, falls back to generic JSON input argument.
+func (c *ServerConnector) RegisterRouteWithArgs(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error), returnType string, args []*ArgDef) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if err := c.schemaBuilder.RegisterHandlerWithReturnType(operation, handler, returnType); err != nil {
-		c.logger.Error("failed to register GraphQL handler with return type",
+	if err := c.schemaBuilder.RegisterHandlerWithArgs(operation, handler, returnType, args); err != nil {
+		c.logger.Error("failed to register GraphQL handler with args",
 			"operation", operation,
 			"returnType", returnType,
+			"argCount", len(args),
 			"error", err,
 		)
 		return
@@ -141,6 +149,7 @@ func (c *ServerConnector) RegisterRouteWithReturnType(operation string, handler 
 	c.logger.Debug("registered GraphQL handler with return type",
 		"operation", operation,
 		"returnType", returnType,
+		"argCount", len(args),
 		"connector", c.name,
 	)
 }
@@ -338,13 +347,17 @@ func (c *ServerConnector) handleGraphQL(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Create DataLoader collection for this request (N+1 prevention)
+	loaders := dataloader.NewLoaderCollection()
+	ctx := dataloader.WithLoaders(r.Context(), loaders)
+
 	// Execute GraphQL query
 	result := graphql.Do(graphql.Params{
 		Schema:         *c.schema,
 		RequestString:  request.Query,
 		VariableValues: request.Variables,
 		OperationName:  request.OperationName,
-		Context:        r.Context(),
+		Context:        ctx,
 	})
 
 	// Write response
