@@ -149,6 +149,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `internal/connector/graphql/server.go` - Added `RegisterRouteWithArgs`
   - `internal/runtime/runtime.go` - Added `RouteRegistrarWithArgs`, `inferArgsFromFlow`, `extractInputArgs`
 
+### Fixed - Step Param Evaluation in Flows
+- **Bug**: Step params like `{ id = "input.id" }` were not being evaluated - the literal string "input.id" was passed instead of the actual value
+- **Cause**: `executeSteps` didn't initialize the CEL Transformer, and `EvaluateExpression` didn't support the `step` variable
+- **Fix**:
+  - Initialize CEL Transformer at start of `executeSteps` if nil
+  - Added `EvaluateExpressionWithSteps(ctx, input, steps, expr)` function that includes `step` in CEL activation
+  - Updated step param evaluation to use new function
+- **Additional fix**: Skipped steps now always set `stepResults[step.Name] = nil` so CEL expressions like `step.X != null` work correctly
+- **Files**:
+  - `internal/transform/cel.go` - Added `EvaluateExpressionWithSteps`
+  - `internal/runtime/flow_registry.go` - Initialize Transformer, use new function, set nil for skipped steps
+
 ### Added - Phase 8: GraphQL Federation Complete
 - **GraphQL Subscriptions with WebSocket transport**
   - Full `graphql-transport-ws` protocol support
