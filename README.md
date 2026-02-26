@@ -76,11 +76,11 @@ That's it. REST API + database, zero code.
 | Files (local) / S3 | ✅ | [examples/files](examples/files) |
 | Cache (Memory / Redis) | ✅ | [examples/cache](examples/cache) |
 | Multi-step Flow Orchestration | ✅ | [examples/steps](examples/steps) |
-| Auth (JWT, MFA, WebAuthn) | ✅ | - |
+| Auth (JWT, MFA, WebAuthn) | ✅ | [examples/auth](examples/auth) |
 | Rate Limiting / Circuit Breaker | ✅ | [examples/rate-limit](examples/rate-limit) |
 | Hot Reload | ✅ | - |
 | Health Checks / Prometheus | ✅ | `/health`, `/metrics` |
-| Notifications (Email, Slack, SMS) | ✅ | - |
+| Notifications (Email, Slack, SMS) | ✅ | [examples/notifications](examples/notifications) |
 | GraphQL Query Optimization | ✅ | [examples/graphql-optimization](examples/graphql-optimization) |
 
 ## CLI
@@ -134,6 +134,8 @@ See [helm/mycel/README.md](helm/mycel/README.md) for full Helm documentation inc
 | [exec](examples/exec) | Execute shell commands |
 | [steps](examples/steps) | Multi-step flow orchestration |
 | [named-operations](examples/named-operations) | Reusable named operations |
+| [auth](examples/auth) | JWT authentication and MFA |
+| [notifications](examples/notifications) | Email, Slack, SMS notifications |
 
 ## Documentation
 
