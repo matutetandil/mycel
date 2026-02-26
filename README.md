@@ -4,6 +4,24 @@
 
 Define HCL files. Run Mycel. Get a production-ready microservice.
 
+## How It Works
+
+Mycel is a single binary runtime (like nginx). Same binary, different configuration = different microservice.
+
+You build services with two core concepts:
+
+**Connectors** are anything Mycel can talk to: a database, a REST API, a message queue, a gRPC service, a file system. Each connector is bidirectional — it can be a source (read/receive) or a target (write/expose).
+
+**Flows** connect one connector to another. A flow defines: where data comes **from**, an optional **transform**, and where it goes **to**.
+
+```
+Connector (source) ──→ Flow ──→ Transform ──→ Connector (target)
+```
+
+On top of this, you can layer: **types** (schema validation), **auth** (JWT, MFA), **aspects** (cross-cutting concerns), **steps** (multi-step orchestration), and [more](#features).
+
+That's the whole model. Everything else is configuration.
+
 ## Quick Start
 
 **`connectors.hcl`** - Define your data sources:
