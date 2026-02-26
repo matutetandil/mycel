@@ -1,20 +1,10 @@
 # Mycel
 
-**Declarative Microservice Framework**
+**Declarative microservices through configuration, not code.**
 
-Mycel is an open-source framework for creating microservices through HCL configuration, without writing code. It works as a single runtime (like nginx) that interprets configuration files and exposes services.
-
-> **Philosophy:** Configuration, not code. You define WHAT you want, Mycel handles HOW.
+Define HCL files. Run Mycel. Get a production-ready microservice.
 
 ## Quick Start
-
-### 1. Create Your Configuration
-
-Create a directory for your service and add these files:
-
-```bash
-mkdir my-service && cd my-service
-```
 
 **`connectors.hcl`** - Define your data sources:
 ```hcl
@@ -48,116 +38,29 @@ flow "create_user" {
 }
 ```
 
-### 2. Run Your Service
-
-**With Docker (recommended):**
+**Run it:**
 ```bash
 docker run -v $(pwd):/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
 ```
 
-**From source:**
+**Test it:**
 ```bash
-go install github.com/matutetandil/mycel/cmd/mycel@latest
-mycel start
-```
-
-### 3. Test the API
-
-```bash
-# Create a user
 curl -X POST http://localhost:3000/users \
   -H "Content-Type: application/json" \
   -d '{"email":"test@example.com","name":"Test"}'
 
-# List users
 curl http://localhost:3000/users
 ```
 
-That's it! You have a REST API connected to a database without writing any code.
+That's it. REST API + database, zero code.
 
-> **Next steps:** See [Getting Started Guide](docs/GETTING_STARTED.md) for a complete tutorial.
+> See [Getting Started Guide](docs/GETTING_STARTED.md) for a complete tutorial, or explore the [full documentation](#documentation).
 
-## CLI
+## Purpose
 
-```bash
-mycel start [--config=<path>] [--env=<env>] [--log-level=<level>] [--log-format=<format>] [--hot-reload]
-mycel validate [--config=<path>]
-mycel check [--config=<path>]
-mycel version
-```
-
-## Kubernetes (Helm)
-
-Deploy Mycel to Kubernetes using Helm:
-
-```bash
-# Install from GHCR (recommended)
-helm install my-api oci://ghcr.io/matutetandil/charts/mycel
-
-# Install specific version
-helm install my-api oci://ghcr.io/matutetandil/charts/mycel --version 1.0.0
-
-# With custom configuration
-helm install my-api oci://ghcr.io/matutetandil/charts/mycel \
-  --set replicaCount=3 \
-  --set autoscaling.enabled=true \
-  --set ingress.enabled=true
-
-# Or from local chart (for development)
-helm install my-api ./helm/mycel -f values.yaml
-```
-
-Create a `values.yaml`:
-
-```yaml
-replicaCount: 2
-
-ingress:
-  enabled: true
-  className: nginx
-  hosts:
-    - host: api.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-
-mycel:
-  env: production
-  config:
-    service: |
-      service {
-        name = "my-api"
-        port = 8080
-      }
-    connectors: |
-      connector "api" {
-        type = "rest"
-        port = 8080
-      }
-    flows: |
-      # Your flows here
-
-autoscaling:
-  enabled: true
-  minReplicas: 2
-  maxReplicas: 10
-
-metrics:
-  serviceMonitor:
-    enabled: true  # For Prometheus Operator
-```
-
-See [helm/mycel/README.md](helm/mycel/README.md) for full documentation.
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MYCEL_ENV` | `development` | Environment to load (development, staging, production) |
-| `MYCEL_LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
-| `MYCEL_LOG_FORMAT` | `text` | Log format: text, json (use json for production) |
-
-Flags take precedence over environment variables.
+- **What:** An open-source runtime that reads HCL configuration and exposes microservices. Same binary, different config = different service.
+- **Why:** 70-80% of microservice code is plumbing (routing, DB queries, transformations, integrations). Mycel replaces that with configuration.
+- **Who:** Backend teams building CRUD APIs, event processors, integrations, or protocol bridges.
 
 ## Features
 
@@ -170,90 +73,47 @@ Flags take precedence over environment variables.
 | gRPC Server & Client | ✅ | [examples/grpc](examples/grpc) |
 | RabbitMQ / Kafka | ✅ | [examples/mq](examples/mq) |
 | TCP Server & Client | ✅ | [examples/tcp](examples/tcp) |
-| Files (local) | ✅ | [examples/files](examples/files) |
-| S3 / MinIO | ✅ | [examples/s3](examples/s3) |
+| Files (local) / S3 | ✅ | [examples/files](examples/files) |
 | Cache (Memory / Redis) | ✅ | [examples/cache](examples/cache) |
-| Data Enrichment | ✅ | [examples/enrich](examples/enrich) |
-| Rate Limiting | ✅ | [examples/rate-limit](examples/rate-limit) |
-| Circuit Breaker | ✅ | - |
+| Multi-step Flow Orchestration | ✅ | [examples/steps](examples/steps) |
+| Auth (JWT, MFA, WebAuthn) | ✅ | - |
+| Rate Limiting / Circuit Breaker | ✅ | [examples/rate-limit](examples/rate-limit) |
 | Hot Reload | ✅ | - |
-| Health Checks | ✅ | `/health`, `/health/live`, `/health/ready` |
-| Prometheus Metrics | ✅ | `/metrics` |
+| Health Checks / Prometheus | ✅ | `/health`, `/metrics` |
+| Notifications (Email, Slack, SMS) | ✅ | - |
+| GraphQL Query Optimization | ✅ | [examples/graphql-optimization](examples/graphql-optimization) |
 
-## What Mycel Can (and Cannot) Do
+## CLI
 
-Mycel is designed to replace the **"plumbing" code** that makes up 70-80% of typical microservices. It excels at data transformation, protocol bridging, and integration patterns—but it's not a silver bullet.
-
-### ✅ Perfect Fit (Use Mycel)
-
-| Use Case | Examples |
-|----------|----------|
-| **Data APIs** | CRUD REST/GraphQL, API gateways, BFF (Backend for Frontend) |
-| **Event Processing** | Queue consumers, webhook handlers, event routing |
-| **Data Integration** | DB ↔ API sync, ETL pipelines, data enrichment |
-| **Protocol Bridging** | REST → gRPC, GraphQL → REST, TCP → Queue |
-| **Scheduled Tasks** | Cron jobs, cleanup tasks, report generation |
-| **Notifications** | Email, Slack, SMS, Push notifications |
-| **Auth & Security** | JWT auth, rate limiting, circuit breaker |
-
-### ⚠️ Partial Fit (Mycel + External Services)
-
-| Use Case | Mycel Handles | External Service Handles |
-|----------|---------------|--------------------------|
-| **Search APIs** | REST/GraphQL API, caching, auth | Elasticsearch queries |
-| **Recommendations** | API layer, caching, response formatting | ML model inference |
-| **Image Processing** | Upload/download, S3 storage | ImageMagick, Cloudinary |
-| **Complex Workflows** | Multi-step orchestration | Stateful saga coordination |
-
-### ❌ Not a Fit (Use Custom Code)
-
-| Use Case | Why Not Mycel | Better Alternative |
-|----------|---------------|-------------------|
-| **ML/AI Inference** | Requires GPU, complex models | Python + TensorFlow/PyTorch |
-| **Video/Audio Processing** | Heavy computation | FFmpeg, AWS MediaConvert |
-| **Custom Protocols** | Proprietary binary formats | Go/Rust custom service |
-| **Real-time Gaming** | Sub-millisecond latency, UDP | Custom game server |
-| **Blockchain/DeFi** | Specialized cryptographic ops | Dedicated blockchain node |
-
-### The Right Mental Model
-
-Think of Mycel like **nginx for microservices**:
-- nginx handles HTTP routing, SSL, rate limiting—you don't write that code
-- Mycel handles data flows, transformations, integrations—you don't write that code
-- Both let you focus on what makes your application unique
-
-**Philosophy:**
-> Use Mycel for everything you can. Write custom code only for what truly requires it.
-
-In a typical enterprise, this means:
-- **70% of microservices** → Mycel (CRUD APIs, integrations, event handlers)
-- **20% of microservices** → Mycel + external services (ML, search, complex processing)
-- **10% of microservices** → Custom code (proprietary algorithms, heavy computation)
-
-## Service Configuration
-
-```hcl
-# config.hcl
-service {
-  name    = "my-api"
-  version = "1.0.0"
-
-  # Optional: Enable rate limiting
-  rate_limit {
-    requests_per_second = 100
-    burst               = 200
-    key_extractor       = "ip"  # or "header:X-API-Key"
-  }
-}
+```bash
+mycel start [--config=<path>] [--env=<env>] [--log-level=<level>] [--log-format=<format>] [--hot-reload]
+mycel validate [--config=<path>]
+mycel check [--config=<path>]
+mycel version
 ```
 
-## Documentation
+Environment: `MYCEL_ENV` (default: development), `MYCEL_LOG_LEVEL` (default: info), `MYCEL_LOG_FORMAT` (default: text). Flags take precedence.
 
-- **[Concepts](docs/CONCEPTS.md)** - What is a connector, flow, transform, and more
-- **[Configuration Reference](docs/CONFIGURATION.md)** - Complete HCL syntax reference
-- **[Integration Patterns](docs/integration-patterns.md)** - Common use cases
-- **[Transformations](docs/transformations.md)** - CEL transformation guide
-- **[Roadmap](docs/ROADMAP.md)** - Project status and future plans
+## Installation
+
+**Docker (recommended):**
+```bash
+docker run -v $(pwd):/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
+```
+
+**Go:**
+```bash
+go install github.com/matutetandil/mycel/cmd/mycel@latest
+```
+
+**Kubernetes (Helm):**
+```bash
+helm install my-api oci://ghcr.io/matutetandil/charts/mycel
+```
+
+See [helm/mycel/README.md](helm/mycel/README.md) for full Helm documentation including values, autoscaling, and ingress configuration.
+
+**Requirements:** Docker (recommended) or Go 1.24+ (for building from source).
 
 ## Examples
 
@@ -261,6 +121,7 @@ service {
 |---------|-------------|
 | [basic](examples/basic) | REST API + SQLite |
 | [graphql](examples/graphql) | GraphQL server with schema |
+| [graphql-optimization](examples/graphql-optimization) | Field selection, step skipping, DataLoader |
 | [grpc](examples/grpc) | gRPC server and client |
 | [mq](examples/mq) | RabbitMQ and Kafka |
 | [tcp](examples/tcp) | TCP server with protocols |
@@ -272,15 +133,26 @@ service {
 | [mongodb](examples/mongodb) | MongoDB NoSQL operations |
 | [exec](examples/exec) | Execute shell commands |
 | [steps](examples/steps) | Multi-step flow orchestration |
+| [named-operations](examples/named-operations) | Reusable named operations |
 
-## Requirements
+## Documentation
 
-**Docker** (recommended) or **Go 1.24+** (for building from source)
+- **[Concepts](docs/CONCEPTS.md)** - What is a connector, flow, transform, and more
+- **[Configuration Reference](docs/CONFIGURATION.md)** - Complete HCL syntax reference
+- **[Integration Patterns](docs/integration-patterns.md)** - Common use cases
+- **[Transformations](docs/transformations.md)** - CEL transformation guide
+- **[Roadmap](docs/ROADMAP.md)** - Project status and future plans
 
-## License
+## Support
 
-MIT
+If you find this project useful, consider supporting its development:
+
+<a href="https://buymeacoffee.com/matutetandil" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="200"></a>
 
 ## Contributing
 
 Contributions are welcome! Please read the contributing guidelines before submitting a pull request.
+
+## License
+
+MIT
