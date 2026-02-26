@@ -2,6 +2,26 @@
 
 This guide explains what each Mycel concept is, why it exists, and when to use it. For full HCL syntax and options, see the [Configuration Reference](CONFIGURATION.md).
 
+## Table of Contents
+
+- [The Mycel Model](#the-mycel-model)
+- [Connectors](#connectors)
+- [Flows](#flows)
+- [Transforms](#transforms)
+- [Types](#types)
+- [Steps](#steps)
+- [Named Operations](#named-operations)
+- [Auth](#auth)
+- [Aspects](#aspects)
+- [Validators](#validators)
+- [WASM](#wasm)
+- [Plugins](#plugins)
+- [Mocks](#mocks)
+- [Synchronization](#synchronization)
+- [Environments](#environments)
+- [Scheduled Jobs](#scheduled-jobs)
+- [Configuration Structure](#configuration-structure)
+
 ---
 
 ## The Mycel Model
