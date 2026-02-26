@@ -135,40 +135,17 @@ See [helm/mycel/README.md](helm/mycel/README.md) for full Helm documentation inc
 - **[Transformations](docs/transformations.md)** - CEL transformation guide
 - **[Roadmap](docs/ROADMAP.md)** - Project status and future plans
 
-## Examples
+## More Examples
+
+Variants and integration patterns beyond the individual features above:
 
 | Example | Description |
 |---------|-------------|
-| [basic](examples/basic) | REST API + SQLite |
-| [graphql](examples/graphql) | GraphQL server with schema |
-| [graphql-optimization](examples/graphql-optimization) | Field selection, step skipping, DataLoader |
-| [grpc](examples/grpc) | gRPC server and client |
-| [grpc-loadbalancing](examples/grpc-loadbalancing) | gRPC load balancing |
-| [mq](examples/mq) | RabbitMQ and Kafka |
-| [tcp](examples/tcp) | TCP server with protocols |
-| [cache](examples/cache) | Memory and Redis caching |
-| [redis-cluster](examples/redis-cluster) | Redis cluster configuration |
-| [files](examples/files) | Local file operations |
-| [s3](examples/s3) | AWS S3 / MinIO |
-| [mongodb](examples/mongodb) | MongoDB NoSQL operations |
-| [steps](examples/steps) | Multi-step flow orchestration |
-| [named-operations](examples/named-operations) | Reusable named operations |
-| [enrich](examples/enrich) | Data enrichment from services |
-| [integration](examples/integration) | Integration patterns |
-| [auth](examples/auth) | JWT authentication and MFA |
-| [dynamic-api-key](examples/dynamic-api-key) | Dynamic API key authentication |
-| [rate-limit](examples/rate-limit) | Rate limiting configuration |
-| [profiles](examples/profiles) | Connector profiles with fallback |
-| [read-replicas](examples/read-replicas) | Database read replicas |
-| [sync](examples/sync) | Locks, semaphores, coordination |
-| [notifications](examples/notifications) | Email, Slack, SMS notifications |
-| [aspects](examples/aspects) | Cross-cutting concerns (AOP) |
-| [validators](examples/validators) | Custom validators (regex, CEL) |
-| [wasm-functions](examples/wasm-functions) | WASM custom functions |
-| [wasm-validator](examples/wasm-validator) | WASM validators |
-| [mocks](examples/mocks) | Mock data for testing |
-| [plugin](examples/plugin) | Plugin system |
-| [exec](examples/exec) | Execute shell commands |
+| [s3](examples/s3) | AWS S3 / MinIO (variant of Files) |
+| [redis-cluster](examples/redis-cluster) | Redis cluster setup (variant of Cache) |
+| [dynamic-api-key](examples/dynamic-api-key) | Dynamic API key auth (variant of Auth) |
+| [wasm-validator](examples/wasm-validator) | WASM validators (variant of WASM) |
+| [integration](examples/integration) | Multi-connector integration patterns |
 
 ## Support
 
