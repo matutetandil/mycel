@@ -384,6 +384,13 @@ func (r *Runtime) Start(ctx context.Context) error {
 	}
 	banner.PrintServiceInfo(serviceName, serviceVersion, r.environment, r.getRESTPort())
 
+	r.logger.Info("starting service",
+		"service", serviceName,
+		"version", serviceVersion,
+		"environment", r.environment,
+		"mycel_version", Version,
+	)
+
 	// Initialize rate limiter if configured
 	r.initRateLimiter()
 
