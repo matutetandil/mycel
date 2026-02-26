@@ -20,6 +20,8 @@ Connector (source) ──→ Flow ──→ Connector (target)
 
 On top of this, you can add [transforms](docs/CONCEPTS.md#transforms) (reshape data), [types](docs/CONCEPTS.md#types) (validate schemas), [steps](docs/CONCEPTS.md#steps) (multi-step orchestration), [auth](docs/CONCEPTS.md#auth), [aspects](docs/CONCEPTS.md#aspects), and [more](#features). But every feature ultimately serves the same pattern: data enters through a connector, optionally gets transformed, and exits through another connector.
 
+Every Mycel service automatically includes health checks (`/health`, `/health/live`, `/health/ready`), Prometheus metrics (`/metrics`), and hot reload — no configuration needed. Change an HCL file and the service reloads with zero downtime.
+
 That's the whole model. Everything else is configuration. Learn more in [Concepts](docs/CONCEPTS.md).
 
 ## Quick Start
