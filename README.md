@@ -64,36 +64,36 @@ That's it. REST API + database, zero code.
 
 ## Features
 
-| Feature | Status | Example |
-|---------|--------|---------|
-| REST API | ✅ | [examples/basic](examples/basic) |
-| SQLite / PostgreSQL / MySQL | ✅ | [examples/basic](examples/basic) |
-| MongoDB | ✅ | [examples/mongodb](examples/mongodb) |
-| GraphQL Server & Client | ✅ | [examples/graphql](examples/graphql) |
-| GraphQL Query Optimization | ✅ | [examples/graphql-optimization](examples/graphql-optimization) |
-| gRPC Server & Client | ✅ | [examples/grpc](examples/grpc) |
-| gRPC Load Balancing | ✅ | [examples/grpc-loadbalancing](examples/grpc-loadbalancing) |
-| RabbitMQ / Kafka | ✅ | [examples/mq](examples/mq) |
-| TCP Server & Client | ✅ | [examples/tcp](examples/tcp) |
-| Files (local) / S3 | ✅ | [examples/files](examples/files) |
-| Cache (Memory / Redis) | ✅ | [examples/cache](examples/cache) |
-| Multi-step Flow Orchestration | ✅ | [examples/steps](examples/steps) |
-| Named Operations | ✅ | [examples/named-operations](examples/named-operations) |
-| Data Enrichment | ✅ | [examples/enrich](examples/enrich) |
-| Auth (JWT, MFA, WebAuthn) | ✅ | [examples/auth](examples/auth) |
-| Rate Limiting / Circuit Breaker | ✅ | [examples/rate-limit](examples/rate-limit) |
-| Connector Profiles | ✅ | [examples/profiles](examples/profiles) |
-| Read Replicas | ✅ | [examples/read-replicas](examples/read-replicas) |
-| Synchronization (Locks, Semaphores) | ✅ | [examples/sync](examples/sync) |
-| Notifications (Email, Slack, SMS) | ✅ | [examples/notifications](examples/notifications) |
-| Aspects (AOP) | ✅ | [examples/aspects](examples/aspects) |
-| Validators (Regex, CEL) | ✅ | [examples/validators](examples/validators) |
-| WASM (Functions, Validators) | ✅ | [examples/wasm-functions](examples/wasm-functions) |
-| Mocks | ✅ | [examples/mocks](examples/mocks) |
-| Plugins | ✅ | [examples/plugin](examples/plugin) |
-| Exec (Shell Commands) | ✅ | [examples/exec](examples/exec) |
-| Hot Reload | ✅ | - |
-| Health Checks / Prometheus | ✅ | `/health`, `/metrics` |
+| Feature | Description |
+|---------|-------------|
+| [REST API](examples/basic) | Expose and consume REST endpoints |
+| [SQLite / PostgreSQL / MySQL](examples/basic) | Relational database connectors |
+| [MongoDB](examples/mongodb) | NoSQL document database |
+| [GraphQL Server & Client](examples/graphql) | Schema-based GraphQL API |
+| [GraphQL Query Optimization](examples/graphql-optimization) | Field selection, step skipping, DataLoader |
+| [gRPC Server & Client](examples/grpc) | Protocol Buffers based RPC |
+| [gRPC Load Balancing](examples/grpc-loadbalancing) | Round-robin and weighted balancing |
+| [RabbitMQ / Kafka](examples/mq) | Message queue producers and consumers |
+| [TCP Server & Client](examples/tcp) | JSON, msgpack, and NestJS protocols |
+| [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
+| [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching |
+| [Multi-step Flow Orchestration](examples/steps) | Sequential and conditional step execution |
+| [Named Operations](examples/named-operations) | Reusable parameterized operations |
+| [Data Enrichment](examples/enrich) | Combine data from multiple sources |
+| [Auth (JWT, MFA, WebAuthn)](examples/auth) | Authentication with presets and MFA |
+| [Rate Limiting / Circuit Breaker](examples/rate-limit) | Traffic control and fault tolerance |
+| [Connector Profiles](examples/profiles) | Multiple backends with fallback |
+| [Read Replicas](examples/read-replicas) | Route reads to replica databases |
+| [Synchronization](examples/sync) | Distributed locks, semaphores, coordination |
+| [Notifications](examples/notifications) | Email, Slack, Discord, SMS, Push, Webhook |
+| [Aspects (AOP)](examples/aspects) | Cross-cutting concerns via pattern matching |
+| [Validators](examples/validators) | Regex, CEL, and custom validation rules |
+| [WASM](examples/wasm-functions) | Custom functions and validators via WebAssembly |
+| [Mocks](examples/mocks) | Mock data for development and testing |
+| [Plugins](examples/plugin) | Extend Mycel with WASM plugins |
+| [Exec](examples/exec) | Execute shell commands from flows |
+| Hot Reload | Apply HCL changes without restart |
+| Health Checks / Prometheus | `/health`, `/metrics` endpoints |
 
 ## CLI
 
