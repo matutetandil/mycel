@@ -8,19 +8,19 @@ Define HCL files. Run Mycel. Get a production-ready microservice.
 
 Mycel is a single binary runtime (like nginx). Same binary, different configuration = different microservice.
 
-You build services with two core concepts:
+Mycel has two core building blocks: **connectors** and **flows**. Everything else builds on top of them.
 
-**Connectors** are anything Mycel can talk to: a database, a REST API, a message queue, a gRPC service, a file system. Each connector is bidirectional — it can be a source (read/receive) or a target (write/expose).
+A **connector** is anything Mycel can talk to — a database, a REST API, a message queue, a gRPC service, a file system. Every connector is bidirectional: it can be a **source** (receives data that triggers a flow) or a **target** (destination where a flow writes data).
 
-**Flows** connect one connector to another. A flow defines: where data comes **from**, an optional **transform**, and where it goes **to**.
+A **flow** wires two connectors together, moving data from one to the other:
 
 ```
-Connector (source) ──→ Flow ──→ Transform ──→ Connector (target)
+Connector (source) ──→ Flow ──→ Connector (target)
 ```
 
-On top of this, you can layer: **types** (schema validation), **auth** (JWT, MFA), **aspects** (cross-cutting concerns), **steps** (multi-step orchestration), and [more](#features).
+On top of this, you can add [transforms](docs/CONCEPTS.md#transforms) (reshape data), [types](docs/CONCEPTS.md#types) (validate schemas), [steps](docs/CONCEPTS.md#steps) (multi-step orchestration), [auth](docs/CONCEPTS.md#auth), [aspects](docs/CONCEPTS.md#aspects), and [more](#features). But every feature ultimately serves the same pattern: data enters through a connector, optionally gets transformed, and exits through another connector.
 
-That's the whole model. Everything else is configuration.
+That's the whole model. Everything else is configuration. Learn more in [Concepts](docs/CONCEPTS.md).
 
 ## Quick Start
 
@@ -95,20 +95,20 @@ That's it. REST API + database, zero code.
 | [TCP Server & Client](examples/tcp) | JSON, msgpack, and NestJS protocols |
 | [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
 | [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching |
-| [Multi-step Flow Orchestration](examples/steps) | Sequential and conditional step execution |
-| [Named Operations](examples/named-operations) | Reusable parameterized operations |
+| [Multi-step Flow Orchestration](examples/steps) | Sequential and conditional step execution ([concept](docs/CONCEPTS.md#steps)) |
+| [Named Operations](examples/named-operations) | Reusable parameterized operations ([concept](docs/CONCEPTS.md#named-operations)) |
 | [Data Enrichment](examples/enrich) | Combine data from multiple sources |
-| [Auth (JWT, MFA, WebAuthn)](examples/auth) | Authentication with presets and MFA |
+| [Auth (JWT, MFA, WebAuthn)](examples/auth) | Authentication with presets and MFA ([concept](docs/CONCEPTS.md#auth)) |
 | [Rate Limiting / Circuit Breaker](examples/rate-limit) | Traffic control and fault tolerance |
 | [Connector Profiles](examples/profiles) | Multiple backends with fallback |
 | [Read Replicas](examples/read-replicas) | Route reads to replica databases |
-| [Synchronization](examples/sync) | Distributed locks, semaphores, coordination |
+| [Synchronization](examples/sync) | Distributed locks, semaphores, coordination ([concept](docs/CONCEPTS.md#synchronization)) |
 | [Notifications](examples/notifications) | Email, Slack, Discord, SMS, Push, Webhook |
-| [Aspects (AOP)](examples/aspects) | Cross-cutting concerns via pattern matching |
-| [Validators](examples/validators) | Regex, CEL, and custom validation rules |
-| [WASM](examples/wasm-functions) | Custom functions and validators via WebAssembly |
-| [Mocks](examples/mocks) | Mock data for development and testing |
-| [Plugins](examples/plugin) | Extend Mycel with WASM plugins |
+| [Aspects (AOP)](examples/aspects) | Cross-cutting concerns via pattern matching ([concept](docs/CONCEPTS.md#aspects)) |
+| [Validators](examples/validators) | Regex, CEL, and custom validation rules ([concept](docs/CONCEPTS.md#validators)) |
+| [WASM](examples/wasm-functions) | Custom functions and validators via WebAssembly ([concept](docs/CONCEPTS.md#wasm)) |
+| [Mocks](examples/mocks) | Mock data for development and testing ([concept](docs/CONCEPTS.md#mocks)) |
+| [Plugins](examples/plugin) | Extend Mycel with WASM plugins ([concept](docs/CONCEPTS.md#plugins)) |
 | [Exec](examples/exec) | Execute shell commands from flows |
 | Hot Reload | Apply HCL changes without restart |
 | Health Checks / Prometheus | `/health`, `/metrics` endpoints |
