@@ -38,9 +38,16 @@ type SchemaBuilder struct {
 	mode SchemaMode
 
 	// Dynamic mode fields
-	queryFields    graphql.Fields
-	mutationFields graphql.Fields
-	types          map[string]*graphql.Object
+	queryFields        graphql.Fields
+	mutationFields     graphql.Fields
+	subscriptionFields graphql.Fields
+	types              map[string]*graphql.Object
+
+	// PubSub for subscription field resolvers
+	pubsub *PubSub
+
+	// subscriptionFilters stores CEL filter expressions per subscription field
+	subscriptionFilters map[string]string
 
 	// Schema-first mode fields
 	parsedSchema *ParsedSchema
@@ -62,11 +69,14 @@ type SchemaBuilder struct {
 // NewSchemaBuilder creates a new schema builder.
 func NewSchemaBuilder() *SchemaBuilder {
 	return &SchemaBuilder{
-		mode:           SchemaModeAuto,
-		queryFields:    make(graphql.Fields),
-		mutationFields: make(graphql.Fields),
-		types:          make(map[string]*graphql.Object),
-		handlers:       make(map[string]HandlerFunc),
+		mode:               SchemaModeAuto,
+		queryFields:        make(graphql.Fields),
+		mutationFields:     make(graphql.Fields),
+		subscriptionFields:  make(graphql.Fields),
+		types:              make(map[string]*graphql.Object),
+		handlers:           make(map[string]HandlerFunc),
+		pubsub:             NewPubSub(),
+		subscriptionFilters: make(map[string]string),
 	}
 }
 
@@ -250,6 +260,11 @@ func (b *SchemaBuilder) RegisterHandler(operation string, handler HandlerFunc) e
 	// Store the handler
 	b.handlers[operation] = handler
 
+	// Handle subscription fields separately
+	if strings.ToLower(typeName) == "subscription" {
+		return b.registerSubscriptionField(fieldName, handler, "")
+	}
+
 	// Check if we're in SDL mode and the field already exists
 	var fields graphql.Fields
 	switch strings.ToLower(typeName) {
@@ -258,7 +273,7 @@ func (b *SchemaBuilder) RegisterHandler(operation string, handler HandlerFunc) e
 	case "mutation":
 		fields = b.mutationFields
 	default:
-		return fmt.Errorf("unsupported type: %s (expected Query or Mutation)", typeName)
+		return fmt.Errorf("unsupported type: %s (expected Query, Mutation, or Subscription)", typeName)
 	}
 
 	// If field already exists (from SDL), use smart resolver that auto-detects return type
@@ -332,6 +347,12 @@ func (b *SchemaBuilder) RegisterHandlerWithArgs(operation string, handler Handle
 	fieldName := parts[1]
 
 	b.handlers[operation] = handler
+
+	// Handle subscription fields separately
+	if strings.ToLower(typeName) == "subscription" {
+		return b.registerSubscriptionField(fieldName, handler, returnType)
+	}
+
 	// Use smart resolver to automatically unwrap single results for non-list types
 	resolver := CreateSmartResolver(handler)
 
@@ -572,11 +593,85 @@ func (b *SchemaBuilder) Build() (*graphql.Schema, error) {
 		})
 	}
 
+	// Create Subscription type
+	if len(b.subscriptionFields) > 0 {
+		config.Subscription = graphql.NewObject(graphql.ObjectConfig{
+			Name:   "Subscription",
+			Fields: b.subscriptionFields,
+		})
+	}
+
 	schema, err := graphql.NewSchema(config)
 	if err != nil {
 		return nil, err
 	}
 	return &schema, nil
+}
+
+// registerSubscriptionField registers a subscription field backed by PubSub.
+// The Subscribe function returns a channel that receives published data.
+// The Resolve function transforms each published payload before delivery.
+func (b *SchemaBuilder) registerSubscriptionField(fieldName string, handler HandlerFunc, returnType string) error {
+	// Determine the GraphQL return type
+	var gqlType graphql.Output
+	if returnType != "" {
+		gqlType = b.resolveReturnType(returnType)
+	} else {
+		gqlType = JSONScalar
+	}
+
+	topic := fieldName
+	pubsub := b.pubsub
+
+	field := &graphql.Field{
+		Type:        gqlType,
+		Description: fmt.Sprintf("Subscription for %s events", fieldName),
+		// Subscribe returns a channel fed by PubSub
+		Subscribe: func(p graphql.ResolveParams) (interface{}, error) {
+			ch := pubsub.Subscribe(topic)
+
+			// Wrap in a context-aware goroutine to unsubscribe on cancel
+			out := make(chan interface{}, 10)
+			go func() {
+				defer close(out)
+				defer pubsub.Unsubscribe(topic, ch)
+				for {
+					select {
+					case <-p.Context.Done():
+						return
+					case data, ok := <-ch:
+						if !ok {
+							return
+						}
+						out <- data
+					}
+				}
+			}()
+
+			return out, nil
+		},
+		// Resolve transforms each published event
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			return p.Source, nil
+		},
+	}
+
+	b.subscriptionFields[fieldName] = field
+	return nil
+}
+
+// SetSubscriptionFilter sets a CEL filter expression for a subscription field.
+// The filter is evaluated for each subscriber when data is published.
+// Available variables: input (published data), context.auth (subscriber's connection params).
+func (b *SchemaBuilder) SetSubscriptionFilter(fieldName string, filter string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.subscriptionFilters[fieldName] = filter
+}
+
+// GetPubSub returns the PubSub instance for publishing subscription events.
+func (b *SchemaBuilder) GetPubSub() *PubSub {
+	return b.pubsub
 }
 
 // EnableFederation enables Federation support.
@@ -741,6 +836,9 @@ func (b *SchemaBuilder) HasField(operation string) bool {
 	case "mutation":
 		_, exists := b.mutationFields[fieldName]
 		return exists
+	case "subscription":
+		_, exists := b.subscriptionFields[fieldName]
+		return exists
 	}
 
 	return false
@@ -801,6 +899,16 @@ func (b *SchemaBuilder) generateSDL() string {
 				}
 				sb.WriteString(")")
 			}
+			sb.WriteString(fmt.Sprintf(": %s\n", formatGraphQLType(field.Type)))
+		}
+		sb.WriteString("}\n\n")
+	}
+
+	// Add Subscription type
+	if len(b.subscriptionFields) > 0 {
+		sb.WriteString("type Subscription {\n")
+		for name, field := range b.subscriptionFields {
+			sb.WriteString(fmt.Sprintf("  %s", name))
 			sb.WriteString(fmt.Sprintf(": %s\n", formatGraphQLType(field.Type)))
 		}
 		sb.WriteString("}\n\n")

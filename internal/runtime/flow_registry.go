@@ -636,6 +636,11 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	var result interface{}
 	var err error
 
+	// Check if the destination is a subscription publish target
+	if isSubscriptionPublish(h.Config.To.Operation) {
+		return h.handleSubscriptionPublish(ctx, input)
+	}
+
 	// For flows with steps, execute steps + transform instead of reading from destination
 	// This supports orchestration flows where data comes from multiple sources
 	if len(h.Config.Steps) > 0 && operation.Method == "GET" {
@@ -813,6 +818,34 @@ func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]inte
 // isGraphQLOperation checks if an operation string is a GraphQL operation.
 func isGraphQLOperation(op string) bool {
 	return hasPrefix(op, "Query.") || hasPrefix(op, "Mutation.") || hasPrefix(op, "Subscription.")
+}
+
+// isSubscriptionPublish checks if a to.operation targets a GraphQL subscription.
+func isSubscriptionPublish(op string) bool {
+	return hasPrefix(op, "Subscription.")
+}
+
+// handleSubscriptionPublish applies transforms and publishes data to a subscription topic.
+func (h *FlowHandler) handleSubscriptionPublish(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+	// Apply transforms (handles steps and enrichments internally)
+	payload, err := h.applyTransforms(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("transform failed: %w", err)
+	}
+
+	// Extract the subscription topic from the operation (e.g., "Subscription.orderUpdated" -> "orderUpdated")
+	topic := strings.TrimPrefix(h.Config.To.Operation, "Subscription.")
+
+	// Publish to the subscription topic via the destination connector
+	type publisher interface {
+		Publish(topic string, data interface{})
+	}
+	if pub, ok := h.Dest.(publisher); ok {
+		pub.Publish(topic, payload)
+		return payload, nil
+	}
+
+	return nil, fmt.Errorf("destination connector does not support subscription publishing")
 }
 
 // isInternalField checks if a key is an internal field used for query optimization.

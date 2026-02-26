@@ -714,3 +714,247 @@ type Product @key(fields: "sku") @key(fields: "id", resolvable: false) {
 		t.Errorf("Product should have 2 keys, got %d", len(productKeys))
 	}
 }
+
+// TestSubscriptionField tests subscription field registration and PubSub delivery.
+func TestSubscriptionField(t *testing.T) {
+	builder := NewSchemaBuilder()
+
+	// Register a subscription handler
+	handler := func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return input, nil
+	}
+
+	if err := builder.RegisterHandler("Subscription.orderUpdated", handler); err != nil {
+		t.Fatalf("failed to register subscription handler: %v", err)
+	}
+
+	// Verify field was registered
+	if !builder.HasField("Subscription.orderUpdated") {
+		t.Fatal("subscription field should be registered")
+	}
+
+	// Build schema — should include Subscription type
+	schema, err := builder.Build()
+	if err != nil {
+		t.Fatalf("failed to build schema: %v", err)
+	}
+
+	if schema.SubscriptionType() == nil {
+		t.Fatal("schema should have Subscription type")
+	}
+
+	fields := schema.SubscriptionType().Fields()
+	if _, ok := fields["orderUpdated"]; !ok {
+		t.Fatal("schema should have orderUpdated subscription field")
+	}
+}
+
+// TestSubscriptionFieldWithReturnType tests subscription with typed return.
+func TestSubscriptionFieldWithReturnType(t *testing.T) {
+	builder := NewSchemaBuilder()
+
+	handler := func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return input, nil
+	}
+
+	if err := builder.RegisterHandlerWithArgs("Subscription.productUpdated", handler, "JSON", nil); err != nil {
+		t.Fatalf("failed to register subscription handler: %v", err)
+	}
+
+	if !builder.HasField("Subscription.productUpdated") {
+		t.Fatal("subscription field should be registered")
+	}
+
+	schema, err := builder.Build()
+	if err != nil {
+		t.Fatalf("failed to build schema: %v", err)
+	}
+
+	if schema.SubscriptionType() == nil {
+		t.Fatal("schema should have Subscription type")
+	}
+}
+
+// TestPubSubBasic tests basic PubSub publish/subscribe.
+func TestPubSubBasic(t *testing.T) {
+	ps := NewPubSub()
+
+	ch := ps.Subscribe("test-topic")
+
+	// Publish a message
+	ps.Publish("test-topic", map[string]interface{}{"id": 1})
+
+	// Should receive it
+	select {
+	case data := <-ch:
+		m, ok := data.(map[string]interface{})
+		if !ok {
+			t.Fatal("expected map")
+		}
+		if m["id"] != 1 {
+			t.Errorf("expected id=1, got %v", m["id"])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for message")
+	}
+
+	// Unsubscribe
+	ps.Unsubscribe("test-topic", ch)
+
+	// Publish after unsubscribe — should not panic
+	ps.Publish("test-topic", map[string]interface{}{"id": 2})
+}
+
+// TestPubSubWithFilter tests filtered subscription delivery.
+func TestPubSubWithFilter(t *testing.T) {
+	ps := NewPubSub()
+
+	// Subscribe with filter: only accept messages where status == "shipped"
+	ch := ps.SubscribeWithFilter("orders", func(data interface{}) bool {
+		if m, ok := data.(map[string]interface{}); ok {
+			return m["status"] == "shipped"
+		}
+		return false
+	})
+
+	// Publish a message that doesn't match filter
+	ps.Publish("orders", map[string]interface{}{"id": 1, "status": "pending"})
+
+	// Should NOT receive it
+	select {
+	case <-ch:
+		t.Fatal("should not receive filtered-out message")
+	case <-time.After(50 * time.Millisecond):
+		// Expected — no message
+	}
+
+	// Publish a message that matches filter
+	ps.Publish("orders", map[string]interface{}{"id": 2, "status": "shipped"})
+
+	// Should receive it
+	select {
+	case data := <-ch:
+		m, ok := data.(map[string]interface{})
+		if !ok {
+			t.Fatal("expected map")
+		}
+		if m["id"] != 2 {
+			t.Errorf("expected id=2, got %v", m["id"])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for filtered message")
+	}
+
+	ps.Unsubscribe("orders", ch)
+}
+
+// TestPubSubMultipleSubscribers tests multiple subscribers on one topic.
+func TestPubSubMultipleSubscribers(t *testing.T) {
+	ps := NewPubSub()
+
+	ch1 := ps.Subscribe("events")
+	ch2 := ps.Subscribe("events")
+
+	ps.Publish("events", "hello")
+
+	for _, ch := range []chan interface{}{ch1, ch2} {
+		select {
+		case data := <-ch:
+			if data != "hello" {
+				t.Errorf("expected 'hello', got %v", data)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for message")
+		}
+	}
+
+	ps.Unsubscribe("events", ch1)
+	ps.Unsubscribe("events", ch2)
+}
+
+// TestSubscriptionSDLGeneration tests that SDL includes Subscription type.
+func TestSubscriptionSDLGeneration(t *testing.T) {
+	builder := NewSchemaBuilder()
+	builder.EnableFederation(2)
+
+	handler := func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return input, nil
+	}
+
+	// Register a query and a subscription
+	builder.RegisterHandler("Query.users", handler)
+	builder.RegisterHandler("Subscription.userCreated", handler)
+
+	// Build to trigger SDL generation
+	_, err := builder.Build()
+	if err != nil {
+		t.Fatalf("failed to build schema: %v", err)
+	}
+
+	sdl := builder.GetFederation().GetSDL()
+
+	if !strings.Contains(sdl, "type Subscription") {
+		t.Error("SDL should contain Subscription type")
+	}
+	if !strings.Contains(sdl, "userCreated") {
+		t.Error("SDL should contain userCreated field")
+	}
+}
+
+// TestServerConnectorPublish tests the Publish method on ServerConnector.
+func TestServerConnectorPublish(t *testing.T) {
+	config := &ServerConfig{
+		Port:     0,
+		Endpoint: "/graphql",
+		Subscriptions: &SubscriptionsConfig{
+			Enabled: true,
+			Path:    "/subscriptions",
+		},
+	}
+
+	server := NewServer("test", config, nil)
+
+	// Register a subscription
+	server.RegisterSubscription("orderUpdated", "")
+
+	// Get the pubsub from the schema builder
+	ps := server.schemaBuilder.GetPubSub()
+
+	// Subscribe directly to verify publish works
+	ch := ps.Subscribe("orderUpdated")
+
+	// Publish through the server
+	server.Publish("orderUpdated", map[string]interface{}{"id": 1})
+
+	select {
+	case data := <-ch:
+		m, ok := data.(map[string]interface{})
+		if !ok {
+			t.Fatal("expected map")
+		}
+		if m["id"] != 1 {
+			t.Errorf("expected id=1, got %v", m["id"])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for published message")
+	}
+
+	ps.Unsubscribe("orderUpdated", ch)
+}
+
+// TestSubscriptionFilter tests SetSubscriptionFilter on SchemaBuilder.
+func TestSubscriptionFilter(t *testing.T) {
+	builder := NewSchemaBuilder()
+
+	handler := func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return input, nil
+	}
+
+	builder.RegisterHandler("Subscription.orderUpdated", handler)
+	builder.SetSubscriptionFilter("orderUpdated", "input.user_id == context.auth.user_id")
+
+	// Verify filter was stored
+	if builder.subscriptionFilters["orderUpdated"] != "input.user_id == context.auth.user_id" {
+		t.Error("subscription filter should be stored")
+	}
+}

@@ -632,3 +632,91 @@ flow "process_order" {
 		t.Errorf("expected dedupe on_duplicate 'skip', got '%s'", flow.Dedupe.OnDuplicate)
 	}
 }
+
+func TestParseFlowWithEntity(t *testing.T) {
+	hcl := `
+flow "resolve_product" {
+  entity = "Product"
+
+  from {
+    connector = "api"
+    operation = "Query.product"
+  }
+
+  returns = "Product"
+
+  to {
+    connector = "db"
+    target    = "products"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.Flows) != 1 {
+		t.Fatalf("expected 1 flow, got %d", len(config.Flows))
+	}
+
+	flow := config.Flows[0]
+	if flow.Entity != "Product" {
+		t.Errorf("expected entity 'Product', got '%s'", flow.Entity)
+	}
+	if flow.Returns != "Product" {
+		t.Errorf("expected returns 'Product', got '%s'", flow.Returns)
+	}
+}
+
+func TestParseFlowWithSubscriptionTo(t *testing.T) {
+	hcl := `
+flow "order_updates" {
+  from {
+    connector = "rabbit"
+    operation = "order.*"
+  }
+
+  transform {
+    orderId = "input.id"
+    status  = "input.status"
+  }
+
+  to {
+    connector = "api"
+    operation = "Subscription.orderUpdated"
+    filter    = "input.user_id == context.auth.user_id"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.Flows) != 1 {
+		t.Fatalf("expected 1 flow, got %d", len(config.Flows))
+	}
+
+	flow := config.Flows[0]
+	if flow.To.Operation != "Subscription.orderUpdated" {
+		t.Errorf("expected to.operation 'Subscription.orderUpdated', got '%s'", flow.To.Operation)
+	}
+	if flow.To.Filter != "input.user_id == context.auth.user_id" {
+		t.Errorf("expected to.filter, got '%s'", flow.To.Filter)
+	}
+}

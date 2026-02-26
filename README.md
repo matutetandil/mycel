@@ -99,6 +99,7 @@ That's it. REST API + database, zero code.
 | [MongoDB](examples/mongodb) | NoSQL document database |
 | [GraphQL Server & Client](examples/graphql) | Schema-based GraphQL API |
 | [GraphQL Query Optimization](examples/graphql-optimization) | Field selection, step skipping, DataLoader |
+| [GraphQL Federation](examples/graphql-federation) | Federation v2, subscriptions, entity resolution |
 | [gRPC Server & Client](examples/grpc) | Protocol Buffers based RPC |
 | [gRPC Load Balancing](examples/grpc-loadbalancing) | Round-robin and weighted balancing |
 | [RabbitMQ / Kafka](examples/mq) | Message queue producers and consumers |

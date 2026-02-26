@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -723,9 +724,25 @@ func (r *Runtime) registerFlows() error {
 			}
 		}
 
+		// If the to operation is a subscription, register the subscription field on the dest connector
+		if isSubscriptionTarget(cfg.To.Operation) {
+			if subReg, ok := dest.(SubscriptionRegistrar); ok {
+				fieldName := strings.TrimPrefix(cfg.To.Operation, "Subscription.")
+				filter := cfg.To.Filter
+				if filter != "" {
+					subReg.RegisterSubscriptionWithFilter(fieldName, cfg.Returns, filter)
+				} else {
+					subReg.RegisterSubscription(fieldName, cfg.Returns)
+				}
+			}
+		}
+
 		// Parse operation to get method and path
 		method, path := r.parseFlowOperation(cfg.From.Connector, cfg.From.Operation)
 		target := cfg.To.Connector + ":" + cfg.To.Target
+		if isSubscriptionTarget(cfg.To.Operation) {
+			target = cfg.To.Connector + ":" + cfg.To.Operation
+		}
 		banner.PrintFlow(method, path, target)
 	}
 
@@ -763,6 +780,11 @@ func (r *Runtime) parseFlowOperation(connectorName, operation string) (method, p
 
 	// For REST connectors, parse "METHOD /path"
 	return parseOperationString(operation)
+}
+
+// isSubscriptionTarget returns true if the operation targets a GraphQL subscription.
+func isSubscriptionTarget(operation string) bool {
+	return strings.HasPrefix(operation, "Subscription.")
 }
 
 // parseOperationString splits "METHOD /path" into method and path.
@@ -859,6 +881,85 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 			} else {
 				router.RegisterRoute(handler.Config.From.Operation, handler.HandleRequest)
 			}
+		}
+	}
+
+	// Register federated entity resolvers
+	r.registerEntityResolvers(connectorName, conn)
+}
+
+// registerEntityResolvers registers Federation entity resolvers on a GraphQL connector.
+// It scans flows with `entity` attribute and HCL types with `_key` to create entity resolvers.
+func (r *Runtime) registerEntityResolvers(connectorName string, conn connector.Connector) {
+	entityReg, ok := conn.(EntityRegistrar)
+	if !ok || !entityReg.IsFederationEnabled() {
+		return
+	}
+
+	// Collect explicit entity resolver flows (flows with entity = "TypeName")
+	entityFlows := make(map[string]*FlowHandler)
+	for _, handler := range r.flows.handlers {
+		if handler.Config.Entity != "" {
+			entityFlows[handler.Config.Entity] = handler
+		}
+	}
+
+	// Register entities from types with _key
+	for typeName, typeSchema := range r.types {
+		if len(typeSchema.Keys) == 0 {
+			continue
+		}
+
+		// Build entity keys from type schema
+		keys := make([]graphql.EntityKey, 0, len(typeSchema.Keys))
+		for _, keyFields := range typeSchema.Keys {
+			keys = append(keys, graphql.EntityKey{
+				Fields:     keyFields,
+				Resolvable: true,
+			})
+		}
+
+		// Check for explicit entity resolver flow
+		if flowHandler, exists := entityFlows[typeName]; exists {
+			handler := flowHandler // capture for closure
+			entityReg.RegisterEntity(typeName, keys, func(ctx context.Context, representation map[string]interface{}) (interface{}, error) {
+				return handler.HandleRequest(ctx, representation)
+			})
+			r.logger.Info("registered entity resolver (explicit flow)",
+				"type", typeName,
+				"connector", connectorName,
+			)
+			continue
+		}
+
+		// Try to find a matching Query flow that reads from a database
+		// Look for flows like: from { connector.api = "Query.user" } to { connector.db = "users" }
+		var resolverHandler *FlowHandler
+		for _, handler := range r.flows.handlers {
+			if handler.Config.From.Connector != connectorName {
+				continue
+			}
+			// Check if the flow returns this type
+			if handler.Config.Returns == typeName || handler.Config.Returns == typeName+"!" {
+				resolverHandler = handler
+				break
+			}
+		}
+
+		if resolverHandler != nil {
+			handler := resolverHandler // capture for closure
+			entityReg.RegisterEntity(typeName, keys, func(ctx context.Context, representation map[string]interface{}) (interface{}, error) {
+				return handler.HandleRequest(ctx, representation)
+			})
+			r.logger.Info("registered entity resolver (auto-detected from flow)",
+				"type", typeName,
+				"connector", connectorName,
+			)
+		} else {
+			r.logger.Debug("no entity resolver found for type (register a flow with entity attribute)",
+				"type", typeName,
+				"connector", connectorName,
+			)
 		}
 	}
 }
@@ -992,6 +1093,26 @@ type ArgDef = graphql.ArgDef
 type RouteRegistrarWithArgs interface {
 	RouteRegistrar
 	RegisterRouteWithArgs(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error), returnType string, args []*ArgDef)
+}
+
+// SubscriptionPublisher is implemented by connectors that support publishing to subscriptions.
+// Used by GraphQL connectors to publish events to subscription topics.
+type SubscriptionPublisher interface {
+	Publish(topic string, data interface{})
+}
+
+// SubscriptionRegistrar is implemented by connectors that can register subscription fields.
+// Used by GraphQL connectors to create subscription fields from flow configuration.
+type SubscriptionRegistrar interface {
+	RegisterSubscription(fieldName string, returnType string)
+	RegisterSubscriptionWithFilter(fieldName string, returnType string, filter string)
+}
+
+// EntityRegistrar is implemented by connectors that can register federated entities.
+// Used by GraphQL connectors to register entity resolvers for Federation.
+type EntityRegistrar interface {
+	RegisterEntity(typeName string, keys []graphql.EntityKey, resolver graphql.EntityResolver)
+	IsFederationEnabled() bool
 }
 
 // HCLTypeLoader is implemented by connectors that can load HCL types.

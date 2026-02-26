@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Phase 9: GraphQL Federation Complete
+- **Subscription type support** in GraphQL schema
+  - `SchemaBuilder` supports `Subscription` fields alongside Query/Mutation
+  - Channel-based resolvers backed by PubSub (publish/subscribe)
+  - SDL generation includes `type Subscription { ... }` block
+  - WebSocket delivery via graphql-ws protocol
+- **Flow-triggered subscriptions** — publish from any flow to a subscription topic
+  - `to { operation = "Subscription.fieldName" }` syntax
+  - Runtime detects `Subscription.*` prefix and publishes instead of writing
+  - Steps and transforms are applied before publishing
+  - Works with any source connector (REST, Queue, TCP, etc.)
+- **Per-user subscription filtering**
+  - `PubSub.SubscribeWithFilter()` for per-subscriber message filtering
+  - WebSocket `connection_init` params available in subscription context
+  - `to { filter = "input.user_id == context.auth.user_id" }` syntax
+- **Automatic entity resolution** from HCL types
+  - Types with `_key` auto-register Federation entity resolvers
+  - Explicit entity resolver flows with `entity = "TypeName"` attribute
+  - Runtime matches types to query flows by return type
+  - Compatible with Apollo Router and Cosmo Router
+- **New flow attribute**: `entity` — marks a flow as a Federation entity resolver
+- **New to block attribute**: `filter` — CEL expression for subscription filtering
+- **New interfaces**: `SubscriptionPublisher`, `SubscriptionRegistrar`, `EntityRegistrar`
+- **New example**: `examples/graphql-federation/` — complete federation subgraph
+- **Spec**: `docs/PHASE-9-GRAPHQL-FEDERATION.md`
+
 ### Added - Named Operations for Connectors
 - **Named operations** for better encapsulation and reusability
   - Connectors define their operations with metadata

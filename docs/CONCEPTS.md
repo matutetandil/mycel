@@ -11,6 +11,8 @@ This guide explains what each Mycel concept is, why it exists, and when to use i
 - [Transforms](#transforms)
 - [Types](#types)
 - [Steps](#steps)
+- [Subscriptions](#subscriptions)
+- [Federation](#federation)
 - [Named Operations](#named-operations)
 - [Auth](#auth)
 - [Aspects](#aspects)
@@ -200,6 +202,78 @@ flow "get_order" {
 ```
 
 Step results are available as `step.<name>` in CEL expressions. See the [steps example](../examples/steps) for more patterns.
+
+---
+
+## Subscriptions
+
+Subscriptions push data to clients in real time over WebSocket connections. Instead of polling an endpoint, a client subscribes once and receives events as they happen — new orders, price changes, chat messages.
+
+In Mycel, subscriptions are flow-triggered. Any flow can publish to a subscription topic by targeting `Subscription.<name>` in its `to` block. The GraphQL connector handles the WebSocket transport automatically.
+
+```hcl
+connector "api" {
+  type = "graphql"
+  port = 4000
+
+  subscriptions {
+    enabled   = true
+    transport = "websocket"
+    path      = "/graphql/ws"
+    keepalive = "30s"
+  }
+}
+
+# This flow publishes to the subscription whenever a queue message arrives
+flow "order_updates" {
+  from { connector = "rabbit", operation = "order.updated" }
+
+  transform {
+    output.id     = "input.order_id"
+    output.status = "input.status"
+  }
+
+  to {
+    connector = "api"
+    operation = "Subscription.orderUpdated"
+    filter    = "input.user_id == context.connection_params.userId"
+  }
+}
+```
+
+The `filter` attribute on `to` enables per-user filtering — each subscriber only receives events that match their connection parameters (passed during WebSocket `connection_init`). Without a filter, all subscribers receive every event.
+
+See the [graphql-federation example](../examples/graphql-federation) for full patterns including subscription setup.
+
+---
+
+## Federation
+
+Federation lets you split a GraphQL API across multiple Mycel services, each owning a slice of the schema. A gateway (Apollo Router, Cosmo Router) composes them into a single graph for clients. Each service is a **subgraph** that declares which types it owns and how to resolve references from other subgraphs.
+
+Mark a type as a federated entity by adding a `_key` attribute — this tells the gateway which fields uniquely identify the entity. Use `_shareable` to allow multiple subgraphs to resolve the same field, and `_external` to reference fields owned by another subgraph.
+
+```hcl
+type "Product" {
+  _key       = ["sku"]
+  _shareable = true
+
+  sku   = string { required = true }
+  name  = string {}
+  price = number {}
+}
+
+# Entity resolution — how this subgraph resolves a Product reference from another subgraph
+flow "resolve_product" {
+  entity = "Product"
+  from   { connector = "api", operation = "Query.product" }
+  to     { connector = "db", operation = "find_by_sku" }
+}
+```
+
+When another subgraph references a `Product`, the gateway calls this service's `_entities` resolver with the key fields. Mycel handles entity resolution automatically: flows with an `entity` attribute register themselves as resolvers, and types with `_key` are auto-matched to flows by return type.
+
+See the [graphql-federation example](../examples/graphql-federation) for a complete multi-service setup.
 
 ---
 

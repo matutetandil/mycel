@@ -26,11 +26,12 @@ type SubscriptionManager struct {
 
 // wsClient represents a WebSocket client connection.
 type wsClient struct {
-	conn          *websocket.Conn
-	manager       *SubscriptionManager
-	subscriptions map[string]context.CancelFunc
-	mu            sync.Mutex
-	closed        bool
+	conn             *websocket.Conn
+	manager          *SubscriptionManager
+	subscriptions    map[string]context.CancelFunc
+	mu               sync.Mutex
+	closed           bool
+	connectionParams map[string]interface{} // Params from connection_init payload
 }
 
 // graphql-ws protocol message types
@@ -151,6 +152,13 @@ func (c *wsClient) readPump() {
 func (c *wsClient) handleMessage(msg *wsMessage) {
 	switch msg.Type {
 	case msgConnectionInit:
+		// Parse connection params (may contain auth tokens, user info, etc.)
+		if msg.Payload != nil {
+			var params map[string]interface{}
+			if err := json.Unmarshal(msg.Payload, &params); err == nil {
+				c.connectionParams = params
+			}
+		}
 		// Acknowledge connection
 		c.send(&wsMessage{Type: msgConnectionAck})
 
@@ -192,8 +200,12 @@ func (c *wsClient) handleSubscribe(msg *wsMessage) {
 		return
 	}
 
-	// Create cancellable context for this subscription
-	ctx, cancel := context.WithCancel(context.Background())
+	// Create cancellable context for this subscription, with connection params
+	ctx := context.Background()
+	if len(c.connectionParams) > 0 {
+		ctx = context.WithValue(ctx, contextKeyConnectionParams{}, c.connectionParams)
+	}
+	ctx, cancel := context.WithCancel(ctx)
 	c.subscriptions[msg.ID] = cancel
 	c.mu.Unlock()
 
@@ -327,25 +339,51 @@ func (c *wsClient) close() {
 	c.manager.logger.Debug("websocket client disconnected")
 }
 
+// contextKeyConnectionParams is the context key for WebSocket connection parameters.
+type contextKeyConnectionParams struct{}
+
+// ConnectionParamsFromContext extracts connection parameters from context.
+func ConnectionParamsFromContext(ctx context.Context) map[string]interface{} {
+	if params, ok := ctx.Value(contextKeyConnectionParams{}).(map[string]interface{}); ok {
+		return params
+	}
+	return nil
+}
+
+// filteredSubscriber wraps a channel with an optional filter function.
+type filteredSubscriber struct {
+	ch     chan interface{}
+	filter func(data interface{}) bool // nil means no filter (accept all)
+}
+
 // PubSub provides a simple publish/subscribe mechanism for subscriptions.
 type PubSub struct {
 	mu          sync.RWMutex
-	subscribers map[string][]chan interface{}
+	subscribers map[string][]*filteredSubscriber
 }
 
 // NewPubSub creates a new PubSub instance.
 func NewPubSub() *PubSub {
 	return &PubSub{
-		subscribers: make(map[string][]chan interface{}),
+		subscribers: make(map[string][]*filteredSubscriber),
 	}
 }
 
-// Subscribe creates a subscription to a topic.
+// Subscribe creates a subscription to a topic (no filter).
 func (p *PubSub) Subscribe(topic string) chan interface{} {
+	return p.SubscribeWithFilter(topic, nil)
+}
+
+// SubscribeWithFilter creates a subscription with an optional filter function.
+// If filter is nil, all messages are delivered. If filter returns false, the message is skipped.
+func (p *PubSub) SubscribeWithFilter(topic string, filter func(data interface{}) bool) chan interface{} {
 	ch := make(chan interface{}, 10)
 
 	p.mu.Lock()
-	p.subscribers[topic] = append(p.subscribers[topic], ch)
+	p.subscribers[topic] = append(p.subscribers[topic], &filteredSubscriber{
+		ch:     ch,
+		filter: filter,
+	})
 	p.mu.Unlock()
 
 	return ch
@@ -358,7 +396,7 @@ func (p *PubSub) Unsubscribe(topic string, ch chan interface{}) {
 
 	subs := p.subscribers[topic]
 	for i, sub := range subs {
-		if sub == ch {
+		if sub.ch == ch {
 			p.subscribers[topic] = append(subs[:i], subs[i+1:]...)
 			close(ch)
 			break
@@ -367,14 +405,20 @@ func (p *PubSub) Unsubscribe(topic string, ch chan interface{}) {
 }
 
 // Publish sends a message to all subscribers of a topic.
+// Messages are only delivered to subscribers whose filter (if any) returns true.
 func (p *PubSub) Publish(topic string, data interface{}) {
 	p.mu.RLock()
-	subs := p.subscribers[topic]
+	subs := make([]*filteredSubscriber, len(p.subscribers[topic]))
+	copy(subs, p.subscribers[topic])
 	p.mu.RUnlock()
 
-	for _, ch := range subs {
+	for _, sub := range subs {
+		// Apply filter if present
+		if sub.filter != nil && !sub.filter(data) {
+			continue
+		}
 		select {
-		case ch <- data:
+		case sub.ch <- data:
 		default:
 			// Channel full, skip
 		}

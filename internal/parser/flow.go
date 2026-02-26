@@ -27,6 +27,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			{Name: "returns"}, // GraphQL return type for HCL-first mode
 			{Name: "cache"},   // Reference to named cache (cache.name)
 			{Name: "when"},    // Flow trigger schedule
+			{Name: "entity"},  // Federation entity resolver type name
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "from"},
@@ -74,6 +75,14 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
 			config.When = val.AsString()
+		}
+	}
+
+	// Parse entity attribute (Federation entity resolver)
+	if attr, ok := content.Attributes["entity"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			config.Entity = val.AsString()
 		}
 	}
 

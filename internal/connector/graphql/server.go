@@ -242,6 +242,9 @@ func (c *ServerConnector) Start(ctx context.Context) error {
 	// Initialize subscription manager if subscriptions are configured
 	if c.config.Subscriptions != nil && c.config.Subscriptions.Enabled {
 		c.subscriptionManager = NewSubscriptionManager(c.schema, c.logger)
+		// Share PubSub between SchemaBuilder (for Subscribe resolvers) and
+		// SubscriptionManager (for WebSocket client delivery)
+		c.subscriptionManager.pubsub = c.schemaBuilder.GetPubSub()
 		c.logger.Info("initialized GraphQL subscription manager",
 			"connector", c.name,
 		)
@@ -418,12 +421,52 @@ func (c *ServerConnector) Port() int {
 	return c.config.Port
 }
 
+// RegisterSubscription registers a subscription field in the GraphQL schema.
+// The field name becomes the PubSub topic. When data is published to this topic,
+// all WebSocket subscribers receive the event.
+func (c *ServerConnector) RegisterSubscription(fieldName string, returnType string) {
+	c.RegisterSubscriptionWithFilter(fieldName, returnType, "")
+}
+
+// RegisterSubscriptionWithFilter registers a subscription field with an optional CEL filter.
+// The filter expression is evaluated for each subscriber. If it returns false, the message is skipped.
+// Available variables in the filter: input (published data), context.auth (subscriber's connection params).
+func (c *ServerConnector) RegisterSubscriptionWithFilter(fieldName string, returnType string, filter string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Use a no-op handler — the subscription resolver uses PubSub internally
+	handler := func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return input, nil
+	}
+
+	operation := "Subscription." + fieldName
+	if err := c.schemaBuilder.RegisterHandlerWithArgs(operation, handler, returnType, nil); err != nil {
+		c.logger.Error("failed to register subscription",
+			"field", fieldName,
+			"error", err,
+		)
+		return
+	}
+
+	// Set filter if provided
+	if filter != "" {
+		c.schemaBuilder.SetSubscriptionFilter(fieldName, filter)
+	}
+
+	c.logger.Debug("registered GraphQL subscription",
+		"field", fieldName,
+		"returnType", returnType,
+		"filter", filter,
+		"connector", c.name,
+	)
+}
+
 // Publish sends data to all subscribers of a topic.
 // Use this from flows to trigger subscription updates.
 func (c *ServerConnector) Publish(topic string, data interface{}) {
-	if c.subscriptionManager != nil {
-		c.subscriptionManager.Broadcast(topic, data)
-	}
+	// Publish via PubSub (shared with subscription resolvers and WebSocket manager)
+	c.schemaBuilder.GetPubSub().Publish(topic, data)
 }
 
 // GetSubscriptionManager returns the subscription manager for advanced usage.

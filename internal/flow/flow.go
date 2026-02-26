@@ -139,6 +139,11 @@ type Config struct {
 
 	// Dedupe defines deduplication behavior for the flow.
 	Dedupe *DedupeConfig
+
+	// Entity marks this flow as a federated entity resolver.
+	// The value is the entity type name (e.g., "Product").
+	// When set, this flow resolves _entities queries for the given type.
+	Entity string
 }
 
 // StepConfig defines an intermediate connector call within a flow.
