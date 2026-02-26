@@ -70,18 +70,30 @@ That's it. REST API + database, zero code.
 | SQLite / PostgreSQL / MySQL | ✅ | [examples/basic](examples/basic) |
 | MongoDB | ✅ | [examples/mongodb](examples/mongodb) |
 | GraphQL Server & Client | ✅ | [examples/graphql](examples/graphql) |
+| GraphQL Query Optimization | ✅ | [examples/graphql-optimization](examples/graphql-optimization) |
 | gRPC Server & Client | ✅ | [examples/grpc](examples/grpc) |
+| gRPC Load Balancing | ✅ | [examples/grpc-loadbalancing](examples/grpc-loadbalancing) |
 | RabbitMQ / Kafka | ✅ | [examples/mq](examples/mq) |
 | TCP Server & Client | ✅ | [examples/tcp](examples/tcp) |
 | Files (local) / S3 | ✅ | [examples/files](examples/files) |
 | Cache (Memory / Redis) | ✅ | [examples/cache](examples/cache) |
 | Multi-step Flow Orchestration | ✅ | [examples/steps](examples/steps) |
+| Named Operations | ✅ | [examples/named-operations](examples/named-operations) |
+| Data Enrichment | ✅ | [examples/enrich](examples/enrich) |
 | Auth (JWT, MFA, WebAuthn) | ✅ | [examples/auth](examples/auth) |
 | Rate Limiting / Circuit Breaker | ✅ | [examples/rate-limit](examples/rate-limit) |
+| Connector Profiles | ✅ | [examples/profiles](examples/profiles) |
+| Read Replicas | ✅ | [examples/read-replicas](examples/read-replicas) |
+| Synchronization (Locks, Semaphores) | ✅ | [examples/sync](examples/sync) |
+| Notifications (Email, Slack, SMS) | ✅ | [examples/notifications](examples/notifications) |
+| Aspects (AOP) | ✅ | [examples/aspects](examples/aspects) |
+| Validators (Regex, CEL) | ✅ | [examples/validators](examples/validators) |
+| WASM (Functions, Validators) | ✅ | [examples/wasm-functions](examples/wasm-functions) |
+| Mocks | ✅ | [examples/mocks](examples/mocks) |
+| Plugins | ✅ | [examples/plugin](examples/plugin) |
+| Exec (Shell Commands) | ✅ | [examples/exec](examples/exec) |
 | Hot Reload | ✅ | - |
 | Health Checks / Prometheus | ✅ | `/health`, `/metrics` |
-| Notifications (Email, Slack, SMS) | ✅ | [examples/notifications](examples/notifications) |
-| GraphQL Query Optimization | ✅ | [examples/graphql-optimization](examples/graphql-optimization) |
 
 ## CLI
 
@@ -115,6 +127,14 @@ See [helm/mycel/README.md](helm/mycel/README.md) for full Helm documentation inc
 
 **Requirements:** Docker (recommended) or Go 1.24+ (for building from source).
 
+## Documentation
+
+- **[Concepts](docs/CONCEPTS.md)** - What is a connector, flow, transform, and more
+- **[Configuration Reference](docs/CONFIGURATION.md)** - Complete HCL syntax reference
+- **[Integration Patterns](docs/integration-patterns.md)** - Common use cases
+- **[Transformations](docs/transformations.md)** - CEL transformation guide
+- **[Roadmap](docs/ROADMAP.md)** - Project status and future plans
+
 ## Examples
 
 | Example | Description |
@@ -123,40 +143,32 @@ See [helm/mycel/README.md](helm/mycel/README.md) for full Helm documentation inc
 | [graphql](examples/graphql) | GraphQL server with schema |
 | [graphql-optimization](examples/graphql-optimization) | Field selection, step skipping, DataLoader |
 | [grpc](examples/grpc) | gRPC server and client |
+| [grpc-loadbalancing](examples/grpc-loadbalancing) | gRPC load balancing |
 | [mq](examples/mq) | RabbitMQ and Kafka |
 | [tcp](examples/tcp) | TCP server with protocols |
 | [cache](examples/cache) | Memory and Redis caching |
+| [redis-cluster](examples/redis-cluster) | Redis cluster configuration |
 | [files](examples/files) | Local file operations |
 | [s3](examples/s3) | AWS S3 / MinIO |
-| [rate-limit](examples/rate-limit) | Rate limiting configuration |
-| [enrich](examples/enrich) | Data enrichment from services |
 | [mongodb](examples/mongodb) | MongoDB NoSQL operations |
-| [exec](examples/exec) | Execute shell commands |
 | [steps](examples/steps) | Multi-step flow orchestration |
 | [named-operations](examples/named-operations) | Reusable named operations |
-| [auth](examples/auth) | JWT authentication and MFA |
-| [notifications](examples/notifications) | Email, Slack, SMS notifications |
-| [aspects](examples/aspects) | Cross-cutting concerns (AOP) |
-| [dynamic-api-key](examples/dynamic-api-key) | Dynamic API key authentication |
-| [grpc-loadbalancing](examples/grpc-loadbalancing) | gRPC load balancing |
+| [enrich](examples/enrich) | Data enrichment from services |
 | [integration](examples/integration) | Integration patterns |
-| [mocks](examples/mocks) | Mock data for testing |
-| [plugin](examples/plugin) | Plugin system |
+| [auth](examples/auth) | JWT authentication and MFA |
+| [dynamic-api-key](examples/dynamic-api-key) | Dynamic API key authentication |
+| [rate-limit](examples/rate-limit) | Rate limiting configuration |
 | [profiles](examples/profiles) | Connector profiles with fallback |
 | [read-replicas](examples/read-replicas) | Database read replicas |
-| [redis-cluster](examples/redis-cluster) | Redis cluster configuration |
 | [sync](examples/sync) | Locks, semaphores, coordination |
+| [notifications](examples/notifications) | Email, Slack, SMS notifications |
+| [aspects](examples/aspects) | Cross-cutting concerns (AOP) |
 | [validators](examples/validators) | Custom validators (regex, CEL) |
 | [wasm-functions](examples/wasm-functions) | WASM custom functions |
 | [wasm-validator](examples/wasm-validator) | WASM validators |
-
-## Documentation
-
-- **[Concepts](docs/CONCEPTS.md)** - What is a connector, flow, transform, and more
-- **[Configuration Reference](docs/CONFIGURATION.md)** - Complete HCL syntax reference
-- **[Integration Patterns](docs/integration-patterns.md)** - Common use cases
-- **[Transformations](docs/transformations.md)** - CEL transformation guide
-- **[Roadmap](docs/ROADMAP.md)** - Project status and future plans
+| [mocks](examples/mocks) | Mock data for testing |
+| [plugin](examples/plugin) | Plugin system |
+| [exec](examples/exec) | Execute shell commands |
 
 ## Support
 
