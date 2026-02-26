@@ -5,6 +5,7 @@ This guide explains what each Mycel concept is, why it exists, and when to use i
 ## Table of Contents
 
 - [The Mycel Model](#the-mycel-model)
+- [Service](#service)
 - [Connectors](#connectors)
 - [Flows](#flows)
 - [Transforms](#transforms)
@@ -20,7 +21,6 @@ This guide explains what each Mycel concept is, why it exists, and when to use i
 - [Synchronization](#synchronization)
 - [Environments](#environments)
 - [Scheduled Jobs](#scheduled-jobs)
-- [Service](#service)
 - [Configuration Structure](#configuration-structure)
 
 ---
@@ -36,6 +36,23 @@ Connector (source) ──→ Flow ──→ Connector (target)
 ```
 
 On top of this, you can add transforms (reshape data), types (validate schemas), steps (multi-step orchestration), auth, aspects, and more. But every feature ultimately serves the same pattern: data enters through a connector, optionally gets transformed, and exits through another connector.
+
+---
+
+## Service
+
+Every Mycel project starts with a `service` block — typically in `config.hcl` at the root of your project. It identifies your microservice with a name and version. These appear in startup logs, the `/health` endpoint, and Prometheus metrics, so you always know exactly what's running in each environment.
+
+```hcl
+service {
+  name    = "orders-api"
+  version = "2.1.0"
+}
+```
+
+Without a `service` block, Mycel falls back to defaults (`mycel-service` / `0.0.0`), but you should always define it explicitly. The `service` block also supports global [rate limiting](CONFIGURATION.md#service-configuration).
+
+See [Configuration Reference — Service Configuration](CONFIGURATION.md#service-configuration) for full syntax.
 
 ---
 
@@ -421,23 +438,6 @@ flow "health_ping" {
 Shortcuts: `@hourly`, `@daily`, `@weekly`, `@monthly`. Combine with `lock` to prevent duplicate execution across instances.
 
 See [Configuration Reference — Flow Triggers](CONFIGURATION.md#flow-triggers-when) for full syntax.
-
----
-
-## Service
-
-Every Mycel project needs a `service` block that identifies the microservice. This is typically in `config.hcl` at the root of your project. The name and version appear in startup logs, the `/health` endpoint, and Prometheus metrics — making it easy to know exactly what's running in each environment.
-
-```hcl
-service {
-  name    = "orders-api"
-  version = "2.1.0"
-}
-```
-
-Without a `service` block, Mycel uses defaults (`mycel-service` / `0.0.0`), but you should always define it explicitly. The `service` block also supports global [rate limiting](CONFIGURATION.md#service-configuration).
-
-See [Configuration Reference — Service Configuration](CONFIGURATION.md#service-configuration) for full syntax.
 
 ---
 
