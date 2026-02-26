@@ -136,6 +136,19 @@ See [helm/mycel/README.md](helm/mycel/README.md) for full Helm documentation inc
 | [named-operations](examples/named-operations) | Reusable named operations |
 | [auth](examples/auth) | JWT authentication and MFA |
 | [notifications](examples/notifications) | Email, Slack, SMS notifications |
+| [aspects](examples/aspects) | Cross-cutting concerns (AOP) |
+| [dynamic-api-key](examples/dynamic-api-key) | Dynamic API key authentication |
+| [grpc-loadbalancing](examples/grpc-loadbalancing) | gRPC load balancing |
+| [integration](examples/integration) | Integration patterns |
+| [mocks](examples/mocks) | Mock data for testing |
+| [plugin](examples/plugin) | Plugin system |
+| [profiles](examples/profiles) | Connector profiles with fallback |
+| [read-replicas](examples/read-replicas) | Database read replicas |
+| [redis-cluster](examples/redis-cluster) | Redis cluster configuration |
+| [sync](examples/sync) | Locks, semaphores, coordination |
+| [validators](examples/validators) | Custom validators (regex, CEL) |
+| [wasm-functions](examples/wasm-functions) | WASM custom functions |
+| [wasm-validator](examples/wasm-validator) | WASM validators |
 
 ## Documentation
 
