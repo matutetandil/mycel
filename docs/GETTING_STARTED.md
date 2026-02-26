@@ -28,12 +28,12 @@ cd my-first-service
 
 Create three files:
 
-### `service.hcl` - Service configuration
+### `config.hcl` - Service identity
 
 ```hcl
 service {
-  name = "my-first-api"
-  port = 3000
+  name    = "my-first-api"
+  version = "1.0.0"
 }
 ```
 
@@ -59,39 +59,20 @@ connector "db" {
 ```hcl
 # List all items
 flow "list_items" {
-  from {
-    connector = "api"
-    path      = "GET /items"
-  }
-  to {
-    connector = "db"
-    table     = "items"
-  }
+  from { connector = "api", operation = "GET /items" }
+  to   { connector = "db", target = "items" }
 }
 
 # Create an item
 flow "create_item" {
-  from {
-    connector = "api"
-    path      = "POST /items"
-  }
-  to {
-    connector = "db"
-    table     = "items"
-    operation = "insert"
-  }
+  from { connector = "api", operation = "POST /items" }
+  to   { connector = "db", target = "INSERT items" }
 }
 
 # Get single item
 flow "get_item" {
-  from {
-    connector = "api"
-    path      = "GET /items/:id"
-  }
-  to {
-    connector = "db"
-    table     = "items"
-  }
+  from { connector = "api", operation = "GET /items/:id" }
+  to   { connector = "db", target = "items WHERE id = :id" }
 }
 ```
 
@@ -176,23 +157,16 @@ Let's add automatic timestamps and UUID generation. Update your `flows.hcl`:
 
 ```hcl
 flow "create_item" {
-  from {
-    connector = "api"
-    path      = "POST /items"
-  }
-  to {
-    connector = "db"
-    table     = "items"
-    operation = "insert"
-  }
+  from { connector = "api", operation = "POST /items" }
 
-  # Transform data before saving
   transform {
     id          = "uuid()"
     name        = "input.name"
     description = "input.description"
     created_at  = "now()"
   }
+
+  to { connector = "db", target = "INSERT items" }
 }
 ```
 
@@ -231,18 +205,9 @@ Update your flow to use validation:
 
 ```hcl
 flow "create_item" {
-  from {
-    connector = "api"
-    path      = "POST /items"
-  }
+  from { connector = "api", operation = "POST /items" }
 
   input_type = "item_input"  # Validate input
-
-  to {
-    connector = "db"
-    table     = "items"
-    operation = "insert"
-  }
 
   transform {
     id          = "uuid()"
@@ -250,6 +215,8 @@ flow "create_item" {
     description = "input.description ?? ''"
     created_at  = "now()"
   }
+
+  to { connector = "db", target = "INSERT items" }
 }
 ```
 
@@ -393,7 +360,7 @@ A typical Mycel service:
 
 ```
 my-service/
-├── service.hcl      # Service name, port, global settings
+├── config.hcl       # Service name, version, global settings
 ├── connectors.hcl   # Database, API, queue connections
 ├── flows.hcl        # Data flow definitions
 ├── types.hcl        # Input/output validation

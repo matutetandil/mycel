@@ -26,6 +26,14 @@ That's the whole model. Everything else is configuration. Learn more in [Concept
 
 ## Quick Start
 
+**`config.hcl`** - Name and version your service:
+```hcl
+service {
+  name    = "users-api"
+  version = "1.0.0"
+}
+```
+
 **`connectors.hcl`** - Define your data sources:
 ```hcl
 connector "api" {

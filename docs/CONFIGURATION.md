@@ -31,7 +31,7 @@ Complete HCL configuration reference for Mycel.
 
 ## Service Configuration
 
-Global service settings in `config.hcl`:
+Every Mycel project should have a `service` block in `config.hcl`. The `name` and `version` are exposed in health checks, Prometheus metrics, and startup logs.
 
 ```hcl
 service {
