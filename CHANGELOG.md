@@ -20,6 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tests**: 12 tests covering connect, message handling, broadcast, rooms, disconnect cleanup, factory, error cases
 - **New example**: `examples/websocket/` — chat + broadcast + room notifications
 
+### Added - Phase 10.2: CDC (Change Data Capture)
+- **PostgreSQL CDC connector** for real-time database change streaming via logical replication
+  - Uses `pgoutput` plugin (built into PostgreSQL 10+) via `jackc/pglogrepl`
+  - Automatic publication and replication slot creation
+  - Decodes WAL messages into structured events with `input.new` and `input.old` row data
+  - Standby status updates and keepalive handling for stable replication connections
+- **Operation format**: `TRIGGER:TABLE` — `INSERT:users`, `UPDATE:orders`, `DELETE:sessions`
+- **Wildcard matching**: `*:users` (any trigger), `INSERT:*` (any table), `*:*` (all changes)
+- **Column type decoding**: int, float, bool, timestamp, text from pgoutput text format
+- **New connector type**: `cdc` with `driver`, `host`, `port`, `database`, `user`, `password`, `slot_name`, `publication` configuration
+- **Tests**: 15 tests covering factory, dispatch, wildcards, event format, health, operation parsing
+- **New example**: `examples/cdc/` — user creation, order status changes, session cleanup, product monitoring
+- **New dependencies**: `jackc/pglogrepl`, `jackc/pgx/v5` (pure Go, no CGO)
+
 ### Added - GraphQL Subscription Client
 - **Client-side GraphQL subscriptions** — Mycel can subscribe to external GraphQL servers
   - `ClientConnector` implements `Starter` and `RouteRegistrar` interfaces

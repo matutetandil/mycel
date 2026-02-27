@@ -318,6 +318,45 @@ See the [websocket example](../examples/websocket) for a complete setup.
 
 ---
 
+## CDC (Change Data Capture)
+
+CDC streams database changes in real-time via logical replication. Instead of polling, Mycel connects as a replication client and receives INSERT, UPDATE, and DELETE events the moment they happen. Use it for event sourcing, audit trails, cache invalidation, or cross-service synchronization.
+
+```hcl
+connector "pg_cdc" {
+  type   = "cdc"
+  driver = "postgres"
+
+  host        = "localhost"
+  port        = 5432
+  database    = "myapp"
+  user        = "replication_user"
+  password    = env("DB_PASSWORD")
+  slot_name   = "mycel_slot"
+  publication = "mycel_pub"
+}
+
+flow "on_user_created" {
+  from {
+    connector = "pg_cdc"
+    operation = "INSERT:users"
+  }
+  transform {
+    output.event = "'user.created'"
+    output.data  = "input.new"
+  }
+  to { connector = "events_db", target = "events" }
+}
+```
+
+Operations use `TRIGGER:TABLE` format: `INSERT:users`, `UPDATE:orders`, `DELETE:sessions`, `*:products` (any trigger), `INSERT:*` (any table), or `*:*` (everything). The flow handler receives `input.trigger`, `input.table`, `input.schema`, `input.new` (new row for INSERT/UPDATE), `input.old` (old row for UPDATE/DELETE), and `input.timestamp`.
+
+PostgreSQL requires `wal_level = logical` and a user with `REPLICATION` privilege. Mycel auto-creates the publication and replication slot if they don't exist. The connector uses the `pgoutput` plugin built into PostgreSQL 10+.
+
+See the [cdc example](../examples/cdc) for a complete setup.
+
+---
+
 ## Federation
 
 Every Mycel GraphQL server is automatically federation-ready. It exposes `_service { sdl }` so gateways like Apollo Router or Cosmo Router can discover the schema, queries, mutations, subscriptions, and types — no configuration needed. You can point a gateway at any Mycel GraphQL endpoint and it works.
