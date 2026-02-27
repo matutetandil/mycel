@@ -61,35 +61,57 @@ helm uninstall my-mycel
 
 ## Configuration
 
-### Using Your HCL Files
+Mycel on Kubernetes works exactly like Mycel locally: the same `.hcl` files define your service. The Helm chart takes care of packaging them into a Kubernetes ConfigMap and mounting them at `/etc/mycel` so the Mycel binary can read them.
 
-If you already have `.hcl` configuration files (from local development, for example), you can load them directly with `--set-file` — no need to copy-paste into `values.yaml`:
+There are three ways to provide your HCL configuration, from simplest to most flexible.
+
+### Option 1: Load Your HCL Files Directly (Recommended)
+
+If you already have a working Mycel project with `.hcl` files, deploy them as-is using `--set-file`. No copy-pasting needed.
+
+**Example:** given a typical project structure:
+
+```
+my-service/
+├── config.hcl          # service block
+├── connectors/
+│   ├── api.hcl         # REST connector
+│   └── database.hcl    # PostgreSQL connector
+├── flows/
+│   └── users.hcl       # flow definitions
+└── types/
+    └── user.hcl        # type schemas
+```
+
+Deploy with:
 
 ```bash
-helm install my-api ./helm/mycel \
+# Each --set-file maps a Helm value to a local file.
+# The chart creates a ConfigMap with these contents automatically.
+helm install my-service ./helm/mycel \
   --set-file mycel.config.service=config.hcl \
-  --set-file mycel.config.connectors=connectors.hcl \
-  --set-file mycel.config.flows=flows.hcl \
-  --set-file mycel.config.types=types.hcl
+  --set-file mycel.config.connectors=connectors/api.hcl \
+  --set-file "mycel.config.extra.database\.hcl=connectors/database.hcl" \
+  --set-file mycel.config.flows=flows/users.hcl \
+  --set-file mycel.config.types=types/user.hcl
 ```
 
-This keeps the same files you use during development, deployed unchanged into Kubernetes.
+> **Note:** `mycel.config.service`, `connectors`, `flows`, and `types` are convenience keys that map to `service.hcl`, `connectors.hcl`, `flows.hcl`, and `types.hcl` inside the ConfigMap. For additional files, use `mycel.config.extra` with the desired filename as key.
 
-### Using an Existing ConfigMap
+You can combine `--set-file` with regular `--set` flags for infrastructure settings:
 
-If you manage your Mycel configuration in a ConfigMap outside of this chart (e.g., via GitOps or a CI pipeline), point the chart at it:
-
-```yaml
-mycel:
-  config:
-    existingConfigMap: "my-mycel-config"
+```bash
+helm install my-service ./helm/mycel \
+  --set-file mycel.config.service=config.hcl \
+  --set-file mycel.config.connectors=connectors/api.hcl \
+  --set-file mycel.config.flows=flows/users.hcl \
+  --set replicaCount=3 \
+  --set mycel.env=production
 ```
 
-When `existingConfigMap` is set, the chart skips creating its own ConfigMap and mounts the one you specified. The ConfigMap must contain keys like `service.hcl`, `connectors.hcl`, etc.
+### Option 2: Inline HCL in values.yaml
 
-### Basic Inline Configuration
-
-Create a `values.yaml` file:
+Write the HCL content directly inside your `values.yaml`. Good for small services or when you want everything in a single file.
 
 ```yaml
 replicaCount: 2
@@ -97,7 +119,6 @@ replicaCount: 2
 mycel:
   env: production
   logLevel: info
-  logFormat: json
 
   config:
     service: |
@@ -113,12 +134,12 @@ mycel:
       }
 
       connector "db" {
-        type   = "database"
-        driver = "postgres"
-        host   = env("DB_HOST", "localhost")
-        port   = 5432
-        name   = env("DB_NAME", "mydb")
-        user   = env("DB_USER", "postgres")
+        type     = "database"
+        driver   = "postgres"
+        host     = env("DB_HOST", "localhost")
+        port     = 5432
+        name     = env("DB_NAME", "mydb")
+        user     = env("DB_USER", "postgres")
         password = env("DB_PASSWORD", "")
       }
 
@@ -126,11 +147,11 @@ mycel:
       flow "get_users" {
         from {
           connector = "api"
-          path      = "GET /users"
+          operation = "GET /users"
         }
         to {
           connector = "db"
-          table     = "users"
+          target    = "users"
         }
       }
 
@@ -140,7 +161,31 @@ mycel:
       DB_PASSWORD: "my-secret-password"
 ```
 
-### Full Example with All Features
+### Option 3: Use an Existing ConfigMap
+
+If you manage your own ConfigMap outside of this chart (e.g., via GitOps, Kustomize, or a CI pipeline), tell the chart to use it instead of creating one:
+
+```yaml
+mycel:
+  config:
+    existingConfigMap: "my-mycel-config"
+```
+
+The chart will skip creating its own ConfigMap and mount yours at `/etc/mycel`. Your ConfigMap must contain keys matching HCL filenames (e.g., `service.hcl`, `connectors.hcl`).
+
+Create it from your project directory:
+
+```bash
+kubectl create configmap my-mycel-config \
+  --from-file=service.hcl=config.hcl \
+  --from-file=connectors.hcl=connectors/api.hcl \
+  --from-file=flows.hcl=flows/users.hcl
+
+helm install my-service ./helm/mycel \
+  --set mycel.config.existingConfigMap=my-mycel-config
+```
+
+### Full Production Example
 
 ```yaml
 replicaCount: 3
@@ -148,10 +193,6 @@ replicaCount: 3
 image:
   repository: mdenda/mycel
   tag: "1.0.0"
-
-service:
-  type: ClusterIP
-  port: 8080
 
 ingress:
   enabled: true
@@ -193,7 +234,7 @@ mycel:
         name = "production-api"
         port = 8080
       }
-    # ... more configuration
+    # ... connectors, flows, types
 
   secrets:
     enabled: true
@@ -327,6 +368,16 @@ podDisruptionBudget:
 
 ```bash
 helm install mycel ./helm/mycel
+```
+
+### Deploy from Existing HCL Files
+
+```bash
+helm install mycel ./helm/mycel \
+  --set-file mycel.config.service=config.hcl \
+  --set-file mycel.config.connectors=connectors/api.hcl \
+  --set-file mycel.config.flows=flows/users.hcl \
+  --set mycel.env=production
 ```
 
 ### Production Setup
