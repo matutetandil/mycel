@@ -18,11 +18,6 @@ flow "notify_room" {
     operation = "POST /notify/:room"
   }
 
-  transform {
-    output.room    = input.params.room
-    output.message = input.body.message
-  }
-
   to {
     connector = "events"
     operation = "send_to_room"
@@ -30,6 +25,16 @@ flow "notify_room" {
   }
 }
 
-# Clients connect to /events?room=orders to receive order updates
-# Clients connect to /events?rooms=orders,inventory for multiple rooms
-# Clients connect to /events?user_id=123 for per-user targeting
+# Send to a specific user
+flow "notify_user" {
+  from {
+    connector = "api"
+    operation = "POST /notify/user/:user_id"
+  }
+
+  to {
+    connector = "events"
+    operation = "send_to_user"
+    target    = "input.params.user_id"
+  }
+}

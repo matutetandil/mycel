@@ -281,8 +281,6 @@ See the [graphql-federation example](../examples/graphql-federation) for full pa
 
 The WebSocket connector provides standalone bidirectional real-time communication, independent of GraphQL. Use it for live dashboards, chat, notifications, IoT data streams, or any scenario where you need persistent connections with push capabilities.
 
-A WebSocket connector is bidirectional: as a **source**, it receives messages from connected clients and triggers flows; as a **target**, it sends data to clients via broadcast, room-based, or per-user delivery.
-
 ```hcl
 connector "ws" {
   type = "websocket"
@@ -312,9 +310,9 @@ flow "room_notification" {
 }
 ```
 
-Clients use a simple JSON protocol: `{"type": "message", "data": {...}}` to send messages, `{"type": "join_room", "room": "orders"}` to join a room, and `{"type": "leave_room", "room": "orders"}` to leave. The server sends `{"type": "message", "data": {...}}` for data and `{"type": "error", "message": "..."}` for errors.
+Clients use a JSON protocol: `{"type": "message", "data": {...}}` to send messages, `{"type": "join_room", "room": "orders"}` to join a room, and `{"type": "leave_room", "room": "orders"}` to leave. The server sends `{"type": "message", "data": {...}}` for data and `{"type": "error", "message": "..."}` for errors.
 
-Target operations: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user). Source operations: `message`, `connect`, `disconnect`.
+Source operations: `message`, `connect`, `disconnect`. Target operations: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user).
 
 See the [websocket example](../examples/websocket) for a complete setup.
 
@@ -338,22 +336,37 @@ connector "pg_cdc" {
   publication = "mycel_pub"
 }
 
+# React to new user inserts
 flow "on_user_created" {
-  from {
-    connector = "pg_cdc"
-    operation = "INSERT:users"
-  }
+  from { connector = "pg_cdc", operation = "INSERT:users" }
   transform {
     output.event = "'user.created'"
     output.data  = "input.new"
   }
   to { connector = "events_db", target = "events" }
 }
+
+# Track order status changes
+flow "on_order_updated" {
+  from { connector = "pg_cdc", operation = "UPDATE:orders" }
+  transform {
+    output.event   = "'order.updated'"
+    output.before  = "input.old"
+    output.after   = "input.new"
+  }
+  to { connector = "rabbit", operation = "PUBLISH", target = "order.events" }
+}
+
+# Monitor all changes on a table
+flow "audit_products" {
+  from { connector = "pg_cdc", operation = "*:products" }
+  to   { connector = "audit_db", target = "change_log" }
+}
 ```
 
 Operations use `TRIGGER:TABLE` format: `INSERT:users`, `UPDATE:orders`, `DELETE:sessions`, `*:products` (any trigger), `INSERT:*` (any table), or `*:*` (everything). The flow handler receives `input.trigger`, `input.table`, `input.schema`, `input.new` (new row for INSERT/UPDATE), `input.old` (old row for UPDATE/DELETE), and `input.timestamp`.
 
-PostgreSQL requires `wal_level = logical` and a user with `REPLICATION` privilege. Mycel auto-creates the publication and replication slot if they don't exist. The connector uses the `pgoutput` plugin built into PostgreSQL 10+.
+Source operations: `INSERT:table`, `UPDATE:table`, `DELETE:table`, with wildcard support (`*`). Target operations: none (source-only connector). PostgreSQL requires `wal_level = logical` and a user with `REPLICATION` privilege.
 
 See the [cdc example](../examples/cdc) for a complete setup.
 
@@ -362,8 +375,6 @@ See the [cdc example](../examples/cdc) for a complete setup.
 ## SSE (Server-Sent Events)
 
 SSE delivers a unidirectional push stream from server to clients over standard HTTP. Clients open a `GET` request and receive a continuous `text/event-stream` response — no WebSocket handshake, no custom protocol, just plain HTTP that works through proxies and firewalls. Use it for live feeds, progress tracking, notification banners, or any scenario where the server pushes updates and clients only need to listen.
-
-Unlike WebSockets, SSE connections are read-only for clients. For bidirectional communication use the [WebSocket connector](#websockets) instead.
 
 ```hcl
 connector "sse" {
@@ -378,7 +389,7 @@ connector "sse" {
   }
 }
 
-# Push queue messages to all connected clients
+# Broadcast to all connected clients
 flow "live_feed" {
   from { connector = "rabbit", operation = "feed.item" }
   to   { connector = "sse", operation = "broadcast" }
@@ -397,16 +408,9 @@ flow "user_notification" {
 }
 ```
 
-Clients connect with a standard `EventSource`:
+Clients connect via `GET /events` with optional query parameters: `?room=orders` to join a room, `?rooms=orders,inventory` for multiple rooms, or `?user_id=42` for per-user targeting. The connector sends periodic heartbeat comments (`: keepalive`) to keep connections alive through proxies.
 
-```javascript
-const es = new EventSource("http://localhost:3002/events");
-es.onmessage = (e) => console.log(JSON.parse(e.data));
-```
-
-To subscribe to a room or target a user, pass query parameters on connect: `GET /events?room=orders`, `GET /events?rooms=orders,inventory`, or `GET /events?user_id=42`. The connector sends periodic heartbeat comments (`:\n\n`) to keep the connection alive through proxies.
-
-Target operations: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user by `user_id` query param).
+Source operations: none (target-only connector). Target operations: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user).
 
 See the [sse example](../examples/sse) for a complete setup.
 

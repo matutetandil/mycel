@@ -104,9 +104,9 @@ That's it. REST API + database, zero code.
 | [gRPC Server & Client](examples/grpc) | Protocol Buffers based RPC |
 | [gRPC Load Balancing](examples/grpc-loadbalancing) | Round-robin and weighted balancing |
 | [RabbitMQ / Kafka](examples/mq) | Message queue producers and consumers |
-| [WebSocket](examples/websocket) | Bidirectional real-time communication with rooms ([concept](docs/CONCEPTS.md#websockets)) |
-| [CDC (Change Data Capture)](examples/cdc) | Stream PostgreSQL changes in real-time via logical replication ([concept](docs/CONCEPTS.md#cdc-change-data-capture)) |
-| [SSE (Server-Sent Events)](examples/sse) | Unidirectional HTTP push stream to clients with rooms and heartbeat ([concept](docs/CONCEPTS.md#sse-server-sent-events)) |
+| [WebSocket](examples/websocket) | Bidirectional real-time communication with rooms and per-user targeting ([concept](docs/CONCEPTS.md#websockets)) |
+| [CDC (Change Data Capture)](examples/cdc) | Real-time database change streaming with wildcard matching ([concept](docs/CONCEPTS.md#cdc-change-data-capture)) |
+| [SSE (Server-Sent Events)](examples/sse) | Unidirectional HTTP push with rooms and per-user targeting ([concept](docs/CONCEPTS.md#sse-server-sent-events)) |
 | [TCP Server & Client](examples/tcp) | JSON, msgpack, and NestJS protocols |
 | [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
 | [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching |

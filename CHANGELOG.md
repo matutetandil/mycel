@@ -7,48 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added - Phase 10.3: SSE (Server-Sent Events)
-- **SSE connector** for unidirectional server-to-client HTTP push streams
-  - Delivers events over standard HTTP `text/event-stream` — no WebSocket handshake required
-  - Works through proxies, firewalls, and CDNs that block WebSockets
-  - Automatic client reconnection handled by the browser's native `EventSource` API
-  - Thread-safe client registry and room membership
-  - Implements `Connector`, `Writer`, `Starter`, and `RouteRegistrar` interfaces
-- **Target operations**: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user by `user_id` query param)
-- **Room and user targeting via query params**: clients connect with `GET /events?room=orders`, `GET /events?rooms=orders,inventory`, or `GET /events?user_id=42`
-- **Auto-heartbeat**: configurable `heartbeat_interval` sends periodic SSE comment frames (`:\n\n`) to keep connections alive through proxies
-- **CORS support**: `cors { allowed_origins = [...] }` block for cross-origin browser clients
-- **New connector type**: `sse` with `port`, `host`, `path`, `heartbeat_interval`, `cors` configuration
-- **Tests**: 18 tests covering factory, connect, broadcast, rooms, disconnect cleanup, heartbeat, event format, health, CORS, user targeting
-- **New example**: `examples/sse/` — live feed, room updates, and per-user notifications
-
-
 ### Added - Phase 10.1: WebSocket Connector
 - **Standalone WebSocket connector** for bidirectional real-time communication
-  - **Source operations**: `message`, `connect`, `disconnect` — receive client events as flow triggers
-  - **Target operations**: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user)
-  - Room management: clients join/leave rooms via JSON protocol (`join_room`, `leave_room`)
-  - Configurable keepalive: `ping_interval` and `pong_timeout` settings
+  - Source operations: `message`, `connect`, `disconnect` — receive client events as flow triggers
+  - Target operations: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user)
+  - Room management via JSON protocol (`join_room`, `leave_room`)
+  - Configurable keepalive: `ping_interval` and `pong_timeout`
   - Thread-safe client tracking and room membership
   - Implements `Connector`, `Writer`, `Starter`, and `RouteRegistrar` interfaces
-- **JSON message protocol**: `{"type": "message", "data": {...}}`, `{"type": "join_room", "room": "..."}`, `{"type": "leave_room", "room": "..."}`
 - **New connector type**: `websocket` with `port`, `host`, `path`, `ping_interval`, `pong_timeout` configuration
 - **Tests**: 12 tests covering connect, message handling, broadcast, rooms, disconnect cleanup, factory, error cases
-- **New example**: `examples/websocket/` — chat + broadcast + room notifications
+- **New example**: `examples/websocket/` — chat, broadcast, room notifications
 
 ### Added - Phase 10.2: CDC (Change Data Capture)
 - **PostgreSQL CDC connector** for real-time database change streaming via logical replication
+  - Source operations: `INSERT:table`, `UPDATE:table`, `DELETE:table` with wildcard support (`*`)
+  - Target operations: none (source-only connector)
   - Uses `pgoutput` plugin (built into PostgreSQL 10+) via `jackc/pglogrepl`
   - Automatic publication and replication slot creation
-  - Decodes WAL messages into structured events with `input.new` and `input.old` row data
-  - Standby status updates and keepalive handling for stable replication connections
-- **Operation format**: `TRIGGER:TABLE` — `INSERT:users`, `UPDATE:orders`, `DELETE:sessions`
-- **Wildcard matching**: `*:users` (any trigger), `INSERT:*` (any table), `*:*` (all changes)
-- **Column type decoding**: int, float, bool, timestamp, text from pgoutput text format
+  - Column type decoding: int, float, bool, timestamp, text from pgoutput format
+  - Implements `Connector`, `Starter`, and `RouteRegistrar` interfaces
 - **New connector type**: `cdc` with `driver`, `host`, `port`, `database`, `user`, `password`, `slot_name`, `publication` configuration
 - **Tests**: 15 tests covering factory, dispatch, wildcards, event format, health, operation parsing
 - **New example**: `examples/cdc/` — user creation, order status changes, session cleanup, product monitoring
 - **New dependencies**: `jackc/pglogrepl`, `jackc/pgx/v5` (pure Go, no CGO)
+
+### Added - Phase 10.3: SSE (Server-Sent Events)
+- **SSE connector** for unidirectional server-to-client push over standard HTTP
+  - Source operations: none (target-only connector)
+  - Target operations: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user)
+  - Room and user targeting via query params (`?room=`, `?rooms=`, `?user_id=`)
+  - Configurable heartbeat: `heartbeat_interval` sends periodic keepalive comments
+  - CORS support: `cors { allowed_origins = [...] }` for cross-origin clients
+  - Implements `Connector`, `Writer`, `Starter`, and `RouteRegistrar` interfaces
+- **New connector type**: `sse` with `port`, `host`, `path`, `heartbeat_interval`, `cors` configuration
+- **Tests**: 18 tests covering factory, connect, broadcast, rooms, disconnect cleanup, heartbeat, event format, health, CORS, user targeting
+- **New example**: `examples/sse/` — live feed, room updates, per-user notifications
 
 ### Added - GraphQL Subscription Client
 - **Client-side GraphQL subscriptions** — Mycel can subscribe to external GraphQL servers
