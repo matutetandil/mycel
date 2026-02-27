@@ -12,11 +12,6 @@ This guide explains what each Mycel concept is, why it exists, and when to use i
 - [Types](#types)
 - [Steps](#steps)
 - [Subscriptions](#subscriptions)
-- [WebSockets](#websockets)
-- [CDC (Change Data Capture)](#cdc-change-data-capture)
-- [SSE (Server-Sent Events)](#sse-server-sent-events)
-- [Elasticsearch](#elasticsearch)
-- [OAuth](#oauth)
 - [Batch Processing](#batch-processing)
 - [Federation](#federation)
 - [Named Operations](#named-operations)
@@ -99,7 +94,7 @@ connector "db" {
 }
 ```
 
-See [Configuration Reference — Connectors](CONFIGURATION.md#connectors) for full syntax per connector type.
+See the [Connector Catalog](connectors/) for individual connector documentation, or the [Configuration Reference](CONFIGURATION.md#connectors) for full HCL syntax.
 
 ---
 
@@ -280,195 +275,13 @@ See the [graphql-federation example](../examples/graphql-federation) for full pa
 
 ---
 
-## WebSockets
-
-The WebSocket connector provides standalone bidirectional real-time communication, independent of GraphQL. Use it for live dashboards, chat, notifications, IoT data streams, or any scenario where you need persistent connections with push capabilities.
-
-```hcl
-connector "ws" {
-  type = "websocket"
-  port = 3001
-  path = "/ws"
-
-  ping_interval = "30s"
-  pong_timeout  = "10s"
-}
-
-# Receive messages from clients
-flow "handle_chat" {
-  from { connector = "ws", operation = "message" }
-  to   { connector = "db", target = "messages" }
-}
-
-# Broadcast to all connected clients
-flow "live_orders" {
-  from { connector = "rabbit", operation = "order.updated" }
-  to   { connector = "ws", operation = "broadcast" }
-}
-
-# Send to clients in a specific room
-flow "room_notification" {
-  from { connector = "rabbit", operation = "room.event" }
-  to   { connector = "ws", operation = "send_to_room", target = "input.room" }
-}
-```
-
-Clients use a JSON protocol: `{"type": "message", "data": {...}}` to send messages, `{"type": "join_room", "room": "orders"}` to join a room, and `{"type": "leave_room", "room": "orders"}` to leave. The server sends `{"type": "message", "data": {...}}` for data and `{"type": "error", "message": "..."}` for errors.
-
-Source operations: `message`, `connect`, `disconnect`. Target operations: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user).
-
-See the [websocket example](../examples/websocket) for a complete setup.
-
----
-
-## CDC (Change Data Capture)
-
-CDC streams database changes in real-time via logical replication. Instead of polling, Mycel connects as a replication client and receives INSERT, UPDATE, and DELETE events the moment they happen. Use it for event sourcing, audit trails, cache invalidation, or cross-service synchronization.
-
-```hcl
-connector "pg_cdc" {
-  type   = "cdc"
-  driver = "postgres"
-
-  host        = "localhost"
-  port        = 5432
-  database    = "myapp"
-  user        = "replication_user"
-  password    = env("DB_PASSWORD")
-  slot_name   = "mycel_slot"
-  publication = "mycel_pub"
-}
-
-# React to new user inserts
-flow "on_user_created" {
-  from { connector = "pg_cdc", operation = "INSERT:users" }
-  transform {
-    output.event = "'user.created'"
-    output.data  = "input.new"
-  }
-  to { connector = "events_db", target = "events" }
-}
-
-# Track order status changes
-flow "on_order_updated" {
-  from { connector = "pg_cdc", operation = "UPDATE:orders" }
-  transform {
-    output.event   = "'order.updated'"
-    output.before  = "input.old"
-    output.after   = "input.new"
-  }
-  to { connector = "rabbit", operation = "PUBLISH", target = "order.events" }
-}
-
-# Monitor all changes on a table
-flow "audit_products" {
-  from { connector = "pg_cdc", operation = "*:products" }
-  to   { connector = "audit_db", target = "change_log" }
-}
-```
-
-Operations use `TRIGGER:TABLE` format: `INSERT:users`, `UPDATE:orders`, `DELETE:sessions`, `*:products` (any trigger), `INSERT:*` (any table), or `*:*` (everything). The flow handler receives `input.trigger`, `input.table`, `input.schema`, `input.new` (new row for INSERT/UPDATE), `input.old` (old row for UPDATE/DELETE), and `input.timestamp`.
-
-Source operations: `INSERT:table`, `UPDATE:table`, `DELETE:table`, with wildcard support (`*`). Target operations: none (source-only connector). PostgreSQL requires `wal_level = logical` and a user with `REPLICATION` privilege.
-
-See the [cdc example](../examples/cdc) for a complete setup.
-
----
-
-## SSE (Server-Sent Events)
-
-SSE delivers a unidirectional push stream from server to clients over standard HTTP. Clients open a `GET` request and receive a continuous `text/event-stream` response — no WebSocket handshake, no custom protocol, just plain HTTP that works through proxies and firewalls. Use it for live feeds, progress tracking, notification banners, or any scenario where the server pushes updates and clients only need to listen.
-
-```hcl
-connector "sse" {
-  type = "sse"
-  port = 3002
-  path = "/events"
-
-  heartbeat_interval = "30s"
-
-  cors {
-    allowed_origins = ["https://app.example.com"]
-  }
-}
-
-# Broadcast to all connected clients
-flow "live_feed" {
-  from { connector = "rabbit", operation = "feed.item" }
-  to   { connector = "sse", operation = "broadcast" }
-}
-
-# Push only to clients subscribed to a specific room
-flow "room_updates" {
-  from { connector = "rabbit", operation = "room.event" }
-  to   { connector = "sse", operation = "send_to_room", target = "input.room" }
-}
-
-# Push to a single user
-flow "user_notification" {
-  from { connector = "rabbit", operation = "notification.personal" }
-  to   { connector = "sse", operation = "send_to_user", target = "input.user_id" }
-}
-```
-
-Clients connect via `GET /events` with optional query parameters: `?room=orders` to join a room, `?rooms=orders,inventory` for multiple rooms, or `?user_id=42` for per-user targeting. The connector sends periodic heartbeat comments (`: keepalive`) to keep connections alive through proxies.
-
-Source operations: none (target-only connector). Target operations: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user).
-
-See the [sse example](../examples/sse) for a complete setup.
-
----
-
-## Elasticsearch
-
-Elasticsearch connector provides full-text search and analytics over Elasticsearch's REST API. It implements both `Reader` and `Writer`, using `net/http` directly with no external dependencies. Supports multi-node clusters with round-robin load balancing and basic auth.
-
-```hcl
-connector "es" {
-  type     = "elasticsearch"
-  nodes    = ["http://localhost:9200"]
-  username = env("ES_USER")
-  password = env("ES_PASSWORD")
-  index    = "products"
-}
-```
-
-Read operations: `search` (full-text query DSL), `get` (document by ID), `count` (matching documents), `aggregate` (aggregation queries with `size: 0`). Write operations: `index` (create/replace), `update` (partial update), `delete` (by ID), `bulk` (batch operations). Filters are converted to `bool.must` terms, pagination maps to `size`/`from`, and ordering maps to `sort`.
-
-See the [elasticsearch example](../examples/elasticsearch) for a complete setup.
-
----
-
-## OAuth
-
-OAuth connector exposes OAuth2 social login flows as a standard Mycel connector. Instead of writing callback handlers, you declare providers and wire them with flows. It reuses the existing auth package providers (Google, GitHub, Apple, OIDC) and adds a `custom` driver for arbitrary OAuth2 endpoints.
-
-```hcl
-connector "google" {
-  type   = "oauth"
-  driver = "google"
-  client_id     = env("GOOGLE_CLIENT_ID")
-  client_secret = env("GOOGLE_CLIENT_SECRET")
-  redirect_uri  = "http://localhost:3000/auth/google/callback"
-  scopes        = ["openid", "email", "profile"]
-}
-```
-
-Operations: `authorize` (generate state + auth URL), `callback` (exchange code for tokens + user info), `userinfo` (fetch profile with existing token), `refresh` (refresh expired token). State is managed internally with automatic CSRF protection and 10-minute expiry.
-
-Supported drivers: `google`, `github`, `apple`, `oidc` (with discovery), `custom` (manual `auth_url`/`token_url`/`userinfo_url`).
-
-See the [oauth example](../examples/oauth) for a complete setup.
-
----
-
 ## Batch Processing
 
-The `batch` block in a flow processes large datasets in chunks. It reads from a source connector in pages (using `LIMIT`/`OFFSET` pagination), optionally transforms each item, and writes to a target connector. This is useful for data migrations, ETL jobs, and reindexing.
+The `batch` block processes large datasets in chunks within a flow. Instead of loading everything into memory, it reads from a source connector in pages, optionally transforms each item, and writes each chunk to a target connector. Use it for data migrations, ETL jobs, reindexing, or any operation that needs to iterate over thousands of records safely.
 
 ```hcl
 flow "migrate_users" {
-  from { connector.api = "POST /admin/migrate" }
+  from { connector = "api", operation = "POST /admin/migrate" }
 
   batch {
     source     = "old_db"
@@ -477,8 +290,9 @@ flow "migrate_users" {
     on_error   = "continue"
 
     transform {
-      output.email   = "input.email.lowerAscii()"
-      output.migrated = "true"
+      output.email      = "input.email.lowerAscii()"
+      output.name       = "input.name"
+      output.migrated   = "true"
     }
 
     to {
@@ -488,11 +302,29 @@ flow "migrate_users" {
     }
   }
 }
+
+# Reindex with runtime parameters
+flow "reindex_products" {
+  from { connector = "api", operation = "POST /admin/reindex" }
+
+  batch {
+    source     = "postgres"
+    query      = "SELECT * FROM products WHERE updated_at > :since ORDER BY id"
+    params     = { since = "input.since" }
+    chunk_size = 500
+
+    to {
+      connector = "es"
+      target    = "products"
+      operation = "index"
+    }
+  }
+}
 ```
 
-The `on_error` setting controls failure handling: `"stop"` (default) halts on first error, `"continue"` skips failed items and reports them in the response. The response includes stats: `processed`, `failed`, `chunks`, and any `errors`.
+The `on_error` setting controls failure handling: `"stop"` (default) halts on the first failed chunk, `"continue"` skips failed chunks and keeps going. The flow response always includes batch stats: `processed`, `failed`, `chunks`, and any `errors` — so you know exactly what happened.
 
-In the transform block, each item's fields are available as `input.*` (standard Mycel convention). The original flow input is available as `input._batch_input`.
+In the transform block, each item's fields are available as `input.*` (standard Mycel convention). The original flow input (e.g., request body) is accessible as `input._batch_input` for parameterized queries.
 
 See the [batch example](../examples/batch) for a complete setup.
 

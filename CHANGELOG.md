@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Connector Documentation Catalog
+- **New `docs/connectors/` directory** with individual documentation for every connector type
+  - Catalog README with categorized tables linking to all 16 connector docs
+  - 16 connector docs: REST, Database, GraphQL, gRPC, Message Queues, TCP, WebSocket, SSE, CDC, Elasticsearch, Cache, Filesystem, S3, Exec, Notifications, OAuth, Profile
+  - Each doc follows a consistent template: description, configuration, operations table, example flow
+- **Refactored CONCEPTS.md**: Removed 5 inline connector sections (WebSocket, CDC, SSE, Elasticsearch, OAuth) — now linked from the catalog
+- **Updated README.md**: Connector concept links point to `docs/connectors/`, added Connector Catalog to Documentation section
+
 ### Added - Phase 11.1: Elasticsearch Connector
 - **Elasticsearch connector** for full-text search and analytics via REST API
   - Read operations: `search` (query DSL), `get` (by ID), `count`, `aggregate`
