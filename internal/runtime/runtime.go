@@ -40,6 +40,8 @@ import (
 	"github.com/matutetandil/mycel/internal/connector/rest"
 	"github.com/matutetandil/mycel/internal/connector/tcp"
 	conncdc "github.com/matutetandil/mycel/internal/connector/cdc"
+	connelastic "github.com/matutetandil/mycel/internal/connector/elasticsearch"
+	connoauth "github.com/matutetandil/mycel/internal/connector/oauth"
 	connsse "github.com/matutetandil/mycel/internal/connector/sse"
 	connws "github.com/matutetandil/mycel/internal/connector/websocket"
 	"github.com/matutetandil/mycel/internal/flow"
@@ -373,6 +375,12 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 
 	// SSE connector for unidirectional server-to-client push
 	registry.RegisterFactory(connsse.NewFactory(logger))
+
+	// Elasticsearch connector for full-text search and analytics
+	registry.RegisterFactory(connelastic.NewFactory(logger))
+
+	// OAuth connector for social login flows
+	registry.RegisterFactory(connoauth.NewFactory(logger))
 
 	// Profile connector (must be registered last - uses other factories)
 	registry.RegisterFactory(profile.NewFactory(registry))

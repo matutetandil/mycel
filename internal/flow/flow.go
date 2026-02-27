@@ -144,6 +144,10 @@ type Config struct {
 	// The value is the entity type name (e.g., "Product").
 	// When set, this flow resolves _entities queries for the given type.
 	Entity string
+
+	// Batch defines batch processing configuration for chunked data operations.
+	// When set, the flow reads from the source in pages and writes to a target.
+	Batch *BatchConfig
 }
 
 // StepConfig defines an intermediate connector call within a flow.
@@ -525,6 +529,47 @@ type PreflightConfig struct {
 
 	// IfExists defines what to do if the query returns results: "pass" or "fail".
 	IfExists string
+}
+
+// BatchConfig defines batch processing configuration.
+// When configured, the flow reads from a source connector in chunks,
+// optionally applies a per-item transform, and writes each chunk to a target.
+type BatchConfig struct {
+	// Source is the name of the source connector to read from.
+	Source string
+
+	// Query is the SQL query or operation to read data.
+	Query string
+
+	// Params are query parameters (values can be CEL expressions).
+	Params map[string]interface{}
+
+	// ChunkSize is the number of records per chunk (default 100).
+	ChunkSize int
+
+	// OnError defines behavior on chunk failure: "continue" or "stop" (default "stop").
+	OnError string
+
+	// Transform is an optional per-item transformation.
+	Transform *TransformConfig
+
+	// To defines the target connector and operation for each chunk.
+	To *ToConfig
+}
+
+// BatchResult holds the outcome of a batch processing operation.
+type BatchResult struct {
+	// Processed is the total number of records successfully processed.
+	Processed int `json:"processed"`
+
+	// Failed is the number of records that failed.
+	Failed int `json:"failed"`
+
+	// Chunks is the number of chunks processed.
+	Chunks int `json:"chunks"`
+
+	// Errors contains error messages from failed chunks.
+	Errors []string `json:"errors,omitempty"`
 }
 
 // Context holds runtime context for flow execution.

@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Phase 11.1: Elasticsearch Connector
+- **Elasticsearch connector** for full-text search and analytics via REST API
+  - Read operations: `search` (query DSL), `get` (by ID), `count`, `aggregate`
+  - Write operations: `index` (create/replace), `update` (partial), `delete`, `bulk`
+  - Multi-node cluster support with round-robin load balancing
+  - Basic auth support (`username`/`password`)
+  - Filter→bool/must term conversion, pagination (`size`/`from`), sorting (`sort`)
+  - Field selection via `_source` includes
+  - Implements `Connector`, `Reader`, `Writer` interfaces
+- **New connector type**: `elasticsearch` with `nodes`, `username`, `password`, `index`, `timeout` configuration
+- **Tests**: 25 tests covering factory, search, get, count, aggregate, index, update, delete, bulk, auth, round-robin, health, errors
+- **New example**: `examples/elasticsearch/` — search, CRUD, count
+
+### Added - Phase 11.2: External OAuth Connector
+- **OAuth connector** for declarative social login flows
+  - Operations: `authorize` (generate state + auth URL), `callback` (exchange code for user info), `userinfo` (fetch profile), `refresh` (refresh token)
+  - Built-in CSRF protection with state management and 10-minute expiry
+  - Drivers: `google`, `github`, `apple`, `oidc` (with discovery), `custom` (manual URLs)
+  - Reuses existing `internal/auth` OAuth2Service and provider implementations
+  - Implements `Connector`, `Reader` interfaces
+- **New connector type**: `oauth` with `driver`, `client_id`, `client_secret`, `redirect_uri`, `scopes` configuration
+- **Tests**: 21 tests covering factory, authorize, callback, state validation, expired state, exchange errors, userinfo, refresh, custom driver
+- **New example**: `examples/oauth/` — Google and GitHub social login
+
+### Added - Phase 11.3: Batch Processing
+- **Batch processing** for chunked data operations (migrations, ETL, reindexing)
+  - New `batch` block in flows: `source`, `query`, `params`, `chunk_size`, `on_error`, `transform`, `to`
+  - Reads from source connector in pages using LIMIT/OFFSET pagination
+  - Optional per-item transform with CEL expressions
+  - Error handling: `"stop"` (halt on first error) or `"continue"` (skip and report)
+  - Returns `BatchResult` with `processed`, `failed`, `chunks`, `errors` stats
+- **Parser**: `parseBatchBlock()` for HCL batch block parsing
+- **Runtime**: `executeBatch()` method on FlowHandler
+- **Tests**: 12 tests covering basic batch, chunking, transforms, on_error modes, empty source, params, stats, error cases
+- **New example**: `examples/batch/` — user migration, product reindexing, order export
+
 ### Added - Phase 10.1: WebSocket Connector
 - **Standalone WebSocket connector** for bidirectional real-time communication
   - Source operations: `message`, `connect`, `disconnect` — receive client events as flow triggers

@@ -107,6 +107,9 @@ That's it. REST API + database, zero code.
 | [WebSocket](examples/websocket) | Bidirectional real-time communication with rooms and per-user targeting ([concept](docs/CONCEPTS.md#websockets)) |
 | [CDC (Change Data Capture)](examples/cdc) | Real-time database change streaming with wildcard matching ([concept](docs/CONCEPTS.md#cdc-change-data-capture)) |
 | [SSE (Server-Sent Events)](examples/sse) | Unidirectional HTTP push with rooms and per-user targeting ([concept](docs/CONCEPTS.md#sse-server-sent-events)) |
+| [Elasticsearch](examples/elasticsearch) | Full-text search and analytics over Elasticsearch REST API ([concept](docs/CONCEPTS.md#elasticsearch)) |
+| [OAuth (Social Login)](examples/oauth) | Declarative social login: Google, GitHub, Apple, OIDC, custom ([concept](docs/CONCEPTS.md#oauth)) |
+| [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([concept](docs/CONCEPTS.md#batch-processing)) |
 | [TCP Server & Client](examples/tcp) | JSON, msgpack, and NestJS protocols |
 | [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
 | [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching |

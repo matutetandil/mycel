@@ -44,6 +44,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			{Type: "after"},
 			{Type: "error_handling"},
 			{Type: "dedupe"}, // Deduplication
+		{Type: "batch"}, // Batch processing
 		},
 	}
 
@@ -189,6 +190,13 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 				return nil, fmt.Errorf("dedupe block error: %w", err)
 			}
 			config.Dedupe = dedupe
+
+		case "batch":
+			batch, err := parseBatchBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("batch block error: %w", err)
+			}
+			config.Batch = batch
 		}
 	}
 
@@ -1951,4 +1959,121 @@ func parsePreflightBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Prefligh
 	}
 
 	return preflight, nil
+}
+
+// parseBatchBlock parses a batch block for chunk-based data processing.
+// Example:
+//
+//	batch {
+//	  source     = "old_db"
+//	  query      = "SELECT * FROM users ORDER BY id"
+//	  chunk_size = 100
+//	  on_error   = "continue"
+//
+//	  transform { ... }
+//
+//	  to {
+//	    connector = "new_db"
+//	    target    = "users"
+//	    operation = "INSERT"
+//	  }
+//	}
+func parseBatchBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.BatchConfig, error) {
+	batch := &flow.BatchConfig{
+		ChunkSize: 100,
+		OnError:   "stop",
+		Params:    make(map[string]interface{}),
+	}
+
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "source", Required: true},
+			{Name: "query"},
+			{Name: "params"},
+			{Name: "chunk_size"},
+			{Name: "on_error"},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "transform"},
+			{Type: "to"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("batch block content error: %s", diags.Error())
+	}
+
+	// Parse source (required)
+	if attr, ok := content.Attributes["source"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("batch source error: %s", diags.Error())
+		}
+		batch.Source = parseConnectorReference(val.AsString())
+	}
+
+	// Parse query
+	if attr, ok := content.Attributes["query"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("batch query error: %s", diags.Error())
+		}
+		batch.Query = val.AsString()
+	}
+
+	// Parse params
+	if attr, ok := content.Attributes["params"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("batch params error: %s", diags.Error())
+		}
+		batch.Params = ctyValueToMap(val)
+	}
+
+	// Parse chunk_size
+	if attr, ok := content.Attributes["chunk_size"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("batch chunk_size error: %s", diags.Error())
+		}
+		if val.Type() == cty.Number {
+			f, _ := val.AsBigFloat().Int64()
+			batch.ChunkSize = int(f)
+		}
+	}
+
+	// Parse on_error
+	if attr, ok := content.Attributes["on_error"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("batch on_error error: %s", diags.Error())
+		}
+		batch.OnError = val.AsString()
+	}
+
+	// Parse nested blocks
+	for _, nestedBlock := range content.Blocks {
+		switch nestedBlock.Type {
+		case "transform":
+			t, err := parseTransformBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("batch transform error: %w", err)
+			}
+			batch.Transform = t
+
+		case "to":
+			to, err := parseToBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("batch to error: %w", err)
+			}
+			batch.To = to
+		}
+	}
+
+	if batch.To == nil {
+		return nil, fmt.Errorf("batch block requires a to block")
+	}
+
+	return batch, nil
 }

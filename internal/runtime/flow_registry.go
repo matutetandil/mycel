@@ -636,6 +636,11 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	var result interface{}
 	var err error
 
+	// If batch processing is configured, execute batch
+	if h.Config.Batch != nil {
+		return h.executeBatch(ctx, input)
+	}
+
 	// Check if the destination is a subscription publish target
 	if isSubscriptionPublish(h.Config.To.Operation) {
 		return h.handleSubscriptionPublish(ctx, input)
@@ -690,6 +695,172 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	}
 
 	return result, nil
+}
+
+// executeBatch processes data in chunks from a source connector to a target connector.
+func (h *FlowHandler) executeBatch(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+	batch := h.Config.Batch
+	if batch == nil {
+		return nil, fmt.Errorf("no batch configuration")
+	}
+
+	// Get source connector (Reader)
+	sourceConn, err := h.Connectors.Get(batch.Source)
+	if err != nil {
+		return nil, fmt.Errorf("batch source connector %q not found: %w", batch.Source, err)
+	}
+	reader, ok := sourceConn.(connector.Reader)
+	if !ok {
+		return nil, fmt.Errorf("batch source connector %q does not support reading", batch.Source)
+	}
+
+	// Get target connector (Writer)
+	targetConn, err := h.Connectors.Get(batch.To.Connector)
+	if err != nil {
+		return nil, fmt.Errorf("batch target connector %q not found: %w", batch.To.Connector, err)
+	}
+	writer, ok := targetConn.(connector.Writer)
+	if !ok {
+		return nil, fmt.Errorf("batch target connector %q does not support writing", batch.To.Connector)
+	}
+
+	chunkSize := batch.ChunkSize
+	if chunkSize <= 0 {
+		chunkSize = 100
+	}
+
+	// Initialize transformer if needed
+	if h.Transformer == nil {
+		celOptions := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
+		t, err := transform.NewCELTransformerWithOptions(celOptions...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create CEL transformer: %w", err)
+		}
+		h.Transformer = t
+	}
+
+	// Evaluate params if present
+	params := batch.Params
+	if len(params) > 0 {
+		evaluated := make(map[string]interface{})
+		for k, v := range params {
+			if expr, ok := v.(string); ok {
+				result, err := h.Transformer.EvaluateExpression(ctx, input, nil, expr)
+				if err == nil {
+					evaluated[k] = result
+				} else {
+					evaluated[k] = v
+				}
+			} else {
+				evaluated[k] = v
+			}
+		}
+		params = evaluated
+	}
+
+	// Build transform rules for per-item transforms if configured
+	var itemRules []transform.Rule
+	if batch.Transform != nil && batch.Transform.Mappings != nil {
+		for target, expr := range batch.Transform.Mappings {
+			itemRules = append(itemRules, transform.Rule{
+				Target:     target,
+				Expression: expr,
+			})
+		}
+	}
+
+	batchResult := &flow.BatchResult{}
+	offset := 0
+
+	for {
+		// Build query for this chunk
+		query := connector.Query{
+			RawSQL:  batch.Query,
+			Filters: make(map[string]interface{}),
+			Pagination: &connector.Pagination{
+				Limit:  chunkSize,
+				Offset: offset,
+			},
+		}
+
+		// Copy params as filters (for named params in SQL)
+		for k, v := range params {
+			query.Filters[k] = v
+		}
+
+		// Read a chunk
+		readResult, err := reader.Read(ctx, query)
+		if err != nil {
+			if batch.OnError == "continue" {
+				batchResult.Errors = append(batchResult.Errors, fmt.Sprintf("chunk at offset %d read error: %v", offset, err))
+				batchResult.Chunks++
+				break // Cannot continue reading after a read error
+			}
+			return nil, fmt.Errorf("batch read at offset %d failed: %w", offset, err)
+		}
+
+		// No more data
+		if readResult == nil || len(readResult.Rows) == 0 {
+			break
+		}
+
+		rows := readResult.Rows
+
+		// Apply per-item transform if configured
+		if len(itemRules) > 0 {
+			transformed := make([]map[string]interface{}, 0, len(rows))
+			for _, row := range rows {
+				// Make item fields available as input.* (standard Mycel convention)
+				// and batch_input.* for the original flow input
+				itemInput := make(map[string]interface{})
+				for k, v := range row {
+					itemInput[k] = v
+				}
+				itemInput["_batch_input"] = input
+				out, err := h.Transformer.Transform(ctx, itemInput, itemRules)
+				if err != nil {
+					if batch.OnError == "continue" {
+						batchResult.Failed++
+						continue
+					}
+					return nil, fmt.Errorf("batch transform error: %w", err)
+				}
+				transformed = append(transformed, out)
+			}
+			rows = transformed
+		}
+
+		// Write chunk to target
+		for _, row := range rows {
+			writeData := &connector.Data{
+				Target:    batch.To.Target,
+				Operation: batch.To.Operation,
+				Payload:   row,
+			}
+
+			_, err := writer.Write(ctx, writeData)
+			if err != nil {
+				if batch.OnError == "continue" {
+					batchResult.Failed++
+					batchResult.Errors = append(batchResult.Errors, fmt.Sprintf("write error: %v", err))
+					continue
+				}
+				return nil, fmt.Errorf("batch write failed: %w", err)
+			}
+			batchResult.Processed++
+		}
+
+		batchResult.Chunks++
+
+		// If we got fewer rows than chunk_size, we're done
+		if len(readResult.Rows) < chunkSize {
+			break
+		}
+
+		offset += chunkSize
+	}
+
+	return batchResult, nil
 }
 
 // handleRead handles GET requests.

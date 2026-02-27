@@ -15,6 +15,9 @@ This guide explains what each Mycel concept is, why it exists, and when to use i
 - [WebSockets](#websockets)
 - [CDC (Change Data Capture)](#cdc-change-data-capture)
 - [SSE (Server-Sent Events)](#sse-server-sent-events)
+- [Elasticsearch](#elasticsearch)
+- [OAuth](#oauth)
+- [Batch Processing](#batch-processing)
 - [Federation](#federation)
 - [Named Operations](#named-operations)
 - [Auth](#auth)
@@ -413,6 +416,85 @@ Clients connect via `GET /events` with optional query parameters: `?room=orders`
 Source operations: none (target-only connector). Target operations: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user).
 
 See the [sse example](../examples/sse) for a complete setup.
+
+---
+
+## Elasticsearch
+
+Elasticsearch connector provides full-text search and analytics over Elasticsearch's REST API. It implements both `Reader` and `Writer`, using `net/http` directly with no external dependencies. Supports multi-node clusters with round-robin load balancing and basic auth.
+
+```hcl
+connector "es" {
+  type     = "elasticsearch"
+  nodes    = ["http://localhost:9200"]
+  username = env("ES_USER")
+  password = env("ES_PASSWORD")
+  index    = "products"
+}
+```
+
+Read operations: `search` (full-text query DSL), `get` (document by ID), `count` (matching documents), `aggregate` (aggregation queries with `size: 0`). Write operations: `index` (create/replace), `update` (partial update), `delete` (by ID), `bulk` (batch operations). Filters are converted to `bool.must` terms, pagination maps to `size`/`from`, and ordering maps to `sort`.
+
+See the [elasticsearch example](../examples/elasticsearch) for a complete setup.
+
+---
+
+## OAuth
+
+OAuth connector exposes OAuth2 social login flows as a standard Mycel connector. Instead of writing callback handlers, you declare providers and wire them with flows. It reuses the existing auth package providers (Google, GitHub, Apple, OIDC) and adds a `custom` driver for arbitrary OAuth2 endpoints.
+
+```hcl
+connector "google" {
+  type   = "oauth"
+  driver = "google"
+  client_id     = env("GOOGLE_CLIENT_ID")
+  client_secret = env("GOOGLE_CLIENT_SECRET")
+  redirect_uri  = "http://localhost:3000/auth/google/callback"
+  scopes        = ["openid", "email", "profile"]
+}
+```
+
+Operations: `authorize` (generate state + auth URL), `callback` (exchange code for tokens + user info), `userinfo` (fetch profile with existing token), `refresh` (refresh expired token). State is managed internally with automatic CSRF protection and 10-minute expiry.
+
+Supported drivers: `google`, `github`, `apple`, `oidc` (with discovery), `custom` (manual `auth_url`/`token_url`/`userinfo_url`).
+
+See the [oauth example](../examples/oauth) for a complete setup.
+
+---
+
+## Batch Processing
+
+The `batch` block in a flow processes large datasets in chunks. It reads from a source connector in pages (using `LIMIT`/`OFFSET` pagination), optionally transforms each item, and writes to a target connector. This is useful for data migrations, ETL jobs, and reindexing.
+
+```hcl
+flow "migrate_users" {
+  from { connector.api = "POST /admin/migrate" }
+
+  batch {
+    source     = "old_db"
+    query      = "SELECT * FROM users ORDER BY id"
+    chunk_size = 100
+    on_error   = "continue"
+
+    transform {
+      output.email   = "input.email.lowerAscii()"
+      output.migrated = "true"
+    }
+
+    to {
+      connector = "new_db"
+      target    = "users"
+      operation = "INSERT"
+    }
+  }
+}
+```
+
+The `on_error` setting controls failure handling: `"stop"` (default) halts on first error, `"continue"` skips failed items and reports them in the response. The response includes stats: `processed`, `failed`, `chunks`, and any `errors`.
+
+In the transform block, each item's fields are available as `input.*` (standard Mycel convention). The original flow input is available as `input._batch_input`.
+
+See the [batch example](../examples/batch) for a complete setup.
 
 ---
 
