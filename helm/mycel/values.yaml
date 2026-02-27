@@ -123,26 +123,26 @@ mycel:
   hotReload: false
 
   # Configuration files
+  # Option 1 (recommended): copy your .hcl files into helm/mycel/config/
+  #   The chart auto-discovers all .hcl files and creates the ConfigMap.
+  # Option 2: write HCL inline below (service, connectors, flows, types).
+  # Option 3: set existingConfigMap to reference a ConfigMap you manage yourself.
   config:
     # -- Enable ConfigMap for Mycel configuration
     enabled: true
     # -- Use an existing ConfigMap instead of creating one (set to ConfigMap name)
     existingConfigMap: ""
-    # -- Service configuration (service.hcl content)
-    # Tip: use --set-file mycel.config.service=config.hcl to load from a file
+    # -- Service configuration (service.hcl content) — used only when config/ is empty
     service: |
       service {
         name = "mycel"
         port = 8080
       }
     # -- Connectors configuration (connectors.hcl content)
-    # Tip: use --set-file mycel.config.connectors=connectors.hcl to load from a file
     connectors: ""
     # -- Flows configuration (flows.hcl content)
-    # Tip: use --set-file mycel.config.flows=flows.hcl to load from a file
     flows: ""
     # -- Types configuration (types.hcl content)
-    # Tip: use --set-file mycel.config.types=types.hcl to load from a file
     types: ""
     # -- Additional HCL files (key: filename, value: content)
     extra: {}

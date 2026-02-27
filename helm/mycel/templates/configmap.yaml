@@ -6,6 +6,14 @@ metadata:
   labels:
     {{- include "mycel.labels" . | nindent 4 }}
 data:
+  {{- /* Auto-discover HCL files from config/ directory */}}
+  {{- $files := .Files.Glob "config/**.hcl" }}
+  {{- range $path, $bytes := $files }}
+  {{ trimPrefix "config/" $path | replace "/" "_" }}: |
+    {{- toString $bytes | nindent 4 }}
+  {{- end }}
+  {{- /* Inline values from values.yaml (only when no files discovered) */}}
+  {{- if not $files }}
   {{- if .Values.mycel.config.service }}
   service.hcl: |
     {{- .Values.mycel.config.service | nindent 4 }}
@@ -25,5 +33,6 @@ data:
   {{- range $filename, $content := .Values.mycel.config.extra }}
   {{ $filename }}: |
     {{- $content | nindent 4 }}
+  {{- end }}
   {{- end }}
 {{- end }}

@@ -11,12 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **README features table**: Separated GraphQL Subscriptions into its own row (was incorrectly listed inside the Federation row)
 - **CONCEPTS.md**: Updated subscriptions cross-reference to link to connector docs and example
 
-### Changed - Helm Chart v0.2.0: File-Based Configuration
+### Changed - Helm Chart v0.2.0: Directory-Based Configuration
+- **`config/` directory**: Chart auto-discovers all `.hcl` files under `helm/mycel/config/` using `.Files.Glob` — copy your project files in and deploy, no flags needed
 - **`existingConfigMap`**: New `mycel.config.existingConfigMap` value to reference a pre-existing ConfigMap instead of creating one
-- **`--set-file` support**: Added documentation and tips for loading `.hcl` files directly via `helm install --set-file`
+- **Inline fallback**: Inline values in `values.yaml` (service, connectors, flows, types) still work when `config/` is empty
 - **ConfigMap guard**: Chart skips ConfigMap creation when `existingConfigMap` is set
 - **Deployment template**: Volume uses `existingConfigMap` when provided, falls back to generated ConfigMap
-- **Helm README**: Added "Using Your HCL Files" and "Using an Existing ConfigMap" sections
 - **Chart version**: Bumped to 0.2.0
 
 ### Added - Phase 12.1: Saga Pattern

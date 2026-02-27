@@ -65,49 +65,37 @@ Mycel on Kubernetes works exactly like Mycel locally: the same `.hcl` files defi
 
 There are three ways to provide your HCL configuration, from simplest to most flexible.
 
-### Option 1: Load Your HCL Files Directly (Recommended)
+### Option 1: From Your HCL Directory (Recommended)
 
-If you already have a working Mycel project with `.hcl` files, deploy them as-is using `--set-file`. No copy-pasting needed.
+Copy or symlink your project's `.hcl` files into the chart's `config/` directory. The chart auto-discovers every `.hcl` file and packages them into a ConfigMap — no listing, no flags.
 
-**Example:** given a typical project structure:
+**Example:** given a typical Mycel project:
 
 ```
 my-service/
-├── config.hcl          # service block
+├── config.hcl
 ├── connectors/
-│   ├── api.hcl         # REST connector
-│   └── database.hcl    # PostgreSQL connector
+│   ├── api.hcl
+│   └── database.hcl
 ├── flows/
-│   └── users.hcl       # flow definitions
+│   └── users.hcl
 └── types/
-    └── user.hcl        # type schemas
+    └── user.hcl
 ```
 
-Deploy with:
+Deploy it:
 
 ```bash
-# Each --set-file maps a Helm value to a local file.
-# The chart creates a ConfigMap with these contents automatically.
-helm install my-service ./helm/mycel \
-  --set-file mycel.config.service=config.hcl \
-  --set-file mycel.config.connectors=connectors/api.hcl \
-  --set-file "mycel.config.extra.database\.hcl=connectors/database.hcl" \
-  --set-file mycel.config.flows=flows/users.hcl \
-  --set-file mycel.config.types=types/user.hcl
+# Copy the dev's HCL files into the chart
+cp -r my-service/* helm/mycel/config/
+
+# Deploy — Helm config in values.yaml, Mycel config auto-discovered from config/
+helm install my-service ./helm/mycel -f values.yaml
 ```
 
-> **Note:** `mycel.config.service`, `connectors`, `flows`, and `types` are convenience keys that map to `service.hcl`, `connectors.hcl`, `flows.hcl`, and `types.hcl` inside the ConfigMap. For additional files, use `mycel.config.extra` with the desired filename as key.
+The chart finds all `.hcl` files under `config/` recursively and flattens them into the ConfigMap (e.g., `connectors/api.hcl` becomes key `connectors_api.hcl`). Mycel reads them all regardless of filename.
 
-You can combine `--set-file` with regular `--set` flags for infrastructure settings:
-
-```bash
-helm install my-service ./helm/mycel \
-  --set-file mycel.config.service=config.hcl \
-  --set-file mycel.config.connectors=connectors/api.hcl \
-  --set-file mycel.config.flows=flows/users.hcl \
-  --set replicaCount=3 \
-  --set mycel.env=production
-```
+> **Tip:** The `config/` directory is gitignored by default so each SysOps/environment can use different HCL files without committing them to the chart repo.
 
 ### Option 2: Inline HCL in values.yaml
 
@@ -370,14 +358,11 @@ podDisruptionBudget:
 helm install mycel ./helm/mycel
 ```
 
-### Deploy from Existing HCL Files
+### Deploy from HCL Directory
 
 ```bash
-helm install mycel ./helm/mycel \
-  --set-file mycel.config.service=config.hcl \
-  --set-file mycel.config.connectors=connectors/api.hcl \
-  --set-file mycel.config.flows=flows/users.hcl \
-  --set mycel.env=production
+cp -r ./my-project/* ./helm/mycel/config/
+helm install mycel ./helm/mycel -f values.yaml
 ```
 
 ### Production Setup

@@ -1,0 +1,5 @@
+# Ignore HCL files — each environment provides its own
+*.hcl
+*/
+!.gitignore
+!.gitkeep
