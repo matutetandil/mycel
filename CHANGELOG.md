@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Phase 10.1: WebSocket Connector
+- **Standalone WebSocket connector** for bidirectional real-time communication
+  - **Source operations**: `message`, `connect`, `disconnect` — receive client events as flow triggers
+  - **Target operations**: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user)
+  - Room management: clients join/leave rooms via JSON protocol (`join_room`, `leave_room`)
+  - Configurable keepalive: `ping_interval` and `pong_timeout` settings
+  - Thread-safe client tracking and room membership
+  - Implements `Connector`, `Writer`, `Starter`, and `RouteRegistrar` interfaces
+- **JSON message protocol**: `{"type": "message", "data": {...}}`, `{"type": "join_room", "room": "..."}`, `{"type": "leave_room", "room": "..."}`
+- **New connector type**: `websocket` with `port`, `host`, `path`, `ping_interval`, `pong_timeout` configuration
+- **Tests**: 12 tests covering connect, message handling, broadcast, rooms, disconnect cleanup, factory, error cases
+- **New example**: `examples/websocket/` — chat + broadcast + room notifications
+
 ### Added - GraphQL Subscription Client
 - **Client-side GraphQL subscriptions** — Mycel can subscribe to external GraphQL servers
   - `ClientConnector` implements `Starter` and `RouteRegistrar` interfaces

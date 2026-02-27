@@ -39,6 +39,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector/mq"
 	"github.com/matutetandil/mycel/internal/connector/rest"
 	"github.com/matutetandil/mycel/internal/connector/tcp"
+	connws "github.com/matutetandil/mycel/internal/connector/websocket"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/functions"
 	"github.com/matutetandil/mycel/internal/health"
@@ -361,6 +362,9 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 	registry.RegisterFactory(sms.NewFactory())
 	registry.RegisterFactory(push.NewFactory())
 	registry.RegisterFactory(webhook.NewFactory())
+
+	// WebSocket connector for real-time bidirectional communication
+	registry.RegisterFactory(connws.NewFactory(logger))
 
 	// Profile connector (must be registered last - uses other factories)
 	registry.RegisterFactory(profile.NewFactory(registry))

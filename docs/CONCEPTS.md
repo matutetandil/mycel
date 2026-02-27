@@ -12,6 +12,7 @@ This guide explains what each Mycel concept is, why it exists, and when to use i
 - [Types](#types)
 - [Steps](#steps)
 - [Subscriptions](#subscriptions)
+- [WebSockets](#websockets)
 - [Federation](#federation)
 - [Named Operations](#named-operations)
 - [Auth](#auth)
@@ -271,6 +272,49 @@ flow "react_to_price_change" {
 The client automatically reconnects with exponential backoff if the connection drops.
 
 See the [graphql-federation example](../examples/graphql-federation) for full patterns including subscription setup.
+
+---
+
+## WebSockets
+
+The WebSocket connector provides standalone bidirectional real-time communication, independent of GraphQL. Use it for live dashboards, chat, notifications, IoT data streams, or any scenario where you need persistent connections with push capabilities.
+
+A WebSocket connector is bidirectional: as a **source**, it receives messages from connected clients and triggers flows; as a **target**, it sends data to clients via broadcast, room-based, or per-user delivery.
+
+```hcl
+connector "ws" {
+  type = "websocket"
+  port = 3001
+  path = "/ws"
+
+  ping_interval = "30s"
+  pong_timeout  = "10s"
+}
+
+# Receive messages from clients
+flow "handle_chat" {
+  from { connector = "ws", operation = "message" }
+  to   { connector = "db", target = "messages" }
+}
+
+# Broadcast to all connected clients
+flow "live_orders" {
+  from { connector = "rabbit", operation = "order.updated" }
+  to   { connector = "ws", operation = "broadcast" }
+}
+
+# Send to clients in a specific room
+flow "room_notification" {
+  from { connector = "rabbit", operation = "room.event" }
+  to   { connector = "ws", operation = "send_to_room", target = "input.room" }
+}
+```
+
+Clients use a simple JSON protocol: `{"type": "message", "data": {...}}` to send messages, `{"type": "join_room", "room": "orders"}` to join a room, and `{"type": "leave_room", "room": "orders"}` to leave. The server sends `{"type": "message", "data": {...}}` for data and `{"type": "error", "message": "..."}` for errors.
+
+Target operations: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user). Source operations: `message`, `connect`, `disconnect`.
+
+See the [websocket example](../examples/websocket) for a complete setup.
 
 ---
 
