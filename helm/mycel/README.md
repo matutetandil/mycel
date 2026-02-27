@@ -61,7 +61,33 @@ helm uninstall my-mycel
 
 ## Configuration
 
-### Basic Configuration
+### Using Your HCL Files
+
+If you already have `.hcl` configuration files (from local development, for example), you can load them directly with `--set-file` — no need to copy-paste into `values.yaml`:
+
+```bash
+helm install my-api ./helm/mycel \
+  --set-file mycel.config.service=config.hcl \
+  --set-file mycel.config.connectors=connectors.hcl \
+  --set-file mycel.config.flows=flows.hcl \
+  --set-file mycel.config.types=types.hcl
+```
+
+This keeps the same files you use during development, deployed unchanged into Kubernetes.
+
+### Using an Existing ConfigMap
+
+If you manage your Mycel configuration in a ConfigMap outside of this chart (e.g., via GitOps or a CI pipeline), point the chart at it:
+
+```yaml
+mycel:
+  config:
+    existingConfigMap: "my-mycel-config"
+```
+
+When `existingConfigMap` is set, the chart skips creating its own ConfigMap and mounts the one you specified. The ConfigMap must contain keys like `service.hcl`, `connectors.hcl`, etc.
+
+### Basic Inline Configuration
 
 Create a `values.yaml` file:
 
@@ -260,7 +286,8 @@ podDisruptionBudget:
 | `mycel.logFormat` | Log format | `json` |
 | `mycel.hotReload` | Enable hot reload | `false` |
 | `mycel.config.enabled` | Enable ConfigMap | `true` |
-| `mycel.config.service` | service.hcl content | See values.yaml |
+| `mycel.config.existingConfigMap` | Use an existing ConfigMap instead of creating one | `""` |
+| `mycel.config.service` | service.hcl content (supports `--set-file`) | See values.yaml |
 | `mycel.config.connectors` | connectors.hcl content | `""` |
 | `mycel.config.flows` | flows.hcl content | `""` |
 | `mycel.config.types` | types.hcl content | `""` |
@@ -339,7 +366,9 @@ mycel:
 
 ### To 0.2.0
 
-No breaking changes.
+- Added `mycel.config.existingConfigMap` to reference a pre-existing ConfigMap.
+- Added `--set-file` documentation for loading HCL files directly.
+- No breaking changes.
 
 ### To 0.1.0
 

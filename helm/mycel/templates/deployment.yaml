@@ -107,7 +107,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: {{ include "mycel.configMapName" . }}
+            name: {{ .Values.mycel.config.existingConfigMap | default (include "mycel.configMapName" .) }}
         - name: tmp
           emptyDir: {}
         {{- with .Values.extraVolumes }}

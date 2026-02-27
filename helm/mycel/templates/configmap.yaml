@@ -1,4 +1,4 @@
-{{- if .Values.mycel.config.enabled }}
+{{- if and .Values.mycel.config.enabled (not .Values.mycel.config.existingConfigMap) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

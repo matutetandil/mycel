@@ -271,7 +271,7 @@ flow "react_to_price_change" {
 
 The client automatically reconnects with exponential backoff if the connection drops.
 
-See the [graphql-federation example](../examples/graphql-federation) for full patterns including subscription setup.
+See the [GraphQL connector docs](connectors/graphql.md) for configuration details, or the [graphql-federation example](../examples/graphql-federation) for a complete setup.
 
 ---
 
