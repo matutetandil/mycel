@@ -110,6 +110,8 @@ That's it. REST API + database, zero code.
 | [Elasticsearch](examples/elasticsearch) | Full-text search and analytics over Elasticsearch REST API ([docs](docs/connectors/elasticsearch.md)) |
 | [OAuth (Social Login)](examples/oauth) | Declarative social login: Google, GitHub, Apple, OIDC, custom ([docs](docs/connectors/oauth.md)) |
 | [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([concept](docs/CONCEPTS.md#batch-processing)) |
+| [Sagas](examples/saga) | Distributed transactions with automatic compensation ([concept](docs/CONCEPTS.md#sagas)) |
+| [State Machines](examples/state-machine) | Entity lifecycle with guards, actions, final states ([concept](docs/CONCEPTS.md#state-machines)) |
 | [TCP Server & Client](examples/tcp) | JSON, msgpack, and NestJS protocols |
 | [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
 | [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching |

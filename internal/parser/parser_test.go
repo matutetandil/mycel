@@ -720,3 +720,285 @@ flow "order_updates" {
 		t.Errorf("expected to.filter, got '%s'", flow.To.Filter)
 	}
 }
+
+func TestParseSaga(t *testing.T) {
+	hcl := `
+saga "create_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+
+  step "order" {
+    action {
+      connector = "orders_db"
+      operation = "INSERT"
+      target    = "orders"
+      data = {
+        status = "pending"
+      }
+    }
+    compensate {
+      connector = "orders_db"
+      operation = "DELETE"
+      target    = "orders"
+    }
+  }
+
+  step "payment" {
+    on_error = "skip"
+    action {
+      connector = "stripe"
+      operation = "POST /charges"
+      body = {
+        amount = "100"
+      }
+    }
+    compensate {
+      connector = "stripe"
+      operation = "POST /refunds"
+    }
+  }
+
+  on_complete {
+    connector = "orders_db"
+    operation = "UPDATE"
+    target    = "orders"
+    set = {
+      status = "confirmed"
+    }
+  }
+
+  on_failure {
+    connector = "notifications"
+    operation = "POST /send"
+    template  = "order_failed"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "saga.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.Sagas) != 1 {
+		t.Fatalf("expected 1 saga, got %d", len(config.Sagas))
+	}
+
+	saga := config.Sagas[0]
+	if saga.Name != "create_order" {
+		t.Errorf("expected saga name 'create_order', got '%s'", saga.Name)
+	}
+	if saga.From == nil {
+		t.Fatal("expected saga from block")
+	}
+	if saga.From.Connector != "api" {
+		t.Errorf("expected from connector 'api', got '%s'", saga.From.Connector)
+	}
+	if saga.From.Operation != "POST /orders" {
+		t.Errorf("expected from operation 'POST /orders', got '%s'", saga.From.Operation)
+	}
+	if len(saga.Steps) != 2 {
+		t.Fatalf("expected 2 steps, got %d", len(saga.Steps))
+	}
+	if saga.Steps[0].Name != "order" {
+		t.Errorf("expected step 0 name 'order', got '%s'", saga.Steps[0].Name)
+	}
+	if saga.Steps[0].Action == nil {
+		t.Fatal("expected step 0 action")
+	}
+	if saga.Steps[0].Compensate == nil {
+		t.Fatal("expected step 0 compensate")
+	}
+	if saga.Steps[1].OnError != "skip" {
+		t.Errorf("expected step 1 on_error 'skip', got '%s'", saga.Steps[1].OnError)
+	}
+	if saga.OnComplete == nil {
+		t.Fatal("expected on_complete block")
+	}
+	if saga.OnComplete.Operation != "UPDATE" {
+		t.Errorf("expected on_complete operation 'UPDATE', got '%s'", saga.OnComplete.Operation)
+	}
+	if saga.OnFailure == nil {
+		t.Fatal("expected on_failure block")
+	}
+	if saga.OnFailure.Template != "order_failed" {
+		t.Errorf("expected on_failure template 'order_failed', got '%s'", saga.OnFailure.Template)
+	}
+}
+
+func TestParseStateMachine(t *testing.T) {
+	hcl := `
+state_machine "order_status" {
+  initial = "pending"
+
+  state "pending" {
+    on "pay" {
+      transition_to = "paid"
+    }
+    on "cancel" {
+      transition_to = "cancelled"
+    }
+  }
+
+  state "paid" {
+    on "ship" {
+      transition_to = "shipped"
+      guard         = "input.tracking_number != ''"
+      action {
+        connector = "notifications"
+        operation = "POST /send"
+        template  = "order_shipped"
+      }
+    }
+  }
+
+  state "shipped" {
+    on "deliver" {
+      transition_to = "delivered"
+    }
+  }
+
+  state "delivered" {
+    final = true
+  }
+
+  state "cancelled" {
+    final = true
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "machine.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.StateMachines) != 1 {
+		t.Fatalf("expected 1 state machine, got %d", len(config.StateMachines))
+	}
+
+	sm := config.StateMachines[0]
+	if sm.Name != "order_status" {
+		t.Errorf("expected name 'order_status', got '%s'", sm.Name)
+	}
+	if sm.Initial != "pending" {
+		t.Errorf("expected initial 'pending', got '%s'", sm.Initial)
+	}
+	if len(sm.States) != 5 {
+		t.Errorf("expected 5 states, got %d", len(sm.States))
+	}
+
+	// Check pending state
+	pending := sm.States["pending"]
+	if pending == nil {
+		t.Fatal("expected 'pending' state")
+	}
+	if len(pending.Transitions) != 2 {
+		t.Errorf("expected 2 transitions from pending, got %d", len(pending.Transitions))
+	}
+	if pending.Transitions["pay"].TransitionTo != "paid" {
+		t.Errorf("expected pay -> paid, got '%s'", pending.Transitions["pay"].TransitionTo)
+	}
+
+	// Check paid state with guard and action
+	paid := sm.States["paid"]
+	if paid == nil {
+		t.Fatal("expected 'paid' state")
+	}
+	ship := paid.Transitions["ship"]
+	if ship == nil {
+		t.Fatal("expected 'ship' transition")
+	}
+	if ship.Guard != "input.tracking_number != ''" {
+		t.Errorf("expected guard expression, got '%s'", ship.Guard)
+	}
+	if ship.Action == nil {
+		t.Fatal("expected ship transition action")
+	}
+	if ship.Action.Connector != "notifications" {
+		t.Errorf("expected action connector 'notifications', got '%s'", ship.Action.Connector)
+	}
+
+	// Check final states
+	delivered := sm.States["delivered"]
+	if delivered == nil || !delivered.Final {
+		t.Error("expected 'delivered' to be a final state")
+	}
+	cancelled := sm.States["cancelled"]
+	if cancelled == nil || !cancelled.Final {
+		t.Error("expected 'cancelled' to be a final state")
+	}
+}
+
+func TestParseFlowWithStateTransition(t *testing.T) {
+	hcl := `
+flow "update_order_status" {
+  from {
+    connector = "api"
+    operation = "POST /orders/:id/status"
+  }
+
+  state_transition {
+    machine = "order_status"
+    entity  = "orders"
+    id      = "input.params.id"
+    event   = "input.event"
+    data    = "input.data"
+  }
+
+  to {
+    connector = "orders_db"
+    target    = "orders"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.Flows) != 1 {
+		t.Fatalf("expected 1 flow, got %d", len(config.Flows))
+	}
+
+	flow := config.Flows[0]
+	if flow.StateTransition == nil {
+		t.Fatal("expected state_transition block")
+	}
+	if flow.StateTransition.Machine != "order_status" {
+		t.Errorf("expected machine 'order_status', got '%s'", flow.StateTransition.Machine)
+	}
+	if flow.StateTransition.Entity != "orders" {
+		t.Errorf("expected entity 'orders', got '%s'", flow.StateTransition.Entity)
+	}
+	if flow.StateTransition.ID != "input.params.id" {
+		t.Errorf("expected id 'input.params.id', got '%s'", flow.StateTransition.ID)
+	}
+	if flow.StateTransition.Event != "input.event" {
+		t.Errorf("expected event 'input.event', got '%s'", flow.StateTransition.Event)
+	}
+	if flow.StateTransition.Data != "input.data" {
+		t.Errorf("expected data 'input.data', got '%s'", flow.StateTransition.Data)
+	}
+}

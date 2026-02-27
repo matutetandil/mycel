@@ -14,6 +14,8 @@ import (
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/functions"
 	"github.com/matutetandil/mycel/internal/graphql/optimizer"
+	"github.com/matutetandil/mycel/internal/saga"
+	"github.com/matutetandil/mycel/internal/statemachine"
 	msync "github.com/matutetandil/mycel/internal/sync"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
@@ -109,6 +111,15 @@ type FlowHandler struct {
 
 	// SyncManager provides distributed locks, semaphores, and coordination.
 	SyncManager *msync.Manager
+
+	// SagaExecutor handles saga pattern execution (distributed transactions).
+	SagaExecutor *saga.Executor
+
+	// SagaConfig holds the saga configuration when this handler wraps a saga.
+	SagaConfig *saga.Config
+
+	// StateMachineEngine handles state machine transitions.
+	StateMachineEngine *statemachine.Engine
 }
 
 // FilteredResult is returned when a request is filtered out by the from.filter expression.
@@ -631,6 +642,20 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 				return cached, nil
 			}
 		}
+	}
+
+	// If this is a saga flow, dispatch to saga executor
+	if h.SagaExecutor != nil && h.SagaConfig != nil {
+		sagaResult, err := h.SagaExecutor.Execute(ctx, h.SagaConfig, input)
+		if err != nil {
+			return nil, err
+		}
+		return sagaResult, nil
+	}
+
+	// If this flow has a state_transition block, execute it
+	if h.Config.StateTransition != nil && h.StateMachineEngine != nil {
+		return h.executeStateTransition(ctx, input)
 	}
 
 	var result interface{}
@@ -2076,6 +2101,60 @@ func (e *ValidationError) Error() string {
 type Caller interface {
 	// Call invokes an operation on the connector with the given parameters.
 	Call(ctx context.Context, operation string, params map[string]interface{}) (interface{}, error)
+}
+
+// ===== State Machine Methods =====
+
+// executeStateTransition evaluates CEL expressions for the state_transition block
+// and dispatches to the state machine engine.
+func (h *FlowHandler) executeStateTransition(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+	st := h.Config.StateTransition
+
+	// Initialize transformer if needed
+	if h.Transformer == nil {
+		var err error
+		h.Transformer, err = transform.NewCELTransformer()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create CEL transformer: %w", err)
+		}
+	}
+
+	// Evaluate ID expression
+	entityID, err := h.Transformer.EvaluateExpression(ctx, input, nil, st.ID)
+	if err != nil {
+		return nil, fmt.Errorf("state_transition id evaluation error: %w", err)
+	}
+	idStr, ok := entityID.(string)
+	if !ok {
+		idStr = fmt.Sprintf("%v", entityID)
+	}
+
+	// Evaluate event expression
+	eventVal, err := h.Transformer.EvaluateExpression(ctx, input, nil, st.Event)
+	if err != nil {
+		return nil, fmt.Errorf("state_transition event evaluation error: %w", err)
+	}
+	eventStr, ok := eventVal.(string)
+	if !ok {
+		return nil, fmt.Errorf("state_transition event must be a string, got %T", eventVal)
+	}
+
+	// Evaluate data expression (optional)
+	var data map[string]interface{}
+	if st.Data != "" {
+		dataVal, err := h.Transformer.EvaluateExpression(ctx, input, nil, st.Data)
+		if err == nil {
+			if m, ok := dataVal.(map[string]interface{}); ok {
+				data = m
+			}
+		}
+	}
+	// If no data expression or evaluation failed, use input as data
+	if data == nil {
+		data = input
+	}
+
+	return h.StateMachineEngine.Transition(ctx, st.Machine, st.Entity, idStr, eventStr, data)
 }
 
 // ===== Cache Helper Methods =====

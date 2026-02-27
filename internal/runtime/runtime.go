@@ -54,6 +54,7 @@ import (
 	"github.com/matutetandil/mycel/internal/plugin"
 	"github.com/matutetandil/mycel/internal/ratelimit"
 	"github.com/matutetandil/mycel/internal/scheduler"
+	"github.com/matutetandil/mycel/internal/statemachine"
 	msync "github.com/matutetandil/mycel/internal/sync"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
@@ -97,6 +98,9 @@ type Runtime struct {
 
 	// Sync manager for distributed locks, semaphores, and coordination
 	syncManager *msync.Manager
+
+	// State machine engine for state transitions
+	stateMachineEngine *statemachine.Engine
 
 	// Scheduler for cron-based flow triggers
 	scheduler *scheduler.Scheduler
@@ -430,10 +434,22 @@ func (r *Runtime) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize aspects: %w", err)
 	}
 
+	// Initialize state machine engine
+	r.stateMachineEngine = statemachine.NewEngine(r.connectors)
+	for _, sm := range r.config.StateMachines {
+		r.stateMachineEngine.Register(sm)
+	}
+
 	// Register flows
 	if err := r.registerFlows(); err != nil {
 		banner.PrintError(err.Error())
 		return fmt.Errorf("failed to register flows: %w", err)
+	}
+
+	// Register sagas
+	if err := r.registerSagas(); err != nil {
+		banner.PrintError(err.Error())
+		return fmt.Errorf("failed to register sagas: %w", err)
 	}
 
 	// Start REST connectors (HTTP servers)
@@ -705,18 +721,19 @@ func (r *Runtime) registerFlows() error {
 
 		// Register the flow
 		handler := &FlowHandler{
-			Config:            cfg,
-			FlowPath:          cfg.SourceFile,
-			Source:            source,
-			Dest:              dest,
-			NamedTransforms:   r.transforms,
-			Types:             r.types,
-			Connectors:        r.connectors,
-			OperationResolver: r.operationResolver,
-			NamedCaches:       r.namedCaches,
-			AspectExecutor:    r.aspectExecutor,
-			FunctionsRegistry: r.functionsRegistry,
-			SyncManager:       r.syncManager,
+			Config:             cfg,
+			FlowPath:           cfg.SourceFile,
+			Source:             source,
+			Dest:               dest,
+			NamedTransforms:    r.transforms,
+			Types:              r.types,
+			Connectors:         r.connectors,
+			OperationResolver:  r.operationResolver,
+			NamedCaches:        r.namedCaches,
+			AspectExecutor:     r.aspectExecutor,
+			FunctionsRegistry:  r.functionsRegistry,
+			SyncManager:        r.syncManager,
+			StateMachineEngine: r.stateMachineEngine,
 		}
 
 		r.flows.Register(cfg.Name, handler)

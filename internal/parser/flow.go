@@ -43,8 +43,9 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			{Type: "require"},
 			{Type: "after"},
 			{Type: "error_handling"},
-			{Type: "dedupe"}, // Deduplication
-		{Type: "batch"}, // Batch processing
+			{Type: "dedupe"},            // Deduplication
+		{Type: "batch"},            // Batch processing
+		{Type: "state_transition"}, // State machine transition
 		},
 	}
 
@@ -197,6 +198,13 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 				return nil, fmt.Errorf("batch block error: %w", err)
 			}
 			config.Batch = batch
+
+		case "state_transition":
+			st, err := parseStateTransitionBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("state_transition block error: %w", err)
+			}
+			config.StateTransition = st
 		}
 	}
 
@@ -2076,4 +2084,65 @@ func parseBatchBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.BatchConfig,
 	}
 
 	return batch, nil
+}
+
+// parseStateTransitionBlock parses a state_transition block inside a flow.
+func parseStateTransitionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StateTransitionConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "machine", Required: true},
+			{Name: "entity", Required: true},
+			{Name: "id", Required: true},
+			{Name: "event", Required: true},
+			{Name: "data"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("state_transition block content error: %s", diags.Error())
+	}
+
+	st := &flow.StateTransitionConfig{}
+
+	if attr, ok := content.Attributes["machine"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("state_transition machine error: %s", diags.Error())
+		}
+		st.Machine = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["entity"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("state_transition entity error: %s", diags.Error())
+		}
+		st.Entity = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["id"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("state_transition id error: %s", diags.Error())
+		}
+		st.ID = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["event"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("state_transition event error: %s", diags.Error())
+		}
+		st.Event = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["data"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			st.Data = val.AsString()
+		}
+	}
+
+	return st, nil
 }

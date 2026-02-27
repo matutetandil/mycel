@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Phase 12.1: Saga Pattern
+- **Saga pattern** for declarative distributed transactions with automatic compensation
+  - New top-level `saga` HCL block with `step`, `action`, `compensate`, `on_complete`, `on_failure`
+  - Saga executor: runs steps in order, compensates in reverse on failure
+  - Step results available as `step.<name>.*` in subsequent actions and compensations
+  - CEL expression resolution in `data`, `body`, `where`, `set` fields
+  - `on_error = "skip"` for non-critical steps
+  - Saga handler registers sagas as flow handlers in the runtime
+- **New package**: `internal/saga/` (config types + executor)
+- **New parser**: `internal/parser/saga.go` — `parseSagaBlock`, `parseSagaStepBlock`, `parseSagaActionBlock`
+- **Tests**: 10 saga executor tests (all steps succeed, compensation, compensation failure, skip on error, multiple reverse compensations, etc.)
+- **Parser tests**: `TestParseSaga` — validates full HCL parsing
+- **New example**: `examples/saga/` — order creation with 3-step saga
+
+### Added - Phase 12.2: State Machine
+- **State machine** for entity lifecycle management with declarative states and transitions
+  - New top-level `state_machine` HCL block with `state`, `on` (transitions), `guard`, `action`, `final`
+  - State machine engine: validates transitions, evaluates CEL guards, executes actions, persists state
+  - State stored in entity's `status` column — no separate state table needed
+  - Guards (CEL expressions) prevent invalid transitions
+  - Transition actions execute connector operations during state changes
+  - Final states block further transitions
+- **New `state_transition` block in flows** — triggers state machine transitions from REST/queue/etc.
+  - CEL expressions for `id`, `event`, `data` fields
+- **New package**: `internal/statemachine/` (config types + engine)
+- **New parser**: `internal/parser/statemachine.go` — `parseStateMachineBlock`, `parseStateBlock`, `parseTransitionBlock`
+- **Tests**: 10 state machine engine tests (valid transitions, initial state, invalid events, final states, guards, actions, multi-step, action failure)
+- **Parser tests**: `TestParseStateMachine`, `TestParseFlowWithStateTransition`
+- **New example**: `examples/state-machine/` — order status lifecycle
+- **Docs**: CONCEPTS.md updated with Sagas and State Machines sections
+
 ### Added - Connector Documentation Catalog
 - **New `docs/connectors/` directory** with individual documentation for every connector type
   - Catalog README with categorized tables linking to all 16 connector docs

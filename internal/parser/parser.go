@@ -18,6 +18,8 @@ import (
 	"github.com/matutetandil/mycel/internal/functions"
 	"github.com/matutetandil/mycel/internal/mock"
 	"github.com/matutetandil/mycel/internal/plugin"
+	"github.com/matutetandil/mycel/internal/saga"
+	"github.com/matutetandil/mycel/internal/statemachine"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
 	"github.com/matutetandil/mycel/internal/validator"
@@ -70,6 +72,12 @@ type Configuration struct {
 
 	// Auth is the authentication system configuration.
 	Auth *auth.Config
+
+	// Sagas are saga (distributed transaction) configurations.
+	Sagas []*saga.Config
+
+	// StateMachines are state machine configurations.
+	StateMachines []*statemachine.Config
 }
 
 // ServiceConfig holds global service configuration.
@@ -92,15 +100,17 @@ type RateLimitConfig struct {
 // NewConfiguration creates an empty configuration.
 func NewConfiguration() *Configuration {
 	return &Configuration{
-		Connectors:  make([]*connector.Config, 0),
-		Flows:       make([]*flow.Config, 0),
-		Types:       make([]*validate.TypeSchema, 0),
-		Transforms:  make([]*transform.Config, 0),
-		NamedCaches: make([]*flow.NamedCacheConfig, 0),
-		Aspects:     make([]*aspect.Config, 0),
-		Validators:  make([]*validator.Config, 0),
-		Functions:   make([]*functions.Config, 0),
-		Plugins:     make([]*plugin.PluginDeclaration, 0),
+		Connectors:    make([]*connector.Config, 0),
+		Flows:         make([]*flow.Config, 0),
+		Types:         make([]*validate.TypeSchema, 0),
+		Transforms:    make([]*transform.Config, 0),
+		NamedCaches:   make([]*flow.NamedCacheConfig, 0),
+		Aspects:       make([]*aspect.Config, 0),
+		Validators:    make([]*validator.Config, 0),
+		Functions:     make([]*functions.Config, 0),
+		Plugins:       make([]*plugin.PluginDeclaration, 0),
+		Sagas:         make([]*saga.Config, 0),
+		StateMachines: make([]*statemachine.Config, 0),
 	}
 }
 
@@ -115,6 +125,8 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.Validators = append(c.Validators, other.Validators...)
 	c.Functions = append(c.Functions, other.Functions...)
 	c.Plugins = append(c.Plugins, other.Plugins...)
+	c.Sagas = append(c.Sagas, other.Sagas...)
+	c.StateMachines = append(c.StateMachines, other.StateMachines...)
 	if other.ServiceConfig != nil {
 		c.ServiceConfig = other.ServiceConfig
 	}
@@ -279,6 +291,20 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 				return nil, fmt.Errorf("auth parse error: %w", err)
 			}
 			config.Auth = authCfg
+
+		case "saga":
+			s, err := parseSagaBlock(block, p.evalCtx)
+			if err != nil {
+				return nil, fmt.Errorf("saga parse error: %w", err)
+			}
+			config.Sagas = append(config.Sagas, s)
+
+		case "state_machine":
+			sm, err := parseStateMachineBlock(block, p.evalCtx)
+			if err != nil {
+				return nil, fmt.Errorf("state_machine parse error: %w", err)
+			}
+			config.StateMachines = append(config.StateMachines, sm)
 		}
 	}
 
@@ -298,6 +324,8 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "validator", LabelNames: []string{"name"}},
 			{Type: "functions", LabelNames: []string{"name"}},
 			{Type: "plugin", LabelNames: []string{"name"}},
+			{Type: "saga", LabelNames: []string{"name"}},
+			{Type: "state_machine", LabelNames: []string{"name"}},
 			{Type: "service"},
 			{Type: "mocks"},
 			{Type: "auth"},

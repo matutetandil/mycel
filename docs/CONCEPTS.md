@@ -616,6 +616,137 @@ See [Configuration Reference — Flow Triggers](CONFIGURATION.md#flow-triggers-w
 
 ---
 
+## Sagas
+
+A saga orchestrates a multi-step distributed transaction with automatic compensation. Each step has an `action` (forward operation) and an optional `compensate` (rollback). If any step fails, compensations run in reverse order for all previously completed steps.
+
+```hcl
+saga "create_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+
+  step "order" {
+    action {
+      connector = "orders_db"
+      operation = "INSERT"
+      target    = "orders"
+      data      = { status = "pending", user_id = "input.user_id" }
+    }
+    compensate {
+      connector = "orders_db"
+      operation = "DELETE"
+      target    = "orders"
+      where     = { id = "step.order.id" }
+    }
+  }
+
+  step "payment" {
+    action {
+      connector = "stripe"
+      operation = "POST /charges"
+      body      = { amount = "input.amount" }
+    }
+    compensate {
+      connector = "stripe"
+      operation = "POST /refunds"
+      body      = { charge = "step.payment.charge_id" }
+    }
+  }
+
+  on_complete {
+    connector = "orders_db"
+    operation = "UPDATE"
+    target    = "orders"
+    set       = { status = "confirmed" }
+    where     = { id = "step.order.id" }
+  }
+
+  on_failure {
+    connector = "notifications"
+    operation = "POST /send"
+    template  = "order_failed"
+  }
+}
+```
+
+Key features:
+- **Step results** are available as `step.<name>.*` in subsequent steps and in `on_complete`/`on_failure`
+- **`on_error = "skip"`** on a step allows skipping non-critical steps without triggering compensation
+- **`on_complete`** runs after all steps succeed
+- **`on_failure`** runs after compensations complete (regardless of compensation success)
+
+See the [saga example](../examples/saga/) for a complete setup.
+
+---
+
+## State Machines
+
+A state machine defines valid states and transitions for an entity. State is persisted in the entity's `status` column. Transitions can have guards (CEL conditions) and side-effect actions.
+
+```hcl
+state_machine "order_status" {
+  initial = "pending"
+
+  state "pending" {
+    on "pay"    { transition_to = "paid" }
+    on "cancel" { transition_to = "cancelled" }
+  }
+
+  state "paid" {
+    on "ship" {
+      transition_to = "shipped"
+      guard         = "input.tracking_number != ''"
+      action {
+        connector = "notifications"
+        operation = "POST /send"
+        template  = "order_shipped"
+        data      = { tracking = "input.tracking_number" }
+      }
+    }
+    on "refund" { transition_to = "refunded" }
+  }
+
+  state "shipped" {
+    on "deliver" { transition_to = "delivered" }
+  }
+
+  state "delivered" { final = true }
+  state "cancelled" { final = true }
+  state "refunded"  { final = true }
+}
+```
+
+Trigger transitions from a flow using the `state_transition` block:
+
+```hcl
+flow "update_order_status" {
+  from { connector = "api", operation = "POST /orders/:id/status" }
+
+  state_transition {
+    machine = "order_status"
+    entity  = "orders"
+    id      = "input.params.id"
+    event   = "input.event"
+    data    = "input.data"
+  }
+
+  to { connector = "orders_db", target = "orders" }
+}
+```
+
+Key features:
+- **Guards** prevent invalid transitions (e.g., require tracking number before shipping)
+- **Actions** execute side effects during a transition (e.g., send notification)
+- **Final states** cannot transition further
+- **Automatic state persistence** via the entity's `status` column
+- **Initial state** used when the entity has no `status` value yet
+
+See the [state machine example](../examples/state-machine/) for a complete setup.
+
+---
+
 ## Configuration Structure
 
 A Mycel service is a directory of HCL files. Mycel recursively scans all subdirectories for `.hcl` files, so you can organize however you like. The conventional structure is:

@@ -1,0 +1,4 @@
+service {
+  name    = "order-service"
+  version = "1.0.0"
+}

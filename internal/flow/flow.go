@@ -148,6 +148,27 @@ type Config struct {
 	// Batch defines batch processing configuration for chunked data operations.
 	// When set, the flow reads from the source in pages and writes to a target.
 	Batch *BatchConfig
+
+	// StateTransition triggers a state machine transition during flow execution.
+	StateTransition *StateTransitionConfig
+}
+
+// StateTransitionConfig defines a state machine transition within a flow.
+type StateTransitionConfig struct {
+	// Machine is the state machine name to use.
+	Machine string
+
+	// Entity is the table/entity name where state is stored.
+	Entity string
+
+	// ID is a CEL expression that resolves to the entity ID.
+	ID string
+
+	// Event is a CEL expression that resolves to the event name.
+	Event string
+
+	// Data is a CEL expression that resolves to additional transition data.
+	Data string
 }
 
 // StepConfig defines an intermediate connector call within a flow.
