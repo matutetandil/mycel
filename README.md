@@ -106,6 +106,7 @@ That's it. REST API + database, zero code.
 | [RabbitMQ / Kafka](examples/mq) | Message queue producers and consumers |
 | [WebSocket](examples/websocket) | Bidirectional real-time communication with rooms ([concept](docs/CONCEPTS.md#websockets)) |
 | [CDC (Change Data Capture)](examples/cdc) | Stream PostgreSQL changes in real-time via logical replication ([concept](docs/CONCEPTS.md#cdc-change-data-capture)) |
+| [SSE (Server-Sent Events)](examples/sse) | Unidirectional HTTP push stream to clients with rooms and heartbeat ([concept](docs/CONCEPTS.md#sse-server-sent-events)) |
 | [TCP Server & Client](examples/tcp) | JSON, msgpack, and NestJS protocols |
 | [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
 | [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching |

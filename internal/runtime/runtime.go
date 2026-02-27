@@ -40,6 +40,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector/rest"
 	"github.com/matutetandil/mycel/internal/connector/tcp"
 	conncdc "github.com/matutetandil/mycel/internal/connector/cdc"
+	connsse "github.com/matutetandil/mycel/internal/connector/sse"
 	connws "github.com/matutetandil/mycel/internal/connector/websocket"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/functions"
@@ -369,6 +370,9 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 
 	// CDC connector for Change Data Capture (PostgreSQL logical replication)
 	registry.RegisterFactory(conncdc.NewFactory(logger))
+
+	// SSE connector for unidirectional server-to-client push
+	registry.RegisterFactory(connsse.NewFactory(logger))
 
 	// Profile connector (must be registered last - uses other factories)
 	registry.RegisterFactory(profile.NewFactory(registry))

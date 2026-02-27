@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Phase 10.3: SSE (Server-Sent Events)
+- **SSE connector** for unidirectional server-to-client HTTP push streams
+  - Delivers events over standard HTTP `text/event-stream` — no WebSocket handshake required
+  - Works through proxies, firewalls, and CDNs that block WebSockets
+  - Automatic client reconnection handled by the browser's native `EventSource` API
+  - Thread-safe client registry and room membership
+  - Implements `Connector`, `Writer`, `Starter`, and `RouteRegistrar` interfaces
+- **Target operations**: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user by `user_id` query param)
+- **Room and user targeting via query params**: clients connect with `GET /events?room=orders`, `GET /events?rooms=orders,inventory`, or `GET /events?user_id=42`
+- **Auto-heartbeat**: configurable `heartbeat_interval` sends periodic SSE comment frames (`:\n\n`) to keep connections alive through proxies
+- **CORS support**: `cors { allowed_origins = [...] }` block for cross-origin browser clients
+- **New connector type**: `sse` with `port`, `host`, `path`, `heartbeat_interval`, `cors` configuration
+- **Tests**: 18 tests covering factory, connect, broadcast, rooms, disconnect cleanup, heartbeat, event format, health, CORS, user targeting
+- **New example**: `examples/sse/` — live feed, room updates, and per-user notifications
+
+
 ### Added - Phase 10.1: WebSocket Connector
 - **Standalone WebSocket connector** for bidirectional real-time communication
   - **Source operations**: `message`, `connect`, `disconnect` — receive client events as flow triggers

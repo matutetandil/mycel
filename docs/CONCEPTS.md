@@ -13,6 +13,8 @@ This guide explains what each Mycel concept is, why it exists, and when to use i
 - [Steps](#steps)
 - [Subscriptions](#subscriptions)
 - [WebSockets](#websockets)
+- [CDC (Change Data Capture)](#cdc-change-data-capture)
+- [SSE (Server-Sent Events)](#sse-server-sent-events)
 - [Federation](#federation)
 - [Named Operations](#named-operations)
 - [Auth](#auth)
@@ -354,6 +356,59 @@ Operations use `TRIGGER:TABLE` format: `INSERT:users`, `UPDATE:orders`, `DELETE:
 PostgreSQL requires `wal_level = logical` and a user with `REPLICATION` privilege. Mycel auto-creates the publication and replication slot if they don't exist. The connector uses the `pgoutput` plugin built into PostgreSQL 10+.
 
 See the [cdc example](../examples/cdc) for a complete setup.
+
+---
+
+## SSE (Server-Sent Events)
+
+SSE delivers a unidirectional push stream from server to clients over standard HTTP. Clients open a `GET` request and receive a continuous `text/event-stream` response — no WebSocket handshake, no custom protocol, just plain HTTP that works through proxies and firewalls. Use it for live feeds, progress tracking, notification banners, or any scenario where the server pushes updates and clients only need to listen.
+
+Unlike WebSockets, SSE connections are read-only for clients. For bidirectional communication use the [WebSocket connector](#websockets) instead.
+
+```hcl
+connector "sse" {
+  type = "sse"
+  port = 3002
+  path = "/events"
+
+  heartbeat_interval = "30s"
+
+  cors {
+    allowed_origins = ["https://app.example.com"]
+  }
+}
+
+# Push queue messages to all connected clients
+flow "live_feed" {
+  from { connector = "rabbit", operation = "feed.item" }
+  to   { connector = "sse", operation = "broadcast" }
+}
+
+# Push only to clients subscribed to a specific room
+flow "room_updates" {
+  from { connector = "rabbit", operation = "room.event" }
+  to   { connector = "sse", operation = "send_to_room", target = "input.room" }
+}
+
+# Push to a single user
+flow "user_notification" {
+  from { connector = "rabbit", operation = "notification.personal" }
+  to   { connector = "sse", operation = "send_to_user", target = "input.user_id" }
+}
+```
+
+Clients connect with a standard `EventSource`:
+
+```javascript
+const es = new EventSource("http://localhost:3002/events");
+es.onmessage = (e) => console.log(JSON.parse(e.data));
+```
+
+To subscribe to a room or target a user, pass query parameters on connect: `GET /events?room=orders`, `GET /events?rooms=orders,inventory`, or `GET /events?user_id=42`. The connector sends periodic heartbeat comments (`:\n\n`) to keep the connection alive through proxies.
+
+Target operations: `broadcast` (all clients), `send_to_room` (room members), `send_to_user` (specific user by `user_id` query param).
+
+See the [sse example](../examples/sse) for a complete setup.
 
 ---
 
