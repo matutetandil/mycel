@@ -243,27 +243,60 @@ flow "order_updates" {
 
 The `filter` attribute on `to` enables per-user filtering — each subscriber only receives events that match their connection parameters (passed during WebSocket `connection_init`). Without a filter, all subscribers receive every event.
 
+### Client-side subscriptions
+
+Mycel can also act as a subscription **client** — connecting to an external GraphQL server's WebSocket and receiving real-time events as a flow source. This mirrors how a message queue consumer works: each event triggers the flow handler.
+
+```hcl
+connector "external_gql" {
+  type     = "graphql"
+  driver   = "client"
+  endpoint = "http://other-service:4000/graphql"
+
+  subscriptions {
+    enabled = true
+    path    = "/subscriptions"    # WebSocket path (default: derived from endpoint)
+  }
+}
+
+flow "react_to_price_change" {
+  from {
+    connector = "external_gql"
+    operation = "Subscription.priceChanged"
+  }
+  to { connector = "db", target = "price_updates" }
+}
+```
+
+The client automatically reconnects with exponential backoff if the connection drops.
+
 See the [graphql-federation example](../examples/graphql-federation) for full patterns including subscription setup.
 
 ---
 
 ## Federation
 
-Federation lets you split a GraphQL API across multiple Mycel services, each owning a slice of the schema. A gateway (Apollo Router, Cosmo Router) composes them into a single graph for clients. Each service is a **subgraph** that declares which types it owns and how to resolve references from other subgraphs.
+Every Mycel GraphQL server is automatically federation-ready. It exposes `_service { sdl }` so gateways like Apollo Router or Cosmo Router can discover the schema, queries, mutations, subscriptions, and types — no configuration needed. You can point a gateway at any Mycel GraphQL endpoint and it works.
 
-Mark a type as a federated entity by adding a `_key` attribute — this tells the gateway which fields uniquely identify the entity. Use `_shareable` to allow multiple subgraphs to resolve the same field, and `_external` to reference fields owned by another subgraph.
+### Without `_key` (standalone subgraph)
+
+If your types don't use `_key`, the service works perfectly as a subgraph — the gateway discovers everything and routes queries to it. The only thing missing is cross-subgraph references: other subgraphs can't say "give me the Product with sku X from this service." For many services, that's all you need.
+
+### With `_key` (federated entities)
+
+Adding `_key` to a type makes it a **federated entity** — other subgraphs can reference it by its key fields. For example, an Orders subgraph can include a `product` field that references a Product by SKU, and the gateway automatically fetches it from the Products subgraph.
 
 ```hcl
 type "Product" {
-  _key       = ["sku"]
-  _shareable = true
+  _key       = "sku"          # @key(fields: "sku") — the gateway uses this to resolve cross-subgraph references
+  _shareable = true           # @shareable — multiple subgraphs can resolve this type
 
   sku   = string { required = true }
   name  = string {}
   price = number {}
 }
 
-# Entity resolution — how this subgraph resolves a Product reference from another subgraph
+# Entity resolver — how this subgraph resolves a Product when another subgraph references it
 flow "resolve_product" {
   entity = "Product"
   from   { connector = "api", operation = "Query.product" }
@@ -271,7 +304,19 @@ flow "resolve_product" {
 }
 ```
 
-When another subgraph references a `Product`, the gateway calls this service's `_entities` resolver with the key fields. Mycel handles entity resolution automatically: flows with an `entity` attribute register themselves as resolvers, and types with `_key` are auto-matched to flows by return type.
+When the gateway receives a query that spans subgraphs, it calls `_entities` with the key fields (`{ __typename: "Product", sku: "ABC-123" }`). Mycel routes this to the entity resolver flow automatically.
+
+### Federation directives
+
+| HCL attribute | GraphQL directive | Purpose |
+|---------------|-------------------|---------|
+| `_key = "id"` | `@key(fields: "id")` | Marks a type as an entity resolvable by its key fields |
+| `_shareable = true` | `@shareable` | Allows multiple subgraphs to resolve the same field |
+| `_external = true` (on field) | `@external` | References a field owned by another subgraph |
+| `_requires = ["sku"]` (on field) | `@requires(fields: "sku")` | Declares fields needed from another subgraph before resolving |
+| `_provides = ["name"]` (on field) | `@provides(fields: "name")` | Declares fields this subgraph can provide for an entity |
+
+The `federation` block on the connector is optional — only needed to override the version (defaults to v2).
 
 See the [graphql-federation example](../examples/graphql-federation) for a complete multi-service setup.
 

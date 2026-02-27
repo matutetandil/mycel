@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/matutetandil/mycel/internal/connector"
 )
 
@@ -124,7 +126,7 @@ func TestClientConnector(t *testing.T) {
 		Timeout:  5 * time.Second,
 	}
 
-	client := NewClient("test-client", config)
+	client := NewClient("test-client", config, nil)
 
 	if client.Name() != "test-client" {
 		t.Errorf("expected name 'test-client', got '%s'", client.Name())
@@ -181,7 +183,7 @@ func TestClientAuthBearer(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-auth", config)
+	client := NewClient("test-auth", config, nil)
 	ctx := context.Background()
 	client.Connect(ctx)
 
@@ -215,7 +217,7 @@ func TestClientAuthAPIKey(t *testing.T) {
 		},
 	}
 
-	client := NewClient("test-apikey", config)
+	client := NewClient("test-apikey", config, nil)
 	ctx := context.Background()
 	client.Connect(ctx)
 
@@ -304,7 +306,7 @@ func TestClientRetry(t *testing.T) {
 		RetryDelay: 10 * time.Millisecond,
 	}
 
-	client := NewClient("test-retry", config)
+	client := NewClient("test-retry", config, nil)
 	ctx := context.Background()
 	client.Connect(ctx)
 
@@ -337,7 +339,7 @@ func TestGraphQLErrorHandling(t *testing.T) {
 		Timeout:  5 * time.Second,
 	}
 
-	client := NewClient("test-errors", config)
+	client := NewClient("test-errors", config, nil)
 	ctx := context.Background()
 	client.Connect(ctx)
 
@@ -956,5 +958,397 @@ func TestSubscriptionFilter(t *testing.T) {
 	// Verify filter was stored
 	if builder.subscriptionFilters["orderUpdated"] != "input.user_id == context.auth.user_id" {
 		t.Error("subscription filter should be stored")
+	}
+}
+
+// TestClientSubscriptionRegistration verifies handlers are registered on the client.
+func TestClientSubscriptionRegistration(t *testing.T) {
+	config := &ClientConfig{
+		Endpoint: "http://localhost:4000/graphql",
+		Subscriptions: &SubscriptionsConfig{
+			Enabled: true,
+			Path:    "/subscriptions",
+		},
+	}
+
+	client := NewClient("test-sub-reg", config, nil)
+
+	handler := func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return input, nil
+	}
+
+	client.RegisterRoute("Subscription.orderUpdated", handler)
+	client.RegisterRoute("Subscription.priceChanged", handler)
+
+	if !client.HasSubscriptions() {
+		t.Error("client should have subscriptions after registration")
+	}
+
+	client.mu.RLock()
+	if len(client.handlers) != 2 {
+		t.Errorf("expected 2 handlers, got %d", len(client.handlers))
+	}
+	if _, ok := client.handlers["Subscription.orderUpdated"]; !ok {
+		t.Error("expected handler for Subscription.orderUpdated")
+	}
+	if _, ok := client.handlers["Subscription.priceChanged"]; !ok {
+		t.Error("expected handler for Subscription.priceChanged")
+	}
+	client.mu.RUnlock()
+}
+
+// TestClientSubscriptionWebSocket tests full WebSocket subscription lifecycle
+// with a mock graphql-ws server.
+func TestClientSubscriptionWebSocket(t *testing.T) {
+	// Create a mock graphql-ws server
+	upgrader := websocket.Upgrader{
+		CheckOrigin:  func(r *http.Request) bool { return true },
+		Subprotocols: []string{"graphql-transport-ws"},
+	}
+
+	received := make(chan map[string]interface{}, 5)
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Logf("upgrade error: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		// Read connection_init
+		var initMsg wsMessage
+		if err := conn.ReadJSON(&initMsg); err != nil {
+			return
+		}
+		if initMsg.Type != "connection_init" {
+			t.Errorf("expected connection_init, got %s", initMsg.Type)
+			return
+		}
+
+		// Send connection_ack
+		conn.WriteJSON(wsMessage{Type: "connection_ack"})
+
+		// Read subscribe
+		var subMsg wsMessage
+		if err := conn.ReadJSON(&subMsg); err != nil {
+			return
+		}
+		if subMsg.Type != "subscribe" {
+			t.Errorf("expected subscribe, got %s", subMsg.Type)
+			return
+		}
+
+		// Send 3 next messages
+		for i := 1; i <= 3; i++ {
+			payload, _ := json.Marshal(map[string]interface{}{
+				"data": map[string]interface{}{
+					"orderUpdated": map[string]interface{}{
+						"id":     i,
+						"status": "shipped",
+					},
+				},
+			})
+			conn.WriteJSON(wsMessage{
+				ID:      subMsg.ID,
+				Type:    "next",
+				Payload: payload,
+			})
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		// Wait a bit for the client to process, then send complete
+		time.Sleep(50 * time.Millisecond)
+		conn.WriteJSON(wsMessage{
+			ID:   subMsg.ID,
+			Type: "complete",
+		})
+
+		// Keep connection alive briefly
+		time.Sleep(100 * time.Millisecond)
+	}))
+	defer mockServer.Close()
+
+	config := &ClientConfig{
+		Endpoint: mockServer.URL,
+		Timeout:  5 * time.Second,
+		Subscriptions: &SubscriptionsConfig{
+			Enabled:           true,
+			ConnectionTimeout: 5 * time.Second,
+		},
+	}
+
+	client := NewClient("test-sub-ws", config, nil)
+	ctx := context.Background()
+
+	if err := client.Connect(ctx); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+
+	handler := func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		received <- input
+		return nil, nil
+	}
+
+	client.RegisterRoute("Subscription.orderUpdated", handler)
+
+	if err := client.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	// Collect messages with timeout
+	var messages []map[string]interface{}
+	timeout := time.After(3 * time.Second)
+	for i := 0; i < 3; i++ {
+		select {
+		case msg := <-received:
+			messages = append(messages, msg)
+		case <-timeout:
+			t.Fatalf("timeout waiting for message %d, got %d messages", i+1, len(messages))
+		}
+	}
+
+	if len(messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(messages))
+	}
+
+	// Verify message content
+	for i, msg := range messages {
+		expectedID := float64(i + 1)
+		if msg["id"] != expectedID {
+			t.Errorf("message %d: expected id=%v, got %v", i, expectedID, msg["id"])
+		}
+		if msg["status"] != "shipped" {
+			t.Errorf("message %d: expected status=shipped, got %v", i, msg["status"])
+		}
+	}
+
+	if err := client.Close(ctx); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+}
+
+// TestClientSubscriptionReconnect verifies reconnection on server disconnect.
+func TestClientSubscriptionReconnect(t *testing.T) {
+	received := make(chan map[string]interface{}, 10)
+	connections := make(chan struct{}, 5)
+
+	upgrader := websocket.Upgrader{
+		CheckOrigin:  func(r *http.Request) bool { return true },
+		Subprotocols: []string{"graphql-transport-ws"},
+	}
+
+	connectionCount := 0
+	var mu sync.Mutex
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		mu.Lock()
+		connectionCount++
+		count := connectionCount
+		mu.Unlock()
+
+		connections <- struct{}{}
+
+		// Read connection_init
+		var initMsg wsMessage
+		if err := conn.ReadJSON(&initMsg); err != nil {
+			return
+		}
+		conn.WriteJSON(wsMessage{Type: "connection_ack"})
+
+		// Read subscribe
+		var subMsg wsMessage
+		if err := conn.ReadJSON(&subMsg); err != nil {
+			return
+		}
+
+		// Send one message
+		payload, _ := json.Marshal(map[string]interface{}{
+			"data": map[string]interface{}{
+				"priceChanged": map[string]interface{}{
+					"connection": count,
+				},
+			},
+		})
+		conn.WriteJSON(wsMessage{
+			ID:      subMsg.ID,
+			Type:    "next",
+			Payload: payload,
+		})
+
+		time.Sleep(50 * time.Millisecond)
+
+		if count == 1 {
+			// First connection: close abruptly to trigger reconnect
+			conn.Close()
+			return
+		}
+
+		// Second connection: keep alive longer
+		time.Sleep(500 * time.Millisecond)
+	}))
+	defer mockServer.Close()
+
+	config := &ClientConfig{
+		Endpoint: mockServer.URL,
+		Timeout:  5 * time.Second,
+		Subscriptions: &SubscriptionsConfig{
+			Enabled:           true,
+			ConnectionTimeout: 5 * time.Second,
+		},
+	}
+
+	client := NewClient("test-sub-reconnect", config, nil)
+	ctx := context.Background()
+	client.Connect(ctx)
+
+	handler := func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		received <- input
+		return nil, nil
+	}
+
+	client.RegisterRoute("Subscription.priceChanged", handler)
+	client.Start(ctx)
+
+	// Wait for first connection
+	select {
+	case <-connections:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for first connection")
+	}
+
+	// Get first message
+	select {
+	case msg := <-received:
+		if msg["connection"] != float64(1) {
+			t.Errorf("expected connection=1, got %v", msg["connection"])
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for first message")
+	}
+
+	// Wait for reconnection (second connection)
+	select {
+	case <-connections:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for reconnection")
+	}
+
+	// Get message from second connection
+	select {
+	case msg := <-received:
+		if msg["connection"] != float64(2) {
+			t.Errorf("expected connection=2, got %v", msg["connection"])
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout waiting for reconnect message")
+	}
+
+	client.Close(ctx)
+}
+
+// TestBuildSubscriptionQuery tests the subscription query builder.
+func TestBuildSubscriptionQuery(t *testing.T) {
+	query := buildSubscriptionQuery("orderUpdated")
+	expected := "subscription { orderUpdated }"
+	if query != expected {
+		t.Errorf("expected %q, got %q", expected, query)
+	}
+}
+
+// TestBuildWebSocketURL tests HTTP to WS URL conversion.
+func TestBuildWebSocketURL(t *testing.T) {
+	tests := []struct {
+		name     string
+		endpoint string
+		subPath  string
+		expected string
+	}{
+		{
+			name:     "http to ws",
+			endpoint: "http://localhost:4000/graphql",
+			expected: "ws://localhost:4000/graphql",
+		},
+		{
+			name:     "https to wss",
+			endpoint: "https://api.example.com/graphql",
+			expected: "wss://api.example.com/graphql",
+		},
+		{
+			name:     "custom subscription path",
+			endpoint: "http://localhost:4000/graphql",
+			subPath:  "/subscriptions",
+			expected: "ws://localhost:4000/subscriptions",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &ClientConfig{
+				Endpoint: tt.endpoint,
+			}
+			if tt.subPath != "" {
+				config.Subscriptions = &SubscriptionsConfig{
+					Enabled: true,
+					Path:    tt.subPath,
+				}
+			}
+
+			client := NewClient("test", config, nil)
+			wsURL, err := client.buildWebSocketURL()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if wsURL != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, wsURL)
+			}
+		})
+	}
+}
+
+// TestFactoryClientWithSubscriptions tests factory creates client with subscriptions config.
+func TestFactoryClientWithSubscriptions(t *testing.T) {
+	factory := NewFactory(nil)
+
+	ctx := context.Background()
+	cfg := &connector.Config{
+		Name:   "test-sub-client",
+		Type:   "graphql",
+		Driver: "client",
+		Properties: map[string]interface{}{
+			"endpoint": "http://localhost:4000/graphql",
+			"subscriptions": map[string]interface{}{
+				"enabled": true,
+				"path":    "/ws",
+			},
+		},
+	}
+
+	conn, err := factory.Create(ctx, cfg)
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+
+	client, ok := conn.(*ClientConnector)
+	if !ok {
+		t.Fatal("expected ClientConnector")
+	}
+
+	if client.config.Subscriptions == nil {
+		t.Fatal("subscriptions config should be set")
+	}
+
+	if !client.config.Subscriptions.Enabled {
+		t.Error("subscriptions should be enabled")
+	}
+
+	if client.config.Subscriptions.Path != "/ws" {
+		t.Errorf("expected path '/ws', got '%s'", client.config.Subscriptions.Path)
 	}
 }

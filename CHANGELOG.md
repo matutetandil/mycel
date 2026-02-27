@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - GraphQL Subscription Client
+- **Client-side GraphQL subscriptions** — Mycel can subscribe to external GraphQL servers
+  - `ClientConnector` implements `Starter` and `RouteRegistrar` interfaces
+  - `from { connector = "ext_gql", operation = "Subscription.fieldName" }` syntax
+  - WebSocket client using graphql-ws protocol (connection_init → subscribe → next)
+  - Automatic reconnection with exponential backoff on disconnect
+  - Auth headers forwarded to WebSocket handshake
+  - Custom subscription path via `subscriptions { path = "/ws" }` config
+  - HTTP→WS / HTTPS→WSS URL scheme conversion
+- **New `ClientConfig` field**: `Subscriptions *SubscriptionsConfig`
+- **Tests**: 6 new tests covering registration, WebSocket lifecycle, reconnect, URL building, factory
+
+### Changed - Federation Auto-enabled
+- **Federation v2 is now always enabled** on every GraphQL server connector
+  - `_service { sdl }` always exposed — gateways discover and compose automatically
+  - `_entities` available when types have `_key` attributes
+  - `federation` block is now optional (only needed to override version)
+  - Zero-config federation: just add `_key` to your types and entity resolver flows
+
 ### Added - Phase 9: GraphQL Federation Complete
 - **Subscription type support** in GraphQL schema
   - `SchemaBuilder` supports `Subscription` fields alongside Query/Mutation

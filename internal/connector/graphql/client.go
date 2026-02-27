@@ -7,11 +7,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
+	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/matutetandil/mycel/internal/connector"
 )
 
@@ -20,15 +24,23 @@ type ClientConnector struct {
 	name       string
 	config     *ClientConfig
 	client     *http.Client
+	logger     *slog.Logger
 	mu         sync.RWMutex
 
 	// OAuth2 token management
 	accessToken string
 	tokenExpiry time.Time
+
+	// Subscription client support (implements Starter + RouteRegistrar)
+	handlers map[string]HandlerFunc
+	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	running  bool
 }
 
 // NewClient creates a new GraphQL client connector.
-func NewClient(name string, config *ClientConfig) *ClientConnector {
+func NewClient(name string, config *ClientConfig, logger *slog.Logger) *ClientConnector {
 	// Set defaults
 	if config.Timeout == 0 {
 		config.Timeout = 30 * time.Second
@@ -39,10 +51,15 @@ func NewClient(name string, config *ClientConfig) *ClientConnector {
 	if config.RetryDelay == 0 {
 		config.RetryDelay = time.Second
 	}
+	if logger == nil {
+		logger = slog.Default()
+	}
 
 	return &ClientConnector{
-		name:   name,
-		config: config,
+		name:     name,
+		config:   config,
+		logger:   logger,
+		handlers: make(map[string]HandlerFunc),
 		client: &http.Client{
 			Timeout: config.Timeout,
 		},
@@ -67,8 +84,16 @@ func (c *ClientConnector) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Close is a no-op for the client.
+// Close cancels all subscription goroutines and waits for them to finish.
 func (c *ClientConnector) Close(ctx context.Context) error {
+	c.mu.Lock()
+	if c.cancel != nil {
+		c.cancel()
+	}
+	c.running = false
+	c.mu.Unlock()
+
+	c.wg.Wait()
 	return nil
 }
 
@@ -373,6 +398,312 @@ func isClientError(err error) bool {
 		return httpErr.StatusCode >= 400 && httpErr.StatusCode < 500
 	}
 	return false
+}
+
+// RegisterRoute registers a handler for a subscription operation.
+// Operations should be in the form "Subscription.fieldName".
+func (c *ClientConnector) RegisterRoute(operation string, handler HandlerFunc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.handlers[operation] = handler
+	c.logger.Debug("registered subscription handler", "connector", c.name, "operation", operation)
+}
+
+// Start begins consuming GraphQL subscriptions from the remote server.
+func (c *ClientConnector) Start(ctx context.Context) error {
+	c.mu.Lock()
+	if c.running {
+		c.mu.Unlock()
+		return fmt.Errorf("client connector %s already running", c.name)
+	}
+	c.running = true
+	c.ctx, c.cancel = context.WithCancel(ctx)
+	handlers := make(map[string]HandlerFunc, len(c.handlers))
+	for k, v := range c.handlers {
+		handlers[k] = v
+	}
+	c.mu.Unlock()
+
+	for operation, handler := range handlers {
+		fieldName := operation
+		// Strip "Subscription." prefix if present
+		if strings.HasPrefix(operation, "Subscription.") {
+			fieldName = strings.TrimPrefix(operation, "Subscription.")
+		}
+
+		query := buildSubscriptionQuery(fieldName)
+
+		c.wg.Add(1)
+		go func(topic, q string, h HandlerFunc) {
+			defer c.wg.Done()
+			c.subscribeToTopic(c.ctx, topic, q, h)
+		}(fieldName, query, handler)
+	}
+
+	if len(handlers) > 0 {
+		c.logger.Info("graphql subscription client started",
+			"connector", c.name,
+			"subscriptions", len(handlers),
+		)
+	}
+
+	return nil
+}
+
+// buildSubscriptionQuery generates a subscription query for a field name.
+func buildSubscriptionQuery(fieldName string) string {
+	return fmt.Sprintf("subscription { %s }", fieldName)
+}
+
+// subscribeToTopic connects to the remote GraphQL server via WebSocket,
+// subscribes to a topic, and dispatches each message to the handler.
+// Reconnects with exponential backoff on disconnection.
+func (c *ClientConnector) subscribeToTopic(ctx context.Context, topic, query string, handler HandlerFunc) {
+	const (
+		initialBackoff = 1 * time.Second
+		maxBackoff     = 60 * time.Second
+	)
+	attempt := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		err := c.runSubscription(ctx, topic, query, handler)
+		if err == nil || ctx.Err() != nil {
+			return
+		}
+
+		attempt++
+		backoff := time.Duration(float64(initialBackoff) * math.Pow(2, float64(attempt-1)))
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+
+		c.logger.Warn("subscription disconnected, reconnecting",
+			"connector", c.name,
+			"topic", topic,
+			"attempt", attempt,
+			"backoff", backoff,
+			"error", err,
+		)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+	}
+}
+
+// runSubscription performs a single WebSocket subscription session.
+// Returns nil on clean shutdown, error on unexpected disconnect.
+func (c *ClientConnector) runSubscription(ctx context.Context, topic, query string, handler HandlerFunc) error {
+	wsURL, err := c.buildWebSocketURL()
+	if err != nil {
+		return fmt.Errorf("failed to build WebSocket URL: %w", err)
+	}
+
+	// Add auth headers if configured
+	reqHeader := http.Header{}
+	for key, value := range c.config.Headers {
+		reqHeader.Set(key, value)
+	}
+	if c.config.Auth != nil {
+		dummyReq, _ := http.NewRequest("GET", wsURL, nil)
+		if err := c.addAuth(dummyReq); err == nil {
+			if auth := dummyReq.Header.Get("Authorization"); auth != "" {
+				reqHeader.Set("Authorization", auth)
+			}
+		}
+	}
+
+	dialer := websocket.Dialer{
+		HandshakeTimeout: c.config.Timeout,
+		Subprotocols:     []string{"graphql-transport-ws"},
+	}
+
+	conn, _, err := dialer.DialContext(ctx, wsURL, reqHeader)
+	if err != nil {
+		return fmt.Errorf("websocket dial failed: %w", err)
+	}
+	defer conn.Close()
+
+	// Send connection_init
+	initMsg := wsMessage{Type: msgConnectionInit}
+	if err := conn.WriteJSON(initMsg); err != nil {
+		return fmt.Errorf("failed to send connection_init: %w", err)
+	}
+
+	// Wait for connection_ack
+	if err := c.waitForAck(ctx, conn); err != nil {
+		return fmt.Errorf("connection_ack failed: %w", err)
+	}
+
+	// Send subscribe
+	subPayload, _ := json.Marshal(subscribePayload{Query: query})
+	subMsg := wsMessage{
+		ID:      "sub-" + topic,
+		Type:    msgSubscribe,
+		Payload: subPayload,
+	}
+	if err := conn.WriteJSON(subMsg); err != nil {
+		return fmt.Errorf("failed to send subscribe: %w", err)
+	}
+
+	c.logger.Debug("subscription active", "connector", c.name, "topic", topic, "url", wsURL)
+
+	// Read messages
+	for {
+		select {
+		case <-ctx.Done():
+			// Send complete to cleanly unsubscribe
+			conn.WriteJSON(wsMessage{ID: "sub-" + topic, Type: msgComplete})
+			return nil
+		default:
+		}
+
+		conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+
+		var msg wsMessage
+		if err := conn.ReadJSON(&msg); err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("read error: %w", err)
+		}
+
+		switch msg.Type {
+		case msgNext:
+			c.handleNextMessage(ctx, topic, msg.Payload, handler)
+
+		case msgError:
+			c.logger.Error("subscription error from server",
+				"connector", c.name,
+				"topic", topic,
+				"payload", string(msg.Payload),
+			)
+
+		case msgComplete_:
+			c.logger.Debug("subscription completed by server",
+				"connector", c.name,
+				"topic", topic,
+			)
+			return fmt.Errorf("server completed subscription")
+
+		case msgPing:
+			conn.WriteJSON(wsMessage{Type: msgPong})
+
+		case msgConnectionAck:
+			// Already acked, ignore duplicate
+		}
+	}
+}
+
+// waitForAck waits for a connection_ack message from the server.
+func (c *ClientConnector) waitForAck(ctx context.Context, conn *websocket.Conn) error {
+	timeout := 10 * time.Second
+	if c.config.Subscriptions != nil && c.config.Subscriptions.ConnectionTimeout > 0 {
+		timeout = c.config.Subscriptions.ConnectionTimeout
+	}
+
+	conn.SetReadDeadline(time.Now().Add(timeout))
+
+	var msg wsMessage
+	if err := conn.ReadJSON(&msg); err != nil {
+		return fmt.Errorf("failed to read ack: %w", err)
+	}
+
+	if msg.Type != msgConnectionAck {
+		return fmt.Errorf("expected connection_ack, got %s", msg.Type)
+	}
+
+	return nil
+}
+
+// handleNextMessage deserializes a subscription next payload and dispatches to the handler.
+func (c *ClientConnector) handleNextMessage(ctx context.Context, topic string, payload json.RawMessage, handler HandlerFunc) {
+	var result struct {
+		Data   map[string]interface{} `json:"data"`
+		Errors []GraphQLError         `json:"errors,omitempty"`
+	}
+	if err := json.Unmarshal(payload, &result); err != nil {
+		c.logger.Error("failed to unmarshal subscription payload",
+			"connector", c.name,
+			"topic", topic,
+			"error", err,
+		)
+		return
+	}
+
+	if len(result.Errors) > 0 {
+		c.logger.Error("subscription payload contains errors",
+			"connector", c.name,
+			"topic", topic,
+			"errors", result.Errors[0].Message,
+		)
+		return
+	}
+
+	// Extract the subscription field data (e.g., data.orderUpdated)
+	input := make(map[string]interface{})
+	if result.Data != nil {
+		if fieldData, ok := result.Data[topic]; ok {
+			if m, ok := fieldData.(map[string]interface{}); ok {
+				input = m
+			} else {
+				input["data"] = fieldData
+			}
+		} else {
+			// Use the entire data object
+			input = result.Data
+		}
+	}
+
+	if _, err := handler(ctx, input); err != nil {
+		c.logger.Error("subscription handler error",
+			"connector", c.name,
+			"topic", topic,
+			"error", err,
+		)
+	}
+}
+
+// buildWebSocketURL converts the HTTP endpoint to a WebSocket URL.
+func (c *ClientConnector) buildWebSocketURL() (string, error) {
+	parsed, err := url.Parse(c.config.Endpoint)
+	if err != nil {
+		return "", err
+	}
+
+	// Convert scheme
+	switch parsed.Scheme {
+	case "http":
+		parsed.Scheme = "ws"
+	case "https":
+		parsed.Scheme = "wss"
+	case "ws", "wss":
+		// Already a WebSocket URL
+	default:
+		parsed.Scheme = "ws"
+	}
+
+	// Use custom subscriptions path if configured
+	if c.config.Subscriptions != nil && c.config.Subscriptions.Path != "" {
+		parsed.Path = c.config.Subscriptions.Path
+	}
+
+	return parsed.String(), nil
+}
+
+// HasSubscriptions returns true if subscription handlers are registered.
+func (c *ClientConnector) HasSubscriptions() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.handlers) > 0
 }
 
 // Ensure ClientConnector implements the required interfaces.

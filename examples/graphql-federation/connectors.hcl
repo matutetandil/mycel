@@ -1,8 +1,9 @@
 # GraphQL Federation Connectors
 
-# GraphQL Server with Federation v2 and Subscriptions
-# This connector exposes a federated subgraph that can be composed
-# with other subgraphs via Apollo Router, Cosmo, or similar gateways.
+# GraphQL Server with Subscriptions
+# Federation v2 is enabled automatically on every GraphQL server —
+# gateways (Apollo Router, Cosmo) can discover and compose this subgraph
+# without any extra configuration.
 
 connector "api" {
   type   = "graphql"
@@ -16,12 +17,6 @@ connector "api" {
     origins = ["*"]
     methods = ["GET", "POST", "OPTIONS"]
     headers = ["Content-Type", "Authorization"]
-  }
-
-  # Enable Apollo Federation v2
-  federation {
-    enabled = true
-    version = 2
   }
 
   # Enable GraphQL Subscriptions over WebSocket

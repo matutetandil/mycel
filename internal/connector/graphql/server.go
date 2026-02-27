@@ -75,18 +75,18 @@ func (c *ServerConnector) Type() string {
 
 // Connect initializes the GraphQL server.
 func (c *ServerConnector) Connect(ctx context.Context) error {
-	// Enable Federation if configured
-	if c.config.Federation != nil && c.config.Federation.Enabled {
-		version := c.config.Federation.Version
-		if version == 0 {
-			version = 2
-		}
-		c.schemaBuilder.EnableFederation(version)
-		c.logger.Info("enabled GraphQL Federation",
-			"version", version,
-			"connector", c.name,
-		)
+	// Always enable Federation — every GraphQL server exposes _service { sdl }
+	// so gateways (Apollo Router, Cosmo) can discover and compose it automatically.
+	// The federation block is optional and only needed to override the version.
+	version := 2
+	if c.config.Federation != nil && c.config.Federation.Version > 0 {
+		version = c.config.Federation.Version
 	}
+	c.schemaBuilder.EnableFederation(version)
+	c.logger.Debug("federation enabled",
+		"version", version,
+		"connector", c.name,
+	)
 
 	// Load SDL schema if path is provided
 	if c.config.Schema.Path != "" {

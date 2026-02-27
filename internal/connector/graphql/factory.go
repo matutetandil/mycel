@@ -137,7 +137,17 @@ func (f *Factory) createClient(cfg *connector.Config) (*ClientConnector, error) 
 		}
 	}
 
-	return NewClient(cfg.Name, config), nil
+	// Parse subscriptions configuration
+	if subsCfg := getMap(cfg.Properties, "subscriptions"); subsCfg != nil {
+		config.Subscriptions = &SubscriptionsConfig{
+			Enabled:           getBool(subsCfg, "enabled", true),
+			Path:              getString(subsCfg, "path", ""),
+			KeepAliveInterval: getDuration(subsCfg, "keep_alive_interval", 30*time.Second),
+			ConnectionTimeout: getDuration(subsCfg, "connection_timeout", 60*time.Second),
+		}
+	}
+
+	return NewClient(cfg.Name, config, f.logger), nil
 }
 
 // Helper functions for extracting configuration values

@@ -82,6 +82,9 @@ type ClientConfig struct {
 
 	// RetryDelay is the delay between retries.
 	RetryDelay time.Duration
+
+	// Subscriptions enables subscribing to an external GraphQL server's subscriptions.
+	Subscriptions *SubscriptionsConfig
 }
 
 // AuthConfig holds authentication configuration.
