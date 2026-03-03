@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-03-03
+
 ### Added - Excel Support
 - **Native Excel (.xlsx) read/write** in the file connector via `excelize/v2`
   - Auto-detect format from `.xlsx`/`.xls` extensions
@@ -15,9 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Empty rows automatically skipped on read
   - Sorted column headers for deterministic write output
 
-### Fixed - Documentation
+### Fixed
+- **SSE data race**: Synchronized initial header flush with `client.mu` to prevent race with concurrent `sendEvent` writes
 - **README features table**: Separated GraphQL Subscriptions into its own row (was incorrectly listed inside the Federation row)
 - **CONCEPTS.md**: Updated subscriptions cross-reference to link to connector docs and example
+
+### Changed - Documentation
+- **README Quick Start**: Added context for creating a project directory and clearer step descriptions
+- **README Installation**: Added Docker Hub as alternative registry (`mdenda/mycel`)
+- **Filesystem connector docs**: Complete rewrite with all 8 operations, format output examples, and real-world usage patterns
 
 ### Changed - Helm Chart v0.2.0: Directory-Based Configuration
 - **`config/` directory**: Chart auto-discovers all `.hcl` files under `helm/mycel/config/` using `.Files.Glob` — copy your project files in and deploy, no flags needed

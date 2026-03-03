@@ -26,7 +26,13 @@ That's the whole model. Everything else is configuration. Learn more in [Concept
 
 ## Quick Start
 
-**`config.hcl`** - Name and version your service:
+Create a directory with three HCL files — that's your entire microservice:
+
+```bash
+mkdir my-api && cd my-api
+```
+
+**`config.hcl`** — Name and version your service:
 ```hcl
 service {
   name    = "users-api"
@@ -34,7 +40,7 @@ service {
 }
 ```
 
-**`connectors.hcl`** - Define your data sources:
+**`connectors.hcl`** — Define what your service talks to:
 ```hcl
 connector "api" {
   type = "rest"
@@ -48,7 +54,7 @@ connector "db" {
 }
 ```
 
-**`flows.hcl`** - Define how data moves:
+**`flows.hcl`** — Wire them together:
 ```hcl
 flow "list_users" {
   from { connector = "api", operation = "GET /users" }
@@ -66,12 +72,14 @@ flow "create_user" {
 }
 ```
 
-**Run it:**
+Now run it — Mycel reads the directory and starts the service:
+
 ```bash
 docker run -v $(pwd):/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
 ```
 
-**Test it:**
+Test it:
+
 ```bash
 curl -X POST http://localhost:3000/users \
   -H "Content-Type: application/json" \
@@ -149,7 +157,11 @@ Environment: `MYCEL_ENV` (default: development), `MYCEL_LOG_LEVEL` (default: inf
 
 **Docker (recommended):**
 ```bash
+# From GitHub Container Registry
 docker run -v $(pwd):/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
+
+# Or from Docker Hub
+docker run -v $(pwd):/etc/mycel -p 3000:3000 mdenda/mycel
 ```
 
 **Go:**
