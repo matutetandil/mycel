@@ -248,8 +248,10 @@ func (c *Connector) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	c.logger.Debug("sse client connected", "id", id, "remote_addr", r.RemoteAddr)
 
-	// Flush headers to establish the connection
+	// Flush headers to establish the connection (synchronized with sendEvent)
+	client.mu.Lock()
 	flusher.Flush()
+	client.mu.Unlock()
 
 	// Notify connect handler
 	if handler, ok := c.getHandler("connect"); ok {
