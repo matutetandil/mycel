@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/xuri/excelize/v2"
 )
 
 func TestConnector_ReadWriteJSON(t *testing.T) {
@@ -262,6 +263,118 @@ func TestConnector_FileOperations(t *testing.T) {
 	}
 	if !result.(map[string]interface{})["deleted"].(bool) {
 		t.Error("expected delete to succeed")
+	}
+}
+
+func TestConnector_ReadWriteExcel(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-file-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	conn := New("test", &Config{
+		BasePath:   tmpDir,
+		CreateDirs: true,
+	})
+
+	ctx := context.Background()
+
+	// Write test data
+	testData := []map[string]interface{}{
+		{"id": "1", "name": "Alice", "email": "alice@example.com"},
+		{"id": "2", "name": "Bob", "email": "bob@example.com"},
+	}
+
+	result, err := conn.Write(ctx, &connector.Data{
+		Target: "users.xlsx",
+		Params: map[string]interface{}{
+			"content": testData,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to write Excel: %v", err)
+	}
+
+	if result["path"] != filepath.Join(tmpDir, "users.xlsx") {
+		t.Errorf("unexpected path: %v", result["path"])
+	}
+
+	// Read back
+	rows, err := conn.Read(ctx, &connector.Query{
+		Target: "users.xlsx",
+	})
+	if err != nil {
+		t.Fatalf("failed to read Excel: %v", err)
+	}
+
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+
+	// Verify values (all Excel values come back as strings via GetRows)
+	if rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice, got %v", rows[0]["name"])
+	}
+	if rows[1]["name"] != "Bob" {
+		t.Errorf("expected Bob, got %v", rows[1]["name"])
+	}
+	if rows[0]["email"] != "alice@example.com" {
+		t.Errorf("expected alice@example.com, got %v", rows[0]["email"])
+	}
+}
+
+func TestConnector_ReadExcelSheet(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-file-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create an Excel file with a named sheet using excelize directly
+	filePath := filepath.Join(tmpDir, "products.xlsx")
+	f := excelize.NewFile()
+
+	// Rename default sheet and add data
+	f.SetSheetName("Sheet1", "Products")
+	f.SetCellValue("Products", "A1", "sku")
+	f.SetCellValue("Products", "B1", "price")
+	f.SetCellValue("Products", "A2", "ABC-123")
+	f.SetCellValue("Products", "B2", "29.99")
+	f.SetCellValue("Products", "A3", "DEF-456")
+	f.SetCellValue("Products", "B3", "49.99")
+
+	if err := f.SaveAs(filePath); err != nil {
+		t.Fatalf("failed to create test Excel: %v", err)
+	}
+	f.Close()
+
+	conn := New("test", &Config{
+		BasePath: tmpDir,
+	})
+
+	ctx := context.Background()
+
+	// Read specific sheet
+	rows, err := conn.Read(ctx, &connector.Query{
+		Target: "products.xlsx",
+		Params: map[string]interface{}{
+			"sheet": "Products",
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to read Excel sheet: %v", err)
+	}
+
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+
+	if rows[0]["sku"] != "ABC-123" {
+		t.Errorf("expected ABC-123, got %v", rows[0]["sku"])
+	}
+	if rows[1]["price"] != "49.99" {
+		t.Errorf("expected 49.99, got %v", rows[1]["price"])
 	}
 }
 

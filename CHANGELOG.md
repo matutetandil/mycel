@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Excel Support
+- **Native Excel (.xlsx) read/write** in the file connector via `excelize/v2`
+  - Auto-detect format from `.xlsx`/`.xls` extensions
+  - First row treated as column headers (same convention as CSV)
+  - Sheet selection via `params = { sheet = "SheetName" }` (defaults to first sheet)
+  - Empty rows automatically skipped on read
+  - Sorted column headers for deterministic write output
+
 ### Fixed - Documentation
 - **README features table**: Separated GraphQL Subscriptions into its own row (was incorrectly listed inside the Federation row)
 - **CONCEPTS.md**: Updated subscriptions cross-reference to link to connector docs and example

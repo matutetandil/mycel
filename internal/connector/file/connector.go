@@ -9,10 +9,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/xuri/excelize/v2"
 )
 
 // Connector provides file system operations.
@@ -101,7 +103,7 @@ func (c *Connector) Read(ctx context.Context, query *connector.Query) ([]map[str
 		return c.listDirectory(path)
 	}
 
-	return c.readFile(path, format)
+	return c.readFile(path, format, query.Params)
 }
 
 // Write writes data to a file.
@@ -233,6 +235,8 @@ func (c *Connector) detectFormat(path string) string {
 		return "json"
 	case ".csv":
 		return "csv"
+	case ".xlsx", ".xls":
+		return "excel"
 	case ".txt", ".log", ".md":
 		return "text"
 	default:
@@ -241,7 +245,13 @@ func (c *Connector) detectFormat(path string) string {
 }
 
 // readFile reads and parses a file.
-func (c *Connector) readFile(path, format string) ([]map[string]interface{}, error) {
+func (c *Connector) readFile(path, format string, params map[string]interface{}) ([]map[string]interface{}, error) {
+	// Excel needs the file path directly (not an io.Reader)
+	if format == "excel" {
+		sheet := getParamString(params, "sheet", "")
+		return c.readExcel(path, sheet)
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -358,6 +368,62 @@ func (c *Connector) readBinary(r io.Reader) ([]map[string]interface{}, error) {
 	}, nil
 }
 
+// readExcel reads an Excel (.xlsx) file.
+func (c *Connector) readExcel(path, sheet string) ([]map[string]interface{}, error) {
+	f, err := excelize.OpenFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open Excel file: %w", err)
+	}
+	defer f.Close()
+
+	// Use specified sheet or default to the first one
+	if sheet == "" {
+		sheet = f.GetSheetName(0)
+		if sheet == "" {
+			return nil, fmt.Errorf("Excel file has no sheets")
+		}
+	}
+
+	rows, err := f.GetRows(sheet)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sheet %q: %w", sheet, err)
+	}
+
+	if len(rows) == 0 {
+		return nil, nil
+	}
+
+	// First row = headers
+	headers := rows[0]
+
+	var results []map[string]interface{}
+	for _, row := range rows[1:] {
+		// Skip completely empty rows
+		empty := true
+		for _, cell := range row {
+			if cell != "" {
+				empty = false
+				break
+			}
+		}
+		if empty {
+			continue
+		}
+
+		record := make(map[string]interface{})
+		for i, header := range headers {
+			if i < len(row) {
+				record[header] = row[i]
+			} else {
+				record[header] = ""
+			}
+		}
+		results = append(results, record)
+	}
+
+	return results, nil
+}
+
 // writeData writes data to a file.
 func (c *Connector) writeData(w io.Writer, data interface{}, format string) (int64, error) {
 	switch format {
@@ -365,6 +431,8 @@ func (c *Connector) writeData(w io.Writer, data interface{}, format string) (int
 		return c.writeJSON(w, data)
 	case "csv":
 		return c.writeCSV(w, data)
+	case "excel":
+		return c.writeExcel(w, data)
 	case "text":
 		return c.writeText(w, data)
 	case "binary":
@@ -436,6 +504,60 @@ func (c *Connector) writeCSV(w io.Writer, data interface{}) (int64, error) {
 
 	writer.Flush()
 	return 0, writer.Error() // CSV writer doesn't track bytes written
+}
+
+// writeExcel writes data as an Excel (.xlsx) file.
+func (c *Connector) writeExcel(w io.Writer, data interface{}) (int64, error) {
+	// Convert data to rows
+	var rows []map[string]interface{}
+	switch v := data.(type) {
+	case []map[string]interface{}:
+		rows = v
+	case map[string]interface{}:
+		rows = []map[string]interface{}{v}
+	case []interface{}:
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				rows = append(rows, m)
+			}
+		}
+	default:
+		return 0, fmt.Errorf("cannot convert %T to Excel", data)
+	}
+
+	if len(rows) == 0 {
+		return 0, nil
+	}
+
+	f := excelize.NewFile()
+	defer f.Close()
+	sheet := "Sheet1"
+
+	// Extract and sort headers for deterministic column order
+	var headers []string
+	for key := range rows[0] {
+		headers = append(headers, key)
+	}
+	sort.Strings(headers)
+
+	// Write headers
+	for i, header := range headers {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		f.SetCellValue(sheet, cell, header)
+	}
+
+	// Write data rows
+	for rowIdx, row := range rows {
+		for colIdx, header := range headers {
+			cell, _ := excelize.CoordinatesToCellName(colIdx+1, rowIdx+2)
+			if val, ok := row[header]; ok {
+				f.SetCellValue(sheet, cell, val)
+			}
+		}
+	}
+
+	n, err := f.WriteTo(w)
+	return n, err
 }
 
 // writeText writes data as text.

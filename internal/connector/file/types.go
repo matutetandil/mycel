@@ -11,7 +11,7 @@ type Config struct {
 	// All paths are relative to this directory.
 	BasePath string
 
-	// Format specifies the default file format (json, csv, text, binary).
+	// Format specifies the default file format (json, csv, excel, text, binary).
 	Format string
 
 	// Watch enables file watching for changes.
@@ -39,7 +39,7 @@ type FileInfo struct {
 
 // ReadOptions configures how files are read.
 type ReadOptions struct {
-	Format   string // json, csv, text, binary, lines
+	Format   string // json, csv, excel, text, binary, lines
 	Encoding string // utf-8, latin1, etc.
 	Offset   int64  // Start reading from this byte offset
 	Limit    int64  // Maximum bytes to read (0 = unlimited)
@@ -47,7 +47,7 @@ type ReadOptions struct {
 
 // WriteOptions configures how files are written.
 type WriteOptions struct {
-	Format   string // json, csv, text, binary
+	Format   string // json, csv, excel, text, binary
 	Append   bool   // Append to existing file instead of overwriting
 	Encoding string // utf-8, latin1, etc.
 }
