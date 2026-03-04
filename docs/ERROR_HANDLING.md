@@ -14,6 +14,7 @@ Mycel provides multiple layers of error handling — from automatic retries and 
 | [On-Error Aspects](#on-error-aspects) | Aspect | Per flow/pattern | React to flow failures (log, alert) |
 | [DLQ (RabbitMQ)](#rabbitmq-dead-letter-queue) | Connector config | Per queue | Native dead letter queue |
 | [Connector Profiles](#connector-profiles) | Profile config | Per connector | Fallback to alternate backends |
+| [Connector Timeout/Retry](#connector-level-timeout-and-retry) | Connector config | Per connector | Timeout and retry for HTTP clients |
 | [Health Checks](#health-checks) | Automatic | Per service | Detect and report failures |
 
 ## Flow-Level Error Handling
@@ -411,6 +412,29 @@ connector "database" {
 ```
 
 When the primary profile fails with a retriable error (5xx, connection refused, timeout), the connector automatically tries the next profile. This works for any connector type — databases, REST APIs, queues, etc.
+
+## Connector-Level Timeout and Retry
+
+HTTP client connectors support `timeout` and `retry` directly in the connector configuration:
+
+```hcl
+connector "payment_api" {
+  type     = "http"
+  base_url = env("PAYMENT_API_URL")
+  timeout  = "10s"
+
+  retry {
+    attempts = 3
+  }
+}
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `timeout` | string | `"30s"` | Connection and request timeout |
+| `retry.attempts` | int | `1` | Number of retry attempts on failure |
+
+For other connector types, use step-level `timeout` and flow-level `error_handling { retry }` to achieve the same effect.
 
 ## Health Checks
 
