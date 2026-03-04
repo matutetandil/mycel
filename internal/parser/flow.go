@@ -867,6 +867,7 @@ func parseErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Erro
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "retry"},
 			{Type: "fallback"},
+			{Type: "error_response"},
 		},
 	}
 
@@ -891,6 +892,12 @@ func parseErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Erro
 				return nil, fmt.Errorf("fallback block error: %w", err)
 			}
 			eh.Fallback = fallback
+		case "error_response":
+			errResp, err := parseErrorResponseBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("error_response block error: %w", err)
+			}
+			eh.ErrorResponse = errResp
 		}
 	}
 
@@ -1008,6 +1015,60 @@ func parseFallbackConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Fal
 	}
 
 	return fallback, nil
+}
+
+// parseErrorResponseBlock parses an error_response block within error_handling.
+func parseErrorResponseBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ErrorResponseConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "status"},
+			{Name: "headers"},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "body"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("error_response block content error: %s", diags.Error())
+	}
+
+	errResp := &flow.ErrorResponseConfig{}
+
+	if attr, ok := content.Attributes["status"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("error_response status error: %s", diags.Error())
+		}
+		statusInt, _ := val.AsBigFloat().Int64()
+		errResp.Status = int(statusInt)
+	}
+
+	if attr, ok := content.Attributes["headers"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("error_response headers error: %s", diags.Error())
+		}
+		if val.Type().IsObjectType() || val.Type().IsMapType() {
+			errResp.Headers = make(map[string]string)
+			for k, v := range val.AsValueMap() {
+				errResp.Headers[k] = v.AsString()
+			}
+		}
+	}
+
+	for _, nestedBlock := range content.Blocks {
+		if nestedBlock.Type == "body" {
+			mappings, err := parseTransformMappings(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("error_response body error: %w", err)
+			}
+			errResp.Body = mappings
+		}
+	}
+
+	return errResp, nil
 }
 
 // parseTransformMappings parses transform mappings as map[string]string.

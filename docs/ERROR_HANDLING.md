@@ -6,7 +6,7 @@ Mycel provides multiple layers of error handling — from automatic retries and 
 
 | Layer | Mechanism | Scope | Purpose |
 |-------|-----------|-------|---------|
-| [Flow](#flow-level-error-handling) | `error_handling` block | Per flow | Retry failed flows, send to DLQ |
+| [Flow](#flow-level-error-handling) | `error_handling` block | Per flow | Retry, DLQ, custom error response |
 | [Step](#step-level-error-handling) | `on_error` attribute | Per step | Skip, fail, or default on step failure |
 | [Batch](#batch-error-handling) | `on_error` attribute | Per batch | Continue or stop on chunk failure |
 | [Circuit Breaker](#circuit-breaker) | Aspect | Per connector/pattern | Stop calling failing services |
@@ -92,6 +92,51 @@ When all retries are exhausted, the original message is sent to a fallback conne
 ```
 
 The `error` field is only included when `include_error = true`.
+
+### Custom Error Response
+
+Define a custom HTTP error response for when a flow fails. Instead of the default `{"error": "..."}` with a 500 status, you control the status code, headers, and response body.
+
+```hcl
+flow "create_order" {
+  from { connector = "api", operation = "POST /orders" }
+  to   { connector = "db", target = "orders" }
+
+  error_handling {
+    error_response {
+      status = 422
+
+      body {
+        code    = "'VALIDATION_ERROR'"
+        message = "error.message"
+        details = "'Check the request payload'"
+      }
+    }
+  }
+}
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `status` | int | `500` | HTTP status code |
+| `headers` | map | — | Custom response headers |
+| `body` | block | — | CEL expressions that build the response body |
+
+The `body` block uses CEL expressions. Available variables:
+- `error.message` — the error message string
+- `input.*` — the original flow input
+
+**Response sent to client:**
+
+```json
+{
+  "code": "VALIDATION_ERROR",
+  "message": "duplicate key: order_id",
+  "details": "Check the request payload"
+}
+```
+
+Custom error responses work with retry — the custom response is only sent after all retries are exhausted.
 
 ## Step-Level Error Handling
 
@@ -492,6 +537,7 @@ flow "magento_create_product" {
 | API call times out? | Step `timeout` + `on_error = "skip"` or `"default"` |
 | External service down? | Circuit breaker (aspect) + retry + fallback to DLQ |
 | Occasional failures? | `error_handling { retry { ... } }` with exponential backoff |
+| Custom error format? | `error_handling { error_response { status, body } }` |
 | Message processing fails? | RabbitMQ DLQ + flow-level fallback |
 | Database unreachable? | Connector profiles (automatic failover) |
 | Too many requests? | Rate limiting (aspect) |

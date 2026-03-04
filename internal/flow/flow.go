@@ -4,6 +4,7 @@ package flow
 
 import (
 	"context"
+	"fmt"
 )
 
 // Flow represents a data flow from source to destination.
@@ -329,6 +330,21 @@ type ErrorHandlingConfig struct {
 
 	// Fallback defines where to send failed messages (DLQ).
 	Fallback *FallbackConfig
+
+	// ErrorResponse defines a custom error response for HTTP connectors.
+	ErrorResponse *ErrorResponseConfig
+}
+
+// ErrorResponseConfig defines a custom HTTP error response.
+type ErrorResponseConfig struct {
+	// Status is the HTTP status code (e.g., 422, 503).
+	Status int
+
+	// Headers are custom response headers.
+	Headers map[string]string
+
+	// Body is a map of CEL expressions that build the response body.
+	Body map[string]string
 }
 
 // RetryConfig holds retry settings.
@@ -360,6 +376,44 @@ type FallbackConfig struct {
 
 	// Transform is an optional transformation to apply before sending to fallback.
 	Transform map[string]string
+}
+
+// FlowError wraps an error with custom response configuration.
+// When a flow has error_response configured and the flow fails,
+// the error is wrapped in FlowError so HTTP connectors can use it.
+type FlowError struct {
+	// Err is the original error.
+	Err error
+
+	// Status is the HTTP status code to return.
+	Status int
+
+	// Body is the custom response body.
+	Body map[string]interface{}
+
+	// Headers are custom response headers.
+	Headers map[string]string
+}
+
+func (e *FlowError) Error() string {
+	return e.Err.Error()
+}
+
+func (e *FlowError) Unwrap() error {
+	return e.Err
+}
+
+// NewFlowError creates a FlowError with the given status, body, and headers.
+func NewFlowError(err error, status int, body map[string]interface{}, headers map[string]string) *FlowError {
+	if status == 0 {
+		status = 500
+	}
+	return &FlowError{
+		Err:     fmt.Errorf("%w", err),
+		Status:  status,
+		Body:    body,
+		Headers: headers,
+	}
 }
 
 // DedupeConfig holds deduplication configuration for a flow.

@@ -4,6 +4,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/health"
 	"github.com/matutetandil/mycel/internal/metrics"
 	"github.com/matutetandil/mycel/internal/ratelimit"
@@ -333,6 +335,17 @@ func (c *Connector) writeJSON(w http.ResponseWriter, status int, data interface{
 
 // writeError writes an error response.
 func (c *Connector) writeError(w http.ResponseWriter, err error) int {
+	// Check for FlowError with custom response
+	var flowErr *flow.FlowError
+	if errors.As(err, &flowErr) {
+		// Set custom headers
+		for k, v := range flowErr.Headers {
+			w.Header().Set(k, v)
+		}
+		c.writeJSON(w, flowErr.Status, flowErr.Body)
+		return flowErr.Status
+	}
+
 	status := http.StatusInternalServerError
 
 	// Check for specific error types

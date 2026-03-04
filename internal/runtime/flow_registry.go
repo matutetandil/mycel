@@ -171,11 +171,19 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 
 	// If error handling is configured, wrap with retry logic
 	if h.Config.ErrorHandling != nil {
-		return h.executeWithRetry(ctx, input, executeFn)
+		result, err := h.executeWithRetry(ctx, input, executeFn)
+		if err != nil {
+			return result, h.wrapErrorResponse(ctx, input, err)
+		}
+		return result, nil
 	}
 
 	// Execute without error handling wrapper
-	return executeFn()
+	result, err := executeFn()
+	if err != nil && h.Config.ErrorHandling != nil {
+		return result, h.wrapErrorResponse(ctx, input, err)
+	}
+	return result, err
 }
 
 // executeWithRetry executes the flow with retry and fallback handling.
@@ -329,6 +337,45 @@ func (h *FlowHandler) getConnector(name string) connector.Connector {
 		return nil
 	}
 	return conn
+}
+
+// wrapErrorResponse wraps an error with custom response configuration if error_response is configured.
+func (h *FlowHandler) wrapErrorResponse(ctx context.Context, input map[string]interface{}, err error) error {
+	if h.Config.ErrorHandling == nil || h.Config.ErrorHandling.ErrorResponse == nil {
+		return err
+	}
+
+	er := h.Config.ErrorHandling.ErrorResponse
+
+	// Build response body using CEL transforms
+	var body map[string]interface{}
+	if len(er.Body) > 0 && h.Transformer != nil {
+		rules := make([]transform.Rule, 0, len(er.Body))
+		for target, expr := range er.Body {
+			rules = append(rules, transform.Rule{Target: target, Expression: expr})
+		}
+
+		data := map[string]interface{}{
+			"input": input,
+			"error": map[string]interface{}{
+				"message": err.Error(),
+			},
+		}
+
+		transformed, transformErr := h.Transformer.Transform(ctx, data, rules)
+		if transformErr == nil {
+			body = transformed
+		}
+	}
+
+	// If no body transform, use a simple error message
+	if body == nil {
+		body = map[string]interface{}{
+			"error": err.Error(),
+		}
+	}
+
+	return flow.NewFlowError(err, er.Status, body, er.Headers)
 }
 
 // evaluateFilter evaluates the from.filter CEL expression.

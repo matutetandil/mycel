@@ -462,6 +462,75 @@ flow "process_orders" {
 	}
 }
 
+func TestParseFlowWithErrorResponse(t *testing.T) {
+	hcl := `
+flow "create_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+
+  error_handling {
+    error_response {
+      status = 422
+
+      body {
+        code    = "'VALIDATION_ERROR'"
+        message = "error.message"
+      }
+    }
+  }
+
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.Flows) != 1 {
+		t.Fatalf("expected 1 flow, got %d", len(config.Flows))
+	}
+
+	flow := config.Flows[0]
+
+	if flow.ErrorHandling == nil {
+		t.Fatal("expected error_handling block")
+	}
+
+	if flow.ErrorHandling.ErrorResponse == nil {
+		t.Fatal("expected error_response block")
+	}
+
+	er := flow.ErrorHandling.ErrorResponse
+	if er.Status != 422 {
+		t.Errorf("expected status 422, got %d", er.Status)
+	}
+
+	if len(er.Body) != 2 {
+		t.Errorf("expected 2 body fields, got %d", len(er.Body))
+	}
+
+	if er.Body["code"] != "'VALIDATION_ERROR'" {
+		t.Errorf("expected body.code = \"'VALIDATION_ERROR'\", got %q", er.Body["code"])
+	}
+
+	if er.Body["message"] != "error.message" {
+		t.Errorf("expected body.message = \"error.message\", got %q", er.Body["message"])
+	}
+}
+
 func TestParseFlowWithMultiTo(t *testing.T) {
 	hcl := `
 flow "fan_out_order" {
