@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 
 	"github.com/matutetandil/mycel/internal/export/asyncapi"
@@ -23,7 +25,7 @@ const (
 
 var (
 	// Version information (set at build time)
-	version = "1.2.0"
+	version = "1.3.0"
 	commit  = "dev"
 )
 
@@ -258,6 +260,9 @@ func init() {
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
+	// Load .env file if present (does not override existing env vars)
+	loadDotEnv()
+
 	// Setup logger with priority: flag > env var > default
 	logger := createLogger()
 
@@ -322,6 +327,9 @@ func resolveEnvironment() string {
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
+	// Load .env file if present (so env() in HCL resolves correctly)
+	loadDotEnv()
+
 	fmt.Printf("Validating configuration...\n")
 	fmt.Printf("  Config dir: %s\n", configDir)
 
@@ -363,6 +371,9 @@ func runValidate(cmd *cobra.Command, args []string) error {
 }
 
 func runCheck(cmd *cobra.Command, args []string) error {
+	// Load .env file if present (so env() in HCL resolves correctly)
+	loadDotEnv()
+
 	fmt.Printf("Checking connector connectivity...\n")
 	fmt.Printf("  Config dir: %s\n", configDir)
 
@@ -390,6 +401,23 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	_ = rt.Shutdown()
 
 	return nil
+}
+
+// loadDotEnv loads environment variables from a .env file if present.
+// It tries <configDir>/.env first, then falls back to ./.env.
+// Already-set environment variables are NOT overridden.
+// Missing .env files are silently ignored (normal for production/Docker).
+func loadDotEnv() {
+	// Try config directory first
+	configEnv := filepath.Join(configDir, ".env")
+	if err := godotenv.Load(configEnv); err == nil {
+		return
+	}
+
+	// Fall back to current directory (only if configDir is not ".")
+	if configDir != "." {
+		_ = godotenv.Load(".env")
+	}
 }
 
 func runExportOpenAPI(cmd *cobra.Command, args []string) error {

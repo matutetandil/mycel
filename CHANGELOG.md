@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-03-04
+
+### Added
+- **.env File Support**: Mycel now automatically loads a `.env` file on startup (`start`, `validate`, `check` commands). Looks for `<config-dir>/.env` first, falls back to `./.env`. Existing environment variables are never overridden. Silent when no `.env` file is found (normal for production/Docker)
+- **Deployment Guide** (`docs/DEPLOYMENT.md`): New documentation covering Docker, Docker Compose, Kubernetes deployment, environment variable reference, and `.env` file usage
+
 ## [1.2.0] - 2026-03-04
 
 ### Added

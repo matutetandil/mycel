@@ -333,7 +333,7 @@ See: [examples/cache](../examples/cache)
 ### Deploy to Production
 
 ```bash
-# Docker
+# Docker (with .env file for local dev, env vars for production)
 docker run -v ./config:/etc/mycel \
   -e MYCEL_ENV=production \
   -e MYCEL_LOG_FORMAT=json \
@@ -343,7 +343,9 @@ docker run -v ./config:/etc/mycel \
 helm install my-api oci://ghcr.io/matutetandil/charts/mycel
 ```
 
-See: [Helm Chart](../helm/mycel/README.md)
+> **Tip:** For local development, create a `.env` file next to your HCL files with database credentials and API keys. Mycel loads it automatically — no need to export variables. See the [Deployment Guide](DEPLOYMENT.md) for details.
+
+See: [Deployment Guide](DEPLOYMENT.md) | [Helm Chart](../helm/mycel/README.md)
 
 ## Core Concepts Summary
 

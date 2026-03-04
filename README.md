@@ -184,6 +184,7 @@ See [helm/mycel/README.md](helm/mycel/README.md) for full Helm documentation inc
 - **[Error Handling](docs/ERROR_HANDLING.md)** - Retry, circuit breaker, DLQ, fallback, and resilience patterns
 - **[Connector Catalog](docs/connectors/)** - Individual documentation for every connector type
 - **[Configuration Reference](docs/CONFIGURATION.md)** - Complete HCL syntax reference
+- **[Deployment Guide](docs/DEPLOYMENT.md)** - Docker, Docker Compose, Kubernetes, environment variables, .env files
 - **[Integration Patterns](docs/integration-patterns.md)** - Common use cases
 - **[Transformations](docs/transformations.md)** - CEL transformation guide
 - **[Roadmap](docs/ROADMAP.md)** - Project status and future plans

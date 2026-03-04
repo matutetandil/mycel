@@ -5,6 +5,7 @@ Complete HCL configuration reference for Mycel.
 ## Table of Contents
 
 - [Service Configuration](#service-configuration)
+- [Environment Variables & .env](#environment-variables--env)
 - [Connectors](#connectors)
   - [REST](#rest-connector)
   - [Database](#database-connectors)
@@ -70,6 +71,42 @@ service {
 | `key_extractor` | string | `"ip"` | How to identify clients |
 | `exclude_paths` | list | `["/health", "/metrics"]` | Paths to exclude |
 | `enable_headers` | bool | `true` | Add rate limit headers |
+
+---
+
+## Environment Variables & .env
+
+Mycel reads `MYCEL_*` environment variables for runtime configuration:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MYCEL_ENV` | `development` | Selects environment overlay |
+| `MYCEL_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
+| `MYCEL_LOG_FORMAT` | `text` | `text` or `json` |
+
+### .env File
+
+Mycel automatically loads a `.env` file on startup. It checks `<config-dir>/.env` first, then `./.env`. Variables in `.env` do **not** override already-set environment variables.
+
+Priority: **CLI flags > env vars > .env file > defaults**
+
+```bash
+# .env
+PG_HOST=localhost
+PG_PASSWORD=secret
+MYCEL_LOG_LEVEL=debug
+```
+
+Use `env("VAR_NAME")` in HCL to reference any environment variable:
+
+```hcl
+connector "db" {
+  host     = env("PG_HOST")
+  password = env("PG_PASSWORD")
+}
+```
+
+See [Deployment Guide](DEPLOYMENT.md) for Docker, Compose, and Kubernetes configuration.
 
 ---
 
