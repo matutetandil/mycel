@@ -212,7 +212,7 @@ func New(opts Options) (*Runtime, error) {
 
 	// Create metrics registry
 	serviceName := "mycel"
-	serviceVersion := Version
+	serviceVersion := "0.0.0"
 	if config.ServiceConfig != nil {
 		if config.ServiceConfig.Name != "" {
 			serviceName = config.ServiceConfig.Name

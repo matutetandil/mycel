@@ -61,13 +61,13 @@ func color(c, text string) string {
 // Print prints the Mycel banner with version info.
 func Print(version string) {
 	banner := `
-    ` + color(BrightCyan, `███╗   ███╗██╗   ██╗ ██████╗███████╗██╗     `) + `
-    ` + color(BrightCyan, `████╗ ████║╚██╗ ██╔╝██╔════╝██╔════╝██║     `) + `
-    ` + color(Cyan, `██╔████╔██║ ╚████╔╝ ██║     █████╗  ██║     `) + `
-    ` + color(Cyan, `██║╚██╔╝██║  ╚██╔╝  ██║     ██╔══╝  ██║     `) + `
+    ` + color(BrightCyan, `███╗   ███╗██╗   ██╗ ██████╗███████╗██╗`) + `
+    ` + color(BrightCyan, `████╗ ████║╚██╗ ██╔╝██╔════╝██╔════╝██║`) + `
+    ` + color(Cyan, `██╔████╔██║ ╚████╔╝ ██║     █████╗  ██║`) + `
+    ` + color(Cyan, `██║╚██╔╝██║  ╚██╔╝  ██║     ██╔══╝  ██║`) + `
     ` + color(Blue, `██║ ╚═╝ ██║   ██║   ╚██████╗███████╗███████╗`) + `
     ` + color(Blue, `╚═╝     ╚═╝   ╚═╝    ╚═════╝╚══════╝╚══════╝`) + `
-    ` + color(Dim, "Declarative Microservice Framework") + ` ` + color(Dim, "v"+version) + `
+    ` + color(Dim, "Declarative Microservice Runtime") + ` ` + color(Dim, "v"+version) + `
 `
 	fmt.Print(banner)
 	fmt.Println()
