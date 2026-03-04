@@ -112,6 +112,18 @@ func TestConfigAMQPURL(t *testing.T) {
 			},
 			expected: "amqps://secure:secret@rabbit.example.com:5671/",
 		},
+		{
+			name: "url overrides fields",
+			config: &Config{
+				URL:      "amqp://admin:pass@custom-host:5999/myvhost",
+				Host:     "ignored",
+				Port:     1234,
+				Username: "ignored",
+				Password: "ignored",
+				Vhost:    "/ignored",
+			},
+			expected: "amqp://admin:pass@custom-host:5999/myvhost",
+		},
 	}
 
 	for _, tt := range tests {

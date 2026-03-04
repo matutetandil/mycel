@@ -61,7 +61,8 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 func (f *Factory) createRabbitMQ(cfg *connector.Config) (*rabbitmq.Connector, error) {
 	config := rabbitmq.DefaultConfig()
 
-	// Connection settings
+	// Connection settings — url overrides host/port/username/password/vhost
+	config.URL = getString(cfg.Properties, "url", "")
 	config.Host = getString(cfg.Properties, "host", "localhost")
 	config.Port = getInt(cfg.Properties, "port", 5672)
 	config.Username = getString(cfg.Properties, "username", "guest")
@@ -117,15 +118,28 @@ func (f *Factory) createRabbitMQ(cfg *connector.Config) (*rabbitmq.Connector, er
 
 	// Consumer configuration
 	if consumerCfg := getMap(cfg.Properties, "consumer"); consumerCfg != nil {
+		concurrency := getInt(consumerCfg, "concurrency", 1)
+		if w := getInt(consumerCfg, "workers", 0); w > 0 && concurrency == 1 {
+			concurrency = w // workers is an alias for concurrency
+		}
+
 		config.Consumer = &rabbitmq.ConsumerConfig{
 			Tag:         getString(consumerCfg, "tag", ""),
 			AutoAck:     getBool(consumerCfg, "auto_ack", false),
 			Exclusive:   getBool(consumerCfg, "exclusive", false),
 			NoLocal:     getBool(consumerCfg, "no_local", false),
 			NoWait:      getBool(consumerCfg, "no_wait", false),
-			Concurrency: getInt(consumerCfg, "concurrency", 1),
+			Concurrency: concurrency,
 			Prefetch:    getInt(consumerCfg, "prefetch", 10),
 			Args:        getMap(consumerCfg, "args"),
+		}
+
+		// Allow queue name as shorthand inside consumer block
+		if queueName := getString(consumerCfg, "queue", ""); queueName != "" && config.Queue == nil {
+			config.Queue = &rabbitmq.QueueConfig{
+				Name:    queueName,
+				Durable: true,
+			}
 		}
 
 		// DLQ configuration
@@ -138,6 +152,14 @@ func (f *Factory) createRabbitMQ(cfg *connector.Config) (*rabbitmq.Connector, er
 				MaxRetries:  getInt(dlqCfg, "max_retries", 3),
 				RetryDelay:  getDuration(dlqCfg, "retry_delay", 0),
 				RetryHeader: getString(dlqCfg, "retry_header", "x-retry-count"),
+			}
+		}
+
+		// retry_count shorthand — creates DLQ config if not already set
+		if retryCount := getInt(consumerCfg, "retry_count", 0); retryCount > 0 && config.Consumer.DLQ == nil {
+			config.Consumer.DLQ = &rabbitmq.DLQConfig{
+				Enabled:    true,
+				MaxRetries: retryCount,
 			}
 		}
 	}

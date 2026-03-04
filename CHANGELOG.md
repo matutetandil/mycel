@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-03-04
+
+### Added
+- **RabbitMQ URL Support**: The `url` field now works as documented — if set, it takes precedence over `host`/`port`/`username`/`password`/`vhost`. Previously, the factory never read the `url` property
+- **RabbitMQ Consumer Shorthands**: `consumer.queue` creates a queue declaration if no explicit `queue {}` block is set. `consumer.workers` is an alias for `concurrency`. `consumer.retry_count` creates a DLQ config with `max_retries`
+- **RabbitMQ DLQ Documentation**: Full Dead Letter Queue configuration options now documented (exchange, queue, routing_key, max_retries, retry_delay, retry_header)
+
+### Fixed
+- **MQ Documentation Consistency**: Rewrote `docs/connectors/message-queues.md` to match implementation. Fixed Kafka `offset` → `auto_offset_reset` (correct field name), fixed default from `latest` to `earliest`, added all missing Kafka fields (auto_commit, min_bytes, max_bytes, max_wait_time, concurrency, retries, batch_size, linger_ms, client_id), added Kafka Schema Registry documentation, added RabbitMQ TLS/Queue/Exchange/DLQ sections, added Required column to all option tables
+
 ## [1.4.0] - 2026-03-04
 
 ### Fixed

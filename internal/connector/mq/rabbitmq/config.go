@@ -19,6 +19,7 @@ const (
 // Config holds the RabbitMQ connector configuration.
 type Config struct {
 	// Connection settings
+	URL      string // Full AMQP URL (overrides host/port/username/password/vhost)
 	Host     string
 	Port     int
 	Username string
@@ -203,7 +204,12 @@ func DefaultPublisherConfig() *PublisherConfig {
 }
 
 // AMQPURL returns the AMQP connection URL.
+// If a full URL was provided, it is returned as-is; otherwise the URL
+// is built from host/port/username/password/vhost.
 func (c *Config) AMQPURL() string {
+	if c.URL != "" {
+		return c.URL
+	}
 	scheme := "amqp"
 	if c.TLS != nil && c.TLS.Enabled {
 		scheme = "amqps"
