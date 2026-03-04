@@ -102,7 +102,7 @@ See the [Connector Catalog](connectors/) for individual connector documentation,
 
 A flow is the unit of work in Mycel. It defines where data comes **from**, what happens to it, and where it goes **to**. When the source connector receives an event (an HTTP request, a queue message, a cron tick), the flow executes.
 
-A minimal flow needs just `from` and `to`. You can add transforms, steps, filters, error handling, caching, and synchronization as needed.
+A minimal flow needs just `from` and `to`. You can add transforms, steps, filters, [error handling](ERROR_HANDLING.md), caching, and synchronization as needed.
 
 ```hcl
 flow "get_users" {
@@ -457,7 +457,7 @@ aspect "audit_log" {
 }
 ```
 
-See the [aspects example](../examples/aspects) for more patterns including cache aspects and error handling.
+See the [aspects example](../examples/aspects) for more patterns including cache aspects and error handling. For a complete guide on retry, circuit breaker, rate limiting, and DLQ, see [Error Handling](ERROR_HANDLING.md).
 
 ---
 
