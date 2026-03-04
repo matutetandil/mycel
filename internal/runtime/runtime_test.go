@@ -2293,3 +2293,133 @@ aspect "audit_creates" {
 		}
 	})
 }
+
+// TestAdminServer_StartsWithoutRESTConnector tests that health/metrics endpoints
+// are available even when no REST connector is configured.
+func TestAdminServer_StartsWithoutRESTConnector(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-admin-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Config with NO REST connector — just a service block
+	configHCL := `
+service {
+  name    = "worker-service"
+  version = "1.0.0"
+  admin_port = 19090
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.hcl"), []byte(configHCL), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt, err := startTestRuntime(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("failed to start runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	// Wait for admin server to be ready
+	waitForServer(t, 19090)
+
+	t.Run("health endpoint returns 200", func(t *testing.T) {
+		resp, err := http.Get("http://localhost:19090/health")
+		if err != nil {
+			t.Fatalf("health request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+
+		var result map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&result)
+		if result["status"] != "healthy" {
+			t.Errorf("expected healthy status, got %v", result["status"])
+		}
+	})
+
+	t.Run("liveness probe returns 200", func(t *testing.T) {
+		resp, err := http.Get("http://localhost:19090/health/live")
+		if err != nil {
+			t.Fatalf("liveness request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("readiness probe returns 200", func(t *testing.T) {
+		resp, err := http.Get("http://localhost:19090/health/ready")
+		if err != nil {
+			t.Fatalf("readiness request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("metrics endpoint returns 200", func(t *testing.T) {
+		resp, err := http.Get("http://localhost:19090/metrics")
+		if err != nil {
+			t.Fatalf("metrics request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("expected 200, got %d", resp.StatusCode)
+		}
+	})
+}
+
+// TestAdminServer_DefaultPort tests that admin server uses port 9090 when not configured.
+func TestAdminServer_DefaultPort(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-admin-default-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Config with NO REST connector and NO admin_port
+	configHCL := `
+service {
+  name    = "queue-worker"
+  version = "1.0.0"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.hcl"), []byte(configHCL), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt, err := startTestRuntime(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("failed to start runtime: %v", err)
+	}
+	defer rt.Shutdown()
+
+	// Wait for admin server on default port 9090
+	waitForServer(t, 9090)
+
+	resp, err := http.Get("http://localhost:9090/health")
+	if err != nil {
+		t.Fatalf("health request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}

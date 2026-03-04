@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -110,6 +112,9 @@ type Runtime struct {
 	hotReloader      *hotreload.Reloader
 	hotWatcher       *hotreload.Watcher
 	signalHandler    *hotreload.SignalHandler
+
+	// Admin server for health/metrics when no REST connector is present
+	adminServer *http.Server
 
 	// shutdownTimeout is the maximum time to wait for graceful shutdown.
 	shutdownTimeout time.Duration
@@ -836,12 +841,16 @@ func parseOperationString(op string) (method, path string) {
 
 // startServers starts all REST connector HTTP servers.
 func (r *Runtime) startServers(ctx context.Context) error {
+	hasHTTPServer := false
+
 	// Find REST connectors and start their servers
 	for _, name := range r.connectors.List() {
 		conn, _ := r.connectors.Get(name)
 
 		// Check if this is a startable connector (REST)
 		if starter, ok := conn.(Starter); ok {
+			hasHTTPServer = true
+
 			// Set health manager if connector supports it
 			if hr, ok := conn.(HealthRegistrar); ok {
 				hr.SetHealthManager(r.health)
@@ -867,8 +876,57 @@ func (r *Runtime) startServers(ctx context.Context) error {
 		}
 	}
 
+	// If no REST connector exists, start a standalone admin server
+	// so health checks and metrics are always available
+	if !hasHTTPServer {
+		if err := r.startAdminServer(); err != nil {
+			return fmt.Errorf("failed to start admin server: %w", err)
+		}
+	}
+
 	// Mark service as ready after all servers are started
 	r.health.SetReady(true)
+
+	return nil
+}
+
+// startAdminServer starts a lightweight HTTP server for health checks and metrics.
+// This ensures health/metrics endpoints are always available, even without a REST connector.
+func (r *Runtime) startAdminServer() error {
+	port := 9090
+	if r.config.ServiceConfig != nil && r.config.ServiceConfig.AdminPort > 0 {
+		port = r.config.ServiceConfig.AdminPort
+	}
+
+	mux := http.NewServeMux()
+
+	// Register health endpoints
+	r.health.RegisterHandlers(mux)
+
+	// Register metrics endpoint
+	if r.metrics != nil {
+		mux.Handle("/metrics", r.metrics.Handler())
+	}
+
+	addr := fmt.Sprintf(":%d", port)
+
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("admin server failed to listen on %s: %w", addr, err)
+	}
+
+	r.adminServer = &http.Server{
+		Handler: mux,
+	}
+
+	go func() {
+		if err := r.adminServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			r.logger.Error("admin server error", "error", err)
+		}
+	}()
+
+	r.logger.Info("admin server started", "port", port, "endpoints", []string{"/health", "/health/live", "/health/ready", "/metrics"})
+	banner.PrintConnector("admin", "http", fmt.Sprintf("health + metrics on :%d", port))
 
 	return nil
 }
@@ -1093,6 +1151,13 @@ func (r *Runtime) Shutdown() error {
 	if r.syncManager != nil {
 		if err := r.syncManager.Close(); err != nil {
 			r.logger.Warn("error closing sync manager", "error", err)
+		}
+	}
+
+	// Shutdown admin server if running
+	if r.adminServer != nil {
+		if err := r.adminServer.Shutdown(ctx); err != nil {
+			r.logger.Warn("error shutting down admin server", "error", err)
 		}
 	}
 

@@ -53,7 +53,19 @@ service {
 }
 ```
 
-Without a `service` block, Mycel falls back to defaults (`mycel-service` / `0.0.0`), but you should always define it explicitly. The `service` block also supports global [rate limiting](CONFIGURATION.md#service-configuration).
+Without a `service` block, Mycel falls back to defaults (`mycel-service` / `0.0.0`), but you should always define it explicitly.
+
+**Health checks are always available.** If your service has a REST connector, health endpoints (`/health`, `/health/live`, `/health/ready`) and metrics (`/metrics`) are served on the REST port. If it doesn't (e.g., a queue worker or CDC pipeline), Mycel automatically starts a lightweight admin server on port `9090` so Kubernetes probes and monitoring still work. You can customize the port:
+
+```hcl
+service {
+  name       = "queue-worker"
+  version    = "1.0.0"
+  admin_port = 8081
+}
+```
+
+The `service` block also supports global [rate limiting](CONFIGURATION.md#service-configuration).
 
 See [Configuration Reference — Service Configuration](CONFIGURATION.md#service-configuration) for full syntax.
 

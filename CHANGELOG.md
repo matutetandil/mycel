@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-03-04
+
+### Added
+- **Standalone Admin Server**: Health checks (`/health`, `/health/live`, `/health/ready`) and metrics (`/metrics`) are now always available, even without a REST connector. When no REST connector is configured, Mycel automatically starts a lightweight admin server on port 9090 (configurable via `admin_port` in the `service` block). This ensures Kubernetes probes and monitoring work for queue workers, CDC pipelines, and any service without HTTP endpoints.
+
 ## [1.1.0] - 2026-03-04
 
 ### Added

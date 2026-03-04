@@ -84,6 +84,7 @@ type Configuration struct {
 type ServiceConfig struct {
 	Name      string
 	Version   string
+	AdminPort int // Port for standalone health/metrics server (default: 9090)
 	RateLimit *RateLimitConfig
 }
 
@@ -339,6 +340,7 @@ func parseServiceBlock(block *hcl.Block, ctx *hcl.EvalContext) (*ServiceConfig, 
 		Attributes: []hcl.AttributeSchema{
 			{Name: "name"},
 			{Name: "version"},
+			{Name: "admin_port"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "rate_limit"},
@@ -366,6 +368,15 @@ func parseServiceBlock(block *hcl.Block, ctx *hcl.EvalContext) (*ServiceConfig, 
 			return nil, fmt.Errorf("service version error: %s", diags.Error())
 		}
 		svc.Version = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["admin_port"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("service admin_port error: %s", diags.Error())
+		}
+		port, _ := val.AsBigFloat().Int64()
+		svc.AdminPort = int(port)
 	}
 
 	// Parse rate_limit block

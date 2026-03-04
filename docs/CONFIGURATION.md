@@ -38,6 +38,9 @@ service {
   name    = "my-service"
   version = "1.0.0"
 
+  # Optional: Port for health/metrics when no REST connector exists (default: 9090)
+  admin_port = 9090
+
   # Optional: Rate limiting (disabled by default)
   rate_limit {
     requests_per_second = 100
@@ -48,6 +51,14 @@ service {
   }
 }
 ```
+
+### Service Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `name` | string | `"mycel-service"` | Service name (shown in health, metrics, logs) |
+| `version` | string | `"0.0.0"` | Service version |
+| `admin_port` | int | `9090` | Port for standalone health/metrics server (only used when no REST connector is configured) |
 
 ### Rate Limit Options
 

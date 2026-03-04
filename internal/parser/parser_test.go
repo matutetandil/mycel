@@ -1071,3 +1071,38 @@ flow "update_order_status" {
 		t.Errorf("expected data 'input.data', got '%s'", flow.StateTransition.Data)
 	}
 }
+
+func TestParseServiceWithAdminPort(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-parser-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configHCL := `
+service {
+  name       = "worker-service"
+  version    = "2.0.0"
+  admin_port = 8081
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.hcl"), []byte(configHCL), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	p := NewHCLParser()
+	config, err := p.Parse(context.Background(), tmpDir)
+	if err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+
+	if config.ServiceConfig == nil {
+		t.Fatal("expected ServiceConfig to be set")
+	}
+	if config.ServiceConfig.Name != "worker-service" {
+		t.Errorf("expected name 'worker-service', got '%s'", config.ServiceConfig.Name)
+	}
+	if config.ServiceConfig.AdminPort != 8081 {
+		t.Errorf("expected admin_port 8081, got %d", config.ServiceConfig.AdminPort)
+	}
+}
