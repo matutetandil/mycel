@@ -113,6 +113,17 @@ func TestConfigAMQPURL(t *testing.T) {
 			expected: "amqps://secure:secret@rabbit.example.com:5671/",
 		},
 		{
+			name: "vhost without leading slash",
+			config: &Config{
+				Host:     "rabbit.example.com",
+				Port:     5672,
+				Username: "api",
+				Password: "api",
+				Vhost:    "dev",
+			},
+			expected: "amqp://api:api@rabbit.example.com:5672/dev",
+		},
+		{
 			name: "url overrides fields",
 			config: &Config{
 				URL:      "amqp://admin:pass@custom-host:5999/myvhost",

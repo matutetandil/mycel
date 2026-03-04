@@ -214,13 +214,17 @@ func (c *Config) AMQPURL() string {
 	if c.TLS != nil && c.TLS.Enabled {
 		scheme = "amqps"
 	}
+	vhost := c.Vhost
+	if vhost != "" && vhost[0] != '/' {
+		vhost = "/" + vhost
+	}
 	return fmt.Sprintf("%s://%s:%s@%s:%d%s",
 		scheme,
 		c.Username,
 		c.Password,
 		c.Host,
 		c.Port,
-		c.Vhost,
+		vhost,
 	)
 }
 
