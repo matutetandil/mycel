@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/matutetandil/mycel/internal/connector"
 )
@@ -67,13 +68,19 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 	if pool, ok := cfg.Properties["pool"].(map[string]interface{}); ok {
 		maxOpen := 0
 		maxIdle := 0
+		var maxLifetime time.Duration
+
 		if m, ok := pool["max"].(int); ok {
 			maxOpen = m
 		}
 		if m, ok := pool["min"].(int); ok {
 			maxIdle = m
 		}
-		conn.SetPoolConfig(maxOpen, maxIdle)
+		if m, ok := pool["max_lifetime"].(int); ok {
+			maxLifetime = time.Duration(m) * time.Second
+		}
+
+		conn.SetPoolConfig(maxOpen, maxIdle, maxLifetime)
 	}
 
 	// Parse read replicas configuration

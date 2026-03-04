@@ -73,20 +73,21 @@ connector "mongo" {
 
 ## Common Options
 
-| Option | Type | Drivers | Description |
-|--------|------|---------|-------------|
-| `driver` | string | all | `sqlite`, `postgres`, `mysql`, `mongodb` |
-| `database` | string | all | Database name or file path |
-| `host` | string | pg/mysql | Database host |
-| `port` | int | pg/mysql | Database port |
-| `user` | string | pg/mysql/mongo | Username |
-| `password` | string | pg/mysql/mongo | Password |
-| `ssl_mode` | string | pg | SSL mode |
-| `charset` | string | mysql | Character set |
-| `uri` | string | mongo | Full connection URI |
-| `pool.max` | int | pg/mysql/mongo | Max connections |
-| `pool.min` | int | pg/mysql/mongo | Min connections |
-| `pool.max_lifetime` | int | pg/mysql | Max connection lifetime (seconds) |
+| Option | Type | Required | Drivers | Description |
+|--------|------|----------|---------|-------------|
+| `driver` | string | **yes** | all | `sqlite`, `postgres`, `mysql`, `mongodb` |
+| `database` | string | **yes** | all | Database name or file path |
+| `host` | string | optional | pg/mysql | Database host (default: `localhost`) |
+| `port` | int | optional | pg/mysql | Database port (default: `5432`/`3306`) |
+| `user` | string | **yes** | pg/mysql | Username |
+| `password` | string | optional | pg/mysql | Password |
+| `ssl_mode` | string | optional | pg | `disable`, `require`, `verify-full` (default: `disable`) |
+| `charset` | string | optional | mysql | Character set (default: `utf8mb4`) |
+| `uri` | string | optional | mongo | Full connection URI (alternative to host/port/user/password) |
+| `pool.max` | int | optional | pg/mysql/mongo | Max connections (default: `25`) |
+| `pool.min` | int | optional | pg/mysql/mongo | Min idle connections (default: `5`) |
+| `pool.max_lifetime` | int | optional | pg/mysql | Max connection lifetime in seconds |
+| `pool.connect_timeout` | int | optional | mongo | Connection timeout in seconds |
 
 ## Operations
 

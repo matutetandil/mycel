@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	_ "github.com/lib/pq" // PostgreSQL driver
 
@@ -34,8 +35,9 @@ type Connector struct {
 	db       *sql.DB // Primary connection
 
 	// Connection pool settings
-	maxOpenConns int
-	maxIdleConns int
+	maxOpenConns    int
+	maxIdleConns    int
+	connMaxLifetime time.Duration
 
 	// Read replicas
 	replicas       []ReplicaConfig
@@ -68,12 +70,15 @@ func New(name, host string, port int, database, user, password, sslMode string) 
 }
 
 // SetPoolConfig sets connection pool configuration.
-func (c *Connector) SetPoolConfig(maxOpen, maxIdle int) {
+func (c *Connector) SetPoolConfig(maxOpen, maxIdle int, maxLifetime time.Duration) {
 	if maxOpen > 0 {
 		c.maxOpenConns = maxOpen
 	}
 	if maxIdle > 0 {
 		c.maxIdleConns = maxIdle
+	}
+	if maxLifetime > 0 {
+		c.connMaxLifetime = maxLifetime
 	}
 }
 
@@ -120,6 +125,9 @@ func (c *Connector) Connect(ctx context.Context) error {
 	// Configure connection pool
 	db.SetMaxOpenConns(c.maxOpenConns)
 	db.SetMaxIdleConns(c.maxIdleConns)
+	if c.connMaxLifetime > 0 {
+		db.SetConnMaxLifetime(c.connMaxLifetime)
+	}
 
 	// Verify connection
 	if err := db.PingContext(ctx); err != nil {

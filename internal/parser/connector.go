@@ -722,6 +722,9 @@ func parsePoolBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interfac
 		Attributes: []hcl.AttributeSchema{
 			{Name: "min"},
 			{Name: "max"},
+			{Name: "max_lifetime"},
+			{Name: "max_idle_time"},
+			{Name: "connect_timeout"},
 		},
 	}
 
