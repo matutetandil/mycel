@@ -26,6 +26,7 @@ func (m *mockChecker) Health(ctx context.Context) error {
 
 func TestManager_LiveHandler(t *testing.T) {
 	mgr := NewManager("1.0.0")
+	mgr.SetServiceVersion("2.0.0")
 
 	req := httptest.NewRequest("GET", "/health/live", nil)
 	w := httptest.NewRecorder()
@@ -47,6 +48,10 @@ func TestManager_LiveHandler(t *testing.T) {
 
 	if resp.Version != "1.0.0" {
 		t.Errorf("expected version 1.0.0, got %s", resp.Version)
+	}
+
+	if resp.ServiceVersion != "2.0.0" {
+		t.Errorf("expected service_version 2.0.0, got %s", resp.ServiceVersion)
 	}
 }
 
@@ -99,6 +104,7 @@ func TestManager_ReadyHandler_Ready(t *testing.T) {
 func TestManager_HealthHandler_AllHealthy(t *testing.T) {
 	mgr := NewManager("1.0.0")
 	mgr.SetReady(true)
+	mgr.SetServiceVersion("3.0.0")
 
 	mgr.Register(&mockChecker{name: "db", err: nil})
 	mgr.Register(&mockChecker{name: "cache", err: nil})
@@ -119,6 +125,10 @@ func TestManager_HealthHandler_AllHealthy(t *testing.T) {
 
 	if resp.Status != "healthy" {
 		t.Errorf("expected status healthy, got %s", resp.Status)
+	}
+
+	if resp.ServiceVersion != "3.0.0" {
+		t.Errorf("expected service_version 3.0.0, got %s", resp.ServiceVersion)
 	}
 
 	if len(resp.Components) != 2 {

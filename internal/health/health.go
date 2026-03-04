@@ -25,23 +25,25 @@ type Status struct {
 
 // Response represents the full health check response.
 type Response struct {
-	Status     string            `json:"status"` // "healthy", "unhealthy", "degraded"
-	Timestamp  string            `json:"timestamp"`
-	Version    string            `json:"version,omitempty"`
-	Uptime     string            `json:"uptime,omitempty"`
-	Components []Status          `json:"components,omitempty"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
+	Status         string            `json:"status"` // "healthy", "unhealthy", "degraded"
+	Timestamp      string            `json:"timestamp"`
+	Version        string            `json:"version,omitempty"`
+	ServiceVersion string            `json:"service_version,omitempty"`
+	Uptime         string            `json:"uptime,omitempty"`
+	Components     []Status          `json:"components,omitempty"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
 }
 
 // Manager manages health checks for the service.
 type Manager struct {
-	mu         sync.RWMutex
-	checkers   []Checker
-	startTime  time.Time
-	version    string
-	timeout    time.Duration
-	ready      bool
-	readyMu    sync.RWMutex
+	mu             sync.RWMutex
+	checkers       []Checker
+	startTime      time.Time
+	version        string
+	serviceVersion string
+	timeout        time.Duration
+	ready          bool
+	readyMu        sync.RWMutex
 }
 
 // NewManager creates a new health check manager.
@@ -69,6 +71,13 @@ func (m *Manager) Register(checker Checker) {
 	m.checkers = append(m.checkers, checker)
 }
 
+// SetServiceVersion sets the service version (from config.hcl).
+func (m *Manager) SetServiceVersion(v string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.serviceVersion = v
+}
+
 // SetReady marks the service as ready to receive traffic.
 func (m *Manager) SetReady(ready bool) {
 	m.readyMu.Lock()
@@ -91,10 +100,11 @@ func (m *Manager) LiveHandler() http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 
 		resp := Response{
-			Status:    "healthy",
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Version:   m.version,
-			Uptime:    time.Since(m.startTime).Round(time.Second).String(),
+			Status:         "healthy",
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			Version:        m.version,
+			ServiceVersion: m.serviceVersion,
+			Uptime:         time.Since(m.startTime).Round(time.Second).String(),
 		}
 
 		json.NewEncoder(w).Encode(resp)
@@ -160,10 +170,11 @@ func (m *Manager) checkAll(ctx context.Context) Response {
 	m.mu.RUnlock()
 
 	resp := Response{
-		Status:     "healthy",
-		Timestamp:  time.Now().UTC().Format(time.RFC3339),
-		Version:    m.version,
-		Components: make([]Status, 0, len(checkers)),
+		Status:         "healthy",
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		Version:        m.version,
+		ServiceVersion: m.serviceVersion,
+		Components:     make([]Status, 0, len(checkers)),
 	}
 
 	// Check each component concurrently

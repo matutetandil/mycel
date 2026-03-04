@@ -82,7 +82,7 @@ type Registry struct {
 }
 
 // NewRegistry creates a new metrics registry with all Mycel metrics.
-func NewRegistry(serviceName, version string) *Registry {
+func NewRegistry(serviceName, version, mycelVersion string) *Registry {
 	reg := prometheus.NewRegistry()
 
 	r := &Registry{
@@ -379,7 +379,7 @@ func NewRegistry(serviceName, version string) *Registry {
 				Name: "mycel_service_info",
 				Help: "Service information",
 			},
-			[]string{"service", "version"},
+			[]string{"service", "version", "mycel_version"},
 		),
 	}
 
@@ -426,7 +426,7 @@ func NewRegistry(serviceName, version string) *Registry {
 	)
 
 	// Set service info
-	r.ServiceInfo.WithLabelValues(serviceName, version).Set(1)
+	r.ServiceInfo.WithLabelValues(serviceName, version, mycelVersion).Set(1)
 
 	return r
 }
@@ -585,7 +585,7 @@ func (r *Registry) SetGoRoutines(count int) {
 // Creates one with default settings if not already initialized.
 func Default() *Registry {
 	initOnce.Do(func() {
-		defaultRegistry = NewRegistry("mycel", "unknown")
+		defaultRegistry = NewRegistry("mycel", "unknown", "unknown")
 	})
 	return defaultRegistry
 }

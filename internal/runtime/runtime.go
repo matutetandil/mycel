@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -63,7 +64,8 @@ import (
 )
 
 // Version is the current version of Mycel.
-const Version = "0.1.0"
+// Set from cmd/mycel/main.go at startup; defaults to "dev" for tests.
+var Version = "dev"
 
 // Runtime orchestrates the lifecycle of a Mycel service.
 type Runtime struct {
@@ -219,7 +221,7 @@ func New(opts Options) (*Runtime, error) {
 			serviceVersion = config.ServiceConfig.Version
 		}
 	}
-	metricsReg := metrics.NewRegistry(serviceName, serviceVersion)
+	metricsReg := metrics.NewRegistry(serviceName, serviceVersion, Version)
 	metrics.SetDefault(metricsReg)
 
 	// Create aspect registry and register aspects from config
@@ -414,6 +416,9 @@ func (r *Runtime) Start(ctx context.Context) error {
 	}
 	banner.PrintServiceInfo(serviceName, serviceVersion, r.environment, r.getRESTPort())
 
+	// Propagate service version to health responses
+	r.health.SetServiceVersion(serviceVersion)
+
 	r.logger.Info("starting service",
 		"service", serviceName,
 		"version", serviceVersion,
@@ -470,6 +475,24 @@ func (r *Runtime) Start(ctx context.Context) error {
 			r.logger.Info("scheduler started", "scheduled_flows", len(entries))
 		}
 	}
+
+	// Start background goroutine to update runtime metrics (uptime + goroutines)
+	metricsCtx, metricsCancel := context.WithCancel(ctx)
+	defer metricsCancel()
+	startTime := time.Now()
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				r.metrics.SetGoRoutines(goruntime.NumGoroutine())
+				r.metrics.SetUptime(time.Since(startTime).Seconds())
+			case <-metricsCtx.Done():
+				return
+			}
+		}
+	}()
 
 	banner.PrintReady()
 

@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewRegistry(t *testing.T) {
-	reg := NewRegistry("test-service", "1.0.0")
+	reg := NewRegistry("test-service", "1.0.0", "1.3.0")
 
 	if reg == nil {
 		t.Fatal("expected registry to be created")
@@ -23,7 +23,7 @@ func TestNewRegistry(t *testing.T) {
 }
 
 func TestRegistry_RecordRequest(t *testing.T) {
-	reg := NewRegistry("test-service", "1.0.0")
+	reg := NewRegistry("test-service", "1.0.0", "1.3.0")
 
 	// Record some requests
 	reg.RecordRequest("GET", "/users", "200", 100*time.Millisecond)
@@ -60,7 +60,7 @@ func TestRegistry_RecordRequest(t *testing.T) {
 }
 
 func TestRegistry_InFlightRequests(t *testing.T) {
-	reg := NewRegistry("test-service", "1.0.0")
+	reg := NewRegistry("test-service", "1.0.0", "1.3.0")
 
 	// Increment in-flight
 	reg.IncRequestsInFlight("GET", "/users")
@@ -85,7 +85,7 @@ func TestRegistry_InFlightRequests(t *testing.T) {
 }
 
 func TestRegistry_ConnectorHealth(t *testing.T) {
-	reg := NewRegistry("test-service", "1.0.0")
+	reg := NewRegistry("test-service", "1.0.0", "1.3.0")
 
 	reg.SetConnectorHealth("postgres", "database", true)
 	reg.SetConnectorHealth("redis", "cache", false)
@@ -108,7 +108,7 @@ func TestRegistry_ConnectorHealth(t *testing.T) {
 }
 
 func TestRegistry_FlowMetrics(t *testing.T) {
-	reg := NewRegistry("test-service", "1.0.0")
+	reg := NewRegistry("test-service", "1.0.0", "1.3.0")
 
 	reg.RecordFlowExecution("get_users", "success", 100*time.Millisecond)
 	reg.RecordFlowExecution("get_users", "error", 50*time.Millisecond)
@@ -136,7 +136,7 @@ func TestRegistry_FlowMetrics(t *testing.T) {
 }
 
 func TestRegistry_CacheMetrics(t *testing.T) {
-	reg := NewRegistry("test-service", "1.0.0")
+	reg := NewRegistry("test-service", "1.0.0", "1.3.0")
 
 	reg.RecordCacheHit("products")
 	reg.RecordCacheHit("products")
@@ -165,7 +165,7 @@ func TestRegistry_CacheMetrics(t *testing.T) {
 }
 
 func TestRegistry_RuntimeMetrics(t *testing.T) {
-	reg := NewRegistry("test-service", "1.0.0")
+	reg := NewRegistry("test-service", "1.0.0", "1.3.0")
 
 	reg.SetUptime(3600)
 	reg.SetGoRoutines(50)
@@ -188,7 +188,7 @@ func TestRegistry_RuntimeMetrics(t *testing.T) {
 }
 
 func TestRegistry_ServiceInfo(t *testing.T) {
-	reg := NewRegistry("my-service", "2.0.0")
+	reg := NewRegistry("my-service", "2.0.0", "1.3.0")
 
 	req := httptest.NewRequest("GET", "/metrics", nil)
 	w := httptest.NewRecorder()
@@ -209,10 +209,14 @@ func TestRegistry_ServiceInfo(t *testing.T) {
 	if !strings.Contains(content, `version="2.0.0"`) {
 		t.Error("expected version label")
 	}
+
+	if !strings.Contains(content, `mycel_version="1.3.0"`) {
+		t.Error("expected mycel_version label")
+	}
 }
 
 func TestRegistry_Handler(t *testing.T) {
-	reg := NewRegistry("test-service", "1.0.0")
+	reg := NewRegistry("test-service", "1.0.0", "1.3.0")
 
 	handler := reg.Handler()
 	if handler == nil {
@@ -254,7 +258,7 @@ func TestDefault(t *testing.T) {
 }
 
 func TestSetDefault(t *testing.T) {
-	custom := NewRegistry("custom", "1.0.0")
+	custom := NewRegistry("custom", "1.0.0", "1.3.0")
 	SetDefault(custom)
 
 	if defaultRegistry != custom {

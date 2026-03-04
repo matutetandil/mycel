@@ -25,7 +25,7 @@ const (
 
 var (
 	// Version information (set at build time)
-	version = "1.3.0"
+	version = "1.4.0"
 	commit  = "dev"
 )
 
@@ -247,6 +247,10 @@ func init() {
 	// Export command flags (AsyncAPI)
 	exportAsyncAPICmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file (default: stdout)")
 	exportAsyncAPICmd.Flags().StringVarP(&exportFormat, "format", "f", "yaml", "Output format: yaml, json")
+
+	// Propagate CLI version to the runtime package so banner, health,
+	// and metrics all report the correct Mycel version.
+	runtime.Version = version
 
 	// Add commands
 	rootCmd.AddCommand(startCmd)

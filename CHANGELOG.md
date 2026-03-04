@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-03-04
+
+### Fixed
+- **Version Display**: Runtime version was hardcoded to `0.1.0` — now propagated from the CLI binary. Banner, health endpoints, and metrics all report the correct Mycel version
+- **Runtime Metrics**: `mycel_uptime_seconds` and `mycel_goroutines` Prometheus metrics are now updated every 15 seconds via a background goroutine (previously the methods existed but were never called)
+
+### Added
+- **Service Version in Health**: All health endpoints (`/health`, `/health/live`, `/health/ready`) now include `service_version` from `config.hcl` in their JSON response
+- **Mycel Version in Metrics**: `mycel_service_info` metric now includes a `mycel_version` label alongside `service` and `version`, making it easy to identify which Mycel release is running
+
 ## [1.3.0] - 2026-03-04
 
 ### Added
