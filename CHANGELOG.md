@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Error Handling Guide** (`docs/ERROR_HANDLING.md`): Comprehensive guide covering all error handling layers — retry, fallback/DLQ, circuit breaker, rate limiting, on-error aspects, connector profiles, health checks
+- **On-Error Aspects** (`when = "on_error"`): New aspect timing that executes only when a flow fails. Provides `error.message` in transform expressions for logging errors, sending alerts, or notifying external systems
+
 ## [1.0.0] - 2026-03-03
 
 ### Added - Excel Support

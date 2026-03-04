@@ -11,6 +11,7 @@ Mycel provides multiple layers of error handling — from automatic retries and 
 | [Batch](#batch-error-handling) | `on_error` attribute | Per batch | Continue or stop on chunk failure |
 | [Circuit Breaker](#circuit-breaker) | Aspect | Per connector/pattern | Stop calling failing services |
 | [Rate Limiting](#rate-limiting) | Aspect | Per connector/pattern | Prevent overload |
+| [On-Error Aspects](#on-error-aspects) | Aspect | Per flow/pattern | React to flow failures (log, alert) |
 | [DLQ (RabbitMQ)](#rabbitmq-dead-letter-queue) | Connector config | Per queue | Native dead letter queue |
 | [Connector Profiles](#connector-profiles) | Profile config | Per connector | Fallback to alternate backends |
 | [Health Checks](#health-checks) | Automatic | Per service | Detect and report failures |
@@ -247,6 +248,53 @@ aspect "throttle_api" {
 
 When a request is rate limited, the flow returns an error immediately without calling the connector.
 
+## On-Error Aspects
+
+On-error aspects execute only when a flow fails. Use them for cross-cutting error handling like logging errors to a database, sending alerts, or notifying external systems.
+
+```hcl
+aspect "log_errors" {
+  when = "on_error"
+  on   = ["flows/**/*.hcl"]
+
+  action {
+    connector = "db"
+    target    = "error_logs"
+
+    transform {
+      flow_name     = "input._flow"
+      operation     = "input._operation"
+      error_message = "error.message"
+      timestamp     = "now()"
+    }
+  }
+}
+```
+
+On-error aspects:
+- Only fire when the flow returns an error (never on success)
+- Have access to `error.message` in transform expressions
+- Do not swallow the original error — it is still returned to the caller
+- Execute after "after" aspects, in definition order
+- Support the `if` condition for selective error handling
+
+```hcl
+aspect "alert_critical" {
+  when = "on_error"
+  on   = ["flows/**/payment_*.hcl"]
+  if   = "error != ''"
+
+  action {
+    connector = "slack"
+    operation = "POST /webhook"
+
+    transform {
+      text = "'Payment flow failed: ' + error"
+    }
+  }
+}
+```
+
 ## RabbitMQ Dead Letter Queue
 
 The RabbitMQ connector has native DLQ support — separate from the flow-level fallback. This handles message-level failures at the queue layer.
@@ -447,5 +495,6 @@ flow "magento_create_product" {
 | Message processing fails? | RabbitMQ DLQ + flow-level fallback |
 | Database unreachable? | Connector profiles (automatic failover) |
 | Too many requests? | Rate limiting (aspect) |
+| Log all errors centrally? | On-error aspect with `when = "on_error"` |
 | Need to monitor? | `/health`, `/health/ready`, `/metrics` |
 | Batch import has bad rows? | `batch { on_error = "continue" }` |

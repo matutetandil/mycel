@@ -99,3 +99,23 @@ aspect "request_log" {
 #     timeout           = "30s"
 #   }
 # }
+
+# Error logging aspect (on_error execution)
+# Logs all flow errors to a database table
+aspect "error_logger" {
+  on   = ["**/*.hcl"]
+  when = "on_error"
+
+  action {
+    connector = "audit_db"
+    target    = "error_logs"
+
+    transform {
+      id            = "uuid()"
+      flow          = "_flow"
+      operation     = "_operation"
+      error_message = "error.message"
+      timestamp     = "now()"
+    }
+  }
+}

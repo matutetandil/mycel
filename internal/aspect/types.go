@@ -14,6 +14,8 @@ const (
 	After When = "after"
 	// Around wraps the flow (for caching, retry, circuit breaker, etc.).
 	Around When = "around"
+	// OnError executes only when the flow fails. Has access to error details.
+	OnError When = "on_error"
 )
 
 // Config represents an aspect configuration.
@@ -25,7 +27,7 @@ type Config struct {
 	// Example: ["flows/**/create_*.hcl", "flows/**/delete_*.hcl"]
 	On []string
 
-	// When defines when the aspect executes: before, after, around.
+	// When defines when the aspect executes: before, after, around, on_error.
 	When When
 
 	// If is an optional CEL condition that must be true for the aspect to execute.
@@ -157,14 +159,14 @@ func (c *Config) Validate() error {
 	}
 
 	if c.When == "" {
-		return &ValidationError{Field: "when", Message: "when is required (before, after, around)"}
+		return &ValidationError{Field: "when", Message: "when is required (before, after, around, on_error)"}
 	}
 
 	switch c.When {
-	case Before, After, Around:
+	case Before, After, Around, OnError:
 		// Valid
 	default:
-		return &ValidationError{Field: "when", Message: "must be 'before', 'after', or 'around'"}
+		return &ValidationError{Field: "when", Message: "must be 'before', 'after', 'around', or 'on_error'"}
 	}
 
 	// Validate that appropriate config is provided for the aspect type

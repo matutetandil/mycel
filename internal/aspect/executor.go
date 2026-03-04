@@ -66,6 +66,7 @@ func (e *Executor) Execute(
 	beforeAspects := e.registry.GetBefore(flowPath)
 	aroundAspects := e.registry.GetAround(flowPath)
 	afterAspects := e.registry.GetAfter(flowPath)
+	onErrorAspects := e.registry.GetOnError(flowPath)
 
 	// Add metadata to input
 	enrichedInput := e.enrichInput(input, flowName, operation, target)
@@ -93,6 +94,16 @@ func (e *Executor) Execute(
 		slog.Warn("after aspect error",
 			"flow", flowName,
 			"error", afterErr)
+	}
+
+	// Execute on_error aspects (only when flow failed)
+	if flowErr != nil && len(onErrorAspects) > 0 {
+		onErrErr := e.executeOnError(ctx, onErrorAspects, enrichedInput, result, flowErr)
+		if onErrErr != nil {
+			slog.Warn("on_error aspect error",
+				"flow", flowName,
+				"error", onErrErr)
+		}
 	}
 
 	return result, flowErr
@@ -202,6 +213,41 @@ func (e *Executor) executeAfter(ctx context.Context, aspects []*Config, input ma
 		if aspect.Invalidate != nil {
 			if err := e.executeInvalidate(ctx, aspect.Invalidate, input, result); err != nil {
 				slog.Warn("after aspect invalidate error",
+					"aspect", aspect.Name,
+					"error", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// executeOnError executes all on_error aspects when a flow fails.
+func (e *Executor) executeOnError(ctx context.Context, aspects []*Config, input map[string]interface{}, result *connector.Result, flowErr error) error {
+	for _, aspect := range aspects {
+		// Check condition (error is always available for on_error aspects)
+		if !e.evaluateCondition(ctx, aspect, input, result, flowErr) {
+			continue
+		}
+
+		slog.Debug("executing on_error aspect",
+			"aspect", aspect.Name,
+			"flow", input["_flow"],
+			"error", flowErr)
+
+		// Execute action if present
+		if aspect.Action != nil {
+			// Add error info to input for transform expressions
+			errorInput := make(map[string]interface{})
+			for k, v := range input {
+				errorInput[k] = v
+			}
+			errorInput["error"] = map[string]interface{}{
+				"message": flowErr.Error(),
+			}
+
+			if err := e.executeAction(ctx, aspect.Action, errorInput, result); err != nil {
+				slog.Warn("on_error aspect action error",
 					"aspect", aspect.Name,
 					"error", err)
 			}

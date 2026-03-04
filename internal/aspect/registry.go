@@ -117,6 +117,11 @@ func (r *Registry) GetAround(flowPath string) []*Config {
 	return r.MatchByWhen(flowPath, Around)
 }
 
+// GetOnError returns all "on_error" aspects for a flow.
+func (r *Registry) GetOnError(flowPath string) []*Config {
+	return r.MatchByWhen(flowPath, OnError)
+}
+
 // All returns all registered aspects.
 func (r *Registry) All() []*Config {
 	r.mu.RLock()
@@ -340,6 +345,8 @@ func whenOrder(w When) int {
 		return 1
 	case After:
 		return 2
+	case OnError:
+		return 3
 	default:
 		return 99
 	}

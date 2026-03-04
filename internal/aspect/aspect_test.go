@@ -2,6 +2,7 @@ package aspect
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/matutetandil/mycel/internal/connector"
@@ -365,6 +366,160 @@ func TestExecutor_Execute_NoAspects(t *testing.T) {
 
 	// Verify metadata was added to input
 	// This is implicitly tested by the successful execution
+}
+
+func TestConfig_Validate_OnError(t *testing.T) {
+	config := &Config{
+		Name: "error_handler",
+		On:   []string{"flows/**/*.hcl"},
+		When: OnError,
+		Action: &ActionConfig{
+			Connector: "error_db",
+			Target:    "error_logs",
+		},
+	}
+
+	if err := config.Validate(); err != nil {
+		t.Errorf("expected on_error config to be valid, got: %v", err)
+	}
+}
+
+func TestRegistry_GetOnError(t *testing.T) {
+	registry := NewRegistry()
+
+	registry.Register(&Config{
+		Name: "before_1",
+		On:   []string{"flows/**/*.hcl"},
+		When: Before,
+		Action: &ActionConfig{
+			Connector: "db",
+		},
+	})
+
+	registry.Register(&Config{
+		Name: "on_error_1",
+		On:   []string{"flows/**/*.hcl"},
+		When: OnError,
+		Action: &ActionConfig{
+			Connector: "error_db",
+			Target:    "errors",
+		},
+	})
+
+	registry.Register(&Config{
+		Name: "on_error_2",
+		On:   []string{"flows/**/create_*.hcl"},
+		When: OnError,
+		Action: &ActionConfig{
+			Connector: "slack",
+			Target:    "alerts",
+		},
+	})
+
+	// Should return both on_error aspects for matching flow
+	onError := registry.GetOnError("flows/users/create_user.hcl")
+	if len(onError) != 2 {
+		t.Errorf("expected 2 on_error aspects, got %d", len(onError))
+	}
+
+	// Should return only 1 for non-create flow
+	onError = registry.GetOnError("flows/users/list_users.hcl")
+	if len(onError) != 1 {
+		t.Errorf("expected 1 on_error aspect, got %d", len(onError))
+	}
+
+	// Before should still work normally
+	before := registry.GetBefore("flows/users/create_user.hcl")
+	if len(before) != 1 {
+		t.Errorf("expected 1 before aspect, got %d", len(before))
+	}
+}
+
+func TestExecutor_OnError_ExecutedOnFlowFailure(t *testing.T) {
+	registry := NewRegistry()
+
+	// Register an on_error aspect
+	registry.Register(&Config{
+		Name: "error_logger",
+		On:   []string{"flows/**/*.hcl"},
+		When: OnError,
+		Action: &ActionConfig{
+			Connector: "error_db",
+			Target:    "error_logs",
+		},
+	})
+
+	connRegistry := connector.NewRegistry()
+	executor, err := NewExecutor(registry, connRegistry)
+	if err != nil {
+		t.Fatalf("failed to create executor: %v", err)
+	}
+
+	// Flow that fails
+	flowFn := func(ctx context.Context, input map[string]interface{}) (*connector.Result, error) {
+		return nil, fmt.Errorf("database connection failed")
+	}
+
+	// Should still return the flow error (on_error aspects don't swallow errors)
+	_, flowErr := executor.Execute(
+		context.Background(),
+		"flows/users/create_user.hcl",
+		"create_user",
+		"POST /users",
+		"users",
+		map[string]interface{}{"name": "test"},
+		flowFn,
+	)
+
+	if flowErr == nil {
+		t.Error("expected flow error to be preserved")
+	}
+	if flowErr.Error() != "database connection failed" {
+		t.Errorf("expected original error, got: %v", flowErr)
+	}
+}
+
+func TestExecutor_OnError_NotExecutedOnSuccess(t *testing.T) {
+	registry := NewRegistry()
+	connRegistry := connector.NewRegistry()
+
+	// Register on_error aspect - should NOT fire on success
+	registry.Register(&Config{
+		Name: "error_logger",
+		On:   []string{"flows/**/*.hcl"},
+		When: OnError,
+		Action: &ActionConfig{
+			Connector: "error_db",
+			Target:    "error_logs",
+		},
+	})
+
+	executor, _ := NewExecutor(registry, connRegistry)
+
+	// Successful flow
+	flowFn := func(ctx context.Context, input map[string]interface{}) (*connector.Result, error) {
+		return &connector.Result{Rows: []map[string]interface{}{{"id": 1}}}, nil
+	}
+
+	result, err := executor.Execute(
+		context.Background(),
+		"flows/users/create_user.hcl",
+		"create_user",
+		"POST /users",
+		"users",
+		map[string]interface{}{"name": "test"},
+		flowFn,
+	)
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Error("expected result, got nil")
+	}
+	// on_error aspect should not have fired (no error to trigger it)
+	// This test passes if no panic/crash occurs from trying to execute the action
+	// with a non-existent connector
 }
 
 func TestExecutor_EnrichInput(t *testing.T) {
