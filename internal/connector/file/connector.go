@@ -7,20 +7,38 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/xuri/excelize/v2"
 )
 
+// HandlerFunc is a function that handles file watch events.
+type HandlerFunc func(ctx context.Context, input map[string]interface{}) (interface{}, error)
+
+// fileState tracks the last known state of a file for change detection.
+type fileState struct {
+	modTime time.Time
+	size    int64
+}
+
 // Connector provides file system operations.
 type Connector struct {
 	name   string
 	config *Config
+
+	// Watch mode fields
+	handlers map[string]HandlerFunc // glob pattern → handler
+	known    map[string]fileState   // relative path → last known state
+	cancel   context.CancelFunc     // stops the watcher
+	started  bool
+	logger   *slog.Logger
 
 	mu sync.RWMutex
 }
@@ -33,10 +51,16 @@ func New(name string, config *Config) *Connector {
 	if config.Permissions == 0 {
 		config.Permissions = 0644
 	}
+	if config.Watch && config.WatchInterval == 0 {
+		config.WatchInterval = 5 * time.Second
+	}
 
 	return &Connector{
-		name:   name,
-		config: config,
+		name:     name,
+		config:   config,
+		handlers: make(map[string]HandlerFunc),
+		known:    make(map[string]fileState),
+		logger:   slog.Default(),
 	}
 }
 
@@ -68,8 +92,56 @@ func (c *Connector) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Close is a no-op for file connector.
+// Close stops the file watcher if running.
 func (c *Connector) Close(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cancel != nil {
+		c.cancel()
+		c.cancel = nil
+	}
+	c.started = false
+	return nil
+}
+
+// RegisterRoute registers a handler for a file watch pattern (e.g., "*.csv").
+func (c *Connector) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.handlers[operation] = handler
+}
+
+// Start begins the file watcher polling loop if watch mode is enabled.
+func (c *Connector) Start(ctx context.Context) error {
+	c.mu.Lock()
+	if !c.config.Watch || len(c.handlers) == 0 {
+		c.mu.Unlock()
+		return nil
+	}
+
+	if c.started {
+		c.mu.Unlock()
+		return nil
+	}
+
+	watchCtx, cancel := context.WithCancel(ctx)
+	c.cancel = cancel
+	c.started = true
+	c.mu.Unlock()
+
+	// Seed known files before starting the poll loop so that
+	// files created after Start() returns are properly detected as new.
+	c.seedKnown()
+
+	go c.pollLoop(watchCtx)
+
+	c.logger.Info("file watcher started",
+		"connector", c.name,
+		"path", c.config.BasePath,
+		"interval", c.config.WatchInterval,
+		"patterns", len(c.handlers),
+	)
+
 	return nil
 }
 

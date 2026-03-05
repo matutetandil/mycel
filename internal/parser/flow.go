@@ -232,6 +232,7 @@ func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, e
 		Attributes: []hcl.AttributeSchema{
 			{Name: "connector", Required: true},
 			{Name: "operation", Required: true},
+			{Name: "format"},
 			{Name: "filter"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
@@ -245,6 +246,14 @@ func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, e
 	}
 
 	from := &flow.FromConfig{}
+
+	if attr, ok := content.Attributes["format"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("from format error: %s", diags.Error())
+		}
+		from.Format = val.AsString()
+	}
 
 	if attr, ok := content.Attributes["connector"]; ok {
 		val, diags := attr.Expr.Value(ctx)
@@ -386,6 +395,7 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 			{Name: "connector", Required: true},
 			{Name: "target"},
 			{Name: "operation"}, // Operation type: INSERT_ONE, UPDATE_ONE, DELETE_ONE, etc.
+			{Name: "format"},
 			{Name: "filter"},
 			{Name: "query"},
 			{Name: "query_filter"},
@@ -406,6 +416,14 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 
 	to := &flow.ToConfig{
 		Parallel: true, // Default to parallel execution
+	}
+
+	if attr, ok := content.Attributes["format"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("to format error: %s", diags.Error())
+		}
+		to.Format = val.AsString()
 	}
 
 	if attr, ok := content.Attributes["connector"]; ok {
@@ -543,6 +561,7 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		Attributes: []hcl.AttributeSchema{
 			{Name: "connector", Required: true},
 			{Name: "operation"},
+			{Name: "format"},
 			{Name: "when"},
 			{Name: "query"},
 			{Name: "target"},
@@ -557,6 +576,15 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 	content, diags := block.Body.Content(schema)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("step block content error: %s", diags.Error())
+	}
+
+	// Parse format
+	if attr, ok := content.Attributes["format"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("step format error: %s", diags.Error())
+		}
+		step.Format = val.AsString()
 	}
 
 	// Parse connector (required)

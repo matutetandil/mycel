@@ -14,6 +14,7 @@ For the general connector concept and how they fit into the Mycel model, see [Co
 | [GraphQL](graphql.md) | `graphql` | Expose a GraphQL schema or query external GraphQL APIs |
 | [gRPC](grpc.md) | `grpc` | Expose gRPC services or call external gRPC endpoints |
 | [TCP](tcp.md) | `tcp` | Raw TCP server/client with JSON, msgpack, or NestJS codec |
+| [SOAP](soap.md) | `soap` | Call or expose SOAP/XML web services (SOAP 1.1/1.2) |
 | [WebSocket](websocket.md) | `websocket` | Bidirectional real-time communication with rooms |
 | [SSE](sse.md) | `sse` | Unidirectional server-to-client push over HTTP |
 

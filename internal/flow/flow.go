@@ -186,6 +186,9 @@ type StepConfig struct {
 	// Examples: "query", "GET /users", "POST /api/calculate"
 	Operation string
 
+	// Format overrides the connector's default format for this step (e.g., "xml", "json").
+	Format string
+
 	// When is a CEL expression that determines if this step should execute.
 	// If empty or evaluates to true, the step executes.
 	// Example: "input.include_prices == true"
@@ -222,6 +225,9 @@ type FromConfig struct {
 
 	// Operation is the trigger operation (e.g., "GET /users", "topic:orders").
 	Operation string
+
+	// Format overrides the connector's default format for incoming data (e.g., "xml", "json").
+	Format string
 
 	// Filter is a CEL expression to filter incoming requests/messages (legacy string syntax).
 	// If the expression evaluates to false, the request is skipped.
@@ -281,6 +287,9 @@ type ToConfig struct {
 	// Examples: INSERT_ONE, UPDATE_ONE, DELETE_ONE, UPDATE_MANY, DELETE_MANY,
 	// WRITE (files/S3), READ, DELETE, LIST, PRESIGN, COPY
 	Operation string
+
+	// Format overrides the connector's default format for outgoing data (e.g., "xml", "json").
+	Format string
 
 	// Filter is an optional filter expression for the destination.
 	Filter string

@@ -121,6 +121,8 @@ That's it. REST API + database, zero code.
 | [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([concept](docs/CONCEPTS.md#batch-processing)) |
 | [Sagas](examples/saga) | Distributed transactions with automatic compensation ([concept](docs/CONCEPTS.md#sagas)) |
 | [State Machines](examples/state-machine) | Entity lifecycle with guards, actions, final states ([concept](docs/CONCEPTS.md#state-machines)) |
+| [SOAP](docs/connectors/soap.md) | Call or expose SOAP/XML web services (SOAP 1.1/1.2) |
+| [Format Declarations](docs/FORMAT.md) | Multi-format support (JSON, XML) at connector, flow, and step level |
 | [TCP Server & Client](examples/tcp) | JSON, msgpack, and NestJS protocols |
 | [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
 | [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching |
@@ -183,6 +185,7 @@ See [helm/mycel/README.md](helm/mycel/README.md) for full Helm documentation inc
 - **[Concepts](docs/CONCEPTS.md)** - Understanding connectors, flows, transforms, and the full Mycel model
 - **[Error Handling](docs/ERROR_HANDLING.md)** - Retry, circuit breaker, DLQ, fallback, and resilience patterns
 - **[Connector Catalog](docs/connectors/)** - Individual documentation for every connector type
+- **[Format System](docs/FORMAT.md)** - Multi-format support (JSON, XML), auto-detection, and XML mapping rules
 - **[Configuration Reference](docs/CONFIGURATION.md)** - Complete HCL syntax reference
 - **[Deployment Guide](docs/DEPLOYMENT.md)** - Docker, Docker Compose, Kubernetes, environment variables, .env files
 - **[Integration Patterns](docs/integration-patterns.md)** - Common use cases

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/matutetandil/mycel/internal/codec"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/health"
 	"github.com/matutetandil/mycel/internal/metrics"
@@ -24,16 +26,17 @@ type HandlerFunc func(ctx context.Context, input map[string]interface{}) (interf
 
 // Connector exposes HTTP endpoints as a REST API.
 type Connector struct {
-	name        string
-	port        int
-	server      *http.Server
-	mux         *http.ServeMux
-	cors        *CORSConfig
-	authConfig  *AuthConfig
-	logger      *slog.Logger
-	health      *health.Manager
-	metrics     *metrics.Registry
-	rateLimiter *ratelimit.Limiter
+	name          string
+	port          int
+	server        *http.Server
+	mux           *http.ServeMux
+	cors          *CORSConfig
+	authConfig    *AuthConfig
+	logger        *slog.Logger
+	health        *health.Manager
+	metrics       *metrics.Registry
+	rateLimiter   *ratelimit.Limiter
+	defaultFormat string // default format for request/response ("json", "xml")
 
 	mu         sync.Mutex
 	handlers   map[string]HandlerFunc
@@ -264,8 +267,8 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 		return
 	}
 
-	// Write response
-	c.writeJSON(w, http.StatusOK, result)
+	// Write response using format-aware codec
+	c.writeResponse(w, r, http.StatusOK, result)
 	if c.metrics != nil {
 		c.metrics.RecordRequest(r.Method, path, "200", time.Since(start))
 	}
@@ -292,13 +295,25 @@ func (c *Connector) buildInput(r *http.Request, paramNames []string) map[string]
 		}
 	}
 
-	// Body for POST/PUT/PATCH
+	// Body for POST/PUT/PATCH — auto-detect format from Content-Type
 	if r.Method == "POST" || r.Method == "PUT" || r.Method == "PATCH" {
-		if r.Header.Get("Content-Type") == "application/json" ||
-		   strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
-			var body map[string]interface{}
-			if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
-				for k, v := range body {
+		ct := r.Header.Get("Content-Type")
+		// Determine codec: flow-level format override > Content-Type detection > connector default
+		var bodyCodec codec.Codec
+		if ctxFormat := codec.FormatFromContext(r.Context()); ctxFormat != "" {
+			bodyCodec = codec.Get(ctxFormat)
+		} else if ct != "" {
+			bodyCodec = codec.DetectFromContentType(ct)
+		} else if c.defaultFormat != "" {
+			bodyCodec = codec.Get(c.defaultFormat)
+		} else {
+			bodyCodec = codec.Get("json")
+		}
+
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err == nil && len(bodyBytes) > 0 {
+			if decoded, err := bodyCodec.Decode(bodyBytes); err == nil {
+				for k, v := range decoded {
 					input[k] = v
 				}
 			}
@@ -321,7 +336,37 @@ func extractParamNames(path string) []string {
 	return names
 }
 
-// writeJSON writes a JSON response.
+// writeResponse writes a response using the appropriate codec.
+// It checks for a flow-level format override in the context, then falls back
+// to the connector's default format, and finally to JSON.
+func (c *Connector) writeResponse(w http.ResponseWriter, r *http.Request, status int, data interface{}) {
+	var respCodec codec.Codec
+	if r != nil {
+		if ctxFormat := codec.FormatFromContext(r.Context()); ctxFormat != "" {
+			respCodec = codec.Get(ctxFormat)
+		}
+	}
+	if respCodec == nil && c.defaultFormat != "" {
+		respCodec = codec.Get(c.defaultFormat)
+	}
+	if respCodec == nil {
+		respCodec = codec.Get("json")
+	}
+
+	w.Header().Set("Content-Type", respCodec.ContentType())
+	w.WriteHeader(status)
+
+	if data != nil {
+		encoded, err := respCodec.Encode(data)
+		if err != nil {
+			c.logger.Error("Failed to encode response", slog.Any("error", err))
+			return
+		}
+		w.Write(encoded)
+	}
+}
+
+// writeJSON writes a JSON response (used by internal endpoints like health/errors).
 func (c *Connector) writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

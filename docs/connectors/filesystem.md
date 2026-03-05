@@ -315,4 +315,103 @@ flow "export_orders" {
 }
 ```
 
+## Watch Mode
+
+When `watch = true`, the file connector polls the `base_path` directory for new and modified files. When a matching file is detected, the associated flow handler is triggered automatically — similar to how MQ connectors trigger flows on new messages.
+
+### Configuration
+
+```hcl
+connector "inbox" {
+  type           = "file"
+  driver         = "local"
+  base_path      = "/data/inbox"
+  watch          = true
+  watch_interval = "5s"    # default: 5s
+}
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `watch` | bool | `false` | Enable directory polling for file changes |
+| `watch_interval` | string | `"5s"` | How often to scan for changes (e.g. `"5s"`, `"1m"`, `"500ms"`) |
+
+### Flow Syntax
+
+The `operation` in the `from` block is a glob pattern that selects which files trigger the flow:
+
+```hcl
+# Trigger on any new/modified CSV file
+flow "process_csv" {
+  from { connector = "inbox", operation = "*.csv" }
+  to   { connector = "db", operation = "INSERT", target = "imports" }
+}
+
+# Trigger on CSV files in a specific subdirectory
+flow "process_reports" {
+  from { connector = "inbox", operation = "reports/*.csv" }
+  to   { connector = "db", operation = "INSERT", target = "report_data" }
+}
+```
+
+### Handler Input
+
+When a file event fires, the handler receives file metadata (prefixed with `_`) merged with parsed file content:
+
+```jsonc
+{
+  "_path":     "invoices/INV-001.csv",     // relative path from base_path
+  "_name":     "INV-001.csv",              // filename only
+  "_size":     1234,                       // file size in bytes
+  "_mod_time": "2026-03-05T12:00:00Z",    // last modification time (RFC 3339)
+  "_event":    "created",                  // "created" or "modified"
+
+  // Parsed file content (auto-detected from extension):
+  // Single-row files → fields merged into the input
+  // Multi-row files → available as "rows" array
+  "rows": [
+    {"id": "1", "product": "Widget", "amount": "100"},
+    {"id": "2", "product": "Gadget", "amount": "200"}
+  ]
+}
+```
+
+### How It Works
+
+1. On startup, the watcher snapshots all existing files (no events fired)
+2. Every `watch_interval`, it scans the directory tree recursively
+3. New files trigger a `"created"` event; files with changed size or modification time trigger `"modified"`
+4. Unchanged files are ignored
+5. The file is read and parsed using the same format auto-detection as the `read` operation
+
+### Example: Process Incoming CSV Files
+
+```hcl
+connector "inbox" {
+  type           = "file"
+  driver         = "local"
+  base_path      = "/data/inbox"
+  watch          = true
+  watch_interval = "5s"
+}
+
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  dsn    = env("DATABASE_URL")
+}
+
+flow "import_csv" {
+  from { connector = "inbox", operation = "*.csv" }
+
+  transform {
+    output.file   = input._path
+    output.name   = input._name
+    output.data   = input.rows
+  }
+
+  to { connector = "db", operation = "INSERT", target = "imports" }
+}
+```
+
 See the [files example](../../examples/files/) for a complete working setup.

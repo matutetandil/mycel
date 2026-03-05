@@ -171,6 +171,11 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "timestamp_header"},    // Timestamp header
 			{Name: "timestamp_tolerance"}, // Tolerance duration
 			{Name: "method"},              // HTTP method
+
+			// SOAP connector specific
+			{Name: "soap_version"}, // SOAP version: "1.1" or "1.2"
+			{Name: "namespace"},    // SOAP service namespace
+			{Name: "wsdl"},         // WSDL URL (informational)
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "pool"},

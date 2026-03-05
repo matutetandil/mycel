@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/matutetandil/mycel/internal/codec"
 	"github.com/matutetandil/mycel/internal/connector"
 )
 
@@ -29,6 +30,8 @@ type Connector struct {
 	tlsConfig  *TLSConfig
 	headers    map[string]string
 	retryCount int
+	format     string      // default format ("json", "xml")
+	codec      codec.Codec // codec for encoding/decoding
 
 	// Token management for OAuth2
 	mu           sync.RWMutex
@@ -122,6 +125,8 @@ func NewWithTLS(name, baseURL string, timeout time.Duration, auth *AuthConfig, t
 		tlsConfig:  tlsCfg,
 		headers:    headers,
 		retryCount: retryCount,
+		format:     "json",
+		codec:      codec.Get("json"),
 		client: &http.Client{
 			Timeout:   timeout,
 			Transport: transport,
@@ -172,6 +177,12 @@ func (c *Connector) Name() string {
 // Type returns the connector type.
 func (c *Connector) Type() string {
 	return "http"
+}
+
+// SetFormat sets the default format and codec for this connector.
+func (c *Connector) SetFormat(format string) {
+	c.format = format
+	c.codec = codec.Get(format)
 }
 
 // Connect initializes the connector (validates config, gets initial token if OAuth2).
@@ -254,11 +265,11 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	// Build request body
 	var body io.Reader
 	if data.Payload != nil && (method == "POST" || method == "PUT" || method == "PATCH") {
-		jsonBody, err := json.Marshal(data.Payload)
+		encoded, err := c.codec.Encode(data.Payload)
 		if err != nil {
-			return nil, fmt.Errorf("failed to marshal payload: %w", err)
+			return nil, fmt.Errorf("failed to encode payload: %w", err)
 		}
-		body = bytes.NewReader(jsonBody)
+		body = bytes.NewReader(encoded)
 	}
 
 	// Execute with retry
@@ -322,9 +333,9 @@ func (c *Connector) doRequest(ctx context.Context, method, fullURL string, body 
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set default headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	// Set default headers using connector's codec
+	req.Header.Set("Content-Type", c.codec.ContentType())
+	req.Header.Set("Accept", c.codec.ContentType())
 
 	// Set custom headers
 	for k, v := range c.headers {
@@ -358,11 +369,14 @@ func (c *Connector) doRequest(ctx context.Context, method, fullURL string, body 
 		}
 	}
 
-	// Parse response
+	// Parse response — auto-detect format from Content-Type, fall back to connector codec
 	var data interface{}
 	if len(respBody) > 0 {
-		if err := json.Unmarshal(respBody, &data); err != nil {
-			// If not JSON, return as string
+		respCodec := codec.DetectFromContentType(resp.Header.Get("Content-Type"))
+		if decoded, err := respCodec.Decode(respBody); err == nil {
+			data = decoded
+		} else {
+			// If decoding fails, return as string
 			data = string(respBody)
 		}
 	}

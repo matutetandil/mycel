@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-03-05
+
+### Added
+- **SOAP Connector** (`internal/connector/soap/`): Bidirectional SOAP web service support. Client mode (call external SOAP services) and Server mode (expose SOAP endpoints) auto-detected from config. SOAP 1.1 and 1.2 supported. Envelope build/parse, SOAP fault handling, WSDL auto-generation at `/wsdl`, basic/bearer auth. 22 tests
+- **Codec System** (`internal/codec/`): Multi-format encoding/decoding with `Codec` interface and global registry. JSON and XML codecs included. XML↔map conversion with attributes (`@attr`), text content (`#text`), repeated elements (slices). `DetectFromContentType()` for auto-format detection. 18 tests
+- **Format Declarations**: `format` attribute on connectors, flows (`from`/`to`), and steps. Connectors set a default format for all operations. Flow-level format overrides connector default. Context-based format propagation. REST server auto-detects incoming format from Content-Type header. HTTP client auto-detects response format
+- **Format Documentation** (`docs/FORMAT.md`): Complete reference for the format system, XML mapping rules, auto-detection behavior, and extensibility
+- **File Watch Mode**: Polling-based directory watcher for the file connector. When `watch = true`, the connector scans `base_path` for new and modified files and triggers flow handlers automatically. Glob pattern matching in `from.operation` (e.g., `*.csv`, `reports/*.xlsx`). Handler input includes file metadata (`_path`, `_name`, `_size`, `_mod_time`, `_event`) merged with parsed file content. Works on all filesystems including NFS, Docker volumes, and network mounts. 7 tests
+
 ## [1.5.1] - 2026-03-05
 
 ### Added

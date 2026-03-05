@@ -62,6 +62,11 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 	// Create connector
 	conn := New(cfg.Name, port, cors, f.logger)
 
+	// Set default format if configured
+	if format, ok := cfg.Properties["format"].(string); ok && format != "" {
+		conn.defaultFormat = format
+	}
+
 	// Configure authentication if present
 	if authMap := cfg.GetMap("auth"); authMap != nil {
 		authConfig := parseAuthConfig(authMap)

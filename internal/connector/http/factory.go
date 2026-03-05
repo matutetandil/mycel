@@ -82,6 +82,11 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 	// Create connector with TLS
 	conn := NewWithTLS(cfg.Name, baseURL, timeout, auth, tlsCfg, headers, retryCount)
 
+	// Set format if configured (default: json)
+	if format, ok := cfg.Properties["format"].(string); ok && format != "" {
+		conn.SetFormat(format)
+	}
+
 	return conn, nil
 }
 

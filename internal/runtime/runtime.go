@@ -20,6 +20,7 @@ import (
 	"github.com/matutetandil/mycel/internal/aspect"
 	"github.com/matutetandil/mycel/internal/auth"
 	"github.com/matutetandil/mycel/internal/banner"
+	"github.com/matutetandil/mycel/internal/codec"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/cache"
 	"github.com/matutetandil/mycel/internal/connector/discord"
@@ -45,6 +46,7 @@ import (
 	conncdc "github.com/matutetandil/mycel/internal/connector/cdc"
 	connelastic "github.com/matutetandil/mycel/internal/connector/elasticsearch"
 	connoauth "github.com/matutetandil/mycel/internal/connector/oauth"
+	connsoap "github.com/matutetandil/mycel/internal/connector/soap"
 	connsse "github.com/matutetandil/mycel/internal/connector/sse"
 	connws "github.com/matutetandil/mycel/internal/connector/websocket"
 	"github.com/matutetandil/mycel/internal/flow"
@@ -392,6 +394,9 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 
 	// OAuth connector for social login flows
 	registry.RegisterFactory(connoauth.NewFactory(logger))
+
+	// SOAP connector for calling/exposing SOAP web services
+	registry.RegisterFactory(connsoap.NewFactory(logger))
 
 	// Profile connector (must be registered last - uses other factories)
 	registry.RegisterFactory(profile.NewFactory(registry))
@@ -980,12 +985,22 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 	// Find flows that use this connector as source
 	for _, handler := range r.flows.handlers {
 		if handler.Config.From.Connector == connectorName {
+			// Wrap handler with format context if flow declares a format
+			requestHandler := handler.HandleRequest
+			if handler.Config.From.Format != "" {
+				fromFormat := handler.Config.From.Format
+				origHandler := requestHandler
+				requestHandler = func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+					return origHandler(codec.WithFormat(ctx, fromFormat), input)
+				}
+			}
+
 			// If flow has a return type and connector supports typed args, use RegisterRouteWithArgs
 			if hasArgsSupport && handler.Config.Returns != "" {
 				args := inferArgsFromFlow(handler.Config)
 				routerWithArgs.RegisterRouteWithArgs(
 					handler.Config.From.Operation,
-					handler.HandleRequest,
+					requestHandler,
 					handler.Config.Returns,
 					args,
 				)
@@ -993,11 +1008,11 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 				// Fallback to return type only registration
 				routerWithReturnType.RegisterRouteWithReturnType(
 					handler.Config.From.Operation,
-					handler.HandleRequest,
+					requestHandler,
 					handler.Config.Returns,
 				)
 			} else {
-				router.RegisterRoute(handler.Config.From.Operation, handler.HandleRequest)
+				router.RegisterRoute(handler.Config.From.Operation, requestHandler)
 			}
 		}
 	}
