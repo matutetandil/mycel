@@ -123,18 +123,32 @@ type FlowHandler struct {
 }
 
 // FilteredResult is returned when a request is filtered out by the from.filter expression.
+// Used for backwards compatibility when no rejection policy is configured.
 var FilteredResult = &struct{ Filtered bool }{Filtered: true}
 
 // HandleRequest processes an incoming request through the flow.
 func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interface{}) (interface{}, error) {
 	// Check filter condition first (before any processing)
-	if h.Config.From != nil && h.Config.From.Filter != "" {
+	if h.Config.From != nil && h.Config.From.FilterCondition() != "" {
 		shouldProcess, err := h.evaluateFilter(ctx, input)
 		if err != nil {
 			return nil, fmt.Errorf("filter evaluation error: %w", err)
 		}
 		if !shouldProcess {
-			// Request filtered out - return special result
+			// Return policy-aware result if FilterConfig is set
+			if h.Config.From.FilterConfig != nil {
+				result := &flow.FilteredResultWithPolicy{
+					Filtered:   true,
+					Policy:     h.Config.From.FilterConfig.OnReject,
+					MaxRequeue: h.Config.From.FilterConfig.MaxRequeue,
+				}
+				// Evaluate ID field if configured (for requeue dedup)
+				if h.Config.From.FilterConfig.IDField != "" && h.Config.From.FilterConfig.OnReject == "requeue" {
+					msgID, _ := h.evaluateIDField(ctx, input)
+					result.MessageID = msgID
+				}
+				return result, nil
+			}
 			return FilteredResult, nil
 		}
 	}
@@ -381,7 +395,8 @@ func (h *FlowHandler) wrapErrorResponse(ctx context.Context, input map[string]in
 // evaluateFilter evaluates the from.filter CEL expression.
 // Returns true if the request should be processed, false if filtered out.
 func (h *FlowHandler) evaluateFilter(ctx context.Context, input map[string]interface{}) (bool, error) {
-	if h.Config.From.Filter == "" {
+	condition := h.Config.From.FilterCondition()
+	if condition == "" {
 		return true, nil
 	}
 
@@ -400,7 +415,38 @@ func (h *FlowHandler) evaluateFilter(ctx context.Context, input map[string]inter
 		"input": input,
 	}
 
-	return h.Transformer.EvaluateCondition(ctx, data, h.Config.From.Filter)
+	return h.Transformer.EvaluateCondition(ctx, data, condition)
+}
+
+// evaluateIDField evaluates the id_field CEL expression to extract a message ID.
+func (h *FlowHandler) evaluateIDField(ctx context.Context, input map[string]interface{}) (string, error) {
+	if h.Config.From.FilterConfig == nil || h.Config.From.FilterConfig.IDField == "" {
+		return "", nil
+	}
+
+	// Initialize transformer if needed
+	if h.Transformer == nil {
+		var err error
+		celOptions := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
+		h.Transformer, err = transform.NewCELTransformerWithOptions(celOptions...)
+		if err != nil {
+			return "", fmt.Errorf("failed to create CEL transformer: %w", err)
+		}
+	}
+
+	data := map[string]interface{}{
+		"input": input,
+	}
+
+	result, err := h.Transformer.EvaluateExpression(ctx, data, nil, h.Config.From.FilterConfig.IDField)
+	if err != nil {
+		return "", err
+	}
+
+	if s, ok := result.(string); ok {
+		return s, nil
+	}
+	return fmt.Sprintf("%v", result), nil
 }
 
 // checkDedupe checks if a message is a duplicate based on the dedupe configuration.

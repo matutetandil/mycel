@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 // startConsumer starts consuming messages from the configured queue.
@@ -164,7 +166,7 @@ func (c *Connector) handleDelivery(ctx context.Context, delivery amqp.Delivery) 
 	}
 
 	// Execute handler with the full input structure
-	_, err := handler(ctx, input)
+	result, err := handler(ctx, input)
 	if err != nil {
 		c.logger.Error("handler error",
 			"routing_key", delivery.RoutingKey,
@@ -174,12 +176,74 @@ func (c *Connector) handleDelivery(ctx context.Context, delivery amqp.Delivery) 
 		return c.handleRetry(delivery, err)
 	}
 
+	// Check if the result is a filter rejection with policy
+	if filtered, ok := result.(*flow.FilteredResultWithPolicy); ok && filtered.Filtered {
+		return c.handleFilterReject(delivery, filtered)
+	}
+
 	// Acknowledge successful processing
 	if c.config.Consumer != nil && !c.config.Consumer.AutoAck {
 		return delivery.Ack(false)
 	}
 
 	return nil
+}
+
+// handleFilterReject handles a message that was rejected by a filter expression.
+func (c *Connector) handleFilterReject(delivery amqp.Delivery, filtered *flow.FilteredResultWithPolicy) error {
+	if c.config.Consumer != nil && c.config.Consumer.AutoAck {
+		return nil // Already auto-acked
+	}
+
+	switch filtered.Policy {
+	case "reject":
+		// NACK without requeue — goes to DLX/DLQ if configured
+		c.logger.Debug("filter reject: sending to DLQ",
+			"routing_key", delivery.RoutingKey,
+			"message_id", delivery.MessageId,
+		)
+		return delivery.Nack(false, false)
+
+	case "requeue":
+		// Check dedup tracker to prevent infinite requeue
+		msgID := filtered.MessageID
+		if msgID == "" {
+			msgID = delivery.MessageId
+		}
+		if msgID == "" {
+			// No message ID available, fall back to ACK
+			c.logger.Warn("filter requeue: no message ID available, ACKing instead",
+				"routing_key", delivery.RoutingKey,
+			)
+			return delivery.Ack(false)
+		}
+
+		maxRequeue := filtered.MaxRequeue
+		if maxRequeue <= 0 {
+			maxRequeue = 3
+		}
+
+		count, shouldAck := c.requeueTracker.IncrementAndCheck(msgID, maxRequeue)
+		if shouldAck {
+			c.logger.Debug("filter requeue: max attempts reached, ACKing",
+				"routing_key", delivery.RoutingKey,
+				"message_id", msgID,
+				"attempts", count,
+			)
+			return delivery.Ack(false)
+		}
+
+		c.logger.Debug("filter requeue: returning to queue",
+			"routing_key", delivery.RoutingKey,
+			"message_id", msgID,
+			"attempt", count,
+			"max", maxRequeue,
+		)
+		return delivery.Nack(false, true)
+
+	default: // "ack" or unknown
+		return delivery.Ack(false)
+	}
 }
 
 // handleRetry handles retry logic for failed messages.

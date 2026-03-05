@@ -25,12 +25,20 @@ func (r *Runtime) registerSagas() error {
 		}
 
 		// Create a flow config that wraps the saga trigger
+		var filterConfig *flow.FilterConfig
+		if cfg.From.Filter != "" {
+			filterConfig = &flow.FilterConfig{
+				Condition: cfg.From.Filter,
+				OnReject:  "ack",
+			}
+		}
 		flowCfg := &flow.Config{
 			Name: cfg.Name,
 			From: &flow.FromConfig{
-				Connector: cfg.From.Connector,
-				Operation: cfg.From.Operation,
-				Filter:    cfg.From.Filter,
+				Connector:    cfg.From.Connector,
+				Operation:    cfg.From.Operation,
+				Filter:       cfg.From.Filter,
+				FilterConfig: filterConfig,
 			},
 			// Minimal to config (saga handles its own output)
 			To: &flow.ToConfig{

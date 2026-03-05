@@ -227,15 +227,19 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 //	  filter    = "input.metadata.origin != 'internal'"
 //	}
 func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, error) {
+	// Use PartialContent to allow both filter as attribute and filter as block
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "connector", Required: true},
 			{Name: "operation", Required: true},
 			{Name: "filter"},
 		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "filter"},
+		},
 	}
 
-	content, diags := block.Body.Content(schema)
+	content, _, diags := block.Body.PartialContent(schema)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("from block content error: %s", diags.Error())
 	}
@@ -258,12 +262,31 @@ func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, e
 		from.Operation = val.AsString()
 	}
 
+	// Check for filter as string attribute (legacy syntax)
 	if attr, ok := content.Attributes["filter"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("from filter error: %s", diags.Error())
 		}
-		from.Filter = val.AsString()
+		filterStr := val.AsString()
+		from.Filter = filterStr
+		// Also set FilterConfig for unified access
+		from.FilterConfig = &flow.FilterConfig{
+			Condition: filterStr,
+			OnReject:  "ack",
+		}
+	}
+
+	// Check for filter as block (new syntax, overrides string if both present)
+	for _, filterBlock := range content.Blocks {
+		if filterBlock.Type == "filter" {
+			filterCfg, err := parseFilterBlock(filterBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("from filter block error: %w", err)
+			}
+			from.FilterConfig = filterCfg
+			from.Filter = filterCfg.Condition
+		}
 	}
 
 	if from.Connector == "" {
@@ -271,6 +294,75 @@ func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, e
 	}
 
 	return from, nil
+}
+
+// parseFilterBlock parses a filter block with extended configuration.
+func parseFilterBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FilterConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "condition", Required: true},
+			{Name: "on_reject"},
+			{Name: "id_field"},
+			{Name: "max_requeue"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("filter block content error: %s", diags.Error())
+	}
+
+	cfg := &flow.FilterConfig{
+		OnReject:   "ack",
+		MaxRequeue: 3,
+	}
+
+	if attr, ok := content.Attributes["condition"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("filter condition error: %s", diags.Error())
+		}
+		cfg.Condition = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["on_reject"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("filter on_reject error: %s", diags.Error())
+		}
+		policy := val.AsString()
+		switch policy {
+		case "ack", "reject", "requeue":
+			cfg.OnReject = policy
+		default:
+			return nil, fmt.Errorf("invalid on_reject value %q: must be ack, reject, or requeue", policy)
+		}
+	}
+
+	if attr, ok := content.Attributes["id_field"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("filter id_field error: %s", diags.Error())
+		}
+		cfg.IDField = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["max_requeue"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("filter max_requeue error: %s", diags.Error())
+		}
+		maxRequeue, _ := val.AsBigFloat().Int64()
+		if maxRequeue > 0 {
+			cfg.MaxRequeue = int(maxRequeue)
+		}
+	}
+
+	if cfg.Condition == "" {
+		return nil, fmt.Errorf("filter block must specify a condition")
+	}
+
+	return cfg, nil
 }
 
 // parseToBlock parses a to block.

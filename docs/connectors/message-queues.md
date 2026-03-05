@@ -341,6 +341,97 @@ Per-topic schemas (nested under `schema_registry.schemas.<topic>`):
 | Queue/topic name | source | Consume messages |
 | `PUBLISH` | target | Publish a message |
 
+## Filter Rejection Policy
+
+When a flow consumes from a queue and has a `filter`, messages that don't match the condition are ACKed and **lost forever** by default. This is a problem when multiple consumers share the same queue with different filters — rejected messages should go back to the queue so other consumers can process them.
+
+The `on_reject` policy controls what happens to filtered-out messages.
+
+### When to use each policy
+
+- **`ack`** (default) — You're the only consumer, or you don't care about unmatched messages.
+- **`reject`** — Unmatched messages should go to a Dead Letter Queue for inspection or later processing.
+- **`requeue`** — Multiple consumers share a queue with different filters. Unmatched messages go back to the queue for another consumer to pick up.
+
+### Syntax
+
+Two syntaxes are supported. Use the **string** form when you just want to skip messages (equivalent to `on_reject = "ack"`). Use the **block** form when you need a rejection policy.
+
+```hcl
+# String syntax — filtered messages are ACKed and discarded
+flow "process_orders" {
+  from {
+    connector = "rabbit"
+    operation = "orders.new"
+    filter    = "input.body.status == 'pending'"
+  }
+  to { connector = "db", target = "orders" }
+}
+
+# Block syntax — filtered messages are requeued for other consumers
+flow "process_sales" {
+  from {
+    connector = "rabbit"
+    operation = "events"
+
+    filter {
+      condition   = "input.headers.elementType == 'sales-associate'"
+      on_reject   = "requeue"
+      id_field    = "input.properties.message_id"
+      max_requeue = 5
+    }
+  }
+  to { connector = "db", target = "sales" }
+}
+
+# Block syntax — filtered messages go to DLQ
+flow "process_payments" {
+  from {
+    connector = "kafka"
+    operation = "transactions"
+
+    filter {
+      condition = "input.body.type == 'payment'"
+      on_reject = "reject"
+    }
+  }
+  to { connector = "db", target = "payments" }
+}
+```
+
+### Filter Options
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `condition` | string | **yes** | — | CEL expression to evaluate |
+| `on_reject` | string | optional | `ack` | What to do with non-matching messages: `ack`, `reject`, `requeue` |
+| `id_field` | string | optional | — | CEL expression to extract a unique message ID (used for requeue dedup) |
+| `max_requeue` | int | optional | `3` | Max requeue attempts before giving up and ACKing silently |
+
+### Policies
+
+| Policy | RabbitMQ behavior | Kafka behavior |
+|--------|-------------------|----------------|
+| `ack` | ACK and discard | No-op (offset auto-committed) |
+| `reject` | NACK without requeue — goes to DLX/DLQ if configured | Republish to `<topic>.dlq` |
+| `requeue` | NACK with requeue — message returns to the queue | Republish to same topic |
+
+### Requeue dedup
+
+When using `requeue`, Mycel tracks how many times each message has been requeued to prevent infinite loops:
+
+1. A message is filtered out and requeued.
+2. If the same message comes back and is filtered again, the counter increments.
+3. After `max_requeue` attempts (default 3), the message is ACKed silently — it won't loop forever.
+4. Tracker entries expire after 10 minutes of inactivity.
+
+**Message ID resolution:** The tracker needs a unique ID per message. It's resolved in this order:
+1. `id_field` CEL expression (if configured) — e.g., `input.properties.message_id`
+2. Native message ID — `MessageId` (RabbitMQ) or message key (Kafka)
+3. If no ID is available, the message is ACKed immediately (RabbitMQ) or skipped (Kafka) to avoid untraceable loops.
+
+---
+
 ## Example
 
 ```hcl

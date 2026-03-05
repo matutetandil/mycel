@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/mq/types"
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 // HandlerFunc is the function signature for message handlers.
@@ -40,6 +42,9 @@ type Connector struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
+
+	// Filter rejection tracking for requeue dedup
+	requeueTracker *flow.RequeueTracker
 }
 
 // NewConnector creates a new Kafka connector.
@@ -121,6 +126,12 @@ func (c *Connector) Close(ctx context.Context) error {
 	// Wait for consumers to finish
 	c.wg.Wait()
 
+	// Stop requeue tracker
+	if c.requeueTracker != nil {
+		c.requeueTracker.Stop()
+		c.requeueTracker = nil
+	}
+
 	var errs []error
 
 	// Close reader
@@ -178,6 +189,7 @@ func (c *Connector) Start(ctx context.Context) error {
 		return nil
 	}
 
+	c.requeueTracker = flow.NewRequeueTracker(10 * time.Minute)
 	return c.startConsumer(ctx)
 }
 

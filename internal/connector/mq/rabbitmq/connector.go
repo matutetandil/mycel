@@ -12,6 +12,7 @@ import (
 
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/mq/types"
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 // HandlerFunc is the function signature for message handlers.
@@ -38,6 +39,9 @@ type Connector struct {
 	// Reconnection state
 	reconnecting bool
 	closeChan    chan *amqp.Error
+
+	// Filter rejection tracking for requeue dedup
+	requeueTracker *flow.RequeueTracker
 }
 
 // NewConnector creates a new RabbitMQ connector.
@@ -159,6 +163,12 @@ func (c *Connector) Close(ctx context.Context) error {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		c.logger.Warn("timeout waiting for consumers to finish")
+	}
+
+	// Stop requeue tracker
+	if c.requeueTracker != nil {
+		c.requeueTracker.Stop()
+		c.requeueTracker = nil
 	}
 
 	// Close channel
@@ -317,6 +327,7 @@ func (c *Connector) Start(ctx context.Context) error {
 	}
 	c.running = true
 	c.ctx, c.cancel = context.WithCancel(ctx)
+	c.requeueTracker = flow.NewRequeueTracker(10 * time.Minute)
 	c.mu.Unlock()
 
 	// Start consumer if configured

@@ -223,10 +223,50 @@ type FromConfig struct {
 	// Operation is the trigger operation (e.g., "GET /users", "topic:orders").
 	Operation string
 
-	// Filter is a CEL expression to filter incoming requests/messages.
+	// Filter is a CEL expression to filter incoming requests/messages (legacy string syntax).
 	// If the expression evaluates to false, the request is skipped.
 	// Example: "input.metadata.origin != 'internal'"
 	Filter string
+
+	// FilterConfig holds the extended filter configuration (block syntax).
+	// When set, takes precedence over Filter string.
+	FilterConfig *FilterConfig
+}
+
+// FilterCondition returns the active filter condition expression.
+// Returns empty string if no filter is configured.
+func (f *FromConfig) FilterCondition() string {
+	if f.FilterConfig != nil {
+		return f.FilterConfig.Condition
+	}
+	return f.Filter
+}
+
+// FilterConfig holds extended filter configuration with rejection policy.
+type FilterConfig struct {
+	// Condition is the CEL expression to evaluate.
+	Condition string
+
+	// OnReject defines what to do with messages that don't match the filter.
+	// Values: "ack" (default), "reject", "requeue"
+	OnReject string
+
+	// IDField is a CEL expression to extract a message ID for requeue deduplication.
+	// Example: "input.properties.message_id"
+	IDField string
+
+	// MaxRequeue is the maximum number of requeue attempts before giving up.
+	// Default: 3
+	MaxRequeue int
+}
+
+// FilteredResultWithPolicy is returned when a message is filtered out,
+// carrying the rejection policy so MQ consumers can handle it appropriately.
+type FilteredResultWithPolicy struct {
+	Filtered   bool
+	Policy     string // "ack", "reject", "requeue"
+	MessageID  string
+	MaxRequeue int
 }
 
 // ToConfig defines the flow destination.

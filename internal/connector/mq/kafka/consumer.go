@@ -10,6 +10,8 @@ import (
 	"github.com/segmentio/kafka-go/sasl"
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/segmentio/kafka-go/sasl/scram"
+
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 // startConsumer starts consuming messages from the configured topics.
@@ -182,7 +184,7 @@ func (c *Connector) handleMessage(ctx context.Context, msg kafka.Message) error 
 	}
 
 	// Execute handler with the full input structure
-	_, err := handler(ctx, input)
+	result, err := handler(ctx, input)
 	if err != nil {
 		c.logger.Error("handler error",
 			"topic", msg.Topic,
@@ -191,7 +193,125 @@ func (c *Connector) handleMessage(ctx context.Context, msg kafka.Message) error 
 		return err
 	}
 
+	// Check if the result is a filter rejection with policy
+	if filtered, ok := result.(*flow.FilteredResultWithPolicy); ok && filtered.Filtered {
+		return c.handleFilterReject(ctx, msg, filtered)
+	}
+
 	return nil
+}
+
+// handleFilterReject handles a message that was rejected by a filter expression.
+func (c *Connector) handleFilterReject(ctx context.Context, msg kafka.Message, filtered *flow.FilteredResultWithPolicy) error {
+	switch filtered.Policy {
+	case "reject":
+		// Republish to <topic>.dlq
+		dlqTopic := msg.Topic + ".dlq"
+		c.logger.Debug("filter reject: sending to DLQ topic",
+			"topic", msg.Topic,
+			"dlq_topic", dlqTopic,
+		)
+		return c.republishMessage(ctx, dlqTopic, msg)
+
+	case "requeue":
+		// Republish to same topic with dedup tracking
+		msgID := filtered.MessageID
+		if msgID == "" {
+			// Try to get from message key
+			msgID = string(msg.Key)
+		}
+		if msgID == "" {
+			// No message ID available, skip silently
+			c.logger.Warn("filter requeue: no message ID available, skipping",
+				"topic", msg.Topic,
+			)
+			return nil
+		}
+
+		maxRequeue := filtered.MaxRequeue
+		if maxRequeue <= 0 {
+			maxRequeue = 3
+		}
+
+		count, shouldAck := c.requeueTracker.IncrementAndCheck(msgID, maxRequeue)
+		if shouldAck {
+			c.logger.Debug("filter requeue: max attempts reached, skipping",
+				"topic", msg.Topic,
+				"message_id", msgID,
+				"attempts", count,
+			)
+			return nil // Skip silently (offset already committed)
+		}
+
+		c.logger.Debug("filter requeue: republishing to same topic",
+			"topic", msg.Topic,
+			"message_id", msgID,
+			"attempt", count,
+			"max", maxRequeue,
+		)
+		return c.republishMessage(ctx, msg.Topic, msg)
+
+	default: // "ack" or unknown
+		return nil // No-op, offset auto-committed
+	}
+}
+
+// republishMessage republishes a Kafka message to a target topic.
+func (c *Connector) republishMessage(ctx context.Context, topic string, msg kafka.Message) error {
+	writer, err := c.ensureWriter()
+	if err != nil {
+		return err
+	}
+
+	newMsg := kafka.Message{
+		Topic:   topic,
+		Key:     msg.Key,
+		Value:   msg.Value,
+		Headers: msg.Headers,
+	}
+
+	return writer.WriteMessages(ctx, newMsg)
+}
+
+// ensureWriter lazily initializes a Kafka writer for reject/requeue operations
+// when the connector is consumer-only.
+func (c *Connector) ensureWriter() (*kafka.Writer, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.writer != nil {
+		return c.writer, nil
+	}
+
+	c.writer = &kafka.Writer{
+		Addr:     kafka.TCP(c.config.Brokers...),
+		Balancer: &kafka.LeastBytes{},
+	}
+
+	// Configure Transport for TLS/SASL if needed
+	if c.config.TLS != nil || c.config.SASL != nil {
+		transport := &kafka.Transport{}
+
+		if c.config.TLS != nil && c.config.TLS.Enabled {
+			tlsConfig, err := c.config.TLS.BuildTLSConfig()
+			if err != nil {
+				return nil, fmt.Errorf("failed to build TLS config for writer: %w", err)
+			}
+			transport.TLS = tlsConfig
+		}
+
+		if c.config.SASL != nil {
+			mechanism, err := c.buildSASLMechanism()
+			if err != nil {
+				return nil, fmt.Errorf("failed to build SASL mechanism for writer: %w", err)
+			}
+			transport.SASL = mechanism
+		}
+
+		c.writer.Transport = transport
+	}
+
+	return c.writer, nil
 }
 
 // buildSASLMechanism creates a SASL mechanism from config.

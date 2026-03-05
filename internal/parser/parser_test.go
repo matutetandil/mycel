@@ -255,6 +255,120 @@ flow "process_orders" {
 	if flow.From.Filter != "input.metadata.origin != 'internal'" {
 		t.Errorf("expected filter expression, got '%s'", flow.From.Filter)
 	}
+	// FilterConfig should also be set for string syntax
+	if flow.From.FilterConfig == nil {
+		t.Fatal("expected FilterConfig to be set for string filter syntax")
+	}
+	if flow.From.FilterConfig.Condition != "input.metadata.origin != 'internal'" {
+		t.Errorf("expected FilterConfig.Condition to match, got '%s'", flow.From.FilterConfig.Condition)
+	}
+	if flow.From.FilterConfig.OnReject != "ack" {
+		t.Errorf("expected OnReject 'ack', got '%s'", flow.From.FilterConfig.OnReject)
+	}
+}
+
+func TestParseFlowWithFilterBlock(t *testing.T) {
+	hcl := `
+flow "process_sales" {
+  from {
+    connector = "rabbit"
+    operation = "events"
+
+    filter {
+      condition   = "input.headers.elementType == 'sales-associate'"
+      on_reject   = "requeue"
+      id_field    = "input.properties.message_id"
+      max_requeue = 5
+    }
+  }
+
+  to {
+    connector = "db"
+    target    = "sales"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.Flows) != 1 {
+		t.Fatalf("expected 1 flow, got %d", len(config.Flows))
+	}
+
+	flow := config.Flows[0]
+	if flow.From.FilterConfig == nil {
+		t.Fatal("expected FilterConfig to be set")
+	}
+	fc := flow.From.FilterConfig
+	if fc.Condition != "input.headers.elementType == 'sales-associate'" {
+		t.Errorf("expected condition, got '%s'", fc.Condition)
+	}
+	if fc.OnReject != "requeue" {
+		t.Errorf("expected on_reject 'requeue', got '%s'", fc.OnReject)
+	}
+	if fc.IDField != "input.properties.message_id" {
+		t.Errorf("expected id_field, got '%s'", fc.IDField)
+	}
+	if fc.MaxRequeue != 5 {
+		t.Errorf("expected max_requeue 5, got %d", fc.MaxRequeue)
+	}
+	// Filter string should be set for backwards compatibility
+	if flow.From.Filter != fc.Condition {
+		t.Errorf("expected From.Filter to equal FilterConfig.Condition")
+	}
+}
+
+func TestParseFlowWithFilterBlockReject(t *testing.T) {
+	hcl := `
+flow "process_events" {
+  from {
+    connector = "kafka"
+    operation = "events"
+
+    filter {
+      condition = "input.body.type == 'order'"
+      on_reject = "reject"
+    }
+  }
+
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	flow := config.Flows[0]
+	if flow.From.FilterConfig == nil {
+		t.Fatal("expected FilterConfig to be set")
+	}
+	if flow.From.FilterConfig.OnReject != "reject" {
+		t.Errorf("expected on_reject 'reject', got '%s'", flow.From.FilterConfig.OnReject)
+	}
+	// max_requeue should default to 3
+	if flow.From.FilterConfig.MaxRequeue != 3 {
+		t.Errorf("expected default max_requeue 3, got %d", flow.From.FilterConfig.MaxRequeue)
+	}
 }
 
 func TestParseFlowWithSteps(t *testing.T) {

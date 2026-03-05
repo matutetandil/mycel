@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-03-05
+
+### Added
+- **MQ Filter Rejection Policy (`on_reject`)**: Configurable behavior for messages that don't match a `from.filter` in MQ flows. Three policies: `ack` (default, discard), `reject` (send to DLQ), `requeue` (return to queue with dedup tracking). Supports both string and block filter syntax
+  - `FilterConfig` struct with `condition`, `on_reject`, `id_field`, `max_requeue`
+  - `RequeueTracker` for in-memory dedup with TTL cleanup (prevents infinite requeue loops)
+  - RabbitMQ: `Nack(false, false)` for reject, `Nack(false, true)` for requeue
+  - Kafka: republish to `<topic>.dlq` for reject, republish to same topic for requeue
+  - Lazy writer initialization for consumer-only Kafka connectors
+  - Full backwards compatibility with string filter syntax
+
 ## [1.4.3] - 2026-03-04
 
 ### Added
