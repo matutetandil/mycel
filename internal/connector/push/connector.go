@@ -37,6 +37,10 @@ type FCMConfig struct {
 	// ServiceAccountJSON is the path to service account credentials
 	ServiceAccountJSON string
 
+	// APIURL is the base URL for the FCM API.
+	// Default: "https://fcm.googleapis.com"
+	APIURL string
+
 	// Timeout for requests
 	Timeout time.Duration
 }
@@ -57,6 +61,10 @@ type APNsConfig struct {
 
 	// Production indicates whether to use production or sandbox
 	Production bool
+
+	// APIURL overrides the APNs endpoint.
+	// Default: "https://api.push.apple.com" (production) or "https://api.sandbox.push.apple.com" (sandbox)
+	APIURL string
 
 	// Timeout for requests
 	Timeout time.Duration
@@ -178,6 +186,12 @@ func NewFCMConnector(name string, cfg *Config) *FCMConnector {
 	if cfg.FCM.Timeout == 0 {
 		cfg.FCM.Timeout = 30 * time.Second
 	}
+	if cfg.FCM.APIURL == "" {
+		cfg.FCM.APIURL = "https://fcm.googleapis.com"
+	}
+	if len(cfg.FCM.APIURL) > 0 && cfg.FCM.APIURL[len(cfg.FCM.APIURL)-1] == '/' {
+		cfg.FCM.APIURL = cfg.FCM.APIURL[:len(cfg.FCM.APIURL)-1]
+	}
 
 	return &FCMConnector{
 		name:   name,
@@ -247,7 +261,7 @@ func (c *FCMConnector) Send(ctx context.Context, msg *Message) (*SendResult, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		"https://fcm.googleapis.com/fcm/send", bytes.NewReader(body))
+		c.config.FCM.APIURL+"/fcm/send", bytes.NewReader(body))
 	if err != nil {
 		return &SendResult{Success: false, Provider: "fcm", Error: err.Error()}, err
 	}
@@ -380,10 +394,15 @@ func (c *APNsConnector) Send(ctx context.Context, msg *Message) (*SendResult, er
 
 	// Determine endpoint
 	var baseURL string
-	if c.config.APNs.Production {
+	if c.config.APNs.APIURL != "" {
+		baseURL = c.config.APNs.APIURL
+	} else if c.config.APNs.Production {
 		baseURL = "https://api.push.apple.com"
 	} else {
 		baseURL = "https://api.sandbox.push.apple.com"
+	}
+	if len(baseURL) > 0 && baseURL[len(baseURL)-1] == '/' {
+		baseURL = baseURL[:len(baseURL)-1]
 	}
 
 	url := fmt.Sprintf("%s/3/device/%s", baseURL, token)
@@ -461,6 +480,7 @@ func (f *Factory) Create(ctx context.Context, connCfg *connector.Config) (connec
 			ServerKey:          getString(props, "server_key", ""),
 			ProjectID:          getString(props, "project_id", ""),
 			ServiceAccountJSON: getString(props, "service_account_json", ""),
+			APIURL:             getString(props, "api_url", ""),
 			Timeout:            getDuration(props, "timeout", 30*time.Second),
 		}
 		return NewFCMConnector(connCfg.Name, cfg), nil
@@ -472,6 +492,7 @@ func (f *Factory) Create(ctx context.Context, connCfg *connector.Config) (connec
 			PrivateKey: getString(props, "private_key", ""),
 			BundleID:   getString(props, "bundle_id", ""),
 			Production: getBool(props, "production", false),
+			APIURL:     getString(props, "api_url", ""),
 			Timeout:    getDuration(props, "timeout", 30*time.Second),
 		}
 		return NewAPNsConnector(connCfg.Name, cfg), nil

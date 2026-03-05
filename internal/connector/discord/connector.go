@@ -23,6 +23,10 @@ type Config struct {
 	// BotToken is the bot token for API calls
 	BotToken string
 
+	// APIURL is the base URL for the Discord API.
+	// Default: "https://discord.com/api/v10"
+	APIURL string
+
 	// DefaultChannelID for bot messages
 	DefaultChannelID string
 
@@ -160,6 +164,12 @@ func NewConnector(name string, config *Config) *Connector {
 	if config.Timeout == 0 {
 		config.Timeout = 30 * time.Second
 	}
+	if config.APIURL == "" {
+		config.APIURL = "https://discord.com/api/v10"
+	}
+	if len(config.APIURL) > 0 && config.APIURL[len(config.APIURL)-1] == '/' {
+		config.APIURL = config.APIURL[:len(config.APIURL)-1]
+	}
 
 	return &Connector{
 		name:   name,
@@ -264,7 +274,7 @@ func (c *Connector) sendViaAPI(ctx context.Context, msg *Message, channelID stri
 		return &SendResult{Success: false, Error: err.Error()}, err
 	}
 
-	url := fmt.Sprintf("https://discord.com/api/v10/channels/%s/messages", channelID)
+	url := fmt.Sprintf("%s/channels/%s/messages", c.config.APIURL, channelID)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
@@ -347,7 +357,7 @@ func (c *Connector) Write(ctx context.Context, target string, data interface{}) 
 func (c *Connector) Health(ctx context.Context) error {
 	if c.config.BotToken != "" {
 		req, err := http.NewRequestWithContext(ctx, "GET",
-			"https://discord.com/api/v10/users/@me", nil)
+			c.config.APIURL+"/users/@me", nil)
 		if err != nil {
 			return err
 		}
@@ -395,6 +405,7 @@ func (f *Factory) Create(ctx context.Context, config *connector.Config) (connect
 		Name:             config.Name,
 		WebhookURL:       getString(props, "webhook_url", ""),
 		BotToken:         getString(props, "bot_token", ""),
+		APIURL:           getString(props, "api_url", ""),
 		DefaultChannelID: getString(props, "channel_id", ""),
 		Username:         getString(props, "username", ""),
 		AvatarURL:        getString(props, "avatar_url", ""),

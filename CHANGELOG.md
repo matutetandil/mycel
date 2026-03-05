@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-03-05
+
+### Added
+- **Configurable API URLs for notification connectors**: All notification connectors (Slack, Discord, Twilio SMS, FCM, APNs) now support an `api_url` property to override the default API base URL. Useful for proxies, enterprise endpoints, or testing
+
 ## [1.5.0] - 2026-03-05
 
 ### Added

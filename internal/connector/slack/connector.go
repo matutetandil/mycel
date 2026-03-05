@@ -23,6 +23,10 @@ type Config struct {
 	// Token is the Bot/User OAuth token (for API calls)
 	Token string
 
+	// APIURL is the base URL for the Slack API.
+	// Default: "https://slack.com/api"
+	APIURL string
+
 	// DefaultChannel is the default channel to post to
 	DefaultChannel string
 
@@ -145,6 +149,13 @@ func NewConnector(name string, config *Config) *Connector {
 	if config.Timeout == 0 {
 		config.Timeout = 30 * time.Second
 	}
+	if config.APIURL == "" {
+		config.APIURL = "https://slack.com/api"
+	}
+	// Strip trailing slash
+	if len(config.APIURL) > 0 && config.APIURL[len(config.APIURL)-1] == '/' {
+		config.APIURL = config.APIURL[:len(config.APIURL)-1]
+	}
 
 	return &Connector{
 		name:   name,
@@ -241,7 +252,7 @@ func (c *Connector) sendViaAPI(ctx context.Context, msg *Message) (*SendResult, 
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST",
-		"https://slack.com/api/chat.postMessage", bytes.NewReader(body))
+		c.config.APIURL+"/chat.postMessage", bytes.NewReader(body))
 	if err != nil {
 		return &SendResult{Success: false, Error: err.Error()}, err
 	}
@@ -319,7 +330,7 @@ func (c *Connector) Health(ctx context.Context) error {
 	if c.config.Token != "" {
 		// Check API auth
 		req, err := http.NewRequestWithContext(ctx, "POST",
-			"https://slack.com/api/auth.test", nil)
+			c.config.APIURL+"/auth.test", nil)
 		if err != nil {
 			return err
 		}
@@ -367,6 +378,7 @@ func (f *Factory) Create(ctx context.Context, config *connector.Config) (connect
 		Name:           config.Name,
 		WebhookURL:     getString(props, "webhook_url", ""),
 		Token:          getString(props, "token", ""),
+		APIURL:         getString(props, "api_url", ""),
 		DefaultChannel: getString(props, "channel", ""),
 		Username:       getString(props, "username", ""),
 		IconEmoji:      getString(props, "icon_emoji", ""),

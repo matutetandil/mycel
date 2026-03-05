@@ -36,6 +36,14 @@ connector "slack_api" {
   token   = env("SLACK_BOT_TOKEN")
   channel = "#notifications"
 }
+
+# Token mode with custom API URL (proxy, Slack Enterprise Grid, etc.)
+connector "slack_custom" {
+  type    = "slack"
+  token   = env("SLACK_BOT_TOKEN")
+  api_url = env("SLACK_API_URL")   # default: https://slack.com/api
+  channel = "#notifications"
+}
 ```
 
 ### Connector Options
@@ -44,6 +52,7 @@ connector "slack_api" {
 |--------|------|----------|---------|-------------|
 | `webhook_url` | string | **yes**\* | — | Slack incoming webhook URL |
 | `token` | string | **yes**\* | — | Bot/User OAuth token (for API mode) |
+| `api_url` | string | optional | `https://slack.com/api` | Slack API base URL (for proxies or custom endpoints) |
 | `channel` | string | optional | — | Default channel to post to |
 | `username` | string | optional | — | Display username (webhook mode only) |
 | `icon_emoji` | string | optional | — | Display emoji icon (webhook mode only) |
@@ -108,6 +117,7 @@ connector "discord_bot" {
 |--------|------|----------|---------|-------------|
 | `webhook_url` | string | **yes**\* | — | Discord webhook URL |
 | `bot_token` | string | **yes**\* | — | Discord bot token (for API mode) |
+| `api_url` | string | optional | `https://discord.com/api/v10` | Discord API base URL |
 | `channel_id` | string | optional | — | Default channel ID (required for bot mode) |
 | `username` | string | optional | — | Display username (webhook mode only) |
 | `avatar_url` | string | optional | — | Display avatar URL (webhook mode only) |
@@ -280,6 +290,7 @@ connector "sms_sns" {
 | `account_sid` | string | **yes** | — | Twilio Account SID |
 | `auth_token` | string | **yes** | — | Twilio Auth Token |
 | `from` | string | **yes** | — | Sender phone number or messaging service SID |
+| `api_url` | string | optional | `https://api.twilio.com` | Twilio API base URL |
 | `timeout` | duration | optional | `30s` | Request timeout |
 
 ### AWS SNS Options
@@ -347,6 +358,7 @@ connector "push_apns" {
 | `server_key` | string | **yes** | — | Legacy FCM server key |
 | `project_id` | string | optional | — | Firebase project ID (v1 API) |
 | `service_account_json` | string | optional | — | Path to service account credentials |
+| `api_url` | string | optional | `https://fcm.googleapis.com` | FCM API base URL |
 | `timeout` | duration | optional | `30s` | Request timeout |
 
 ### APNs Options
@@ -358,6 +370,7 @@ connector "push_apns" {
 | `private_key` | string | **yes** | — | APNs P8 private key content |
 | `bundle_id` | string | optional | — | App bundle identifier |
 | `production` | bool | optional | `false` | Use production endpoint (vs sandbox) |
+| `api_url` | string | optional | `https://api.push.apple.com` | APNs API base URL (overrides production/sandbox default) |
 | `timeout` | duration | optional | `30s` | Request timeout |
 
 ### Transform Fields

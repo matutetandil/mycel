@@ -37,6 +37,7 @@ type TwilioConfig struct {
 	AccountSID string
 	AuthToken  string
 	From       string // Phone number or messaging service SID
+	APIURL     string // Base API URL. Default: "https://api.twilio.com"
 	Timeout    time.Duration
 }
 
@@ -77,6 +78,12 @@ func NewTwilioConnector(name string, cfg *Config) *TwilioConnector {
 	if cfg.Twilio.Timeout == 0 {
 		cfg.Twilio.Timeout = 30 * time.Second
 	}
+	if cfg.Twilio.APIURL == "" {
+		cfg.Twilio.APIURL = "https://api.twilio.com"
+	}
+	if len(cfg.Twilio.APIURL) > 0 && cfg.Twilio.APIURL[len(cfg.Twilio.APIURL)-1] == '/' {
+		cfg.Twilio.APIURL = cfg.Twilio.APIURL[:len(cfg.Twilio.APIURL)-1]
+	}
 
 	return &TwilioConnector{
 		name:   name,
@@ -111,8 +118,8 @@ func (c *TwilioConnector) Send(ctx context.Context, msg *Message) (*SendResult, 
 	data.Set("From", from)
 	data.Set("Body", msg.Body)
 
-	url := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json",
-		c.config.Twilio.AccountSID)
+	url := fmt.Sprintf("%s/2010-04-01/Accounts/%s/Messages.json",
+		c.config.Twilio.APIURL, c.config.Twilio.AccountSID)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(data.Encode()))
 	if err != nil {
@@ -151,8 +158,8 @@ func (c *TwilioConnector) Send(ctx context.Context, msg *Message) (*SendResult, 
 }
 
 func (c *TwilioConnector) Health(ctx context.Context) error {
-	url := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s.json",
-		c.config.Twilio.AccountSID)
+	url := fmt.Sprintf("%s/2010-04-01/Accounts/%s.json",
+		c.config.Twilio.APIURL, c.config.Twilio.AccountSID)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -290,6 +297,7 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 			AccountSID: getString(props, "account_sid", ""),
 			AuthToken:  getString(props, "auth_token", ""),
 			From:       getString(props, "from", ""),
+			APIURL:     getString(props, "api_url", ""),
 			Timeout:    getDuration(props, "timeout", 30*time.Second),
 		}
 		return NewTwilioConnector(cfg.Name, smsCfg), nil

@@ -133,6 +133,7 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			// Slack/Discord connector specific
 			{Name: "webhook_url"}, // Webhook URL
 			{Name: "token"},       // Bot token
+			{Name: "api_url"},     // API base URL (Slack)
 			{Name: "channel"},     // Default channel
 			{Name: "icon_emoji"},  // Icon emoji
 			{Name: "icon_url"},    // Icon URL
