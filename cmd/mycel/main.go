@@ -25,7 +25,7 @@ const (
 
 var (
 	// Version information (set at build time)
-	version = "1.6.0"
+	version = "1.7.0"
 	commit  = "dev"
 )
 

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.7.0] - 2026-03-06
 
 ### Added
 - **Integration Test Suite** (`tests/integration/`): Complete end-to-end testing infrastructure with Docker Compose. 10 infrastructure services (PostgreSQL, MySQL, MongoDB, Redis, RabbitMQ, Kafka, Elasticsearch, MinIO, Mock HTTP server, Cosmo Router), 25 test suites, 86 assertions. Tests every connector type and protocol (REST, GraphQL, gRPC, SOAP, AMQP, Kafka, S3, HTTP client, notifications). Includes mock server for capturing outbound API calls, shared bash test library, master runner script, and CI workflow (manual trigger). Kafka init container ensures topic exists before Mycel starts
