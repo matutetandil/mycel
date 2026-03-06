@@ -289,3 +289,9 @@ curl -X POST http://localhost:3000/checkout \
 - Functions can be used anywhere CEL expressions are valid
 - Hot reload will reload WASM modules when they change
 - The wazero runtime is pure Go (no CGO required)
+
+## See Also
+
+- [WASM Documentation](../../docs/WASM.md) — Supported languages, interface spec, examples in Rust/Go/C/C++/AssemblyScript/Zig
+- [WASM Validator Example](../wasm-validator/)
+- [Plugin Example](../plugin/)

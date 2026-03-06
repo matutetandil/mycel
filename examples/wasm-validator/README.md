@@ -192,3 +192,9 @@ mycel validate --config ./examples/wasm-validator
 2. **No I/O**: WASM validators can't do network calls or file I/O
 3. **Pure functions**: Validators should be pure (no side effects)
 4. **Error handling**: Return 1 for any error condition
+
+## See Also
+
+- [WASM Documentation](../../docs/WASM.md) — Supported languages, interface spec, examples in Rust/Go/C/C++/AssemblyScript/Zig
+- [WASM Functions Example](../wasm-functions/)
+- [Plugin Example](../plugin/)

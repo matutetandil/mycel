@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **WASM documentation** (`docs/WASM.md`): Complete reference for building WASM modules in 6 languages — Rust, Go (TinyGo), C, C++, AssemblyScript, and Zig. Covers the WASM interface specification (alloc/free/validate/function exports), memory flow, HCL configuration for validators/functions/plugins, module size comparison, and best practices. Fixed broken link from `examples/plugin/README.md` and added cross-references between all WASM-related examples
+
 ## [1.7.0] - 2026-03-06
 
 ### Added

@@ -282,6 +282,6 @@ Plugins can be distributed as:
 
 ## See Also
 
-- [WASM Runtime Documentation](../../docs/WASM.md)
+- [WASM Documentation](../../docs/WASM.md) — Supported languages, interface spec, examples in Rust/Go/C/C++/AssemblyScript/Zig
 - [Custom Functions](../wasm-functions/)
-- [Custom Validators](../wasm-validators/)
+- [Custom Validators](../wasm-validator/)
