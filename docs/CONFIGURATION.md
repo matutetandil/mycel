@@ -304,10 +304,9 @@ connector "grpc_api" {
   driver = "server"
   port   = 50051
 
-  proto {
-    path    = "./proto/service.proto"
-    service = "MyService"
-  }
+  proto_path  = "./proto"
+  proto_files = ["service.proto"]
+  reflection  = true
 
   # Optional: TLS
   tls {
@@ -321,14 +320,12 @@ Client:
 
 ```hcl
 connector "grpc_service" {
-  type    = "grpc"
-  driver  = "client"
-  address = "localhost:50051"
+  type   = "grpc"
+  driver = "client"
+  target = "localhost:50051"
 
-  proto {
-    path    = "./proto/service.proto"
-    service = "MyService"
-  }
+  proto_path  = "./proto"
+  proto_files = ["service.proto"]
 }
 ```
 
@@ -436,12 +433,10 @@ Redis:
 
 ```hcl
 connector "redis_cache" {
-  type       = "cache"
-  driver     = "redis"
-  address    = "localhost:6379"
-  password   = env("REDIS_PASSWORD")
-  db         = 0
-  key_prefix = "myapp:"
+  type   = "cache"
+  driver = "redis"
+  url    = "redis://localhost:6379"
+  prefix = "myapp:"
 
   pool {
     max_connections = 100
@@ -480,7 +475,7 @@ connector "s3" {
 
   # For MinIO or other S3-compatible storage
   endpoint         = "http://localhost:9000"
-  force_path_style = true
+  use_path_style = true
 }
 ```
 
@@ -669,6 +664,10 @@ flow "flow_name" {
     connector = "target_connector"
     target    = "table_name"
   }
+
+  # Optional: Typed return for GraphQL (generates typed output instead of JSON)
+  returns = "user"       # Single object → GraphQL type "user"
+  returns = "user[]"     # Array → GraphQL type "[user]"
 
   # Optional: Caching
   cache {

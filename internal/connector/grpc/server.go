@@ -17,6 +17,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoregistry"
 )
 
 // HandlerFunc is a function that handles a gRPC request.
@@ -121,7 +123,43 @@ func (c *ServerConnector) loadProtos() error {
 
 	c.messageFactory = dynamic.NewMessageFactoryWithDefaults()
 
+	// Register file descriptors with the global proto registry so gRPC
+	// reflection can serve them to clients like grpcurl.
+	for _, fd := range descs {
+		c.registerFileDescriptor(fd)
+	}
+
 	return nil
+}
+
+// registerFileDescriptor registers a jhump FileDescriptor (and its deps) with
+// the global protobuf registry so that gRPC server reflection can resolve them.
+func (c *ServerConnector) registerFileDescriptor(fd *desc.FileDescriptor) {
+	name := fd.GetName()
+
+	// Already registered — skip
+	if _, err := protoregistry.GlobalFiles.FindFileByPath(name); err == nil {
+		return
+	}
+
+	// Register dependencies first (recursive)
+	for _, dep := range fd.GetDependencies() {
+		c.registerFileDescriptor(dep)
+	}
+
+	// Convert jhump descriptor → protobuf FileDescriptorProto → protoreflect FileDescriptor
+	fdProto := fd.AsFileDescriptorProto()
+	protoFD, err := protodesc.NewFile(fdProto, protoregistry.GlobalFiles)
+	if err != nil {
+		c.logger.Debug("Failed to convert file descriptor for reflection",
+			slog.String("file", name), slog.Any("error", err))
+		return
+	}
+
+	if err := protoregistry.GlobalFiles.RegisterFile(protoFD); err != nil {
+		c.logger.Debug("Failed to register file descriptor for reflection",
+			slog.String("file", name), slog.Any("error", err))
+	}
 }
 
 // Close stops the gRPC server.
@@ -142,7 +180,7 @@ func (c *ServerConnector) Health(ctx context.Context) error {
 
 // RegisterRoute registers a handler for a gRPC method.
 // Operation format: "package.Service/Method" or "Service/Method"
-func (c *ServerConnector) RegisterRoute(operation string, handler HandlerFunc) {
+func (c *ServerConnector) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.handlers[operation] = handler
@@ -294,6 +332,7 @@ func (c *ServerConnector) registerProtoService(sd *desc.ServiceDescriptor, metho
 	svcDesc := grpc.ServiceDesc{
 		ServiceName: sd.GetFullyQualifiedName(),
 		HandlerType: (*interface{})(nil),
+		Metadata:    sd.GetFile().GetName(),
 	}
 
 	for _, md := range sd.GetMethods() {
@@ -375,6 +414,11 @@ func (c *ServerConnector) handleUnary(ctx context.Context, md *desc.MethodDescri
 		return nil, err
 	}
 
+	// Adapt result to match proto output type:
+	// - Single-element array → unwrap to object (GetUser returns [{...}] but proto expects {...})
+	// - Array + repeated field → wrap in container (ListUsers returns [{...}] but proto expects {"users": [{...}]})
+	result = adaptResultForProto(result, md.GetOutputType())
+
 	// Convert result to output message
 	outputMsg := c.messageFactory.NewDynamicMessage(md.GetOutputType())
 	if err := mapToDynamicMessage(result, outputMsg); err != nil {
@@ -453,6 +497,53 @@ func mapToDynamicMessage(data interface{}, msg *dynamic.Message) error {
 	}
 
 	return msg.UnmarshalJSON(jsonData)
+}
+
+// adaptResultForProto adapts a flow result to match the expected proto output type.
+// - Single-element array → unwrap to object (e.g., GetUser returns [{...}] → {...})
+// - Multi-element array + repeated field → wrap in container (e.g., [{...}] → {"users": [{...}]})
+func adaptResultForProto(result interface{}, msgDesc *desc.MessageDescriptor) interface{} {
+	if msgDesc == nil {
+		return result
+	}
+
+	// Check if the output type has a repeated field (list container)
+	hasRepeated := false
+	for _, fd := range msgDesc.GetFields() {
+		if fd.IsRepeated() {
+			hasRepeated = true
+			break
+		}
+	}
+
+	switch v := result.(type) {
+	case []map[string]interface{}:
+		if hasRepeated {
+			// Wrap array in the first repeated field
+			for _, fd := range msgDesc.GetFields() {
+				if fd.IsRepeated() {
+					return map[string]interface{}{fd.GetName(): v}
+				}
+			}
+		}
+		// Unwrap single-element array for non-list types
+		if len(v) == 1 {
+			return v[0]
+		}
+	case []interface{}:
+		if hasRepeated {
+			for _, fd := range msgDesc.GetFields() {
+				if fd.IsRepeated() {
+					return map[string]interface{}{fd.GetName(): v}
+				}
+			}
+		}
+		if len(v) == 1 {
+			return v[0]
+		}
+	}
+
+	return result
 }
 
 // FindSymbol looks up a service by name.

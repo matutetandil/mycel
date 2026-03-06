@@ -9,21 +9,21 @@ Multi-node clusters use round-robin load balancing automatically.
 ```hcl
 connector "es" {
   type     = "elasticsearch"
-  nodes    = ["http://localhost:9200"]
+  url      = "http://localhost:9200"
   username = env("ES_USER")
   password = env("ES_PASSWORD")
-  index    = "products"
   timeout  = "30s"
 }
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `nodes` | list | — | Elasticsearch node URLs |
+| `url` | string | `"http://localhost:9200"` | Elasticsearch node URL |
 | `username` | string | — | Basic auth username |
 | `password` | string | — | Basic auth password |
-| `index` | string | — | Default index name |
 | `timeout` | duration | `"30s"` | Request timeout |
+
+The index is specified per-flow via the `target` attribute in flow `to` or `step` blocks.
 
 ## Operations
 

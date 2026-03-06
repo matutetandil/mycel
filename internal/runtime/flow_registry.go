@@ -120,6 +120,10 @@ type FlowHandler struct {
 
 	// StateMachineEngine handles state machine transitions.
 	StateMachineEngine *statemachine.Engine
+
+	// SourceType is the connector type of the source (e.g., "mq", "rest", "soap").
+	// Used to determine how to interpret non-HTTP operations.
+	SourceType string
 }
 
 // FilteredResult is returned when a request is filtered out by the from.filter expression.
@@ -726,6 +730,26 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	// Determine operation type from the flow config
 	operation := parseOperation(h.Config.From.Operation)
 
+	// For event-driven sources (MQ consumers, CDC, file watchers), the operation
+	// string is a queue name, table name, or glob pattern — not "METHOD /path".
+	// These flows receive events and write to the destination.
+	if operation.Method == "GET" && isEventDrivenSource(h.SourceType) {
+		operation.Method = "POST"
+	}
+
+	// For non-REST sources (gRPC, SOAP, etc.) where the from.operation doesn't
+	// contain an HTTP method, use to.Operation to determine the write intent.
+	if operation.Method == "GET" && h.Config.To.Operation != "" {
+		switch strings.ToUpper(h.Config.To.Operation) {
+		case "INSERT":
+			operation.Method = "POST"
+		case "UPDATE":
+			operation.Method = "PUT"
+		case "DELETE":
+			operation.Method = "DELETE"
+		}
+	}
+
 	// For read operations, check cache first
 	if operation.Method == "GET" && h.hasCacheConfig() {
 		cacheKey := h.buildCacheKey(input)
@@ -989,6 +1013,11 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 		Filters:   make(map[string]interface{}),
 	}
 
+	// Override operation if specified in to block config
+	if h.Config.To.Operation != "" {
+		query.Operation = h.Config.To.Operation
+	}
+
 	// GraphQL Query Optimization: Extract requested fields from input
 	// These fields are injected by the GraphQL resolver when field analysis is enabled
 	if topFields := optimizer.TopFieldsFromInput(input); len(topFields) > 0 {
@@ -1023,6 +1052,15 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 		for key, val := range input {
 			// Skip special keys that aren't filters
 			if key == "parent_id" || hasPrefix(key, "parent_") || isInternalField(key) {
+				continue
+			}
+			query.Filters[key] = val
+		}
+	} else if h.SourceType == "soap" || h.SourceType == "tcp" || h.SourceType == "grpc" {
+		// For SOAP/TCP, the operation name is not a REST path — use all input as filters.
+		// Example: "GetItem" with input {id: 1} → SELECT * FROM items WHERE id = 1
+		for key, val := range input {
+			if isInternalField(key) {
 				continue
 			}
 			query.Filters[key] = val
@@ -1160,6 +1198,11 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		Payload:   payload,
 	}
 
+	// Override operation if specified in to block config
+	if h.Config.To.Operation != "" {
+		data.Operation = h.Config.To.Operation
+	}
+
 	// Use raw SQL query if configured
 	if h.Config.To.Query != "" {
 		data.RawSQL = h.Config.To.Query
@@ -1178,9 +1221,9 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		return result.Rows, nil
 	}
 
-	// For GraphQL operations, return the created object instead of {id, affected}
+	// For GraphQL and gRPC operations, return the created object instead of {id, affected}
 	// This allows mutations like `createUser(input: {...}) { id email name }` to work
-	if isGraphQLOperation(h.Config.From.Operation) && result.LastID != 0 {
+	if (isGraphQLOperation(h.Config.From.Operation) || h.SourceType == "grpc") && result.LastID != 0 {
 		// Try to read back the created record
 		if reader, ok := dest.(connector.Reader); ok {
 			query := connector.Query{
@@ -1533,6 +1576,16 @@ type Operation struct {
 }
 
 // parseOperation parses an operation string like "GET /users/:id" or "Query.users".
+// isEventDrivenSource returns true for connector types that receive events
+// and write to the destination (message queues, CDC, file watchers).
+func isEventDrivenSource(sourceType string) bool {
+	switch sourceType {
+	case "mq", "cdc", "file":
+		return true
+	}
+	return false
+}
+
 func parseOperation(op string) Operation {
 	// Check for GraphQL operation format: "Query.fieldName" or "Mutation.fieldName"
 	if len(op) > 6 && (op[:6] == "Query." || (len(op) > 9 && op[:9] == "Mutation.")) {

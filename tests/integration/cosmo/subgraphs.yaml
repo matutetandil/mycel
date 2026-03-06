@@ -1,0 +1,6 @@
+version: 1
+subgraphs:
+  - name: mycel
+    routing_url: http://mycel:4000/graphql
+    schema:
+      subgraph_url: http://mycel:4000/graphql

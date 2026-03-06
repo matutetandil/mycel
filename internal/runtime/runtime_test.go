@@ -1638,10 +1638,10 @@ func TestIntegration_GraphQL_HCLFirst_CRUD(t *testing.T) {
 	// =========================================================================
 
 	t.Run("Mutation with variables for simple types works", func(t *testing.T) {
-		// In HCL-first mode, the input argument is JSON scalar
-		// Variables are useful for passing the input object
+		// In HCL-first mode with returns, the input argument is a typed InputObject
+		// derived from the returns type (e.g., returns = "User" → input: UserInput)
 		query := `{
-			"query": "mutation CreateUser($input: JSON) { createUser(input: $input) { id email name } }",
+			"query": "mutation CreateUser($input: UserInput) { createUser(input: $input) { id email name } }",
 			"variables": { "input": { "email": "HCLVARQUERY@TEST.COM", "name": "  HCL Var Query  " } }
 		}`
 		resp, body := doGraphQLRequest(t, gqlPort, query)
@@ -1660,7 +1660,7 @@ func TestIntegration_GraphQL_HCLFirst_CRUD(t *testing.T) {
 
 	t.Run("Mutation with variables works correctly", func(t *testing.T) {
 		query := `{
-			"query": "mutation CreateUser($input: JSON) { createUser(input: $input) { id email name } }",
+			"query": "mutation CreateUser($input: UserInput) { createUser(input: $input) { id email name } }",
 			"variables": { "input": { "email": "HCLVAR@TEST.COM", "name": "  HCL Variable  " } }
 		}`
 		resp, body := doGraphQLRequest(t, gqlPort, query)

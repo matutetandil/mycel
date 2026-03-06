@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Integration Test Suite** (`tests/integration/`): Complete end-to-end testing infrastructure with Docker Compose. 10 infrastructure services (PostgreSQL, MySQL, MongoDB, Redis, RabbitMQ, Kafka, Elasticsearch, MinIO, Mock HTTP server, Cosmo Router), 25 test suites, 86 assertions. Tests every connector type and protocol (REST, GraphQL, gRPC, SOAP, AMQP, Kafka, S3, HTTP client, notifications). Includes mock server for capturing outbound API calls, shared bash test library, master runner script, and CI workflow (manual trigger). Kafka init container ensures topic exists before Mycel starts
+- **Parallel test execution** (`tests/integration/run.sh`): Tests run in 3 phases: preflight (health/metrics), parallel (22 suites concurrently), solo (rate-limit). `--sequential` flag available for one-by-one execution. Mock-dependent tests (http-client, notifications) grouped to avoid `mock_clear` conflicts. `run-group.sh` helper for CI grouped parallel execution
+- **CI grouped steps** (`.github/workflows/integration.yml`): Each test group is a separate collapsible step in GitHub Actions UI (Health & Metrics, Databases, Protocols, Messaging, Storage & Cache, Integration, Rate Limit). Tests within each group run in parallel via `run-group.sh`
+- **GraphQL typed DTOs**: `returns` attribute on flows generates typed GraphQL output types instead of generic JSON. Mutations auto-infer typed `<TypeName>Input` argument from the return type. GraphQL introspection tests verify `User` and `UserInput` types exist with correct fields
+- **`required = false` type field attribute** (`internal/parser/types.go`): Fields in HCL type definitions can now be marked as optional with `required = false` in their constraint block (e.g., `id = number({ min = 0, required = false })`). Fields remain required by default
+- **Federation SDL type generation** (`internal/connector/graphql/schema.go`): `generateSDL()` now includes HCL-generated object types and input types in the federation SDL, enabling Cosmo Router composition
+
+### Fixed
+- **gRPC connector — RegisterRoute interface mismatch** (`internal/connector/grpc/server.go`): Changed handler signature from named `HandlerFunc` type to the concrete `func(ctx context.Context, input map[string]interface{}) (interface{}, error)` required by the `RouteRegistrar` interface. gRPC flows were silently never registered before this fix
+- **gRPC connector — reflection registration** (`internal/connector/grpc/server.go`): Added `registerFileDescriptor()` that registers jhump `FileDescriptor` objects with `protoregistry.GlobalFiles` and sets `Metadata` on the `grpc.ServiceDesc`. Makes `grpcurl list` show registered services
+- **gRPC connector — proto response adaptation** (`internal/connector/grpc/server.go`): Added `adaptResultForProto()` that auto-wraps arrays in repeated fields for list operations (e.g., `ListUsers`) and unwraps single-element arrays for scalar operations (e.g., `GetUser`)
+- **gRPC input-as-filters in flow registry** (`internal/runtime/flow_registry.go`): `SourceType == "grpc"` is now included in the SOAP/TCP branch of `handleRead`, so gRPC input parameters are used as database query filters
+- **gRPC read-back on create** (`internal/runtime/flow_registry.go`): The "read back created record" logic that was previously applied only for GraphQL sources now also applies for gRPC sources, returning the full created row after an INSERT
+- **to.Operation method override** (`internal/runtime/flow_registry.go`): When `to.Operation` is explicitly set (e.g., `INSERT`), the HTTP method is now derived from the operation value. Fixes gRPC and other non-REST sources where `parseOperation()` would default to GET
+- **PostgreSQL INSERT RETURNING** (`internal/connector/database/postgres/connector.go`): `RETURNING *` is now appended to all INSERT queries. `isSelectQuery()` updated to recognize the `RETURNING` keyword. Returns the full created row (including auto-generated `id`, `created_at`) instead of the empty `{id: 0, affected: 1}` result
+- **GraphQL Federation variable values filtering** (`internal/connector/graphql/resolver.go`): In `MapArgsToInput()`, complex types (maps, slices) from `VariableValues` that are already resolved via `Args` are now skipped. Prevents Cosmo Router from re-injecting nested `input` objects that break SQL serialization
+- **Event-driven source flow routing**: MQ consumers, CDC, and file watcher flows now correctly write to the destination instead of reading. Added `SourceType` field to FlowHandler and `isEventDrivenSource()` detection for `mq`, `cdc`, and `file` connector types
+- **SOAP/TCP input-as-filters**: Non-REST read operations (SOAP GetItem, TCP message handlers) now pass all input parameters as query filters, enabling proper database lookups
+- **Operation override in handleCreate/handleRead**: Both `handleCreate` and `handleRead` now respect the `to.operation` attribute, allowing connectors like Elasticsearch and HTTP client to use their native operations (e.g., `index`, `get`, `POST`) instead of hardcoded `INSERT`/`SELECT`
+- **Auto-generated GraphQL input types are optional** (`internal/connector/graphql/hcl_to_graphql.go`): Input type fields generated from HCL types no longer apply NonNull, following GraphQL best practice where output types guarantee non-null but input types allow partial updates
+
+### Changed
+- **Kafka consumer logging** (`internal/connector/mq/kafka/consumer.go`): Removed verbose debug-level `Logger` from kafka-go Reader (was flooding logs with internal fetch/heartbeat/rebalance messages). Changed `ErrorLogger` from `Error` to `Warn` level since most kafka-go internal errors are transient and expected
+- **Kafka integration test reliability** (`tests/integration/scripts/test-kafka.sh`): Retry timeout increased from 12x2s to 20x3s for more reliable consumer group initialization
+- **PostgreSQL integration test assertion** (`tests/integration/scripts/test-postgres.sh`): POST response assertion updated from `affected` field to actual row data (`Alice`) to reflect the new `RETURNING *` behavior
+- **Integration test rate limit config** (`tests/integration/config/config.hcl`): Increased from 10 req/s burst=20 to 50 req/s burst=200 to support parallel test execution. Rate limit test updated to use concurrent requests
+
 ## [1.6.0] - 2026-03-05
 
 ### Added

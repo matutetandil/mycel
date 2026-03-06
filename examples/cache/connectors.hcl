@@ -51,7 +51,7 @@ connector "memory_cache" {
 #
 #   # Redis connection
 #   url         = "redis://localhost:6379"
-#   address     = "localhost:6379"
+#   # address is deprecated, use url instead
 #   prefix      = "myapp"
 #   default_ttl = "5m"
 #

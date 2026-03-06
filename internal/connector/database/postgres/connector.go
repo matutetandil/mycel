@@ -362,11 +362,12 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	}, nil
 }
 
-// isSelectQuery checks if a SQL query is a SELECT statement.
+// isSelectQuery checks if a SQL query returns rows (SELECT, WITH, or RETURNING).
 func isSelectQuery(sql string) bool {
 	trimmed := strings.TrimSpace(sql)
 	upper := strings.ToUpper(trimmed)
-	return strings.HasPrefix(upper, "SELECT") || strings.HasPrefix(upper, "WITH")
+	return strings.HasPrefix(upper, "SELECT") || strings.HasPrefix(upper, "WITH") ||
+		strings.Contains(upper, "RETURNING")
 }
 
 // executeQueryWithResults executes a query that returns rows (for RETURNING clauses).
@@ -485,7 +486,7 @@ func (c *Connector) buildInsertQuery(data *connector.Data) (string, []interface{
 	}
 
 	sql := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES (%s)",
+		"INSERT INTO %s (%s) VALUES (%s) RETURNING *",
 		data.Target,
 		strings.Join(columns, ", "),
 		strings.Join(placeholders, ", "),

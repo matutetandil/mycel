@@ -512,6 +512,16 @@ func (r *Runtime) Start(ctx context.Context) error {
 	return r.waitForShutdown(ctx)
 }
 
+// getConnectorType returns the type of a connector by name (e.g., "mq", "rest", "soap").
+func (r *Runtime) getConnectorType(name string) string {
+	for _, cfg := range r.config.Connectors {
+		if cfg.Name == name {
+			return cfg.Type
+		}
+	}
+	return ""
+}
+
 // getRESTPort returns the port of the first REST connector, or 0 if none.
 func (r *Runtime) getRESTPort() int {
 	for _, cfg := range r.config.Connectors {
@@ -757,6 +767,7 @@ func (r *Runtime) registerFlows() error {
 			Config:             cfg,
 			FlowPath:           cfg.SourceFile,
 			Source:             source,
+			SourceType:         r.getConnectorType(cfg.From.Connector),
 			Dest:               dest,
 			NamedTransforms:    r.transforms,
 			Types:              r.types,
@@ -1100,6 +1111,9 @@ func (r *Runtime) registerEntityResolvers(connectorName string, conn connector.C
 // inferArgsFromFlow extracts GraphQL arguments from flow step params.
 // It looks for expressions like "input.id", "input.name" in step params
 // and creates typed argument definitions.
+// For mutations with a returns type and no step-inferred args, it automatically
+// creates a typed input argument using the returns type (e.g., returns = "user"
+// generates input: UserInput instead of input: JSON).
 func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
 	args := make(map[string]*ArgDef) // Use map to deduplicate
 
@@ -1107,6 +1121,21 @@ func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
 	for _, step := range cfg.Steps {
 		for _, value := range step.Params {
 			extractInputArgs(value, args)
+		}
+	}
+
+	// For mutations with a custom returns type and no step-inferred args,
+	// use the returns type as a typed input argument.
+	// This generates typed input objects (e.g., returns = "user" → input: userInput)
+	// instead of generic JSON. Scalar types are excluded since they don't map
+	// to meaningful input objects.
+	if len(args) == 0 && cfg.Returns != "" && strings.HasPrefix(cfg.From.Operation, "Mutation.") {
+		returnsType := strings.TrimSuffix(strings.TrimSuffix(cfg.Returns, "[]"), "!")
+		if !isScalarReturnType(returnsType) {
+			return []*ArgDef{{
+				Name: "input",
+				Type: returnsType,
+			}}
 		}
 	}
 
@@ -1151,6 +1180,16 @@ func extractInputArgs(value interface{}, args map[string]*ArgDef) {
 			extractInputArgs(subVal, args)
 		}
 	}
+}
+
+// isScalarReturnType checks if a return type name is a GraphQL scalar type.
+// Scalar types don't have meaningful input object counterparts.
+func isScalarReturnType(typeName string) bool {
+	switch strings.ToLower(typeName) {
+	case "string", "int", "integer", "float", "number", "boolean", "bool", "id", "json", "datetime", "date", "time":
+		return true
+	}
+	return false
 }
 
 // waitForShutdown blocks until a shutdown signal is received.

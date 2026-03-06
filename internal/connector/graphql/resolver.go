@@ -230,10 +230,17 @@ func MapArgsToInput(p graphql.ResolveParams) map[string]interface{} {
 		}
 	}
 
-	// Add context variables if available
+	// Add context variables if available (only scalar values — complex types
+	// like maps are already resolved and flattened from Args above; re-adding
+	// them would produce nested maps that break SQL serialization).
 	if p.Info.VariableValues != nil {
 		for key, value := range p.Info.VariableValues {
 			if _, exists := input[key]; !exists {
+				// Skip complex types (maps, slices) that are already handled via Args
+				switch value.(type) {
+				case map[string]interface{}, []interface{}:
+					continue
+				}
 				input[key] = value
 			}
 		}

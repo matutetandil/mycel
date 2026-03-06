@@ -253,6 +253,12 @@ func parseFieldDirective(field *validate.FieldSchema, key string, value interfac
 			field.Description = s
 		}
 		return true
+
+	case "required":
+		if b, ok := value.(bool); ok {
+			field.Required = b
+		}
+		return true
 	}
 
 	return false

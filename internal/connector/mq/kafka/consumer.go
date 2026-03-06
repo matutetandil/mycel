@@ -77,6 +77,11 @@ func (c *Connector) startConsumer(ctx context.Context) error {
 		readerConfig.Dialer = dialer
 	}
 
+	// Only log actual errors from the kafka-go library (skip debug-level noise)
+	readerConfig.ErrorLogger = kafka.LoggerFunc(func(msg string, args ...interface{}) {
+		c.logger.Warn(fmt.Sprintf("kafka-reader: "+msg, args...))
+	})
+
 	c.reader = kafka.NewReader(readerConfig)
 
 	c.logger.Info("started consumer",

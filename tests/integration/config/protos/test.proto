@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package integration;
+
+option go_package = "integration/proto";
+
+service UserService {
+  rpc GetUser (GetUserRequest) returns (User);
+  rpc ListUsers (ListUsersRequest) returns (UserList);
+  rpc CreateUser (CreateUserRequest) returns (User);
+}
+
+message GetUserRequest {
+  int32 id = 1;
+}
+
+message ListUsersRequest {}
+
+message CreateUserRequest {
+  string name = 1;
+  string email = 2;
+}
+
+message User {
+  int32 id = 1;
+  string name = 2;
+  string email = 3;
+  string created_at = 4;
+}
+
+message UserList {
+  repeated User users = 1;
+}

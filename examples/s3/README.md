@@ -85,7 +85,7 @@ connector "minio" {
   endpoint         = env("MINIO_ENDPOINT")
   access_key       = env("MINIO_ACCESS_KEY")
   secret_key       = env("MINIO_SECRET_KEY")
-  force_path_style = true
+  use_path_style = true
   use_ssl          = false
 }
 ```

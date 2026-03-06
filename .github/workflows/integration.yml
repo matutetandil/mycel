@@ -1,0 +1,101 @@
+name: Integration Tests
+
+on:
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: tests/integration
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install grpcurl
+        run: go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
+
+      # ---------------------------------------------------------------
+      # Start all services
+      # ---------------------------------------------------------------
+      - name: Start services
+        run: |
+          docker compose up -d --build --wait 2>&1 | tail -10
+          bash scripts/wait-for-services.sh 120
+
+      # ---------------------------------------------------------------
+      # Test groups — each step is a collapsible box in the GH UI.
+      # Within each group, tests run in parallel via run-group.sh.
+      # ---------------------------------------------------------------
+      - name: "Test: Health & Metrics"
+        run: |
+          bash scripts/run-group.sh \
+            scripts/test-health.sh \
+            scripts/test-metrics.sh
+
+      - name: "Test: Databases"
+        run: |
+          bash scripts/run-group.sh \
+            scripts/test-postgres.sh \
+            scripts/test-mysql.sh \
+            scripts/test-mongodb.sh \
+            scripts/test-sqlite.sh
+
+      - name: "Test: Protocols"
+        run: |
+          bash scripts/run-group.sh \
+            scripts/test-graphql.sh \
+            scripts/test-grpc.sh \
+            scripts/test-soap.sh \
+            scripts/test-federation.sh
+
+      - name: "Test: Messaging"
+        run: |
+          bash scripts/run-group.sh \
+            scripts/test-rabbitmq.sh \
+            scripts/test-kafka.sh
+
+      - name: "Test: Storage & Cache"
+        run: |
+          bash scripts/run-group.sh \
+            scripts/test-elasticsearch.sh \
+            scripts/test-s3.sh \
+            scripts/test-files.sh \
+            scripts/test-cache.sh
+
+      - name: "Test: Integration"
+        run: |
+          bash scripts/run-group.sh \
+            scripts/test-http-client.sh \
+            scripts/test-transforms.sh \
+            scripts/test-validation.sh \
+            scripts/test-steps.sh \
+            scripts/test-error-handling.sh \
+            scripts/test-notifications.sh \
+            scripts/test-exec.sh \
+            scripts/test-filter.sh
+
+      - name: "Test: Rate Limit"
+        run: bash scripts/test-rate-limit.sh
+
+      # ---------------------------------------------------------------
+      # Cleanup & diagnostics
+      # ---------------------------------------------------------------
+      - name: Stop services
+        if: always()
+        run: docker compose down -v
+
+      - name: Mycel logs on failure
+        if: failure()
+        run: docker compose logs mycel 2>/dev/null || true
+
+      - name: All service logs on failure
+        if: failure()
+        run: docker compose logs 2>/dev/null || true

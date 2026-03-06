@@ -10,10 +10,9 @@ connector "grpc_api" {
   driver = "server"
   port   = 50051
 
-  proto {
-    path    = "./proto/service.proto"
-    service = "MyService"
-  }
+  proto_path  = "./proto"
+  proto_files = ["service.proto"]
+  reflection  = true
 
   tls {
     cert_file = "/path/to/cert.pem"
@@ -26,14 +25,12 @@ connector "grpc_api" {
 
 ```hcl
 connector "grpc_service" {
-  type    = "grpc"
-  driver  = "client"
-  address = "localhost:50051"
+  type   = "grpc"
+  driver = "client"
+  target = "localhost:50051"
 
-  proto {
-    path    = "./proto/service.proto"
-    service = "MyService"
-  }
+  proto_path  = "./proto"
+  proto_files = ["service.proto"]
 }
 ```
 
@@ -43,9 +40,11 @@ connector "grpc_service" {
 |--------|------|-------------|
 | `driver` | string | `server` or `client` |
 | `port` | int | Listen port (server) |
-| `address` | string | Target address (client) |
-| `proto.path` | string | Path to `.proto` file |
-| `proto.service` | string | Service name in the proto |
+| `target` | string | Target address `host:port` (client) |
+| `proto_path` | string | Directory containing `.proto` files |
+| `proto_files` | list | Specific `.proto` files to load |
+| `reflection` | bool | Enable gRPC reflection (default: `true`) |
+| `insecure` | bool | Disable TLS (client, default: `false`) |
 | `tls.cert_file` | string | TLS certificate path |
 | `tls.key_file` | string | TLS key path |
 

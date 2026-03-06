@@ -24,12 +24,10 @@ connector "cache" {
 
 ```hcl
 connector "redis_cache" {
-  type       = "cache"
-  driver     = "redis"
-  address    = "localhost:6379"
-  password   = env("REDIS_PASSWORD")
-  db         = 0
-  key_prefix = "myapp:"
+  type     = "cache"
+  driver   = "redis"
+  url      = "redis://localhost:6379"
+  prefix   = "myapp:"
 
   pool {
     max_connections = 100
@@ -40,10 +38,9 @@ connector "redis_cache" {
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `address` | string | `"localhost:6379"` | Redis address |
-| `password` | string | — | Redis password |
-| `db` | int | `0` | Redis database number |
-| `key_prefix` | string | — | Prefix for all keys |
+| `url` | string | — | Redis connection URL (`redis://host:port`) |
+| `prefix` | string | — | Prefix for all keys |
+| `default_ttl` | duration | — | Default time-to-live for entries |
 | `pool.max_connections` | int | `100` | Max pool size |
 | `pool.min_connections` | int | `10` | Min pool size |
 

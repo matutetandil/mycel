@@ -1,0 +1,8 @@
+version: "1"
+
+authorization:
+  require_authentication: false
+
+traffic_shaping:
+  all:
+    request_timeout: 30s

@@ -263,15 +263,15 @@ func (c *HCLConverter) createEnumFromConstraint(fieldName string, values []strin
 }
 
 // createInputType creates a GraphQL input type from a TypeSchema.
+// All fields in auto-generated input types are optional (nullable) following
+// GraphQL best practices: output types use non-null for server guarantees,
+// input types use nullable for flexible client input (create omits id,
+// update sends only changed fields, filters send only filter fields).
 func (c *HCLConverter) createInputType(name string, schema *validate.TypeSchema) *graphql.InputObject {
 	fields := graphql.InputObjectConfigFieldMap{}
 
 	for _, field := range schema.Fields {
 		inputType := c.mapHCLTypeToInput(&field)
-
-		if field.Required {
-			inputType = graphql.NewNonNull(inputType)
-		}
 
 		fields[field.Name] = &graphql.InputObjectFieldConfig{
 			Type:        inputType,

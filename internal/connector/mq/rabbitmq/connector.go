@@ -311,7 +311,8 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 
 // RegisterRoute registers a handler for a routing key pattern.
 // This implements the RouteRegistrar interface for flow integration.
-func (c *Connector) RegisterRoute(operation string, handler HandlerFunc) {
+// Uses raw function type (not HandlerFunc alias) to satisfy Go interface matching.
+func (c *Connector) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.handlers[operation] = handler

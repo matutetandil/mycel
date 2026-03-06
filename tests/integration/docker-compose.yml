@@ -1,0 +1,291 @@
+name: mycel-integration
+
+services:
+  # ==========================================================================
+  # Mycel - Main service under test
+  # ==========================================================================
+  mycel:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT_REST:-3000}:3000"     # REST (tests access from host)
+      - "${PORT_GQL:-4000}:4000"      # GraphQL
+      - "${PORT_SOAP:-8081}:8081"     # SOAP
+      - "${PORT_GRPC:-50051}:50051"   # gRPC
+      - "${PORT_ADMIN:-9090}:9090"    # Admin (health/metrics)
+    volumes:
+      - ./config:/etc/mycel
+    environment:
+      MYCEL_ENV: development
+      MYCEL_LOG_LEVEL: debug
+      MYCEL_LOG_FORMAT: text
+      # PostgreSQL
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_USER: mycel
+      PG_PASS: mycel
+      PG_DB: mycel_test
+      # MySQL
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: mycel
+      MYSQL_PASS: mycel
+      MYSQL_DB: mycel_test
+      # MongoDB
+      MONGO_URI: "mongodb://mongo:mycel@mongodb:27017/mycel_test?authSource=admin"
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      # RabbitMQ
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USER: guest
+      RABBITMQ_PASS: guest
+      # Kafka
+      KAFKA_BROKERS: "kafka:9092"
+      # Elasticsearch
+      ES_NODES: "http://elasticsearch:9200"
+      # MinIO (S3)
+      S3_ENDPOINT: "http://minio:9000"
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: test-bucket
+      # Mock server (for HTTP client + notifications)
+      MOCK_URL: "http://mock:8888"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      mock:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 3s
+      start_period: 15s
+      retries: 10
+
+  # ==========================================================================
+  # Databases (internal only - no host ports exposed)
+  # ==========================================================================
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mycel
+      POSTGRES_PASSWORD: mycel
+      POSTGRES_DB: mycel_test
+    volumes:
+      - ./seed/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql
+    command: >
+      postgres
+        -c wal_level=logical
+        -c max_replication_slots=4
+        -c max_wal_senders=4
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mycel -d mycel_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: mycel_test
+      MYSQL_USER: mycel
+      MYSQL_PASSWORD: mycel
+    volumes:
+      - ./seed/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mongodb:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongo
+      MONGO_INITDB_ROOT_PASSWORD: mycel
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ==========================================================================
+  # Cache (internal only)
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # ==========================================================================
+  # Message Queues (internal only)
+  # ==========================================================================
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:3.7.0
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      CLUSTER_ID: "dGVzdC1jbHVzdGVyLWlkMQ"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  # Create Kafka topic before Mycel starts (consumer groups need the topic to exist)
+  kafka-init:
+    image: apache/kafka:3.7.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/opt/kafka/bin/kafka-topics.sh"]
+    command:
+      - --create
+      - --if-not-exists
+      - --bootstrap-server
+      - kafka:9092
+      - --topic
+      - test_topic
+      - --partitions
+      - "1"
+      - --replication-factor
+      - "1"
+
+  # ==========================================================================
+  # Search (internal only)
+  # ==========================================================================
+  elasticsearch:
+    image: elasticsearch:8.12.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx256m"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  # ==========================================================================
+  # Object Storage (internal only)
+  # ==========================================================================
+  minio:
+    image: minio/minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio-init:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: /bin/sh
+    command: >
+      -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb local/test-bucket --ignore-existing &&
+      echo 'Bucket test-bucket ready'
+      "
+
+  # ==========================================================================
+  # Cosmo Router - GraphQL Federation Gateway
+  # ==========================================================================
+  cosmo-config:
+    image: node:22-alpine
+    working_dir: /usr/src/app
+    command: sh -c "npm install -g wgc@latest && wgc router compose --input /usr/src/app/subgraphs.yaml --out /config/config.json"
+    volumes:
+      - ./cosmo/subgraphs.yaml:/usr/src/app/subgraphs.yaml
+      - cosmo-config:/config
+    depends_on:
+      mycel:
+        condition: service_healthy
+
+  cosmo-router:
+    image: ghcr.io/wundergraph/cosmo/router:latest
+    ports:
+      - "${PORT_COSMO:-5000}:5000"
+    environment:
+      DEV_MODE: "true"
+      LISTEN_ADDR: "0.0.0.0:5000"
+      EXECUTION_CONFIG_FILE_PATH: /config/config.json
+      CONFIG_PATH: /config/router.yaml
+      LOG_LEVEL: info
+    volumes:
+      - cosmo-config:/config
+      - ./cosmo/router.yaml:/config/router.yaml
+    depends_on:
+      cosmo-config:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 10
+
+  # ==========================================================================
+  # Mock Server (exposed - tests query captured requests from host)
+  # ==========================================================================
+  mock:
+    build:
+      context: ./mock-server
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT_MOCK:-8888}:8888"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8888/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  cosmo-config:

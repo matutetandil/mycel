@@ -924,6 +924,39 @@ func (b *SchemaBuilder) generateSDL() string {
 		}
 	}
 
+	// Add HCL-generated object types
+	if b.hclConverter != nil {
+		for name, obj := range b.hclConverter.AllTypes() {
+			// Skip entity types already written above
+			if b.federation != nil {
+				isEntity := false
+				for _, entityName := range b.federation.GetEntityNames() {
+					if entityName == name {
+						isEntity = true
+						break
+					}
+				}
+				if isEntity {
+					continue
+				}
+			}
+			sb.WriteString(fmt.Sprintf("type %s {\n", name))
+			for fieldName, field := range obj.Fields() {
+				sb.WriteString(fmt.Sprintf("  %s: %s\n", fieldName, formatGraphQLType(field.Type)))
+			}
+			sb.WriteString("}\n\n")
+		}
+
+		// Add HCL-generated input types
+		for name, input := range b.hclConverter.AllInputs() {
+			sb.WriteString(fmt.Sprintf("input %s {\n", name))
+			for fieldName, field := range input.Fields() {
+				sb.WriteString(fmt.Sprintf("  %s: %s\n", fieldName, formatGraphQLType(field.Type)))
+			}
+			sb.WriteString("}\n\n")
+		}
+	}
+
 	// Add scalar definitions
 	sb.WriteString("scalar JSON\n")
 	sb.WriteString("scalar DateTime\n")
