@@ -73,14 +73,17 @@ jobs:
       - name: "Test: Integration"
         run: |
           bash scripts/run-group.sh \
-            scripts/test-http-client.sh \
             scripts/test-transforms.sh \
             scripts/test-validation.sh \
             scripts/test-steps.sh \
             scripts/test-error-handling.sh \
-            scripts/test-notifications.sh \
             scripts/test-exec.sh \
             scripts/test-filter.sh
+
+      - name: "Test: HTTP Client & Notifications"
+        run: |
+          bash scripts/test-http-client.sh
+          bash scripts/test-notifications.sh
 
       - name: "Test: Rate Limit"
         run: bash scripts/test-rate-limit.sh
