@@ -141,6 +141,7 @@ That's it. REST API + database, zero code.
 | [Mocks](examples/mocks) | Mock data for development and testing ([concept](docs/CONCEPTS.md#mocks)) |
 | [Plugins](examples/plugin) | Extend Mycel with WASM plugins ([concept](docs/CONCEPTS.md#plugins)) |
 | [Exec](examples/exec) | Execute shell commands from flows |
+| [Security](docs/SECURITY.md) | Secure-by-default input sanitization, XXE/injection protection, WASM sanitizers |
 | Hot Reload | Apply HCL changes without restart |
 | Health Checks / Prometheus | `/health`, `/metrics` endpoints |
 
@@ -186,6 +187,7 @@ See [helm/mycel/README.md](helm/mycel/README.md) for full Helm documentation inc
 - **[Error Handling](docs/ERROR_HANDLING.md)** - Retry, circuit breaker, DLQ, fallback, and resilience patterns
 - **[Connector Catalog](docs/connectors/)** - Individual documentation for every connector type
 - **[Format System](docs/FORMAT.md)** - Multi-format support (JSON, XML), auto-detection, and XML mapping rules
+- **[Security](docs/SECURITY.md)** - Secure-by-default sanitization, XXE protection, WASM sanitizers, all security options
 - **[Configuration Reference](docs/CONFIGURATION.md)** - Complete HCL syntax reference
 - **[Deployment Guide](docs/DEPLOYMENT.md)** - Docker, Docker Compose, Kubernetes, environment variables, .env files
 - **[Integration Patterns](docs/integration-patterns.md)** - Common use cases

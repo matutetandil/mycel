@@ -19,6 +19,7 @@ import (
 	"github.com/matutetandil/mycel/internal/mock"
 	"github.com/matutetandil/mycel/internal/plugin"
 	"github.com/matutetandil/mycel/internal/saga"
+	"github.com/matutetandil/mycel/internal/security"
 	"github.com/matutetandil/mycel/internal/statemachine"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
@@ -78,6 +79,9 @@ type Configuration struct {
 
 	// StateMachines are state machine configurations.
 	StateMachines []*statemachine.Config
+
+	// Security is the security configuration (sanitization, thresholds, WASM sanitizers).
+	Security *security.Config
 }
 
 // ServiceConfig holds global service configuration.
@@ -133,6 +137,9 @@ func (c *Configuration) Merge(other *Configuration) {
 	}
 	if other.MockConfig != nil {
 		c.MockConfig = other.MockConfig
+	}
+	if other.Security != nil {
+		c.Security = other.Security
 	}
 }
 
@@ -306,6 +313,13 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 				return nil, fmt.Errorf("state_machine parse error: %w", err)
 			}
 			config.StateMachines = append(config.StateMachines, sm)
+
+		case "security":
+			sec, err := parseSecurityBlock(block, p.evalCtx)
+			if err != nil {
+				return nil, fmt.Errorf("security parse error: %w", err)
+			}
+			config.Security = sec
 		}
 	}
 
@@ -330,6 +344,7 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "service"},
 			{Type: "mocks"},
 			{Type: "auth"},
+			{Type: "security"},
 		},
 	}
 }

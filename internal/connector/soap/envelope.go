@@ -117,6 +117,7 @@ func xmlEscape(s string) string {
 // Returns fault if the response contains a SOAP fault.
 func Unwrap(data []byte) (operation string, body map[string]interface{}, fault *Fault, err error) {
 	decoder := xml.NewDecoder(bytes.NewReader(data))
+	decoder.Entity = map[string]string{} // Block all entity expansion (XXE protection)
 	decoder.Strict = false
 
 	// Navigate to soap:Body

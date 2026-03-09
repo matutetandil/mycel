@@ -203,9 +203,13 @@ func (c *Connector) execute(ctx context.Context, operation string, input interfa
 	} else {
 		// Local execution
 		if c.config.Shell != "" {
-			// Wrap in shell
+			// Wrap in shell — Command is trusted (from HCL config),
+			// but args are individually quoted to prevent injection via user input
 			shellParts := strings.Fields(c.config.Shell)
-			fullCmd := c.config.Command + " " + strings.Join(args, " ")
+			fullCmd := c.config.Command
+			for _, arg := range args {
+				fullCmd += " " + shellQuote(arg)
+			}
 			shellArgs := append(shellParts[1:], fullCmd)
 			cmd = exec.CommandContext(ctx, shellParts[0], shellArgs...)
 		} else {
@@ -284,6 +288,12 @@ func (c *Connector) buildArgs(operation string, input interface{}) []string {
 	return args
 }
 
+// shellQuote safely quotes a string for shell execution.
+// Each argument is wrapped in single quotes with internal single quotes escaped.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 // buildSSHCommand creates an SSH command.
 func (c *Connector) buildSSHCommand(ctx context.Context, args []string) *exec.Cmd {
 	sshArgs := []string{
@@ -304,10 +314,11 @@ func (c *Connector) buildSSHCommand(ctx context.Context, args []string) *exec.Cm
 	}
 	sshArgs = append(sshArgs, target)
 
-	// Build remote command
+	// Build remote command — Command is trusted (from HCL config),
+	// but args are individually quoted to prevent shell injection via user input
 	remoteCmd := c.config.Command
-	if len(args) > 0 {
-		remoteCmd += " " + strings.Join(args, " ")
+	for _, arg := range args {
+		remoteCmd += " " + shellQuote(arg)
 	}
 	sshArgs = append(sshArgs, remoteCmd)
 

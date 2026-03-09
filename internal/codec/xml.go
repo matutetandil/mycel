@@ -138,8 +138,11 @@ func xmlEscape(s string) string {
 }
 
 // Decode parses XML bytes into a map.
+// XXE protection: entity expansion is disabled to prevent external entity attacks.
 func (c *XMLCodec) Decode(data []byte) (map[string]interface{}, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(data))
+	decoder.Entity = map[string]string{} // Block all entity expansion (XXE protection)
+	decoder.Strict = true
 	result, err := decodeElement(decoder, nil)
 	if err != nil {
 		return nil, err

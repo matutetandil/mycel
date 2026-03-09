@@ -5,9 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.8.0] - 2026-03-09
 
 ### Added
+- **Security system — secure by default** (`internal/sanitize/`, `internal/security/`): Core input sanitization pipeline that runs before every flow execution. Cannot be disabled. Protects against null bytes, invalid UTF-8, control character injection, Unicode bidi attacks, oversized inputs, and deep nesting. Configurable thresholds via `security {}` HCL block (adjust limits, not disable)
+- **WASM sanitizers**: Custom sanitization rules via WebAssembly modules. Define `sanitizer` blocks in the `security {}` config with field targeting and flow pattern matching. Same WASM interface as validators/functions
+- **Connector-specific security rules** (`internal/sanitize/rules/`): XML entity blocking (XXE), file path containment, shell metacharacter detection, SQL identifier validation. Applied automatically based on connector type
+- **Security HCL block** (`internal/parser/security.go`): New top-level `security {}` block for threshold overrides, WASM sanitizers, and per-flow security config. Parser, types, and runtime integration
+- **Security documentation** (`docs/SECURITY.md`): Complete reference covering core pipeline, connector protections, HCL configuration, WASM sanitizer interface, and vulnerability mitigations
+- **Security integration tests** (`tests/integration/scripts/test-security.sh`): 29 end-to-end assertions sending malicious payloads to real endpoints (REST, GraphQL, SOAP, File). Tests null byte injection, control character injection, bidi override attacks, SQL injection safety, oversized payloads, deep nesting (JSON bomb), XXE entity expansion, and path traversal — all against live services
+
+### Fixed
+- **XXE vulnerability** (`internal/codec/xml.go`, `internal/connector/soap/envelope.go`): Blocked XML entity expansion in both the XML codec and SOAP envelope parser by setting `decoder.Entity = map[string]string{}`
+- **SSH command injection** (`internal/connector/exec/connector.go`): User-provided arguments to SSH remote commands and shell-wrapped local commands are now individually quoted with `shellQuote()` to prevent shell metacharacter injection
+- **File path traversal** (`internal/connector/file/connector.go`): `resolvePath()` now strips absolute paths, normalizes `../` sequences, and validates that resolved paths stay within `BasePath`
+
+### Changed
 - **WASM documentation** (`docs/WASM.md`): Complete reference for building WASM modules in 6 languages — Rust, Go (TinyGo), C, C++, AssemblyScript, and Zig. Covers the WASM interface specification (alloc/free/validate/function exports), memory flow, HCL configuration for validators/functions/plugins, module size comparison, and best practices. Fixed broken link from `examples/plugin/README.md` and added cross-references between all WASM-related examples
 
 ## [1.7.0] - 2026-03-06

@@ -143,6 +143,7 @@ else
     scripts/test-exec.sh
     scripts/test-filter.sh
     scripts/test-federation.sh
+    scripts/test-security.sh
   )
 fi
 

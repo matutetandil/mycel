@@ -50,6 +50,7 @@ import (
 	connsse "github.com/matutetandil/mycel/internal/connector/sse"
 	connws "github.com/matutetandil/mycel/internal/connector/websocket"
 	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/internal/sanitize"
 	"github.com/matutetandil/mycel/internal/functions"
 	"github.com/matutetandil/mycel/internal/health"
 	"github.com/matutetandil/mycel/internal/hotreload"
@@ -107,6 +108,9 @@ type Runtime struct {
 
 	// State machine engine for state transitions
 	stateMachineEngine *statemachine.Engine
+
+	// Input sanitization pipeline (always active)
+	sanitizer *sanitize.Pipeline
 
 	// Scheduler for cron-based flow triggers
 	scheduler *scheduler.Scheduler
@@ -307,6 +311,45 @@ func New(opts Options) (*Runtime, error) {
 	// Create scheduler for cron-based flows
 	sched := scheduler.New()
 
+	// Initialize input sanitization pipeline (always active, cannot be disabled)
+	sanitizeCfg := sanitize.DefaultConfig()
+	if config.Security != nil {
+		if config.Security.MaxInputLength > 0 {
+			sanitizeCfg.MaxInputLength = config.Security.MaxInputLength
+		}
+		if config.Security.MaxFieldLength > 0 {
+			sanitizeCfg.MaxFieldLength = config.Security.MaxFieldLength
+		}
+		if config.Security.MaxFieldDepth > 0 {
+			sanitizeCfg.MaxFieldDepth = config.Security.MaxFieldDepth
+		}
+		if len(config.Security.AllowedControlChars) > 0 {
+			sanitizeCfg.AllowedControlChars = sanitize.ParseAllowedControlChars(config.Security.AllowedControlChars)
+		}
+	}
+	sanitizer := sanitize.NewPipeline(sanitizeCfg)
+
+	// Load WASM sanitizers if configured
+	if config.Security != nil {
+		for _, ws := range config.Security.Sanitizers {
+			entrypoint := ws.Entrypoint
+			if entrypoint == "" {
+				entrypoint = "sanitize"
+			}
+			wasmRule, err := sanitize.NewWASMRule(ws.Name, ws.WASM, entrypoint)
+			if err != nil {
+				opts.Logger.Warn("failed to load WASM sanitizer",
+					"sanitizer", ws.Name,
+					"wasm", ws.WASM,
+					"error", err.Error())
+				continue
+			}
+			sanitizer.AddRule(wasmRule)
+			opts.Logger.Info("registered WASM sanitizer",
+				"sanitizer", ws.Name)
+		}
+	}
+
 	return &Runtime{
 		config:            config,
 		connectors:        registry,
@@ -324,6 +367,7 @@ func New(opts Options) (*Runtime, error) {
 		authManager:       authMgr,
 		authHandler:       authHdl,
 		scheduler:         sched,
+		sanitizer:         sanitizer,
 		logger:            opts.Logger,
 		environment:       env,
 		configDir:         opts.ConfigDir,
@@ -778,6 +822,7 @@ func (r *Runtime) registerFlows() error {
 			FunctionsRegistry:  r.functionsRegistry,
 			SyncManager:        r.syncManager,
 			StateMachineEngine: r.stateMachineEngine,
+			Sanitizer:          r.sanitizer,
 		}
 
 		r.flows.Register(cfg.Name, handler)

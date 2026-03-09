@@ -18,7 +18,7 @@ bash run.sh
 This will:
 1. Build and start all services (Mycel + 10 infrastructure services + Cosmo Router)
 2. Wait for health checks
-3. Run 25 test suites (~86 assertions) in parallel
+3. Run 26 test suites (~95 assertions) in parallel
 4. Tear down all services
 
 ## Options
@@ -87,8 +87,9 @@ Ports are auto-remapped if busy (e.g., `:3000` → `:3001`).
 | test-exec.sh | HTTP | REST + Exec | 2 — Command execution |
 | test-filter.sh | HTTP | REST | 3 — CEL filter pass/reject |
 | test-federation.sh | GraphQL | Cosmo Router + GraphQL | 5 — Federated queries + mutations |
+| test-security.sh | HTTP, GraphQL, SOAP | REST + GraphQL + SOAP + File | 29 — Null bytes, control chars, bidi, XXE, path traversal, oversized, deep nesting |
 
-**25 test suites, 86 assertions**
+**26 test suites, 95 assertions**
 
 ## Mock Server
 

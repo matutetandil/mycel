@@ -288,15 +288,28 @@ func (c *Connector) Call(ctx context.Context, operation string, params map[strin
 	}
 }
 
-// resolvePath resolves a path relative to the base path.
+// resolvePath resolves a path relative to the base path with traversal protection.
+// When BasePath is configured, all paths are resolved relative to it and
+// validated to prevent directory traversal attacks.
 func (c *Connector) resolvePath(path string) string {
 	if c.config.BasePath == "" {
-		return path
+		return filepath.Clean(path)
 	}
-	if filepath.IsAbs(path) {
-		return path
+
+	// Strip any absolute prefix — always treat as relative to BasePath
+	cleaned := filepath.Clean("/" + path)
+	resolved := filepath.Join(c.config.BasePath, cleaned)
+
+	// Verify the resolved path stays within BasePath
+	absBase, _ := filepath.Abs(c.config.BasePath)
+	absResolved, _ := filepath.Abs(resolved)
+
+	if absResolved != absBase && !strings.HasPrefix(absResolved, absBase+string(filepath.Separator)) {
+		// Path escapes BasePath — fall back to BasePath itself
+		return absBase
 	}
-	return filepath.Join(c.config.BasePath, path)
+
+	return absResolved
 }
 
 // detectFormat detects the file format from extension.

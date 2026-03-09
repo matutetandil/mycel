@@ -12,6 +12,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/cache"
 	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/internal/sanitize"
 	"github.com/matutetandil/mycel/internal/functions"
 	"github.com/matutetandil/mycel/internal/graphql/optimizer"
 	"github.com/matutetandil/mycel/internal/saga"
@@ -124,6 +125,9 @@ type FlowHandler struct {
 	// SourceType is the connector type of the source (e.g., "mq", "rest", "soap").
 	// Used to determine how to interpret non-HTTP operations.
 	SourceType string
+
+	// Sanitizer is the input sanitization pipeline (always active).
+	Sanitizer *sanitize.Pipeline
 }
 
 // FilteredResult is returned when a request is filtered out by the from.filter expression.
@@ -132,6 +136,15 @@ var FilteredResult = &struct{ Filtered bool }{Filtered: true}
 
 // HandleRequest processes an incoming request through the flow.
 func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+	// Sanitize input (always runs first, before any processing)
+	if h.Sanitizer != nil && input != nil {
+		sanitized, err := h.Sanitizer.Sanitize(input)
+		if err != nil {
+			return nil, fmt.Errorf("input sanitization failed: %w", err)
+		}
+		input = sanitized
+	}
+
 	// Check filter condition first (before any processing)
 	if h.Config.From != nil && h.Config.From.FilterCondition() != "" {
 		shouldProcess, err := h.evaluateFilter(ctx, input)
