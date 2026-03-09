@@ -1220,3 +1220,121 @@ service {
 		t.Errorf("expected admin_port 8081, got %d", config.ServiceConfig.AdminPort)
 	}
 }
+
+func TestParseSkipsPluginManifests(t *testing.T) {
+	// Create a config tree with a plugin manifest inside it.
+	// The parser should skip the manifest and parse the rest.
+	tmpDir := t.TempDir()
+
+	// Main config
+	mainCfg := `
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+plugin "my-plugin" {
+  source = "./my-plugin"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.hcl"), []byte(mainCfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Plugin directory with manifest (should be skipped)
+	pluginDir := filepath.Join(tmpDir, "my-plugin")
+	os.MkdirAll(pluginDir, 0755)
+
+	manifest := `
+plugin {
+  name    = "my-plugin"
+  version = "1.0.0"
+}
+provides {
+  validator "test_v" {
+    wasm       = "v.wasm"
+    entrypoint = "validate"
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.hcl"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := NewHCLParser()
+	config, err := p.Parse(context.Background(), tmpDir)
+	if err != nil {
+		t.Fatalf("Parse failed (should skip manifest): %v", err)
+	}
+
+	if len(config.Connectors) != 1 {
+		t.Errorf("expected 1 connector, got %d", len(config.Connectors))
+	}
+	if len(config.Plugins) != 1 {
+		t.Errorf("expected 1 plugin declaration, got %d", len(config.Plugins))
+	}
+}
+
+func TestIsPluginManifest(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		expected bool
+	}{
+		{
+			name: "plugin manifest with provides",
+			content: `
+plugin {
+  name    = "test"
+  version = "1.0.0"
+}
+provides {
+  validator "always_valid" {
+    wasm       = "validators.wasm"
+    entrypoint = "validate"
+  }
+}`,
+			expected: true,
+		},
+		{
+			name: "config plugin declaration with label",
+			content: `
+plugin "test" {
+  source  = "./plugins/test"
+  version = "^1.0"
+}`,
+			expected: false,
+		},
+		{
+			name: "regular config file",
+			content: `
+connector "api" {
+  type = "rest"
+  port = 3000
+}`,
+			expected: false,
+		},
+		{
+			name: "plugin block without provides",
+			content: `
+plugin {
+  name    = "test"
+  version = "1.0.0"
+}`,
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpFile := filepath.Join(t.TempDir(), "test.hcl")
+			if err := os.WriteFile(tmpFile, []byte(tt.content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			got := isPluginManifest(tmpFile)
+			if got != tt.expected {
+				t.Errorf("isPluginManifest() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}

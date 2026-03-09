@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/matutetandil/mycel/internal/connector"
@@ -17,8 +18,13 @@ type Registry struct {
 
 // NewRegistry creates a new plugin registry.
 func NewRegistry(baseDir string) *Registry {
+	return NewRegistryWithLogger(baseDir, nil)
+}
+
+// NewRegistryWithLogger creates a new plugin registry with a logger.
+func NewRegistryWithLogger(baseDir string, logger *slog.Logger) *Registry {
 	return &Registry{
-		loader:  NewLoader(baseDir),
+		loader:  NewLoaderWithLogger(baseDir, logger),
 		plugins: make(map[string]*LoadedPlugin),
 	}
 }
@@ -44,12 +50,19 @@ func (r *Registry) Load(ctx context.Context, decl *PluginDeclaration) error {
 }
 
 // LoadAll loads all plugins from their declarations.
+// After loading, it saves the lock file with resolved versions.
 func (r *Registry) LoadAll(ctx context.Context, decls []*PluginDeclaration) error {
 	for _, decl := range decls {
 		if err := r.Load(ctx, decl); err != nil {
 			return err
 		}
 	}
+
+	// Save lock file with resolved versions
+	if err := r.loader.SaveLockFile(); err != nil {
+		return fmt.Errorf("failed to save plugins.lock: %w", err)
+	}
+
 	return nil
 }
 

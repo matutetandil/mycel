@@ -113,8 +113,9 @@ func TestNewLogger_TextFormat(t *testing.T) {
 	if !strings.Contains(output, "test message") {
 		t.Errorf("expected log to contain 'test message', got: %s", output)
 	}
-	if !strings.Contains(output, "key=value") {
-		t.Errorf("expected log to contain 'key=value', got: %s", output)
+	// tint includes ANSI color codes, so check for key and value separately
+	if !strings.Contains(output, "key=") || !strings.Contains(output, "value") {
+		t.Errorf("expected log to contain key=value, got: %s", output)
 	}
 }
 

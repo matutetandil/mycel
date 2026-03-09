@@ -522,21 +522,57 @@ See the [wasm-functions example](../examples/wasm-functions) and [wasm-validator
 
 ## Plugins
 
-Plugins add entirely new connector types to Mycel via WASM modules. Use plugins to integrate systems not natively supported — Salesforce, SAP, proprietary protocols, or custom internal systems.
+Plugins add new connector types, validators, and sanitizers to Mycel via WASM modules. Use plugins to integrate systems not natively supported — Salesforce, SAP, proprietary protocols, or custom security rules.
+
+Once declared, plugin-provided connectors, validators, and sanitizers work like built-in ones — no extra wiring needed.
 
 ```hcl
+# Declare a plugin (local or git)
 plugin "salesforce" {
-  source  = "./plugins/salesforce"
-  version = "1.0.0"
+  source  = "github.com/acme/mycel-salesforce"
+  version = "^1.0"
 }
 
+# Use its connector — same syntax as built-in connectors
 connector "sf" {
   type         = "salesforce"
   instance_url = env("SF_URL")
 }
 ```
 
-Manage plugins via CLI: `mycel plugin install <name>`, `mycel plugin list`, `mycel plugin remove <name>`. See the [plugin example](../examples/plugin) for a complete walkthrough.
+**Sources:** Local paths (`./plugins/my-plugin`), GitHub, GitLab, Bitbucket, or any git URL. Versions use semver constraints (`^1.0`, `~2.0`, `>= 1.0, < 3.0`, `latest`).
+
+**Auto-install:** Plugins are resolved and cached automatically on `mycel start`. Cache stored in `mycel_plugins/` (add to `.gitignore`). Reproducible builds via `plugins.lock`.
+
+**Plugin manifest (`plugin.hcl`)** — what plugin authors create:
+
+```hcl
+plugin {
+  name    = "salesforce"
+  version = "1.0.0"
+}
+
+provides {
+  connector "salesforce" {
+    wasm = "connector.wasm"
+  }
+
+  validator "sf_id" {
+    wasm       = "validators.wasm"
+    entrypoint = "validate_sf_id"
+    message    = "Invalid Salesforce ID"
+  }
+
+  sanitizer "pii_filter" {
+    wasm       = "sanitizers.wasm"
+    entrypoint = "filter_pii"
+    apply_to   = ["flows/api/*"]
+    fields     = ["email", "phone"]
+  }
+}
+```
+
+Manage plugins via CLI: `mycel plugin install`, `mycel plugin list`, `mycel plugin remove <name>`, `mycel plugin update`. See the [plugin example](../examples/plugin) for a complete walkthrough including WASM development.
 
 ---
 

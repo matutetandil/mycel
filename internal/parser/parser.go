@@ -164,6 +164,44 @@ func newEvalContext() *hcl.EvalContext {
 	}
 }
 
+// isPluginManifest returns true if the file is a plugin manifest (parsed by the
+// plugin loader, not the main parser). A manifest has a top-level `plugin` block
+// WITHOUT a label and a `provides` block — unlike config declarations which use
+// `plugin "name" { source = "..." }` with a label.
+func isPluginManifest(path string) bool {
+	parser := hclparse.NewParser()
+	file, diags := parser.ParseHCLFile(path)
+	if diags.HasErrors() {
+		return false
+	}
+
+	// Use a permissive schema that accepts plugin blocks with 0 labels.
+	schema := &hcl.BodySchema{
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "plugin"},   // no labels required
+			{Type: "provides"}, // only exists in manifests
+		},
+	}
+
+	content, diags := file.Body.Content(schema)
+	if diags.HasErrors() {
+		return false
+	}
+
+	hasUnlabeledPlugin := false
+	hasProvides := false
+	for _, block := range content.Blocks {
+		if block.Type == "plugin" && len(block.Labels) == 0 {
+			hasUnlabeledPlugin = true
+		}
+		if block.Type == "provides" {
+			hasProvides = true
+		}
+	}
+
+	return hasUnlabeledPlugin && hasProvides
+}
+
 // Parse parses all HCL files in the given directory recursively.
 func (p *HCLParser) Parse(ctx context.Context, configDir string) (*Configuration, error) {
 	config := NewConfiguration()
@@ -174,8 +212,21 @@ func (p *HCLParser) Parse(ctx context.Context, configDir string) (*Configuration
 			return err
 		}
 
+		// Skip the plugin cache directory (managed by Mycel, not user config).
+		if info.IsDir() && info.Name() == "mycel_plugins" {
+			return filepath.SkipDir
+		}
+
 		// Skip non-HCL files
 		if info.IsDir() || !strings.HasSuffix(info.Name(), ".hcl") {
+			return nil
+		}
+
+		// Skip plugin manifest files — these are parsed by the plugin loader.
+		// A manifest is identified by having a top-level `plugin` block without
+		// a label (e.g. `plugin { name = "..." }`), unlike config declarations
+		// which use `plugin "name" { source = "..." }`.
+		if isPluginManifest(path) {
 			return nil
 		}
 

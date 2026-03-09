@@ -28,3 +28,9 @@ type "notification" {
   type    = string
   message = string
 }
+
+# Plugin-validated type (uses always_valid WASM validator from test-plugin)
+type "plugin_validated" {
+  name  = string
+  code  = string({ validator = "always_valid" })
+}

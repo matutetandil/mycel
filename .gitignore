@@ -50,5 +50,8 @@ temp/
 # Local data (databases, etc)
 data/
 
+# Generated WASM test fixtures
+internal/plugin/validator.wasm
+
 # Private local instructions
 CLAUDE.local.md

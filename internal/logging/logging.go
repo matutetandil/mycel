@@ -9,6 +9,9 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
+
+	"github.com/lmittmann/tint"
 )
 
 // Environment variable names
@@ -74,7 +77,10 @@ func NewLogger(cfg *Config) *slog.Logger {
 	case "json":
 		handler = slog.NewJSONHandler(cfg.Output, opts)
 	default:
-		handler = slog.NewTextHandler(cfg.Output, opts)
+		handler = tint.NewHandler(cfg.Output, &tint.Options{
+			Level:      level,
+			TimeFormat: time.Kitchen,
+		})
 	}
 
 	return slog.New(handler)

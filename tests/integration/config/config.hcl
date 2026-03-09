@@ -10,3 +10,8 @@ service {
     key_extractor       = "ip"
   }
 }
+
+# Test plugin — local plugin with a WASM validator
+plugin "test-plugin" {
+  source = "./plugins/test-plugin"
+}

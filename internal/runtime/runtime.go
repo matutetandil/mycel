@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"sync"
@@ -64,6 +65,7 @@ import (
 	msync "github.com/matutetandil/mycel/internal/sync"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
+	"github.com/matutetandil/mycel/internal/validator"
 )
 
 // Version is the current version of Mycel.
@@ -108,6 +110,9 @@ type Runtime struct {
 
 	// State machine engine for state transitions
 	stateMachineEngine *statemachine.Engine
+
+	// Custom validator registry (WASM/regex/CEL validators)
+	validatorRegistry *validator.Registry
 
 	// Input sanitization pipeline (always active)
 	sanitizer *sanitize.Pipeline
@@ -262,7 +267,7 @@ func New(opts Options) (*Runtime, error) {
 	}
 
 	// Create plugin registry and load plugins
-	pluginReg := plugin.NewRegistry(opts.ConfigDir)
+	pluginReg := plugin.NewRegistryWithLogger(opts.ConfigDir, opts.Logger)
 	if len(config.Plugins) > 0 {
 		if err := pluginReg.LoadAll(context.Background(), config.Plugins); err != nil {
 			return nil, fmt.Errorf("failed to load plugins: %w", err)
@@ -290,6 +295,58 @@ func New(opts Options) (*Runtime, error) {
 
 		opts.Logger.Info("plugins loaded",
 			"count", len(config.Plugins))
+	}
+
+	// Initialize custom validator registry
+	validatorReg := validator.NewRegistry()
+
+	// Register validators from config
+	for _, vCfg := range config.Validators {
+		v, err := validator.CreateValidator(*vCfg)
+		if err != nil {
+			opts.Logger.Warn("failed to create validator",
+				"validator", vCfg.Name,
+				"type", string(vCfg.Type),
+				"error", err.Error())
+			continue
+		}
+		if err := validatorReg.Register(v); err != nil {
+			opts.Logger.Warn("failed to register validator",
+				"validator", vCfg.Name,
+				"error", err.Error())
+			continue
+		}
+		opts.Logger.Info("registered validator",
+			"validator", vCfg.Name,
+			"type", string(vCfg.Type))
+	}
+
+	// Register validators from plugins
+	for pluginName, loadedPlugin := range pluginReg.Plugins() {
+		if loadedPlugin.Manifest.Provides == nil {
+			continue
+		}
+		for _, vp := range loadedPlugin.Manifest.Provides.Validators {
+			wasmPath := filepath.Join(loadedPlugin.Path, vp.WASM)
+			v, err := validator.NewWASMValidator(vp.Name, wasmPath, vp.Entrypoint, vp.Message)
+			if err != nil {
+				opts.Logger.Warn("failed to create plugin validator",
+					"plugin", pluginName,
+					"validator", vp.Name,
+					"error", err.Error())
+				continue
+			}
+			if err := validatorReg.Register(v); err != nil {
+				opts.Logger.Warn("failed to register plugin validator",
+					"plugin", pluginName,
+					"validator", vp.Name,
+					"error", err.Error())
+				continue
+			}
+			opts.Logger.Info("registered plugin validator",
+				"plugin", pluginName,
+				"validator", vp.Name)
+		}
 	}
 
 	// Create auth manager if auth config is present
@@ -350,6 +407,32 @@ func New(opts Options) (*Runtime, error) {
 		}
 	}
 
+	// Register sanitizers from plugins
+	for pluginName, loadedPlugin := range pluginReg.Plugins() {
+		if loadedPlugin.Manifest.Provides == nil {
+			continue
+		}
+		for _, sp := range loadedPlugin.Manifest.Provides.Sanitizers {
+			wasmPath := filepath.Join(loadedPlugin.Path, sp.WASM)
+			entrypoint := sp.Entrypoint
+			if entrypoint == "" {
+				entrypoint = "sanitize"
+			}
+			wasmRule, err := sanitize.NewWASMRule(sp.Name, wasmPath, entrypoint)
+			if err != nil {
+				opts.Logger.Warn("failed to load plugin sanitizer",
+					"plugin", pluginName,
+					"sanitizer", sp.Name,
+					"error", err.Error())
+				continue
+			}
+			sanitizer.AddRule(wasmRule)
+			opts.Logger.Info("registered plugin sanitizer",
+				"plugin", pluginName,
+				"sanitizer", sp.Name)
+		}
+	}
+
 	return &Runtime{
 		config:            config,
 		connectors:        registry,
@@ -364,6 +447,7 @@ func New(opts Options) (*Runtime, error) {
 		mockManager:       mockMgr,
 		functionsRegistry: functionsReg,
 		pluginRegistry:    pluginReg,
+		validatorRegistry: validatorReg,
 		authManager:       authMgr,
 		authHandler:       authHdl,
 		scheduler:         sched,
@@ -823,6 +907,8 @@ func (r *Runtime) registerFlows() error {
 			SyncManager:        r.syncManager,
 			StateMachineEngine: r.stateMachineEngine,
 			Sanitizer:          r.sanitizer,
+			ValidatorRegistry:  r.validatorRegistry,
+			Logger:             r.logger,
 		}
 
 		r.flows.Register(cfg.Name, handler)

@@ -10,12 +10,16 @@ type PluginDeclaration struct {
 	// Source is the plugin location:
 	// - Local path: "./plugins/salesforce"
 	// - Git URL: "github.com/acme/mycel-sap"
-	// - Registry: "registry.mycel.dev/stripe" (future)
+	// - Any git-cloneable URL
 	Source string
 
-	// Version constraint for git/registry sources.
-	// Examples: "1.0.0", "~> 2.0", ">= 1.0, < 2.0"
+	// Version constraint for git sources.
+	// Examples: "1.0.0", "~> 2.0", ">= 1.0, < 2.0", "^1.0", "latest"
 	Version string
+
+	// Copy copies a local plugin into mycel_plugins/ instead of using it in place.
+	// Useful when the source directory won't be accessible at runtime (e.g., Docker).
+	Copy bool
 }
 
 // PluginManifest represents the plugin.hcl manifest file.
@@ -39,6 +43,12 @@ type ProvidesConfig struct {
 
 	// Functions provided by this plugin (optional).
 	Functions *FunctionsProvide
+
+	// Validators provided by this plugin (optional).
+	Validators []*ValidatorProvide
+
+	// Sanitizers provided by this plugin (optional).
+	Sanitizers []*SanitizerProvide
 }
 
 // ConnectorProvide describes a connector provided by a plugin.
@@ -78,6 +88,39 @@ type FunctionsProvide struct {
 
 	// Exports is the list of function names to export.
 	Exports []string
+}
+
+// ValidatorProvide describes a validator provided by a plugin.
+type ValidatorProvide struct {
+	// Name is the validator name (e.g., "cuit", "cnpj").
+	Name string
+
+	// WASM is the path to the validators.wasm file (relative to plugin dir).
+	WASM string
+
+	// Entrypoint is the WASM function name to call (default: "validate_<name>").
+	Entrypoint string
+
+	// Message is the error message when validation fails.
+	Message string
+}
+
+// SanitizerProvide describes a sanitizer provided by a plugin.
+type SanitizerProvide struct {
+	// Name is the sanitizer name (e.g., "pii_filter", "strip_html").
+	Name string
+
+	// WASM is the path to the sanitizers.wasm file (relative to plugin dir).
+	WASM string
+
+	// Entrypoint is the WASM function name to call (default: "sanitize").
+	Entrypoint string
+
+	// ApplyTo is a list of flow glob patterns this sanitizer applies to.
+	ApplyTo []string
+
+	// Fields is a list of field names to sanitize.
+	Fields []string
 }
 
 // LoadedPlugin represents a fully loaded and initialized plugin.

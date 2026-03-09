@@ -27,6 +27,8 @@ Complete HCL configuration reference for Mycel.
 - [Types](#types)
 - [Transforms](#transforms)
 - [Named Caches](#named-caches)
+- [Plugins](#plugins)
+- [CLI Commands](#cli-commands)
 
 ---
 
@@ -1139,3 +1141,98 @@ mycel version
 | `--env`, `-e` | `dev` | Environment |
 | `--verbose`, `-v` | `false` | Enable debug logging |
 | `--hot-reload` | `true` | Auto-reload on config changes |
+| `--log-level` | (env) | Log level: debug, info, warn, error |
+| `--log-format` | (env) | Log format: text, json |
+
+### Plugin Commands
+
+```bash
+# Install all plugins from config (also runs automatically on mycel start)
+mycel plugin install
+
+# Install a specific plugin
+mycel plugin install salesforce
+
+# List cached plugins and their status
+mycel plugin list
+
+# Remove a cached plugin and its lock entry
+mycel plugin remove salesforce
+
+# Re-resolve versions and update plugins.lock
+mycel plugin update
+```
+
+---
+
+## Plugins
+
+Declare plugins to extend Mycel with additional connectors, validators, and sanitizers via WASM.
+
+### Declaration
+
+```hcl
+# Git source with version constraint
+plugin "salesforce" {
+  source  = "github.com/acme/mycel-salesforce"
+  version = "^1.0"
+}
+
+# Local source (for development)
+plugin "my-plugin" {
+  source = "./plugins/my-plugin"
+}
+
+# Local with copy (for Docker — copies into mycel_plugins/)
+plugin "my-plugin" {
+  source = "./plugins/my-plugin"
+  copy   = true
+}
+```
+
+### Version Constraints
+
+| Syntax | Meaning |
+|--------|---------|
+| `1.0.0` | Exact version |
+| `^1.0` | Compatible (`>= 1.0.0, < 2.0.0`) |
+| `~1.5` | Patch-level (`>= 1.5.0, < 1.6.0`) |
+| `~> 2.0` | HashiCorp style (`>= 2.0.0, < 3.0.0`) |
+| `>= 1.0, < 3.0` | Range |
+| `latest` or empty | Latest available tag |
+
+### Sources
+
+| Source | Example |
+|--------|---------|
+| Local path | `./plugins/my-plugin` |
+| GitHub | `github.com/acme/mycel-salesforce` |
+| GitLab | `gitlab.com/org/mycel-plugin` |
+| Bitbucket | `bitbucket.org/team/mycel-plugin` |
+| Any git URL | `https://git.example.com/org/plugin` |
+
+SSH is used by default for known hosts (GitHub, GitLab, Bitbucket), with automatic HTTPS fallback.
+
+### Usage
+
+Once declared, plugin connectors and validators are available as if they were built-in:
+
+```hcl
+# Use a plugin connector — same syntax as any built-in connector
+connector "sf" {
+  type         = "salesforce"
+  instance_url = env("SF_URL")
+}
+
+flow "sync" {
+  from { connector.api = "POST /accounts" }
+  to   { connector.sf  = "accounts" }
+}
+```
+
+### Cache and Lock File
+
+- **`mycel_plugins/`** — Local cache directory (add to `.gitignore`)
+- **`plugins.lock`** — Lock file for reproducible builds (commit to git)
+
+Plugins are resolved and cached automatically on `mycel start`. Use `mycel plugin update` to re-resolve versions.

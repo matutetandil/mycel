@@ -23,6 +23,7 @@ func parsePluginBlock(block *hcl.Block, ctx *hcl.EvalContext) (*plugin.PluginDec
 		Attributes: []hcl.AttributeSchema{
 			{Name: "source", Required: true},
 			{Name: "version"},
+			{Name: "copy"},
 		},
 	}
 
@@ -44,13 +45,22 @@ func parsePluginBlock(block *hcl.Block, ctx *hcl.EvalContext) (*plugin.PluginDec
 		decl.Source = val.AsString()
 	}
 
-	// Version is optional (only used for git/registry sources)
+	// Version is optional (only used for git sources)
 	if attr, ok := content.Attributes["version"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("plugin version error: %s", diags.Error())
 		}
 		decl.Version = val.AsString()
+	}
+
+	// Copy is optional (only for local plugins)
+	if attr, ok := content.Attributes["copy"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("plugin copy error: %s", diags.Error())
+		}
+		decl.Copy = val.True()
 	}
 
 	return decl, nil

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-03-09
+
+### Added
+- **Plugin git sources** (`internal/plugin/git.go`): Plugins can now be sourced from GitHub, GitLab, Bitbucket, or any git-cloneable URL. SSH first with automatic HTTPS fallback. Version resolution via `git ls-remote --tags`
+- **Semver constraint engine** (`internal/plugin/semver.go`): Full semver parsing and constraint matching — supports `^1.0` (caret), `~1.5` (tilde), `~> 2.0` (HashiCorp), `>= 1.0, < 3.0` (range), exact versions, and `latest`
+- **Plugin cache** (`internal/plugin/cache.go`): Local cache in `mycel_plugins/` directory (like `node_modules`). Plugins downloaded once, reused across restarts. `copy = true` option for local plugins (useful for Docker)
+- **Plugin lock file** (`internal/plugin/lockfile.go`): `plugins.lock` JSON file for reproducible builds. Atomic writes via temp+rename. Records source, version, resolved URL, and timestamp
+- **Plugin CLI** (`cmd/mycel/plugin.go`): `mycel plugin install`, `mycel plugin list`, `mycel plugin remove`, `mycel plugin update`. Auto-install on `mycel start` when plugins are declared
+- **Plugin validators and sanitizers** (`internal/plugin/types.go`, `internal/plugin/loader.go`): Plugins can now provide validators and sanitizers in addition to connectors and functions. Registered automatically in the runtime
+- **Validator wiring** (`internal/runtime/flow_registry.go`, `internal/parser/types.go`): Custom validators (regex/CEL/WASM) can now be referenced from type field definitions via `validator = "name"` attribute. The `ValidatorRef` on type fields is resolved at validation time against the `validator.Registry`, connecting config/plugin validators to the type validation system
+- **Plugin manifest detection** (`internal/parser/parser.go`): Main parser now auto-detects plugin manifest files (`plugin {}` without label + `provides {}` block) and skips them during recursive scanning. Only `mycel_plugins/` cache directory is excluded by name — user plugin directories can be placed anywhere in the config tree
+- **Plugin integration test** (`tests/integration/`): End-to-end test with local WASM plugin providing an `always_valid` validator. Type `plugin_validated` references it via `validator = "always_valid"`. Flow validates input through the plugin's WASM binary before writing to SQLite. 4 assertions (startup, log verification, validated POST)
+- **Request logging** (`internal/runtime/flow_registry.go`): Every flow execution is now logged with flow name, source connector, operation, and duration. Errors are logged at WARN level with the error message. Centralized in `FlowHandler.HandleRequest` — works for all connectors (REST, GraphQL, gRPC, SOAP, TCP, MQ, WebSocket, CDC, SSE, file watcher)
+- **Pretty logs with tint** (`internal/logging/logging.go`): Text format now uses `lmittmann/tint` for colored, human-readable output similar to pino-pretty. Short timestamp (`4:49PM`), colored level (`INF`/`WRN`/`ERR`), dimmed attributes. JSON format unchanged for production
+
+### Fixed
+- **Integration test runner empty arrays** (`tests/integration/run.sh`): Fixed `unbound variable` errors when running a subset of tests by using `${ARRAY[@]+"${ARRAY[@]}"}` syntax for potentially empty arrays under `set -u`
+
 ## [1.8.0] - 2026-03-09
 
 ### Added

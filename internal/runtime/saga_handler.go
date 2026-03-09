@@ -66,6 +66,8 @@ func (r *Runtime) registerSagas() error {
 			SagaExecutor:      sagaExecutor,
 			SagaConfig:        cfg,
 			Sanitizer:         r.sanitizer,
+			ValidatorRegistry: r.validatorRegistry,
+			Logger:            r.logger,
 		}
 
 		r.flows.Register(cfg.Name, handler)

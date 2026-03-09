@@ -259,6 +259,12 @@ func parseFieldDirective(field *validate.FieldSchema, key string, value interfac
 			field.Required = b
 		}
 		return true
+
+	case "validator":
+		if s, ok := value.(string); ok {
+			field.ValidatorRef = s
+		}
+		return true
 	}
 
 	return false

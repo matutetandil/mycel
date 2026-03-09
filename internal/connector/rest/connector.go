@@ -254,15 +254,12 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 
 	// Execute flow handler
 	result, err := handler(r.Context(), input)
+	duration := time.Since(start)
+
 	if err != nil {
-		c.logger.Error("Flow handler error",
-			slog.String("method", r.Method),
-			slog.String("path", r.URL.Path),
-			slog.Any("error", err),
-		)
 		status := c.writeError(w, err)
 		if c.metrics != nil {
-			c.metrics.RecordRequest(r.Method, path, strconv.Itoa(status), time.Since(start))
+			c.metrics.RecordRequest(r.Method, path, strconv.Itoa(status), duration)
 		}
 		return
 	}
@@ -270,7 +267,7 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 	// Write response using format-aware codec
 	c.writeResponse(w, r, http.StatusOK, result)
 	if c.metrics != nil {
-		c.metrics.RecordRequest(r.Method, path, "200", time.Since(start))
+		c.metrics.RecordRequest(r.Method, path, "200", duration)
 	}
 }
 

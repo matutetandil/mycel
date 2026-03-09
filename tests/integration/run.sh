@@ -144,6 +144,7 @@ else
     scripts/test-filter.sh
     scripts/test-federation.sh
     scripts/test-security.sh
+    scripts/test-plugin.sh
   )
 fi
 
@@ -224,7 +225,7 @@ else
   done
 
   # Phase 1: Preflight — health/metrics run first on a clean server
-  for test_file in "${PREFLIGHT_FILES[@]}"; do
+  for test_file in "${PREFLIGHT_FILES[@]+"${PREFLIGHT_FILES[@]}"}"; do
     name=$(basename "$test_file" .sh | sed 's/test-//')
     echo "--------------------------------------"
     output=$(bash "$test_file" 2>&1)
@@ -235,7 +236,7 @@ else
   # Phase 2: Parallel — all independent tests + mock group
   PIDS=()
 
-  for test_file in "${PARALLEL_FILES[@]}"; do
+  for test_file in "${PARALLEL_FILES[@]+"${PARALLEL_FILES[@]}"}"; do
     name=$(basename "$test_file" .sh | sed 's/test-//')
     bash "$test_file" > "$TMPDIR_TESTS/$name.out" 2>&1 &
     PIDS+=($!)
@@ -256,7 +257,7 @@ else
   echo -e "${CYAN}Running $PARALLEL_COUNT test suites in parallel...${NC}"
 
   # Wait for all parallel tests
-  for pid in "${PIDS[@]}"; do
+  for pid in "${PIDS[@]+"${PIDS[@]}"}"; do
     wait "$pid" 2>/dev/null
   done
 
@@ -275,7 +276,7 @@ else
   done
 
   # Phase 3: Solo — rate-limit must run alone (triggers 429 server-wide)
-  for test_file in "${SOLO_FILES[@]}"; do
+  for test_file in "${SOLO_FILES[@]+"${SOLO_FILES[@]}"}"; do
     echo "--------------------------------------"
     output=$(bash "$test_file" 2>&1)
     echo "$output"

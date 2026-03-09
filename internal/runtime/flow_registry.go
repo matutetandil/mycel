@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 	msync "github.com/matutetandil/mycel/internal/sync"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
+	"github.com/matutetandil/mycel/internal/validator"
 )
 
 // FlowRegistry manages flow handlers.
@@ -128,6 +130,13 @@ type FlowHandler struct {
 
 	// Sanitizer is the input sanitization pipeline (always active).
 	Sanitizer *sanitize.Pipeline
+
+	// ValidatorRegistry provides access to custom validators (regex/CEL/WASM)
+	// for type field validation via the `validator` attribute.
+	ValidatorRegistry *validator.Registry
+
+	// Logger for request logging.
+	Logger *slog.Logger
 }
 
 // FilteredResult is returned when a request is filtered out by the from.filter expression.
@@ -135,7 +144,29 @@ type FlowHandler struct {
 var FilteredResult = &struct{ Filtered bool }{Filtered: true}
 
 // HandleRequest processes an incoming request through the flow.
-func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interface{}) (result interface{}, err error) {
+	start := time.Now()
+	defer func() {
+		if h.Logger == nil {
+			return
+		}
+		duration := time.Since(start)
+		attrs := []slog.Attr{
+			slog.String("flow", h.Config.Name),
+			slog.String("source", h.Config.From.Connector),
+			slog.Duration("duration", duration),
+		}
+		if h.Config.From.Operation != "" {
+			attrs = append(attrs, slog.String("operation", h.Config.From.Operation))
+		}
+		if err != nil {
+			attrs = append(attrs, slog.String("error", err.Error()))
+			h.Logger.LogAttrs(ctx, slog.LevelWarn, "request", attrs...)
+		} else {
+			h.Logger.LogAttrs(ctx, slog.LevelInfo, "request", attrs...)
+		}
+	}()
+
 	// Sanitize input (always runs first, before any processing)
 	if h.Sanitizer != nil && input != nil {
 		sanitized, err := h.Sanitizer.Sanitize(input)
@@ -210,7 +241,7 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 	}
 
 	// Execute without error handling wrapper
-	result, err := executeFn()
+	result, err = executeFn()
 	if err != nil && h.Config.ErrorHandling != nil {
 		return result, h.wrapErrorResponse(ctx, input, err)
 	}
@@ -2182,6 +2213,41 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 	return h.Transformer.TransformWithSteps(ctx, input, enriched, stepResults, rules)
 }
 
+// resolveValidatorRefs adds custom validator constraints to fields that reference
+// a registered validator (regex/CEL/WASM) via the `validator` attribute.
+// Safe to call multiple times — skips fields that already have the constraint.
+func (h *FlowHandler) resolveValidatorRefs(schema *validate.TypeSchema) {
+	if h.ValidatorRegistry == nil {
+		return
+	}
+	for i := range schema.Fields {
+		field := &schema.Fields[i]
+		if field.ValidatorRef == "" {
+			continue
+		}
+		// Skip if already resolved
+		alreadyResolved := false
+		for _, c := range field.Constraints {
+			if c.Name() == "custom:"+field.ValidatorRef {
+				alreadyResolved = true
+				break
+			}
+		}
+		if alreadyResolved {
+			continue
+		}
+		v, ok := h.ValidatorRegistry.Get(field.ValidatorRef)
+		if !ok {
+			continue
+		}
+		validatorFn := v // capture for closure
+		field.Constraints = append(field.Constraints, &validate.CustomValidatorConstraint{
+			ValidatorName: field.ValidatorRef,
+			ValidateFn:    validatorFn.Validate,
+		})
+	}
+}
+
 // validateInput validates input data against the configured input type schema.
 func (h *FlowHandler) validateInput(ctx context.Context, input map[string]interface{}) error {
 	// Skip if no validation configured
@@ -2199,6 +2265,9 @@ func (h *FlowHandler) validateInput(ctx context.Context, input map[string]interf
 	if h.Validator == nil {
 		h.Validator = validate.NewTypeValidator(validate.NewConstraintRegistry())
 	}
+
+	// Resolve custom validator references on fields
+	h.resolveValidatorRefs(schema)
 
 	// Validate
 	result := h.Validator.Validate(ctx, input, schema)
@@ -2230,6 +2299,9 @@ func (h *FlowHandler) validateOutput(ctx context.Context, output map[string]inte
 	if h.Validator == nil {
 		h.Validator = validate.NewTypeValidator(validate.NewConstraintRegistry())
 	}
+
+	// Resolve custom validator references on fields
+	h.resolveValidatorRefs(schema)
 
 	// Validate
 	result := h.Validator.Validate(ctx, output, schema)

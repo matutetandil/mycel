@@ -152,9 +152,46 @@ mycel start [--config=<path>] [--env=<env>] [--log-level=<level>] [--log-format=
 mycel validate [--config=<path>]
 mycel check [--config=<path>]
 mycel version
+
+mycel plugin install [name]
+mycel plugin list
+mycel plugin remove <name>
+mycel plugin update [name]
 ```
 
 Environment: `MYCEL_ENV` (default: development), `MYCEL_LOG_LEVEL` (default: info), `MYCEL_LOG_FORMAT` (default: text). Flags take precedence.
+
+## Plugins
+
+Plugins extend Mycel with additional connectors, validators, and sanitizers via WASM. Declare them in your config and they work like built-in features — no extra wiring needed.
+
+**Declare the plugin:**
+```hcl
+plugin "salesforce" {
+  source  = "github.com/acme/mycel-salesforce"
+  version = "^1.0"
+}
+```
+
+**Use it like any built-in connector:**
+```hcl
+connector "sf" {
+  type         = "salesforce"
+  instance_url = env("SF_URL")
+  api_key      = env("SF_KEY")
+}
+
+flow "sync_accounts" {
+  from { connector.api = "POST /accounts" }
+  to   { connector.sf  = "accounts" }
+}
+```
+
+Plugin validators and sanitizers are also available immediately after declaration — use them in type definitions or security rules just like native ones.
+
+Plugins are auto-installed on `mycel start`. Sources: local paths (`./plugins/my-plugin`), GitHub, GitLab, Bitbucket, or any git URL. Versions use semver constraints (`^1.0`, `~2.0`, `>= 1.0, < 3.0`). Cache stored in `mycel_plugins/`.
+
+See the [plugin example](examples/plugin) for a complete walkthrough.
 
 ## Installation
 

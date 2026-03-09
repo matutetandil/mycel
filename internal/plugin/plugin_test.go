@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/matutetandil/mycel/internal/connector"
@@ -21,17 +22,12 @@ func TestNewLoader(t *testing.T) {
 	}
 }
 
-func TestNewLoader_WithEnvCache(t *testing.T) {
-	// Set custom cache dir via env
-	originalEnv := os.Getenv("MYCEL_PLUGIN_CACHE")
-	defer os.Setenv("MYCEL_PLUGIN_CACHE", originalEnv)
-
-	os.Setenv("MYCEL_PLUGIN_CACHE", "/custom/cache")
-
+func TestNewLoader_CacheDirDefault(t *testing.T) {
 	loader := NewLoader("/test/base")
 
-	if loader.CacheDir != "/custom/cache" {
-		t.Errorf("expected CacheDir /custom/cache, got %s", loader.CacheDir)
+	expected := "/test/base/mycel_plugins"
+	if loader.CacheDir != expected {
+		t.Errorf("expected CacheDir %s, got %s", expected, loader.CacheDir)
 	}
 }
 
@@ -89,38 +85,87 @@ func TestResolvePluginPath_Local(t *testing.T) {
 	}
 }
 
-func TestResolvePluginPath_GitNotImplemented(t *testing.T) {
-	loader := NewLoader("/test")
+func TestResolvePluginPath_LocalWithCopy(t *testing.T) {
+	tmp := t.TempDir()
 
-	decl := &PluginDeclaration{
-		Name:    "test",
-		Source:  "github.com/acme/plugin",
-		Version: "1.0.0",
+	// Create a local plugin with files
+	pluginDir := filepath.Join(tmp, "my-plugin")
+	os.MkdirAll(pluginDir, 0755)
+	os.WriteFile(filepath.Join(pluginDir, "plugin.hcl"), []byte("plugin {}"), 0644)
+	os.WriteFile(filepath.Join(pluginDir, "conn.wasm"), []byte("wasm"), 0644)
+
+	loader := NewLoader(tmp)
+
+	// Without copy — returns original path
+	decl := &PluginDeclaration{Name: "test", Source: "./my-plugin", Copy: false}
+	path, err := loader.resolvePluginPath(decl)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if path != pluginDir {
+		t.Errorf("expected original path %s, got %s", pluginDir, path)
 	}
 
-	_, err := loader.resolvePluginPath(decl)
-	if err == nil {
-		t.Error("expected error for git source")
+	// With copy — returns path inside mycel_plugins/
+	declCopy := &PluginDeclaration{Name: "test", Source: "./my-plugin", Copy: true}
+	copiedPath, err := loader.resolvePluginPath(declCopy)
+	if err != nil {
+		t.Fatalf("unexpected error with copy: %v", err)
 	}
-	if err.Error() != "git plugin sources not yet implemented: github.com/acme/plugin" {
-		t.Errorf("unexpected error message: %v", err)
+	if copiedPath == pluginDir {
+		t.Error("expected copied path to differ from original")
+	}
+	if _, err := os.Stat(filepath.Join(copiedPath, "plugin.hcl")); err != nil {
+		t.Error("plugin.hcl not found in copied location")
+	}
+	if _, err := os.Stat(filepath.Join(copiedPath, "conn.wasm")); err != nil {
+		t.Error("conn.wasm not found in copied location")
 	}
 }
 
-func TestResolvePluginPath_RegistryNotImplemented(t *testing.T) {
+func TestResolvePluginPath_GitSourceDetection(t *testing.T) {
+	// Verify that git sources are routed to resolveGitPlugin, not rejected
+	// as "unknown source format". We check the routing without making
+	// network calls by using an invalid version constraint.
+	loader := NewLoader(t.TempDir())
+
+	gitSources := []string{
+		"github.com/acme/plugin",
+		"gitlab.com/org/repo",
+		"bitbucket.org/team/plugin",
+	}
+
+	for _, src := range gitSources {
+		decl := &PluginDeclaration{Name: "test", Source: src, Version: "!!!invalid!!!"}
+		_, err := loader.resolvePluginPath(decl)
+		if err == nil {
+			t.Errorf("expected error for %s", src)
+			continue
+		}
+		// Should fail on version parsing (git path), NOT "unknown source format"
+		if strings.Contains(err.Error(), "unknown plugin source format") {
+			t.Errorf("source %q should be detected as git, got: %v", src, err)
+		}
+		if !strings.Contains(err.Error(), "invalid version constraint") {
+			t.Errorf("expected version constraint error for %q, got: %v", src, err)
+		}
+	}
+}
+
+func TestResolvePluginPath_UnknownSource(t *testing.T) {
 	loader := NewLoader("/test")
 
 	decl := &PluginDeclaration{
 		Name:   "test",
-		Source: "registry.mycel.dev/stripe",
+		Source: "some-invalid-source",
 	}
 
 	_, err := loader.resolvePluginPath(decl)
 	if err == nil {
-		t.Error("expected error for registry source")
+		t.Error("expected error for unknown source format")
 	}
-	if err.Error() != "registry plugin sources not yet implemented: registry.mycel.dev/stripe" {
-		t.Errorf("unexpected error message: %v", err)
+	if !strings.Contains(err.Error(), "unknown plugin source format") {
+		t.Errorf("expected 'unknown plugin source format' error, got: %v", err)
 	}
 }
 
@@ -330,20 +375,135 @@ func TestFactory_Supports(t *testing.T) {
 	}
 }
 
-func TestCtyToGo(t *testing.T) {
-	tests := []struct {
-		name string
-		// We can't easily test cty values without importing cty
-		// This is just a placeholder for the function existence
-	}{
-		{
-			name: "placeholder",
-		},
+func TestParseManifest_WithValidatorsAndSanitizers(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Create a plugin manifest with validators and sanitizers
+	manifest := `
+plugin {
+  name    = "tax-utils"
+  version = "1.0.0"
+}
+
+provides {
+  validator "cuit" {
+    wasm       = "validators.wasm"
+    entrypoint = "validate_cuit"
+    message    = "Invalid CUIT number"
+  }
+
+  validator "cnpj" {
+    wasm    = "validators.wasm"
+    message = "Invalid CNPJ number"
+  }
+
+  sanitizer "pii_filter" {
+    wasm       = "sanitizers.wasm"
+    entrypoint = "filter_pii"
+    apply_to   = ["flows/api/*"]
+    fields     = ["email", "phone"]
+  }
+
+  sanitizer "strip_html" {
+    wasm = "sanitizers.wasm"
+  }
+}
+`
+	os.WriteFile(filepath.Join(tmp, "plugin.hcl"), []byte(manifest), 0644)
+
+	loader := NewLoader(tmp)
+	parsed, err := loader.parseManifest(tmp)
+	if err != nil {
+		t.Fatalf("failed to parse manifest: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Test passes if function exists and doesn't panic
-		})
+	if parsed.Name != "tax-utils" {
+		t.Errorf("expected name tax-utils, got %s", parsed.Name)
+	}
+
+	// Check validators
+	if parsed.Provides == nil {
+		t.Fatal("expected provides section")
+	}
+	if len(parsed.Provides.Validators) != 2 {
+		t.Fatalf("expected 2 validators, got %d", len(parsed.Provides.Validators))
+	}
+
+	cuit := parsed.Provides.Validators[0]
+	if cuit.Name != "cuit" {
+		t.Errorf("expected validator name cuit, got %s", cuit.Name)
+	}
+	if cuit.WASM != "validators.wasm" {
+		t.Errorf("expected wasm validators.wasm, got %s", cuit.WASM)
+	}
+	if cuit.Entrypoint != "validate_cuit" {
+		t.Errorf("expected entrypoint validate_cuit, got %s", cuit.Entrypoint)
+	}
+	if cuit.Message != "Invalid CUIT number" {
+		t.Errorf("expected message, got %s", cuit.Message)
+	}
+
+	cnpj := parsed.Provides.Validators[1]
+	if cnpj.Entrypoint != "validate_cnpj" {
+		t.Errorf("expected default entrypoint validate_cnpj, got %s", cnpj.Entrypoint)
+	}
+
+	// Check sanitizers
+	if len(parsed.Provides.Sanitizers) != 2 {
+		t.Fatalf("expected 2 sanitizers, got %d", len(parsed.Provides.Sanitizers))
+	}
+
+	pii := parsed.Provides.Sanitizers[0]
+	if pii.Name != "pii_filter" {
+		t.Errorf("expected sanitizer name pii_filter, got %s", pii.Name)
+	}
+	if pii.Entrypoint != "filter_pii" {
+		t.Errorf("expected entrypoint filter_pii, got %s", pii.Entrypoint)
+	}
+	if len(pii.ApplyTo) != 1 || pii.ApplyTo[0] != "flows/api/*" {
+		t.Errorf("expected apply_to [flows/api/*], got %v", pii.ApplyTo)
+	}
+	if len(pii.Fields) != 2 || pii.Fields[0] != "email" || pii.Fields[1] != "phone" {
+		t.Errorf("expected fields [email, phone], got %v", pii.Fields)
+	}
+
+	strip := parsed.Provides.Sanitizers[1]
+	if strip.Entrypoint != "sanitize" {
+		t.Errorf("expected default entrypoint sanitize, got %s", strip.Entrypoint)
+	}
+}
+
+func TestParseManifest_ConnectorsOnly(t *testing.T) {
+	tmp := t.TempDir()
+
+	// A manifest with only connectors (backward compat)
+	manifest := `
+plugin {
+  name    = "salesforce"
+  version = "2.0.0"
+}
+
+provides {
+  connector "salesforce" {
+    wasm = "connector.wasm"
+  }
+}
+`
+	os.WriteFile(filepath.Join(tmp, "plugin.hcl"), []byte(manifest), 0644)
+
+	loader := NewLoader(tmp)
+	parsed, err := loader.parseManifest(tmp)
+	if err != nil {
+		t.Fatalf("failed to parse manifest: %v", err)
+	}
+
+	if len(parsed.Provides.Connectors) != 1 {
+		t.Errorf("expected 1 connector, got %d", len(parsed.Provides.Connectors))
+	}
+	if len(parsed.Provides.Validators) != 0 {
+		t.Errorf("expected 0 validators, got %d", len(parsed.Provides.Validators))
+	}
+	if len(parsed.Provides.Sanitizers) != 0 {
+		t.Errorf("expected 0 sanitizers, got %d", len(parsed.Provides.Sanitizers))
 	}
 }

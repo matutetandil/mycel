@@ -25,7 +25,7 @@ const (
 
 var (
 	// Version information (set at build time)
-	version = "1.8.0"
+	version = "1.9.0"
 	commit  = "dev"
 )
 
@@ -257,6 +257,7 @@ func init() {
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(checkCmd)
 	rootCmd.AddCommand(exportCmd)
+	rootCmd.AddCommand(pluginCmd)
 
 	// Add export subcommands
 	exportCmd.AddCommand(exportOpenAPICmd)
