@@ -119,8 +119,8 @@ That's it. REST API + database, zero code.
 | [gRPC Server & Client](examples/grpc) | Protocol Buffers based RPC |
 | [gRPC Load Balancing](examples/grpc-loadbalancing) | Round-robin and weighted balancing |
 | [RabbitMQ / Kafka / Redis Pub/Sub](examples/mq) | Message queue producers and consumers |
-| [MQTT](examples/mqtt) | IoT messaging protocol (QoS 0/1/2, TLS, auto-reconnect) |
-| [FTP / SFTP](examples/ftp) | Remote file transfer (FTP, FTPS, SFTP with key auth) |
+| [MQTT](examples/mqtt) | IoT messaging protocol (QoS 0/1/2, TLS, auto-reconnect) ([docs](docs/connectors/mqtt.md)) |
+| [FTP / SFTP](examples/ftp) | Remote file transfer (FTP, FTPS, SFTP with key auth) ([docs](docs/connectors/ftp.md)) |
 | [WebSocket](examples/websocket) | Bidirectional real-time communication with rooms and per-user targeting ([docs](docs/connectors/websocket.md)) |
 | [CDC (Change Data Capture)](examples/cdc) | Real-time database change streaming with wildcard matching ([docs](docs/connectors/cdc.md)) |
 | [SSE (Server-Sent Events)](examples/sse) | Unidirectional HTTP push with rooms and per-user targeting ([docs](docs/connectors/sse.md)) |
@@ -272,7 +272,7 @@ Full documentation is at [docs/index.md](docs/index.md). Quick links:
 - [Quick Start](docs/getting-started/quick-start.md) — First service in 5 minutes
 
 **Core Concepts**
-- [Connectors](docs/core-concepts/connectors.md) — All 24 connector types
+- [Connectors](docs/core-concepts/connectors.md) — All connector types
 - [Flows](docs/core-concepts/flows.md) — Complete flow reference
 - [Transforms](docs/core-concepts/transforms.md) — CEL functions and expressions
 - [Types](docs/core-concepts/types.md) — Schema validation and field constraints

@@ -10,7 +10,7 @@ A connector is a bidirectional adapter between Mycel and an external system. Eve
 | `http` | HTTP client | — | Call APIs |
 | `database` | `postgres`, `mysql`, `sqlite`, `mongodb` | Query data | Insert/Update/Delete |
 | `graphql` | GraphQL server/client | Expose schema | Query/Mutate |
-| `queue` | `rabbitmq`, `kafka` | Consume messages | Publish messages |
+| `queue` | `rabbitmq`, `kafka`, `redis` | Consume messages | Publish messages |
 | `grpc` | gRPC server/client | Expose services | Call services |
 | `tcp` | TCP server/client | Receive connections | Send data |
 | `cache` | `memory`, `redis` | — | Read/write cache |
@@ -29,6 +29,8 @@ A connector is a bidirectional adapter between Mycel and an external system. Eve
 | `soap` | SOAP 1.1/1.2 | Expose SOAP endpoints | Call SOAP services |
 | `elasticsearch` | Elasticsearch | — | Index/Search |
 | `oauth` | Google, GitHub, Apple, OIDC | OAuth callback | — |
+| `mqtt` | MQTT 3.1.1/5.0 | Subscribe to topics | Publish messages |
+| `ftp` | FTP, FTPS, SFTP | List/Download files | Upload/Delete files |
 
 ## Defining a Connector
 
@@ -146,6 +148,14 @@ connector "kafka" {
   type    = "queue"
   driver  = "kafka"
   brokers = ["kafka:9092"]
+}
+
+# Redis Pub/Sub
+connector "redis_events" {
+  type     = "queue"
+  driver   = "redis"
+  address  = env("REDIS_ADDRESS")
+  channels = ["orders", "payments"]
 }
 ```
 
@@ -356,4 +366,6 @@ For complete configuration options and examples for each connector type, see the
 - [Elasticsearch](../connectors/elasticsearch.md)
 - [SOAP](../connectors/soap.md)
 - [OAuth](../connectors/oauth.md)
+- [MQTT](../connectors/mqtt.md)
+- [FTP / SFTP](../connectors/ftp.md)
 - [Notifications](../connectors/notifications.md)

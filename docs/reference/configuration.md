@@ -290,6 +290,64 @@ connector "kafka" {
     password  = env("KAFKA_PASS")
   }
 }
+
+# Redis Pub/Sub
+connector "redis_events" {
+  type     = "queue"
+  driver   = "redis"
+  address  = env("REDIS_ADDRESS")   # "host:port"
+  password = env("REDIS_PASSWORD")
+  db       = 0
+  channels = ["orders", "payments"]  # Subscribe to channels
+  patterns = ["events.*"]            # PSUBSCRIBE glob patterns
+}
+```
+
+### MQTT
+
+```hcl
+connector "sensors" {
+  type      = "mqtt"
+  broker    = "tcp://localhost:1883"   # tcp://, ssl://, ws://
+  client_id = "mycel-iot-gateway"
+  username  = env("MQTT_USER")
+  password  = env("MQTT_PASS")
+  qos       = 1                        # 0, 1, 2
+  topic     = "default/topic"          # Default publish topic
+
+  clean_session          = true
+  keep_alive             = "30s"
+  connect_timeout        = "10s"
+  auto_reconnect         = true
+  max_reconnect_interval = "5m"
+
+  tls {
+    enabled  = true
+    cert     = "/certs/client.crt"
+    key      = "/certs/client.key"
+    ca       = "/certs/ca.crt"
+    insecure = false
+  }
+}
+```
+
+### FTP / SFTP
+
+```hcl
+# SFTP
+connector "partner_sftp" {
+  type      = "ftp"
+  protocol  = "sftp"         # "ftp" or "sftp"
+  host      = "sftp.partner.com"
+  port      = 22             # 21 for FTP, 22 for SFTP
+  username  = env("SFTP_USER")
+  password  = env("SFTP_PASS")
+  base_path = "/incoming"
+  key_file  = "/keys/id_rsa" # SSH private key (SFTP only)
+  passive   = true           # FTP passive mode
+  timeout   = "30s"
+  tls       = false          # Explicit TLS (FTPS)
+}
 ```
 
 ### TCP
