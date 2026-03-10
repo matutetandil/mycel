@@ -18,11 +18,11 @@ A **flow** wires two connectors together, moving data from one to the other:
 Connector (source) ──→ Flow ──→ Connector (target)
 ```
 
-On top of this, you can add [transforms](docs/CONCEPTS.md#transforms) (reshape data), [types](docs/CONCEPTS.md#types) (validate schemas), [steps](docs/CONCEPTS.md#steps) (multi-step orchestration), [sagas](docs/CONCEPTS.md#sagas) (distributed transactions), [auth](docs/CONCEPTS.md#auth), [aspects](docs/CONCEPTS.md#aspects), [security](docs/CONCEPTS.md#security), and [more](#features). But every feature ultimately serves the same pattern: data enters through a connector, optionally gets transformed, and exits through another connector.
+On top of this, you can add [transforms](docs/core-concepts/transforms.md) (reshape data), [types](docs/core-concepts/types.md) (validate schemas), [steps](docs/guides/multi-step-flows.md) (multi-step orchestration), [sagas](docs/guides/sagas.md) (distributed transactions), [auth](docs/guides/auth.md), [aspects](docs/guides/extending.md#aspects), [security](docs/guides/security.md), and [more](#features). But every feature ultimately serves the same pattern: data enters through a connector, optionally gets transformed, and exits through another connector.
 
 Every Mycel service automatically includes health checks (`/health`, `/health/live`, `/health/ready`), Prometheus metrics (`/metrics`), and hot reload — no configuration needed. Change an HCL file and the service reloads with zero downtime.
 
-That's the whole model. Everything else is configuration. Learn more in [Concepts](docs/CONCEPTS.md).
+That's the whole model. Everything else is configuration. Learn more in [Core Concepts](docs/core-concepts/connectors.md).
 
 ## Quick Start
 
@@ -90,7 +90,7 @@ curl http://localhost:3000/users
 
 That's it. REST API + database, zero code.
 
-> See [Getting Started Guide](docs/GETTING_STARTED.md) for a complete tutorial, or explore the [full documentation](#documentation).
+> See the [Quick Start Guide](docs/getting-started/quick-start.md) for a complete tutorial, or explore the [full documentation](#documentation).
 
 ## Purpose
 
@@ -107,44 +107,44 @@ That's it. REST API + database, zero code.
 | [MongoDB](examples/mongodb) | NoSQL document database |
 | [GraphQL Server & Client](examples/graphql) | Schema-based GraphQL API |
 | [GraphQL Query Optimization](examples/graphql-optimization) | Field selection, step skipping, DataLoader |
-| [GraphQL Federation](examples/graphql-federation) | Federation v2, entity resolution, gateway-compatible subgraphs ([concept](docs/CONCEPTS.md#federation)) |
-| [GraphQL Subscriptions](examples/graphql-federation) | Real-time push via WebSocket, per-user filtering ([concept](docs/CONCEPTS.md#subscriptions)) |
-| [GraphQL Subscription Client](examples/graphql-subscription-client) | Subscribe to external GraphQL events via WebSocket ([concept](docs/CONCEPTS.md#client-side-subscriptions)) |
+| [GraphQL Federation](examples/graphql-federation) | Federation v2, entity resolution, gateway-compatible subgraphs ([docs](docs/advanced/federation.md)) |
+| [GraphQL Subscriptions](examples/graphql-federation) | Real-time push via WebSocket, per-user filtering ([docs](docs/guides/real-time.md#graphql-subscriptions)) |
+| [GraphQL Subscription Client](examples/graphql-subscription-client) | Subscribe to external GraphQL events via WebSocket ([docs](docs/guides/real-time.md)) |
 | [gRPC Server & Client](examples/grpc) | Protocol Buffers based RPC |
 | [gRPC Load Balancing](examples/grpc-loadbalancing) | Round-robin and weighted balancing |
 | [RabbitMQ / Kafka](examples/mq) | Message queue producers and consumers |
-| [WebSocket](examples/websocket) | Bidirectional real-time communication with rooms and per-user targeting ([docs](docs/connectors/websocket.md), [concept](docs/CONCEPTS.md#real-time-connectors)) |
-| [CDC (Change Data Capture)](examples/cdc) | Real-time database change streaming with wildcard matching ([docs](docs/connectors/cdc.md), [concept](docs/CONCEPTS.md#real-time-connectors)) |
-| [SSE (Server-Sent Events)](examples/sse) | Unidirectional HTTP push with rooms and per-user targeting ([docs](docs/connectors/sse.md), [concept](docs/CONCEPTS.md#real-time-connectors)) |
+| [WebSocket](examples/websocket) | Bidirectional real-time communication with rooms and per-user targeting ([docs](docs/connectors/websocket.md)) |
+| [CDC (Change Data Capture)](examples/cdc) | Real-time database change streaming with wildcard matching ([docs](docs/connectors/cdc.md)) |
+| [SSE (Server-Sent Events)](examples/sse) | Unidirectional HTTP push with rooms and per-user targeting ([docs](docs/connectors/sse.md)) |
 | [Elasticsearch](examples/elasticsearch) | Full-text search and analytics over Elasticsearch REST API ([docs](docs/connectors/elasticsearch.md)) |
 | [OAuth (Social Login)](examples/oauth) | Declarative social login: Google, GitHub, Apple, OIDC, custom ([docs](docs/connectors/oauth.md)) |
-| [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([concept](docs/CONCEPTS.md#batch-processing)) |
-| [Sagas](examples/saga) | Distributed transactions with automatic compensation, delay/await steps, workflow persistence ([concept](docs/CONCEPTS.md#sagas)) |
-| [State Machines](examples/state-machine) | Entity lifecycle with guards, actions, final states ([concept](docs/CONCEPTS.md#state-machines)) |
-| [Long-Running Workflows](examples/workflows) | Persistent workflows with delay timers, await/signal events, timeout enforcement, REST API ([concept](docs/CONCEPTS.md#long-running-workflows), [guide](docs/WORKFLOWS.md)) |
+| [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([docs](docs/guides/batch-processing.md)) |
+| [Sagas](examples/saga) | Distributed transactions with automatic compensation, delay/await steps, workflow persistence ([docs](docs/guides/sagas.md)) |
+| [State Machines](examples/state-machine) | Entity lifecycle with guards, actions, final states ([docs](docs/guides/sagas.md#state-machines)) |
+| [Long-Running Workflows](examples/workflows) | Persistent workflows with delay timers, await/signal events, timeout enforcement, REST API ([docs](docs/guides/sagas.md#long-running-workflows)) |
 | [SOAP](examples/soap) | Call or expose SOAP/XML web services (SOAP 1.1/1.2) ([docs](docs/connectors/soap.md)) |
-| [Format Declarations](examples/format) | Multi-format support (JSON, XML) at connector, flow, and step level ([docs](docs/FORMAT.md)) |
+| [Format Declarations](examples/format) | Multi-format support (JSON, XML) at connector, flow, and step level ([docs](docs/guides/format-system.md)) |
 | [TCP Server & Client](examples/tcp) | JSON, msgpack, and NestJS protocols |
 | [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
-| [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching |
-| [Multi-step Flow Orchestration](examples/steps) | Sequential and conditional step execution ([concept](docs/CONCEPTS.md#steps)) |
-| [Named Operations](examples/named-operations) | Reusable parameterized operations ([concept](docs/CONCEPTS.md#named-operations)) |
+| [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching ([docs](docs/guides/caching.md)) |
+| [Multi-step Flow Orchestration](examples/steps) | Sequential and conditional step execution ([docs](docs/guides/multi-step-flows.md)) |
+| [Named Operations](examples/named-operations) | Reusable parameterized operations |
 | [Data Enrichment](examples/enrich) | Combine data from multiple sources |
-| [Auth (JWT, MFA, WebAuthn)](examples/auth) | Authentication with presets and MFA ([concept](docs/CONCEPTS.md#auth)) |
+| [Auth (JWT, MFA, WebAuthn)](examples/auth) | Authentication with presets and MFA ([docs](docs/guides/auth.md)) |
 | [Rate Limiting / Circuit Breaker](examples/rate-limit) | Traffic control and fault tolerance |
 | [Connector Profiles](examples/profiles) | Multiple backends with fallback |
 | [Read Replicas](examples/read-replicas) | Route reads to replica databases |
-| [Synchronization](examples/sync) | Distributed locks, semaphores, coordination ([concept](docs/CONCEPTS.md#synchronization)) |
-| [Notifications](examples/notifications) | Email, Slack, Discord, SMS, Push, Webhook ([concept](docs/CONCEPTS.md#notifications)) |
-| [Aspects (AOP)](examples/aspects) | Cross-cutting concerns via pattern matching ([concept](docs/CONCEPTS.md#aspects)) |
-| [Validators](examples/validators) | Regex, CEL, and custom validation rules ([concept](docs/CONCEPTS.md#validators)) |
-| [WASM](examples/wasm-functions) | Custom functions and validators via WebAssembly ([concept](docs/CONCEPTS.md#wasm)) |
-| [Mocks](examples/mocks) | Mock data for development and testing ([concept](docs/CONCEPTS.md#mocks)) |
-| [Plugins](examples/plugin) | Extend Mycel with WASM plugins ([concept](docs/CONCEPTS.md#plugins)) |
+| [Synchronization](examples/sync) | Distributed locks, semaphores, coordination ([docs](docs/guides/synchronization.md)) |
+| [Notifications](examples/notifications) | Email, Slack, Discord, SMS, Push, Webhook ([docs](docs/guides/notifications.md)) |
+| [Aspects (AOP)](examples/aspects) | Cross-cutting concerns via pattern matching ([docs](docs/guides/extending.md#aspects)) |
+| [Validators](examples/validators) | Regex, CEL, and custom validation rules ([docs](docs/guides/extending.md#validators)) |
+| [WASM](examples/wasm-functions) | Custom functions and validators via WebAssembly ([docs](docs/advanced/wasm.md)) |
+| [Mocks](examples/mocks) | Mock data for development and testing ([docs](docs/guides/extending.md#mocks)) |
+| [Plugins](examples/plugin) | Extend Mycel with WASM plugins ([docs](docs/advanced/plugins.md)) |
 | [Exec](examples/exec) | Execute shell commands from flows |
-| [Error Handling](examples/error-handling) | Retry, DLQ, circuit breaker, custom error responses, on_error aspects ([concept](docs/CONCEPTS.md#error-handling), [guide](docs/ERROR_HANDLING.md)) |
-| [Security](examples/security) | Secure-by-default input sanitization, XXE/injection protection, WASM sanitizers ([concept](docs/CONCEPTS.md#security), [guide](docs/SECURITY.md)) |
-| [Scheduled Jobs](examples/scheduled) | Cron expressions and interval-based flow triggers ([concept](docs/CONCEPTS.md#scheduled-jobs)) |
+| [Error Handling](examples/error-handling) | Retry, DLQ, circuit breaker, custom error responses, on_error aspects ([docs](docs/guides/error-handling.md)) |
+| [Security](examples/security) | Secure-by-default input sanitization, XXE/injection protection, WASM sanitizers ([docs](docs/guides/security.md)) |
+| [Scheduled Jobs](examples/scheduled) | Cron expressions and interval-based flow triggers |
 | Hot Reload | Apply HCL changes without restart |
 | Health Checks / Prometheus | `/health`, `/metrics` endpoints |
 
@@ -223,18 +223,52 @@ See [helm/mycel/README.md](helm/mycel/README.md) for full Helm documentation inc
 
 ## Documentation
 
-- **[Concepts](docs/CONCEPTS.md)** - Understanding connectors, flows, transforms, and the full Mycel model
-- **[Error Handling](docs/ERROR_HANDLING.md)** - Retry, circuit breaker, DLQ, fallback, and resilience patterns
-- **[Connector Catalog](docs/connectors/)** - Individual documentation for every connector type
-- **[Format System](docs/FORMAT.md)** - Multi-format support (JSON, XML), auto-detection, and XML mapping rules
-- **[Security](docs/SECURITY.md)** - Secure-by-default sanitization, XXE protection, WASM sanitizers, all security options
-- **[Workflows](docs/WORKFLOWS.md)** - Long-running processes with delay, await/signal, timeouts, and REST API
-- **[WASM](docs/WASM.md)** - Building WASM modules in Rust, Go, C, C++, AssemblyScript, and Zig
-- **[Configuration Reference](docs/CONFIGURATION.md)** - Complete HCL syntax reference
-- **[Deployment Guide](docs/DEPLOYMENT.md)** - Docker, Docker Compose, Kubernetes, environment variables, .env files
-- **[Integration Patterns](docs/integration-patterns.md)** - Common use cases
-- **[Transformations](docs/transformations.md)** - CEL transformation guide
-- **[Roadmap](docs/ROADMAP.md)** - Project status and future plans
+Full documentation is at [docs/index.md](docs/index.md). Quick links:
+
+**Getting Started**
+- [Introduction](docs/getting-started/introduction.md) — What Mycel is and how it works
+- [Installation](docs/getting-started/installation.md) — Docker, Go binary, Helm
+- [Quick Start](docs/getting-started/quick-start.md) — First service in 5 minutes
+
+**Core Concepts**
+- [Connectors](docs/core-concepts/connectors.md) — All 21 connector types
+- [Flows](docs/core-concepts/flows.md) — Complete flow reference
+- [Transforms](docs/core-concepts/transforms.md) — CEL functions and expressions
+- [Types](docs/core-concepts/types.md) — Schema validation and field constraints
+- [Environments](docs/core-concepts/environments.md) — Environment variables and overlays
+
+**Guides**
+- [Error Handling](docs/guides/error-handling.md) — Retry, DLQ, circuit breaker, fallback
+- [Auth](docs/guides/auth.md) — JWT, MFA, SSO
+- [Security](docs/guides/security.md) — Sanitization, XXE protection, WASM sanitizers
+- [Real-Time](docs/guides/real-time.md) — WebSocket, SSE, CDC, GraphQL subscriptions
+- [Sagas & State Machines](docs/guides/sagas.md) — Distributed transactions, entity lifecycle, long-running workflows
+- [Notifications](docs/guides/notifications.md) — Email, Slack, Discord, SMS, push, webhook
+- [Caching](docs/guides/caching.md) — In-memory and Redis caching
+- [Synchronization](docs/guides/synchronization.md) — Distributed locks and semaphores
+- [Batch Processing](docs/guides/batch-processing.md) — ETL and data migrations
+- [Extending Mycel](docs/guides/extending.md) — Validators, WASM functions, mocks, aspects
+
+**Reference**
+- [Configuration Reference](docs/reference/configuration.md) — Complete HCL syntax
+- [CEL Functions](docs/reference/cel-functions.md) — All built-in transform functions
+- [CLI Reference](docs/reference/cli.md) — All commands and flags
+- [API Endpoints](docs/reference/api-endpoints.md) — Health, metrics, workflow, auth endpoints
+
+**Deployment**
+- [Docker](docs/deployment/docker.md) — Docker run and Docker Compose
+- [Kubernetes](docs/deployment/kubernetes.md) — Helm chart and manual deployment
+- [Production Guide](docs/deployment/production.md) — Security checklist and monitoring
+
+**Advanced**
+- [GraphQL Federation](docs/advanced/federation.md) — Federated subgraphs, entities, gateway setup
+- [WASM](docs/advanced/wasm.md) — Building WASM modules in 6 languages
+- [Plugins](docs/advanced/plugins.md) — Extending Mycel with WASM plugins
+- [Integration Patterns](docs/advanced/integration-patterns.md) — Protocol bridges, CDC pipelines, saga orchestration
+
+**Project**
+- [Roadmap](docs/ROADMAP.md) — Implementation status and future plans
+- [Connector Catalog](docs/connectors/) — Individual documentation for every connector type
 
 ## More Examples
 

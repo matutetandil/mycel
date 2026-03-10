@@ -2,7 +2,9 @@
 
 This document tracks the implementation status and future plans for Mycel.
 
-## Current Status: Phase 6 Complete (All Core Features)
+## Current Status: v1.7.0 — Phase 12 Complete
+
+All core features are implemented and production-ready. The roadmap below reflects the complete implementation history.
 
 ## Connector Support
 
@@ -29,6 +31,12 @@ This document tracks the implementation status and future plans for Mycel.
 | Discord   | - | ✅ | 6 |
 | SMS       | - | ✅ | 6 |
 | Push      | - | ✅ | 6 |
+| WebSocket | ✅ | ✅ | 10 |
+| SSE       | ✅ | ✅ | 10 |
+| CDC       | ✅ | - | 10 |
+| Elasticsearch | - | ✅ | 11 |
+| OAuth     | ✅ | - | 11 |
+| SOAP      | ✅ | ✅ | 12+ |
 
 ## Feature Support
 
@@ -65,6 +73,32 @@ This document tracks the implementation status and future plans for Mycel.
 | Auth Security Features | ✅ | 5.1b |
 | Auth MFA (TOTP/WebAuthn) | ✅ | 5.1c |
 | Auth SSO/Social | ✅ | 5.1d |
+| Notifications (6 channels) | ✅ | 6 |
+| Step Orchestration | ✅ | 7 |
+| Filter Rejection Policies | ✅ | 7 |
+| Dedupe | ✅ | 7 |
+| GraphQL Query Optimization | ✅ | 8 |
+| GraphQL DataLoader | ✅ | 8 |
+| GraphQL Subscriptions (server) | ✅ | 9 |
+| GraphQL Subscription Client | ✅ | 9 |
+| WebSocket Connector | ✅ | 10 |
+| CDC (PostgreSQL WAL) | ✅ | 10 |
+| SSE Connector | ✅ | 10 |
+| Elasticsearch Connector | ✅ | 11 |
+| OAuth Connector | ✅ | 11 |
+| Batch Processing | ✅ | 11 |
+| Sagas | ✅ | 12 |
+| State Machines | ✅ | 12 |
+| Long-Running Workflows | ✅ | 12 |
+| SOAP Connector | ✅ | 12+ |
+| Codec System (JSON/XML) | ✅ | 12+ |
+| File Watch Mode | ✅ | 12+ |
+| Error Handling Guide | ✅ | 12+ |
+| Standalone Admin Server | ✅ | 12+ |
+| .env File Support | ✅ | 12+ |
+| WASM Documentation | ✅ | 12+ |
+| Integration Test Suite | ✅ | 12+ |
+| Typed GraphQL DTOs | ✅ | 12+ |
 
 ## Phase Details
 
@@ -127,8 +161,6 @@ This document tracks the implementation status and future plans for Mycel.
 - JSON logging for production environments
 
 ### Phase 4.2 - Synchronization (Complete)
-> Full specification: [docs/PHASE-4.2-SYNC.md](./PHASE-4.2-SYNC.md)
-
 - ✅ **MQ Headers Access**: `input.body`, `input.headers`, `input.properties` for RabbitMQ/Kafka
 - ✅ **Lock (Mutex)**: Distributed locks by key with Redis/Memory backends
 - ✅ **Semaphore**: Limit concurrent executions (e.g., max 10 parallel API calls)
@@ -144,93 +176,55 @@ This document tracks the implementation status and future plans for Mycel.
 - ✅ **Scheduler**: Cron-based flow triggers integrated with runtime
 
 ### Phase 4.3 - Connector Profiles (Complete)
-> Full specification: [docs/PHASE-4.3-PROFILES.md](./PHASE-4.3-PROFILES.md)
+- Multiple backend implementations for the same logical connector
+- Profile selection via CEL expression (e.g., `env('PRICE_SOURCE')`)
+- Per-profile transforms to normalize data from different backends
+- Fallback chains for automatic failover between profiles
+- ProfiledConnector wrapper implementing Connector interface
+- Prometheus metrics for profile usage and fallback tracking
 
-- **Multiple backend implementations** for the same logical connector
-- **Profile selection** via CEL expression (e.g., `env('PRICE_SOURCE')`)
-- **Per-profile transforms** to normalize data from different backends
-- **Fallback chains** for automatic failover between profiles
-- **ProfiledConnector** wrapper implementing Connector interface
-- **Prometheus metrics** for profile usage and fallback tracking
-- **Use cases**:
-  - Same API, different data sources (Magento vs ERP vs Legacy)
-  - Multi-region deployments
-  - Read replicas vs primary database
-  - Gradual migration between systems
-
-### Phase 5 - Extensibility & Documentation (Complete)
+### Phase 5 - Extensibility (Complete)
 - ✅ **Aspects (AOP)** for cross-cutting concerns
   - Pattern matching on flows (e.g., `flows/**/create_*.hcl`)
-  - When: before, after, around
+  - When: before, after, around, on_error
   - Use cases: audit logging, caching, rate limiting, enrichment
 - ✅ **Mock system** for testing
   - JSON-based mock files with conditional responses (CEL)
   - CLI flags: `--mock=connector`, `--no-mock=connector`
-  - `mocks {}` block in service configuration
 - ✅ **Documentation generation**
   - `mycel export openapi` - OpenAPI 3.0.3 for REST endpoints
   - `mycel export asyncapi` - AsyncAPI 2.6.0 for message queues
-  - Flags: `-o`, `-f` (yaml/json), `--base-url`
-  - Note: GraphQL has native introspection, no export needed
-- ✅ **Custom validators** (Regex/CEL)
-  - Regex validators for pattern matching
-  - CEL validators for expression-based validation
-  - Validator registry and factory
-  - Integration with type validation system
-- ✅ **Custom validators** with WASM
-  - User-defined validation logic in compiled WASM
-  - wazero runtime (pure Go, no CGO)
-  - Memory management with alloc/free
-  - JSON-based input/output
-- ✅ **Custom functions** (CEL extensions)
-  - WASM functions available in transform expressions
-  - Parser for `functions` blocks
-  - Dynamic function registration in CEL
-  - Support for 0-5 arguments per function
-- ✅ **Plugin system**
-  - Custom connectors via WASM plugins
-  - Plugin manifest (`plugin.hcl`) for metadata and configuration
-  - Plugin loader for local directories
-  - Plugin registry and factory for runtime integration
-  - Git/registry sources planned for future
+- ✅ **Custom validators** (Regex/CEL/WASM)
+- ✅ **Custom functions** (WASM CEL extensions, 0-5 arguments)
+- ✅ **Plugin system** (WASM plugins, auto-install on start)
 
 ### Phase 5.1 - Authentication System (Complete)
 
-#### Phase 5.1a - Core Auth System (Complete)
+#### Phase 5.1a - Core Auth System
 - ✅ JWT token generation and validation with HMAC/RSA
 - ✅ Token rotation with refresh tokens
 - ✅ Password hashing with Argon2id
-- ✅ Password validation with configurable policies
 - ✅ Session management (create, validate, revoke)
-- ✅ Storage interfaces (User, Session, Token, BruteForce stores)
-- ✅ Memory implementations for all stores
 - ✅ Configuration presets (strict, standard, relaxed, development)
 
-#### Phase 5.1b - Security Features (Complete)
-- ✅ Redis storage (Session, Token, BruteForce stores)
-- ✅ PostgreSQL storage (User, Password History, Audit)
-- ✅ MySQL storage (User, Password History, Audit, Session, Token)
+#### Phase 5.1b - Security Features
+- ✅ Redis/PostgreSQL/MySQL storage backends
 - ✅ Brute force protection with progressive delays
 - ✅ Session cleanup service with idle timeout
 - ✅ Per-endpoint rate limiting
 - ✅ Audit logging
 
-#### Phase 5.1c - Multi-Factor Authentication (Complete)
+#### Phase 5.1c - Multi-Factor Authentication
 - ✅ TOTP (RFC 6238) with QR code generation
 - ✅ Recovery codes with secure hashing
 - ✅ WebAuthn/Passkeys support
-- ✅ Manager integration for MFA flows
-- ✅ Full test coverage
 
-#### Phase 5.1d - SSO & Social Login (Complete)
+#### Phase 5.1d - SSO & Social Login
 - ✅ OAuth2 service with authorization code flow
 - ✅ OpenID Connect with discovery documents
 - ✅ Social providers: Google, GitHub, Apple
 - ✅ Enterprise OIDC for Okta, Azure AD, Auth0
 - ✅ Account linking service with configurable strategies
-- ✅ State management with expiration
-- ✅ Token refresh support
-- ✅ Full test coverage
 
 ### Phase 6 - Notifications (Complete)
 - ✅ **Webhooks** - Inbound/outbound with signature verification
@@ -239,6 +233,74 @@ This document tracks the implementation status and future plans for Mycel.
 - ✅ **Discord** - Webhook and Bot API
 - ✅ **SMS** - Twilio, AWS SNS
 - ✅ **Push** - Firebase Cloud Messaging, Apple Push Notification service
+- ✅ **Configurable api_url** for all notification connectors
+
+### Phase 7 - Flow Orchestration (Complete)
+- ✅ **Step blocks**: sequential multi-step execution with `when` conditions
+- ✅ **Filter in from**: CEL condition + rejection policy (`ack`/`reject`/`requeue`) with dedup tracking
+- ✅ **Conditional steps**: skip steps based on CEL expressions
+- ✅ **Array transforms**: `first`, `last`, `unique`, `pluck`, `sort_by`, `sum`, `avg`
+- ✅ **on_error with retry + DLQ**: exponential backoff, dead letter queues
+- ✅ **merge / omit / pick**: object manipulation helpers in transforms
+- ✅ **multi-to**: fan-out to multiple targets
+- ✅ **dedupe**: deduplication with storage backend, TTL, and `on_duplicate` policy
+
+### Phase 8 - GraphQL Query Optimization (Complete)
+- ✅ **Field Analyzer**: parses incoming queries to determine requested fields
+- ✅ **Result Pruner**: removes unrequested fields from responses
+- ✅ **CEL functions**: `has_field()`, `field_requested()`, `requested_fields()`, `requested_top_fields()`
+- ✅ **Database Optimizer**: generates targeted SELECT statements
+- ✅ **Step Optimizer**: skips steps whose results are not requested
+- ✅ **DataLoader**: batches N+1 queries via `graph-gophers/dataloader`
+
+### Phase 9 - GraphQL Federation Complete (Complete)
+- ✅ **Subscription types**: `subscription` flows with publish targets
+- ✅ **Flow-triggered publish**: MQ/CDC events push to subscribed clients
+- ✅ **Per-user filtering**: subscribers receive only their events
+- ✅ **Auto entity resolution**: `_entities` routing via `entity =` on flow
+- ✅ **GraphQL subscription client**: `graphql-ws` protocol, auto-reconnect
+- ✅ **Auto-enable Federation v2**: gateway compatibility without explicit config
+
+### Phase 10 - Real-Time & Event-Driven (Complete)
+- ✅ **WebSocket Connector**: bidirectional, rooms, broadcast, per-user targeting
+- ✅ **CDC (Change Data Capture)**: PostgreSQL WAL with `pgoutput`, wildcard table matching
+- ✅ **SSE (Server-Sent Events)**: unidirectional push, rooms, heartbeat, CORS
+
+### Phase 11 - Specialized Connectors (Complete)
+- ✅ **Elasticsearch**: search, get, count, aggregate, index, update, delete, bulk
+- ✅ **OAuth Connector**: Google, GitHub, Apple, OIDC, custom — authorization code flow
+- ✅ **Batch Processing**: `batch` block in flows, chunk-based processing, params, `on_error`
+
+### Phase 12 - Enterprise Workflows (Complete)
+- ✅ **Saga Pattern**: distributed transactions with forward steps + reverse compensation
+- ✅ **State Machines**: entity lifecycle with guards, actions, final states
+- ✅ **Long-Running Workflows**: `delay` and `await` steps, workflow persistence, REST API
+
+### Phase 12+ - Polish & Infrastructure (Complete)
+- ✅ **SOAP Connector**: client + server, SOAP 1.1/1.2, WSDL auto-generation
+- ✅ **Codec System**: JSON and XML codecs, `format` declarations, Content-Type auto-detection
+- ✅ **File Watch Mode**: polling-based watcher, glob patterns
+- ✅ **Standalone Admin Server**: health + metrics on `:9090` when no REST connector
+- ✅ **.env File Support**: auto-load `.env` from config directory or cwd
+- ✅ **Error Handling Guide**: all 9 error handling layers documented
+- ✅ **On-error Aspects**: `when = "on_error"` in aspect blocks
+- ✅ **Custom Error Responses**: `error_response` block in `error_handling`
+- ✅ **PostgreSQL INSERT RETURNING**: full created row returned
+- ✅ **Typed GraphQL DTOs**: `returns` attribute, auto-generated input types
+- ✅ **Integration Test Suite**: 25 test suites, 86+ assertions, parallel execution
+- ✅ **WASM Documentation**: 6 languages with examples (Rust, Go/TinyGo, C, C++, AssemblyScript, Zig)
+- ✅ **Docs Reorganization**: hierarchical structure at `docs/{getting-started,core-concepts,guides,reference,deployment,advanced}`
+
+## Pending (Low Priority)
+
+| Item | Notes |
+|------|-------|
+| Environment-aware behavior | Log defaults, GraphiQL, CORS, stack traces by environment |
+| Mycel LSP | Language Server Protocol for editor autocompletion and validation |
+| PDF generation | File connector extension |
+| CSV/Excel export | File connector extension |
+| Long-running process visualization | Workflow state visualization UI |
+| Workflow versioning | Schema migrations for long-running workflow state |
 
 ## Philosophy
 
