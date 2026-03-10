@@ -17,6 +17,9 @@ func newTestEngine(t *testing.T) (*Engine, *SQLStore) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Force single connection so all goroutines (ticker, executor) share
+	// the same in-memory database and see the schema created by EnsureSchema.
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
 
 	store := NewSQLStore(db, DialectSQLite, "mycel_workflows")
