@@ -49,6 +49,8 @@ import (
 	conncdc "github.com/matutetandil/mycel/internal/connector/cdc"
 	connelastic "github.com/matutetandil/mycel/internal/connector/elasticsearch"
 	connoauth "github.com/matutetandil/mycel/internal/connector/oauth"
+	connmqtt "github.com/matutetandil/mycel/internal/connector/mqtt"
+	connftp "github.com/matutetandil/mycel/internal/connector/ftp"
 	connsoap "github.com/matutetandil/mycel/internal/connector/soap"
 	connsse "github.com/matutetandil/mycel/internal/connector/sse"
 	connws "github.com/matutetandil/mycel/internal/connector/websocket"
@@ -539,8 +541,14 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 	// OAuth connector for social login flows
 	registry.RegisterFactory(connoauth.NewFactory(logger))
 
+	// MQTT connector for IoT and messaging
+	registry.RegisterFactory(connmqtt.NewFactory(logger))
+
 	// SOAP connector for calling/exposing SOAP web services
 	registry.RegisterFactory(connsoap.NewFactory(logger))
+
+	// FTP/SFTP connector for remote file transfer
+	registry.RegisterFactory(connftp.NewFactory())
 
 	// Profile connector (must be registered last - uses other factories)
 	registry.RegisterFactory(profile.NewFactory(registry))

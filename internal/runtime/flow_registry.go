@@ -1350,6 +1350,11 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		}
 	}
 
+	// If the connector returned metadata (e.g., FTP/SFTP path, MQTT topic), return it
+	if len(result.Metadata) > 0 {
+		return result.Metadata, nil
+	}
+
 	// Default: return insert metadata
 	return map[string]interface{}{
 		"id":       result.LastID,
@@ -1745,7 +1750,7 @@ type Operation struct {
 // and write to the destination (message queues, CDC, file watchers).
 func isEventDrivenSource(sourceType string) bool {
 	switch sourceType {
-	case "mq", "cdc", "file":
+	case "mq", "mqtt", "cdc", "file":
 		return true
 	}
 	return false

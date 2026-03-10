@@ -1,6 +1,6 @@
 # Message Queues
 
-Produce and consume messages with RabbitMQ and Kafka. Both use `type = "mq"` with a `driver` to select the backend.
+Produce and consume messages with RabbitMQ, Kafka, and Redis Pub/Sub. All use `type = "mq"` with a `driver` to select the backend.
 
 ## RabbitMQ
 
@@ -331,6 +331,69 @@ Per-topic schemas (nested under `schema_registry.schemas.<topic>`):
 | `key_schema_id` | int | Key schema ID in registry |
 | `value_schema` | string | Value schema definition |
 | `value_schema_id` | int | Value schema ID in registry |
+
+---
+
+## Redis Pub/Sub
+
+Lightweight publish/subscribe messaging using Redis. No consumer groups, no persistence — messages are delivered in real-time to all active subscribers. Use it for cache invalidation, event broadcasting, live notifications, or any scenario where fire-and-forget pub/sub is sufficient.
+
+```hcl
+# Publisher
+connector "events_pub" {
+  type   = "mq"
+  driver = "redis"
+
+  host     = env("REDIS_HOST", "localhost")
+  port     = 6379
+  password = env("REDIS_PASS")
+  db       = 0
+}
+
+# Subscriber
+connector "events_sub" {
+  type     = "mq"
+  driver   = "redis"
+
+  host     = env("REDIS_HOST", "localhost")
+  port     = 6379
+  channels = ["orders", "payments"]
+}
+```
+
+### Connection Options
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `host` | string | optional | `localhost` | Redis host |
+| `port` | int | optional | `6379` | Redis port |
+| `password` | string | optional | — | Redis password |
+| `db` | int | optional | `0` | Redis database number |
+
+### Subscription Options
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `channels` | list | optional | — | Exact channel names to subscribe to |
+| `patterns` | list | optional | — | Glob-style patterns for `PSUBSCRIBE` (e.g., `orders.*`) |
+
+### Message Metadata
+
+Incoming messages provide these fields:
+
+| Field | Description |
+|-------|-------------|
+| `_channel` | The channel the message was received on |
+| `_pattern` | The pattern that matched (only for pattern subscriptions) |
+| `*` | All JSON fields from the payload are merged at the top level |
+| `raw` | Raw string payload (only if payload is not valid JSON) |
+
+### Handler Resolution
+
+When a message arrives, the handler is resolved in this order:
+1. **Exact channel match** — handler registered for the exact channel name
+2. **Pattern match** — handler registered for the glob pattern (for `PSUBSCRIBE`)
+3. **Wildcard** — handler registered for `*`
 
 ---
 

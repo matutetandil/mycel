@@ -9,6 +9,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/mq/kafka"
 	"github.com/matutetandil/mycel/internal/connector/mq/rabbitmq"
+	mqredis "github.com/matutetandil/mycel/internal/connector/mq/redis"
 )
 
 // Factory creates message queue connectors from configuration.
@@ -34,6 +35,8 @@ func (f *Factory) Supports(connType, driver string) bool {
 		return true
 	case "kafka":
 		return true
+	case "redis":
+		return true
 	// Future: "sqs", "nats"
 	default:
 		return false
@@ -52,6 +55,8 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 		return f.createRabbitMQ(cfg)
 	case "kafka":
 		return f.createKafka(cfg)
+	case "redis":
+		return f.createRedis(cfg)
 	default:
 		return nil, fmt.Errorf("unsupported MQ driver: %s", driver)
 	}
@@ -277,6 +282,20 @@ func getStringSlice(props map[string]interface{}, key string, defaultVal []strin
 		}
 	}
 	return defaultVal
+}
+
+// createRedis creates a Redis Pub/Sub connector from configuration.
+func (f *Factory) createRedis(cfg *connector.Config) (*mqredis.Connector, error) {
+	config := mqredis.DefaultConfig()
+
+	config.Host = getString(cfg.Properties, "host", "localhost")
+	config.Port = getInt(cfg.Properties, "port", 6379)
+	config.Password = getString(cfg.Properties, "password", "")
+	config.DB = getInt(cfg.Properties, "db", 0)
+	config.Channels = getStringSlice(cfg.Properties, "channels", nil)
+	config.Patterns = getStringSlice(cfg.Properties, "patterns", nil)
+
+	return mqredis.NewConnector(cfg.Name, config, f.logger)
 }
 
 // createKafka creates a Kafka connector from configuration.

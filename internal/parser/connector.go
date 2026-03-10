@@ -176,6 +176,25 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "soap_version"}, // SOAP version: "1.1" or "1.2"
 			{Name: "namespace"},    // SOAP service namespace
 			{Name: "wsdl"},         // WSDL URL (informational)
+
+			// MQTT connector specific
+			{Name: "broker"},                 // Broker URL (tcp://, ssl://, ws://)
+			{Name: "qos"},                    // Quality of Service level (0, 1, 2)
+			{Name: "topic"},                  // Default publish topic
+			{Name: "clean_session"},          // Start clean session on connect
+			{Name: "keep_alive"},             // PINGREQ interval
+			{Name: "connect_timeout"},        // Connection timeout
+			{Name: "auto_reconnect"},         // Reconnect on disconnect
+			{Name: "max_reconnect_interval"}, // Max wait between reconnects
+
+			// FTP/SFTP connector specific
+			{Name: "key_file"}, // SSH private key file (SFTP)
+			{Name: "passive"},  // FTP passive mode
+
+			// Redis Pub/Sub specific (MQ driver = "redis")
+			{Name: "channels"}, // Channels to subscribe to
+			{Name: "patterns"}, // Glob patterns for PSUBSCRIBE
+			{Name: "db"},       // Redis database number
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "pool"},

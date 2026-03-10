@@ -109,7 +109,9 @@ Documentation for each connector type.
 | [REST](connectors/rest.md) | Server + Client | HTTP endpoints and API calls |
 | [Database](connectors/database.md) | Read + Write | PostgreSQL, MySQL, SQLite, MongoDB |
 | [GraphQL](connectors/graphql.md) | Server + Client | Schema-based API with Federation v2 |
-| [Queue](connectors/queue.md) | Consumer + Producer | RabbitMQ and Kafka |
+| [Queue](connectors/queue.md) | Consumer + Producer | RabbitMQ, Kafka, and Redis Pub/Sub |
+| [MQTT](connectors/mqtt.md) | Subscribe + Publish | IoT messaging (QoS 0/1/2) |
+| [FTP](connectors/ftp.md) | Read + Write | FTP, FTPS, and SFTP |
 | [gRPC](connectors/grpc.md) | Server + Client | Protocol Buffers RPC |
 | [TCP](connectors/tcp.md) | Server + Client | JSON, msgpack, NestJS protocols |
 | [Cache](connectors/cache.md) | Read + Write | Memory and Redis |

@@ -29,7 +29,8 @@ For the general connector concept and how they fit into the Mycel model, see [Co
 
 | Connector | HCL `type` | Description |
 |-----------|------------|-------------|
-| [Message Queues](message-queues.md) | `mq` | RabbitMQ and Kafka producers/consumers |
+| [Message Queues](message-queues.md) | `mq` | RabbitMQ, Kafka, and Redis Pub/Sub producers/consumers |
+| [MQTT](mqtt.md) | `mqtt` | IoT messaging with QoS 0/1/2 and topic wildcards |
 | [CDC](cdc.md) | `cdc` | Real-time database change streaming via logical replication |
 
 ## Storage
@@ -38,6 +39,7 @@ For the general connector concept and how they fit into the Mycel model, see [Co
 |-----------|------------|-------------|
 | [Filesystem](filesystem.md) | `file` (driver: `local`) | Read and write local files |
 | [S3](s3.md) | `file` (driver: `s3`) | AWS S3 and S3-compatible object storage |
+| [FTP/SFTP](ftp.md) | `ftp` | Remote file transfer over FTP, FTPS, and SFTP |
 | [Cache](cache.md) | `cache` | In-memory (LRU) and Redis caching |
 
 ## Notifications

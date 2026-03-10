@@ -53,6 +53,13 @@ services:
       S3_BUCKET: test-bucket
       # Mock server (for HTTP client + notifications)
       MOCK_URL: "http://mock:8888"
+      # MQTT
+      MQTT_BROKER: "tcp://mosquitto:1883"
+      # SFTP
+      SFTP_HOST: sftp
+      SFTP_PORT: "22"
+      SFTP_USER: testuser
+      SFTP_PASS: testpass
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,6 +79,10 @@ services:
         condition: service_completed_successfully
       mock:
         condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+      sftp:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
       interval: 5s
@@ -234,6 +245,27 @@ services:
       mc mb local/test-bucket --ignore-existing &&
       echo 'Bucket test-bucket ready'
       "
+
+  # ==========================================================================
+  # MQTT Broker (internal only)
+  # ==========================================================================
+  mosquitto:
+    image: eclipse-mosquitto:2
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -t '$$SYS/#' -C 1 -i healthcheck -W 3 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ==========================================================================
+  # SFTP Server (internal only)
+  # ==========================================================================
+  sftp:
+    image: emberstack/sftp
+    volumes:
+      - ./sftp/sftp.json:/app/config/sftp.json:ro
 
   # ==========================================================================
   # Cosmo Router - GraphQL Federation Gateway

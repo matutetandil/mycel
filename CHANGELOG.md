@@ -28,8 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **DAP server** (`internal/dap/`): Debug Adapter Protocol server for IDE integration (VS Code, IntelliJ, Neovim). `mycel trace --dap=4711` starts a TCP DAP server. Supports: initialize, launch, setBreakpoints, configurationDone, threads, stackTrace, scopes, variables, continue, next, disconnect. Pipeline stages mapped to virtual line numbers. 11 tests
 - **Dev-only debug features**: `--verbose-flow`, `--breakpoints`, `--break-at`, and `--dap` are restricted to development mode (`MYCEL_ENV=development`). In other environments, a warning is logged and the feature is silently disabled
 - **BreakpointController interface** (`internal/trace/`): Breakpoint control abstracted to interface, enabling both CLI (`Breakpoint`) and IDE (`DAPBreakpoint`) implementations
+- **MQTT connector** (`internal/connector/mqtt/`): Standalone IoT messaging connector. Publish/subscribe with QoS 0/1/2, topic wildcards (`+`, `#`), TLS support, automatic reconnection with re-subscription. `paho.mqtt.golang` client. 13 unit tests
+- **FTP/SFTP connector** (`internal/connector/ftp/`): Remote file transfer over FTP, FTPS, and SFTP. Directory listing (LIST), file download (GET) with auto-format detection (JSON/CSV/text), file upload (PUT), directory creation (MKDIR), file deletion (DELETE). `remoteClient` interface abstracts both protocols. Standard `connector.Reader`/`connector.Writer` interfaces. 22 unit tests
+- **Redis Pub/Sub** (`internal/connector/mq/redis/`): New MQ driver (`driver = "redis"`) for fire-and-forget pub/sub. Subscribe/PSubscribe with channel and glob-pattern matching. Handler resolution: exact channel → pattern → wildcard. Uses existing `go-redis/v9` dependency. 13 unit tests
+- **Integration tests for MQTT, FTP/SFTP, Redis Pub/Sub**: Docker Compose services (Mosquitto MQTT broker, atmoz/sftp server), HCL configs (connectors + flows), test scripts following existing patterns. 3 new test suites added to parallel execution
+- **Connector documentation**: `docs/connectors/mqtt.md` (MQTT), `docs/connectors/ftp.md` (FTP/SFTP), Redis Pub/Sub section added to `docs/connectors/message-queues.md`
+- **Example configurations**: `examples/mqtt/` (IoT gateway), `examples/ftp/` (SFTP file processor), `examples/redis-pubsub/` (event processor)
 
 ### Changed
+- **FTP connector interface compliance**: `Read` and `Write` methods now return standard `*connector.Result` instead of raw maps, enabling FTP/SFTP to work through the flow_registry like all other connectors
 - `metrics.NewRegistry` now accepts an `environment` parameter for the service info metric
 - REST connector CORS middleware is now environment-aware (permissive in dev, strict in prod)
 - REST connector `writeError` now strips internal error details in production
