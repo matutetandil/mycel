@@ -4,6 +4,18 @@ This document captures the reasoning behind Mycel's core design decisions. Under
 
 ---
 
+## Why Mycel Exists
+
+The observation behind Mycel is simple: most microservice code is not business logic. It's plumbing. HTTP routing, database queries, input validation, data transformation, error handling with retries, authentication, metrics, health checks — the same patterns, reimplemented from scratch in every service, in every team, in every company. A team building an order service and a team building a user service are solving the same structural problems with different field names.
+
+This is not a new observation. The industry's answer has historically been frameworks — Spring Boot, NestJS, Express — which reduce boilerplate but still require writing code. You still wire routes, write handlers, define database access layers, and configure middleware. The framework handles the boring parts *faster*, but it doesn't eliminate them.
+
+Mycel takes the idea one step further: if the patterns are the same, and only the names and shapes change, then the patterns can be described as configuration instead of code. The result is a runtime that reads HCL files and produces a service that speaks standard protocols — indistinguishable from one built in Go, Java, or TypeScript, but defined entirely through configuration.
+
+The core connectors cover the protocols that virtually every backend needs: REST, GraphQL, gRPC, SQL databases, MongoDB, message queues (RabbitMQ, Kafka), WebSocket, SSE, S3, cache, files. For application-specific integrations (Salesforce, SAP, or any proprietary API), the WASM plugin system allows extending Mycel without modifying the core binary.
+
+---
+
 ## The Core Model
 
 Mycel is a **runtime**, not a framework. The distinction matters.

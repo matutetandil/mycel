@@ -101,7 +101,7 @@ That's it. REST API + database, zero code.
 ## Purpose
 
 - **What:** An open-source runtime that reads HCL configuration and exposes microservices. Same binary, different config = different service.
-- **Why:** 70-80% of microservice code is plumbing (routing, DB queries, transformations, integrations). Mycel replaces that with configuration.
+- **Why:** Most microservice code is plumbing — routing, database queries, data transformations, protocol translation, error handling, retries. It's the same patterns repeated across every service, in every team, in every company. Mycel extracts that into configuration so teams can focus on what's actually unique to their service.
 - **Who:** Backend teams building CRUD APIs, event processors, integrations, or protocol bridges.
 
 ## Features
