@@ -192,6 +192,84 @@ docker run -it -v $(pwd):/etc/mycel ghcr.io/matutetandil/mycel \
   trace create_user --input '{"email":"test@x.com"}' --breakpoints
 ```
 
+## DAP Server (IDE Integration)
+
+The `--dap` flag starts a Debug Adapter Protocol server that allows your IDE (VS Code, IntelliJ, Neovim) to control flow debugging with breakpoints, stepping, and variable inspection.
+
+```bash
+# Start DAP server on port 4711
+mycel trace create_user --input '{"email":"test@x.com"}' --dap=4711
+```
+
+The server waits for an IDE to connect via TCP, then executes the flow with breakpoints controlled by the IDE.
+
+### How It Works
+
+1. Mycel starts a DAP server on the specified port
+2. Your IDE connects as a DAP client
+3. The IDE sends `setBreakpoints` to pause at specific pipeline stages
+4. The IDE sends `launch` to start the flow
+5. At each breakpoint, the IDE receives a `stopped` event
+6. You can inspect variables (flow data), view the pipeline stack, and step through stages
+
+### Pipeline Stage to Line Mapping
+
+DAP uses line numbers for breakpoints. Mycel maps pipeline stages to virtual lines:
+
+| Line | Stage |
+|------|-------|
+| 1 | input |
+| 2 | sanitize |
+| 3 | filter |
+| 4 | dedupe |
+| 5 | validate_input |
+| 6 | enrich |
+| 7 | transform |
+| 8 | step |
+| 9 | validate_output |
+| 10 | read |
+| 11 | write |
+
+### VS Code Configuration
+
+To use with VS Code, create a `.vscode/launch.json`:
+
+```json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "mycel",
+      "request": "launch",
+      "name": "Debug Flow",
+      "flow": "create_user",
+      "input": {"email": "test@example.com", "name": "Test"},
+      "dryRun": true
+    }
+  ]
+}
+```
+
+> **Note:** A VS Code extension that registers the "mycel" debug adapter type is planned. In the meantime, you can connect to the DAP server using any DAP-compatible client or the [DAP protocol](https://microsoft.github.io/debug-adapter-protocol/) directly.
+
+### Supported DAP Commands
+
+| Command | Description |
+|---------|-------------|
+| `initialize` | Capability negotiation |
+| `launch` | Start flow execution |
+| `setBreakpoints` | Set breakpoints at pipeline stages (by line number) |
+| `configurationDone` | Signal configuration is complete |
+| `threads` | List flow execution threads |
+| `stackTrace` | Show pipeline stages as call stack |
+| `scopes` | List variable scopes (data at current stage) |
+| `variables` | Inspect data values at current breakpoint |
+| `continue` | Resume execution until next breakpoint |
+| `next` | Step to next pipeline stage |
+| `disconnect` | Stop debugging and abort flow |
+
+> **Important:** The DAP server is only available in development mode (`MYCEL_ENV=development`). In staging or production, the `--dap` flag is ignored with a warning.
+
 ## Log-Level Debugging
 
 For runtime debugging without stopping the service, use log levels:
@@ -215,8 +293,9 @@ Flags:
   --input string      JSON input data for the flow
   --params string     Key=value parameters (comma-separated, e.g., id=123,status=active)
   --dry-run           Simulate write operations without executing them
-  --breakpoints       Pause at every pipeline stage for interactive debugging
-  --break-at string   Pause at specific stages (comma-separated: input,sanitize,validate,transform,step,read,write)
+  --breakpoints       Pause at every pipeline stage for interactive debugging (dev only)
+  --break-at string   Pause at specific stages (dev only, comma-separated: input,sanitize,validate,transform,step,read,write)
+  --dap int           Start DAP server on this port for IDE debugging (dev only, e.g., --dap=4711)
   --list              List all available flows
 
 mycel start [flags]

@@ -285,13 +285,20 @@ func runStart(cmd *cobra.Command, args []string) error {
 		hotReloadEnabled = envdefaults.ForEnvironment(env).HotReload
 	}
 
+	// Debug features are dev-only
+	effectiveVerboseFlow := verboseFlow
+	if effectiveVerboseFlow && !isDevEnvironment(env) {
+		logger.Warn("--verbose-flow is only available in development mode, ignoring")
+		effectiveVerboseFlow = false
+	}
+
 	// Create runtime
 	rt, err := runtime.New(runtime.Options{
 		ConfigDir:   configDir,
 		Environment: env,
 		Logger:      logger,
 		HotReload:   hotReloadEnabled,
-		VerboseFlow: verboseFlow,
+		VerboseFlow: effectiveVerboseFlow,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create runtime: %w", err)
@@ -540,4 +547,14 @@ func runExportAsyncAPI(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// isDevEnvironment returns true if the environment is development (the default).
+func isDevEnvironment(env string) bool {
+	switch strings.ToLower(env) {
+	case "development", "dev", "":
+		return true
+	default:
+		return false
+	}
 }

@@ -66,6 +66,16 @@ type Event struct {
 	Detail string
 }
 
+// BreakpointController controls interactive debugging at pipeline stages.
+// Implementations: Breakpoint (CLI stdin), DAPBreakpoint (IDE via DAP).
+type BreakpointController interface {
+	// ShouldBreak returns true if execution should pause at the given stage.
+	ShouldBreak(stage Stage) bool
+
+	// Pause blocks execution at a breakpoint. Returns false to abort.
+	Pause(stage Stage, name string, data interface{}) bool
+}
+
 // Context holds trace state for a single request execution.
 type Context struct {
 	// FlowName is the name of the flow being traced.
@@ -78,8 +88,8 @@ type Context struct {
 	DryRun bool
 
 	// Breakpoint enables interactive debugging at pipeline stages.
-	// When set, execution pauses at breakpoints and waits for user input.
-	Breakpoint *Breakpoint
+	// When set, execution pauses at breakpoints and waits for user input or IDE commands.
+	Breakpoint BreakpointController
 }
 
 // Record is a convenience method to record an event on this trace context.

@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Verbose flow logging** (`--verbose-flow`): Per-request pipeline tracing via structured logs at debug level. All pipeline stages logged for every request when enabled on `mycel start`
 - **Interactive breakpoints** (`--breakpoints`, `--break-at`): Step-by-step interactive debugging in `mycel trace`. Pause at every stage or specific stages (input, sanitize, validate, transform, step, read, write). Commands: next, continue, print, quit, help
 - **Dry-run for all write operations**: `--dry-run` now works for UPDATE, DELETE, and multi-destination writes (previously only INSERT)
+- **DAP server** (`internal/dap/`): Debug Adapter Protocol server for IDE integration (VS Code, IntelliJ, Neovim). `mycel trace --dap=4711` starts a TCP DAP server. Supports: initialize, launch, setBreakpoints, configurationDone, threads, stackTrace, scopes, variables, continue, next, disconnect. Pipeline stages mapped to virtual line numbers. 11 tests
+- **Dev-only debug features**: `--verbose-flow`, `--breakpoints`, `--break-at`, and `--dap` are restricted to development mode (`MYCEL_ENV=development`). In other environments, a warning is logged and the feature is silently disabled
+- **BreakpointController interface** (`internal/trace/`): Breakpoint control abstracted to interface, enabling both CLI (`Breakpoint`) and IDE (`DAPBreakpoint`) implementations
 
 ### Changed
 - `metrics.NewRegistry` now accepts an `environment` parameter for the service info metric

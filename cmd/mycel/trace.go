@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/matutetandil/mycel/internal/dap"
 	"github.com/matutetandil/mycel/internal/runtime"
 	"github.com/matutetandil/mycel/internal/trace"
 )
@@ -62,6 +64,7 @@ var (
 	traceList        bool
 	traceBreakpoints bool
 	traceBreakAt     string
+	traceDAPPort     int
 )
 
 func init() {
@@ -69,8 +72,9 @@ func init() {
 	traceCmd.Flags().StringVar(&traceParams, "params", "", "Key=value parameters (comma-separated, e.g., id=123,status=active)")
 	traceCmd.Flags().BoolVar(&traceDryRun, "dry-run", false, "Simulate write operations without executing them")
 	traceCmd.Flags().BoolVar(&traceList, "list", false, "List all available flows")
-	traceCmd.Flags().BoolVar(&traceBreakpoints, "breakpoints", false, "Pause at every pipeline stage for interactive debugging")
-	traceCmd.Flags().StringVar(&traceBreakAt, "break-at", "", "Pause at specific stages (comma-separated: input,sanitize,validate,transform,step,read,write)")
+	traceCmd.Flags().BoolVar(&traceBreakpoints, "breakpoints", false, "Pause at every pipeline stage for interactive debugging (dev only)")
+	traceCmd.Flags().StringVar(&traceBreakAt, "break-at", "", "Pause at specific stages (dev only, comma-separated: input,sanitize,validate,transform,step,read,write)")
+	traceCmd.Flags().IntVar(&traceDAPPort, "dap", 0, "Start DAP server on this port for IDE debugging (dev only, e.g., --dap=4711)")
 
 	rootCmd.AddCommand(traceCmd)
 }
@@ -158,13 +162,23 @@ func runTrace(cmd *cobra.Command, args []string) error {
 		DryRun:    traceDryRun,
 	}
 
-	// Setup breakpoints if requested
-	if traceBreakpoints {
-		tc.Breakpoint = trace.NewBreakpoint(os.Stdin, os.Stdout)
-	} else if traceBreakAt != "" {
-		stages := trace.ParseBreakStages(traceBreakAt)
-		if len(stages) > 0 {
-			tc.Breakpoint = trace.NewBreakpointForStages(stages, os.Stdin, os.Stdout)
+	// Debug features are dev-only
+	isDev := isDevEnvironment(env)
+
+	// Setup breakpoints if requested (dev only)
+	if traceBreakpoints || traceBreakAt != "" || traceDAPPort > 0 {
+		if !isDev {
+			logger.Warn("debug features (--breakpoints, --break-at, --dap) are only available in development mode, ignoring")
+		} else if traceDAPPort > 0 {
+			// DAP mode: start DAP server and wait for IDE connection
+			return runTraceDAP(ctx, handler, flowName, input, tc, collector, logger)
+		} else if traceBreakpoints {
+			tc.Breakpoint = trace.NewBreakpoint(os.Stdin, os.Stdout)
+		} else if traceBreakAt != "" {
+			stages := trace.ParseBreakStages(traceBreakAt)
+			if len(stages) > 0 {
+				tc.Breakpoint = trace.NewBreakpointForStages(stages, os.Stdin, os.Stdout)
+			}
 		}
 	}
 
@@ -209,5 +223,44 @@ func runTrace(cmd *cobra.Command, args []string) error {
 	renderer := trace.NewRenderer(os.Stdout)
 	renderer.Render(flowName, collector.Events(), totalDuration)
 
+	return nil
+}
+
+// runTraceDAP starts a DAP server for IDE-based debugging.
+// The server waits for an IDE to connect, then executes the flow with
+// breakpoints controlled by the IDE.
+func runTraceDAP(ctx context.Context, handler *runtime.FlowHandler, flowName string, input map[string]interface{}, tc *trace.Context, collector *trace.MemoryCollector, logger *slog.Logger) error {
+	server := dap.NewServer(traceDAPPort, logger)
+	session := server.Session()
+
+	// Wire DAP breakpoint into trace context
+	bp := dap.NewDAPBreakpoint(session)
+	tc.Breakpoint = bp
+
+	// Set up the launch callback — executes the flow when IDE sends "launch"
+	server.OnLaunch(func(args dap.LaunchArguments) error {
+		// Merge IDE-provided input with CLI input
+		launchInput := input
+		if len(args.Input) > 0 {
+			launchInput = args.Input
+		}
+		if args.DryRun {
+			tc.DryRun = true
+		}
+
+		traceCtx := trace.WithTrace(ctx, tc)
+
+		result, err := handler.HandleRequest(traceCtx, launchInput)
+		server.NotifyFlowDone(result, err)
+		return err
+	})
+
+	// Start DAP server (blocks until IDE disconnects or flow completes)
+	if err := server.ListenAndServe(); err != nil {
+		if errors.Is(err, trace.ErrBreakpointAbort) {
+			return nil
+		}
+		return err
+	}
 	return nil
 }

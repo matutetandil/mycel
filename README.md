@@ -162,7 +162,7 @@ mycel validate [--config=<path>]
 mycel check [--config=<path>]
 mycel version
 
-mycel trace <flow-name> [--input=<json>] [--params=<k=v>] [--dry-run] [--breakpoints] [--break-at=<stages>] [--list]
+mycel trace <flow-name> [--input=<json>] [--params=<k=v>] [--dry-run] [--breakpoints] [--break-at=<stages>] [--dap=<port>] [--list]
 
 mycel plugin install [name]
 mycel plugin list
