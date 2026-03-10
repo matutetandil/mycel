@@ -133,5 +133,6 @@ Documentation for each connector type.
 
 | Document | Description |
 |----------|-------------|
+| [Architecture](architecture.md) | Design decisions: why HCL, why CEL, why WASM, why Go, trade-offs |
 | [Roadmap](ROADMAP.md) | Implementation status, phase history, and pending work |
 | [Changelog](../CHANGELOG.md) | Version history with detailed change descriptions |

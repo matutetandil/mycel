@@ -267,6 +267,7 @@ Full documentation is at [docs/index.md](docs/index.md). Quick links:
 - [Integration Patterns](docs/advanced/integration-patterns.md) — Protocol bridges, CDC pipelines, saga orchestration
 
 **Project**
+- [Architecture](docs/architecture.md) — Design decisions: why HCL, why CEL, why WASM, why Go
 - [Roadmap](docs/ROADMAP.md) — Implementation status and future plans
 - [Connector Catalog](docs/connectors/) — Individual documentation for every connector type
 
