@@ -495,6 +495,6 @@ scrape_configs:
 
 ## See Also
 
-- [Configuration Reference](CONFIGURATION.md) - Full HCL reference
-- [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues
-- [Helm Chart](../helm/mycel/README.md) - Kubernetes deployment
+- [Configuration Reference](../reference/configuration.md) - Full HCL reference
+- [Troubleshooting Guide](troubleshooting.md) - Common issues
+- [Helm Chart](../../helm/mycel/README.md) - Kubernetes deployment
