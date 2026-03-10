@@ -69,3 +69,7 @@ flow "get_user_cached" {
 ```
 
 See the [cache example](../../examples/cache/) and [redis-cluster example](../../examples/redis-cluster/) for complete setups.
+
+---
+
+> **Full configuration reference:** See [Cache](../reference/configuration.md#cache) in the Configuration Reference.

@@ -449,3 +449,7 @@ flow "enqueue_order" {
 ```
 
 See the [mq example](../../examples/mq/) for a complete working setup.
+
+---
+
+> **Full configuration reference:** See [Message Queue](../reference/configuration.md#message-queue) in the Configuration Reference.

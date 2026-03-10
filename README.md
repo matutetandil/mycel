@@ -162,6 +162,8 @@ mycel validate [--config=<path>]
 mycel check [--config=<path>]
 mycel version
 
+mycel trace <flow-name> [--input=<json>] [--params=<k=v>] [--dry-run] [--list]
+
 mycel plugin install [name]
 mycel plugin list
 mycel plugin remove <name>
@@ -169,6 +171,8 @@ mycel plugin update [name]
 ```
 
 Environment: `MYCEL_ENV` (default: development), `MYCEL_LOG_LEVEL` (default: info), `MYCEL_LOG_FORMAT` (default: text). Flags take precedence.
+
+See the [Debugging Guide](docs/guides/debugging.md) for `mycel trace` usage and examples.
 
 ## Plugins
 

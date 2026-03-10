@@ -123,3 +123,7 @@ flow "get_user" {
 ```
 
 See the [basic example](../../examples/basic/) (SQLite) and [mongodb example](../../examples/mongodb/) for complete setups.
+
+---
+
+> **Full configuration reference:** See [Database](../reference/configuration.md#database) in the Configuration Reference.

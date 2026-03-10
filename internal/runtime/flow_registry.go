@@ -13,8 +13,9 @@ import (
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/cache"
 	"github.com/matutetandil/mycel/internal/flow"
-	"github.com/matutetandil/mycel/internal/sanitize"
 	"github.com/matutetandil/mycel/internal/functions"
+	"github.com/matutetandil/mycel/internal/sanitize"
+	"github.com/matutetandil/mycel/internal/trace"
 	"github.com/matutetandil/mycel/internal/graphql/optimizer"
 	"github.com/matutetandil/mycel/internal/saga"
 	"github.com/matutetandil/mycel/internal/statemachine"
@@ -171,13 +172,23 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		}
 	}()
 
+	// Record input for tracing
+	trace.RecordSimple(ctx, trace.StageInput, "", input, "")
+
 	// Sanitize input (always runs first, before any processing)
 	if h.Sanitizer != nil && input != nil {
-		sanitized, err := h.Sanitizer.Sanitize(input)
-		if err != nil {
-			return nil, fmt.Errorf("input sanitization failed: %w", err)
+		var sanitizeErr error
+		_, sanitizeErr = trace.RecordStage(ctx, trace.StageSanitize, "", input, func() (interface{}, error) {
+			sanitized, err := h.Sanitizer.Sanitize(input)
+			if err != nil {
+				return nil, err
+			}
+			input = sanitized
+			return input, nil
+		})
+		if sanitizeErr != nil {
+			return nil, fmt.Errorf("input sanitization failed: %w", sanitizeErr)
 		}
-		input = sanitized
 	}
 
 	// Check filter condition first (before any processing)
@@ -187,6 +198,8 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 			return nil, fmt.Errorf("filter evaluation error: %w", err)
 		}
 		if !shouldProcess {
+			trace.RecordSimple(ctx, trace.StageFilter, "", nil, "filtered out")
+
 			// Return policy-aware result if FilterConfig is set
 			if h.Config.From.FilterConfig != nil {
 				result := &flow.FilteredResultWithPolicy{
@@ -221,8 +234,11 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 	}
 
 	// Validate input if schema is configured
-	if err := h.validateInput(ctx, input); err != nil {
-		return nil, err
+	_, valErr := trace.RecordStage(ctx, trace.StageValidateIn, "", input, func() (interface{}, error) {
+		return nil, h.validateInput(ctx, input)
+	})
+	if valErr != nil {
+		return nil, valErr
 	}
 
 	// Core execution function
@@ -1146,12 +1162,18 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 		}
 	}
 
-	result, err := dest.Read(ctx, query)
-	if err != nil {
-		return nil, err
+	readResult, readErr := trace.RecordStage(ctx, trace.StageRead, h.Config.To.Target, query.Filters, func() (interface{}, error) {
+		result, err := dest.Read(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		return result.Rows, nil
+	})
+	if readErr != nil {
+		return nil, readErr
 	}
 
-	return result.Rows, nil
+	return readResult, nil
 }
 
 // handleStepsFlow handles flows with steps where data comes from step execution + transform.
@@ -1267,10 +1289,29 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		data.RawSQL = h.Config.To.Query
 	}
 
+	// Dry-run: record what would be written without executing
+	if tc := trace.FromContext(ctx); tc != nil && tc.DryRun {
+		tc.Record(trace.Event{
+			Stage:  trace.StageWrite,
+			Name:   data.Target,
+			Input:  trace.Snapshot(data.Payload),
+			DryRun: true,
+			Detail: fmt.Sprintf("%s → %s", data.Operation, data.Target),
+		})
+		return map[string]interface{}{
+			"dry_run":   true,
+			"operation": data.Operation,
+			"target":    data.Target,
+			"payload":   payload,
+		}, nil
+	}
+
 	result, err := dest.Write(ctx, data)
 	if err != nil {
+		trace.RecordSimple(ctx, trace.StageWrite, data.Target, nil, fmt.Sprintf("error: %s", err.Error()))
 		return nil, err
 	}
+	trace.RecordSimple(ctx, trace.StageWrite, data.Target, map[string]interface{}{"affected": result.Affected, "last_id": result.LastID}, fmt.Sprintf("%s → %s", data.Operation, data.Target))
 
 	// If raw SQL returned rows (e.g., INSERT ... RETURNING), return those
 	if len(result.Rows) > 0 {
@@ -2225,7 +2266,16 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 	}
 
 	// Apply transforms using CEL with enriched data and step results
-	return h.Transformer.TransformWithSteps(ctx, input, enriched, stepResults, rules)
+	transformResult, transformErr := trace.RecordStage(ctx, trace.StageTransform, "", input, func() (interface{}, error) {
+		return h.Transformer.TransformWithSteps(ctx, input, enriched, stepResults, rules)
+	})
+	if transformErr != nil {
+		return nil, transformErr
+	}
+	if m, ok := transformResult.(map[string]interface{}); ok {
+		return m, nil
+	}
+	return nil, fmt.Errorf("transform returned unexpected type")
 }
 
 // resolveValidatorRefs adds custom validator constraints to fields that reference

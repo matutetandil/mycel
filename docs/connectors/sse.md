@@ -71,3 +71,7 @@ flow "user_notification" {
 ```
 
 See the [sse example](../../examples/sse/) for a complete working setup.
+
+---
+
+> **Full configuration reference:** See [SSE](../reference/configuration.md#sse) in the Configuration Reference.

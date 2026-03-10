@@ -72,3 +72,7 @@ flow "room_notification" {
 ```
 
 See the [websocket example](../../examples/websocket/) for a complete working setup.
+
+---
+
+> **Full configuration reference:** See [WebSocket](../reference/configuration.md#websocket) in the Configuration Reference.

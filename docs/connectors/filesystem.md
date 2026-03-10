@@ -415,3 +415,7 @@ flow "import_csv" {
 ```
 
 See the [files example](../../examples/files/) for a complete working setup.
+
+---
+
+> **Full configuration reference:** See [File System](../reference/configuration.md#file-system) in the Configuration Reference.

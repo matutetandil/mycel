@@ -73,3 +73,7 @@ flow "get_user" {
 ```
 
 See the [grpc example](../../examples/grpc/) and [grpc-loadbalancing example](../../examples/grpc-loadbalancing/) for complete setups.
+
+---
+
+> **Full configuration reference:** See [gRPC](../reference/configuration.md#grpc) in the Configuration Reference.

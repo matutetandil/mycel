@@ -56,6 +56,7 @@ Step-by-step guides for specific features and patterns.
 | [Error Handling](guides/error-handling.md) | Retry with backoff, dead letter queues, circuit breakers, custom error responses, and on_error aspects |
 | [Format System](guides/format-system.md) | Multi-format support (JSON, XML) at connector, flow, and step level |
 | [Extending Mycel](guides/extending.md) | Custom validators, WASM functions, mocks for testing, and aspect patterns |
+| [Debugging](guides/debugging.md) | Trace flow execution step-by-step, dry-run mode, and troubleshooting |
 | [Observability](guides/observability.md) | Prometheus metrics, Grafana dashboards, alerting rules, and monitoring setup |
 | [Troubleshooting](guides/troubleshooting.md) | Common errors, diagnosis steps, and solutions for startup, database, flow, and deployment issues |
 

@@ -58,3 +58,7 @@ flow "forward_to_tcp" {
 ```
 
 See the [tcp example](../../examples/tcp/) for a complete working setup.
+
+---
+
+> **Full configuration reference:** See [TCP](../reference/configuration.md#tcp) in the Configuration Reference.

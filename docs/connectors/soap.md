@@ -188,3 +188,7 @@ flow "soap_to_queue" {
   to   { connector = "rabbitmq",    target    = "events" }
 }
 ```
+
+---
+
+> **Full configuration reference:** See [SOAP](../reference/configuration.md#soap) in the Configuration Reference.

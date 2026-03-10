@@ -95,3 +95,7 @@ flow "order_updates" {
 ```
 
 See the [graphql example](../../examples/graphql/), [graphql-federation example](../../examples/graphql-federation/), and [graphql-optimization example](../../examples/graphql-optimization/) for complete setups.
+
+---
+
+> **Full configuration reference:** See [GraphQL](../reference/configuration.md#graphql) in the Configuration Reference.

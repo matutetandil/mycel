@@ -73,3 +73,7 @@ flow "index_product" {
 ```
 
 See the [elasticsearch example](../../examples/elasticsearch/) for a complete working setup.
+
+---
+
+> **Full configuration reference:** See [Elasticsearch](../reference/configuration.md#elasticsearch) in the Configuration Reference.

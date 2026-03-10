@@ -73,3 +73,7 @@ flow "run_report" {
 ```
 
 See the [exec example](../../examples/exec/) for a complete working setup.
+
+---
+
+> **Full configuration reference:** See [Exec](../reference/configuration.md#exec) in the Configuration Reference.

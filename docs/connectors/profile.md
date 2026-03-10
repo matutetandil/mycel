@@ -86,3 +86,7 @@ flow "get_product_price" {
 The flow always targets `pricing` — the profile connector handles backend selection, fallback, and response normalization transparently.
 
 See the [profiles example](../../examples/profiles/) for a complete working setup.
+
+---
+
+> **Full configuration reference:** See [Connector Profiles](../reference/configuration.md#connector-profiles) in the Configuration Reference.

@@ -80,3 +80,7 @@ flow "create_user" {
 ```
 
 See the [basic example](../../examples/basic/) for a complete working setup.
+
+---
+
+> **Full configuration reference:** See [REST Server](../reference/configuration.md#rest-server) in the Configuration Reference.

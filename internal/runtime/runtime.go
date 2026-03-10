@@ -709,6 +709,47 @@ func (r *Runtime) printStartupWarnings() {
 	}
 }
 
+// InitForTrace partially initializes the runtime for trace mode.
+// It initializes connectors and registers flows but does NOT start servers.
+// Used by `mycel trace` to execute individual flows without a full startup.
+func (r *Runtime) InitForTrace(ctx context.Context) error {
+	// Initialize connectors (no server start)
+	if err := r.initConnectors(ctx); err != nil {
+		return fmt.Errorf("failed to initialize connectors: %w", err)
+	}
+
+	// Initialize sync manager
+	r.syncManager = msync.NewManager(r.connectors)
+
+	// Initialize aspects
+	if err := r.initAspects(); err != nil {
+		return fmt.Errorf("failed to initialize aspects: %w", err)
+	}
+
+	// Initialize state machine engine
+	r.stateMachineEngine = statemachine.NewEngine(r.connectors)
+	for _, sm := range r.config.StateMachines {
+		r.stateMachineEngine.Register(sm)
+	}
+
+	// Register flows
+	if err := r.registerFlows(); err != nil {
+		return fmt.Errorf("failed to register flows: %w", err)
+	}
+
+	return nil
+}
+
+// GetFlow retrieves a flow handler by name from the flow registry.
+func (r *Runtime) GetFlow(name string) (*FlowHandler, bool) {
+	return r.flows.Get(name)
+}
+
+// ListFlows returns all registered flow names.
+func (r *Runtime) ListFlows() []string {
+	return r.flows.List()
+}
+
 // initConnectors creates and connects all configured connectors.
 func (r *Runtime) initConnectors(ctx context.Context) error {
 	fmt.Println("    Connectors:")

@@ -81,3 +81,7 @@ flow "audit_products" {
 ```
 
 See the [cdc example](../../examples/cdc/) for a complete working setup.
+
+---
+
+> **Full configuration reference:** See [CDC](../reference/configuration.md#cdc) in the Configuration Reference.
