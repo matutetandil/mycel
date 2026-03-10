@@ -14,11 +14,9 @@ All debug features (breakpoints, DAP, verbose flow) are **development-only** —
 - [Interactive Breakpoints (CLI)](#interactive-breakpoints-cli)
 - [DAP Server (IDE Integration)](#dap-server-ide-integration)
   - [How It Works](#how-it-works)
-  - [Pipeline Stages](#pipeline-stages)
-  - [VS Code Setup](#vs-code-setup)
-  - [IntelliJ / WebStorm Setup](#intellij--webstorm-setup)
-  - [Neovim Setup](#neovim-setup)
-  - [Other DAP Clients](#other-dap-clients)
+  - [VS Code](#vs-code)
+  - [IntelliJ / WebStorm](#intellij--webstorm)
+  - [Neovim](#neovim)
   - [Supported DAP Commands](#supported-dap-commands)
 - [Verbose Flow Logging](#verbose-flow-logging)
 - [Log-Level Debugging](#log-level-debugging)
@@ -234,97 +232,26 @@ $ mycel trace create_user --input '{"email":"TEST@X.COM","name":"Test"}' --break
 
 ## DAP Server (IDE Integration)
 
-The `--dap` flag starts a **Debug Adapter Protocol** server that enables full IDE debugging — breakpoints, stepping, variable inspection, and call stack navigation — directly in your editor.
+The `--dap` flag starts a **Debug Adapter Protocol** server that lets IDE debugger panels (variables, call stack) connect to a running trace session.
 
 > **Dev only.** The DAP server is automatically disabled outside development mode.
 
-```bash
-# Start DAP server on port 4711
-mycel trace create_user --input '{"email":"test@x.com"}' --dap=4711
-```
-
-Output:
-```
-DAP server listening on port 4711 — connect your IDE debugger
-```
+> **Note: Gutter breakpoints.** Currently, you cannot click the gutter of an HCL file to set breakpoints — IDEs only enable that for file types with a registered debug adapter. Dedicated extensions for VS Code and IntelliJ that enable gutter breakpoints on HCL files are planned alongside the [Mycel Language Server](#). For now, use `--break-at` on the CLI or the `breakAt` property in your launch config.
 
 ### How It Works
 
-```
-┌──────────────┐         TCP          ┌──────────────┐
-│   Your IDE   │ ◄──────────────────► │  Mycel DAP   │
-│  (VS Code,   │   DAP Protocol       │   Server     │
-│   IntelliJ,  │   (JSON over TCP)    │  :4711       │
-│   Neovim)    │                      │              │
-└──────────────┘                      └──────┬───────┘
-                                             │
-                                     ┌───────▼───────┐
-                                     │  Flow Engine   │
-                                     │  input →       │
-                                     │  sanitize →    │
-                                     │  validate →    │
-                                     │  transform →   │
-                                     │  write         │
-                                     └───────────────┘
-```
-
-1. You start `mycel trace --dap=4711` — the server waits for a connection
+1. Start `mycel trace` with `--dap`:
+   ```bash
+   mycel trace create_user --input '{"email":"test@x.com"}' --dap=4711
+   ```
 2. Your IDE connects to `localhost:4711` as a DAP client
-3. The IDE sends `setBreakpoints` — mapping pipeline stages to virtual line numbers
-4. The IDE sends `launch` — Mycel starts executing the flow
-5. When a breakpoint is hit, the IDE receives a `stopped` event
-6. You inspect variables (data at current stage), view the pipeline as a call stack, and step through
-7. `continue` runs to the next breakpoint, `next` advances one stage
+3. The IDE sends `launch` (with `breakAt` stages) — Mycel executes the flow
+4. When a breakpoint stage is reached, the IDE shows variables and call stack
+5. **F10** (Step Over) advances to the next stage, **F5** (Continue) runs to the next breakpoint
 
-### Pipeline Stages
+### VS Code
 
-DAP uses **line numbers** for breakpoints. Mycel maps each pipeline stage to a virtual line number. When you set a breakpoint on line 7 in your IDE, you're breaking at the `transform` stage.
-
-| Line | Stage | What happens here |
-|------|-------|-------------------|
-| 1 | `input` | Raw data received from the connector |
-| 2 | `sanitize` | XSS/injection sanitization applied |
-| 3 | `filter` | Filter expression evaluated (accept/reject) |
-| 4 | `dedupe` | Duplicate message check |
-| 5 | `validate_input` | Schema validation against type definition |
-| 6 | `enrich` | Data enrichment from other connectors |
-| 7 | `transform` | CEL transformation rules applied |
-| 8 | `step` | Multi-step flow: individual step execution |
-| 9 | `validate_output` | Output schema validation |
-| 10 | `read` | Database/API read operation |
-| 11 | `write` | Database/API write operation |
-
-To create a visual reference file that your IDE can use for breakpoint placement, create a file called `pipeline.mycel` in your project root:
-
-```
-input
-sanitize
-filter
-dedupe
-validate_input
-enrich
-transform
-step
-validate_output
-read
-write
-```
-
-Then open this file in your IDE and set breakpoints on the lines corresponding to the stages you want to debug.
-
----
-
-### VS Code Setup
-
-#### Step 1: Start the DAP Server
-
-```bash
-mycel trace create_user --input '{"email":"test@x.com","name":"Test"}' --dap=4711
-```
-
-#### Step 2: Configure launch.json
-
-Create `.vscode/launch.json` in your project:
+Create `.vscode/launch.json`:
 
 ```json
 {
@@ -340,184 +267,58 @@ Create `.vscode/launch.json` in your project:
 }
 ```
 
-> **How this works:** VS Code's `debugServer` option connects directly to a running DAP server over TCP. This works without a dedicated Mycel extension because the DAP protocol is standard — any debug adapter that speaks DAP over TCP can be used this way.
+> VS Code's `debugServer` option connects directly to any running DAP server over TCP — no extension required.
 
-#### Step 3: Set Breakpoints
+Start the DAP server, then press **F5**. When a breakpoint hits:
+- **Variables** panel shows data at the current stage
+- **Call Stack** shows pipeline stages executed so far
+- **F10** → next stage, **F5** → continue, **Shift+F5** → abort
 
-Open `pipeline.mycel` and click in the gutter to set breakpoints on the stages you want to debug (e.g., line 7 for `transform`, line 11 for `write`).
+### IntelliJ / WebStorm
 
-#### Step 4: Start Debugging
+IntelliJ does not natively support connecting to arbitrary DAP servers. Options:
 
-Press **F5** or use the Run & Debug panel. VS Code connects to the DAP server and the flow starts executing. When a breakpoint is hit:
+1. **DAP Plugin**: Install "Debug Adapter Protocol" from JetBrains Marketplace → **Run → Edit Configurations → DAP Remote Debug** → host `localhost`, port `4711`
+2. **Terminal**: Use `mycel trace --break-at=transform,write` directly in IntelliJ's terminal (recommended until a dedicated plugin is available)
 
-- The **Variables** panel shows the data at the current stage
-- The **Call Stack** panel shows the pipeline stages executed so far
-- Use **F10** (Step Over) to advance to the next stage
-- Use **F5** (Continue) to run to the next breakpoint
-- Use **Shift+F5** (Stop) to abort
+### Neovim
 
-#### Alternative: Raw DAP Client
-
-For advanced users, VS Code also supports connecting via the Debug Console. Install the [DAP Client](https://marketplace.visualstudio.com/items?itemName=nickclaw.dap-client) extension for raw protocol access.
-
----
-
-### IntelliJ / WebStorm Setup
-
-IntelliJ IDEA and WebStorm do not natively support connecting to arbitrary DAP servers via TCP out of the box. However, there are two approaches:
-
-#### Option A: DAP Plugin (Recommended)
-
-Install the **Debug Adapter Protocol** plugin from the JetBrains Marketplace:
-
-1. Go to **Settings → Plugins → Marketplace**
-2. Search for "Debug Adapter Protocol" or "DAP"
-3. Install and restart the IDE
-
-Then create a run configuration:
-
-1. **Run → Edit Configurations → + → DAP Remote Debug**
-2. Set **Host**: `localhost`
-3. Set **Port**: `4711`
-4. Click **Debug**
-
-#### Option B: External Tool
-
-Configure Mycel trace as an **External Tool**:
-
-1. **Settings → Tools → External Tools → +**
-2. **Name**: `Mycel Trace`
-3. **Program**: `mycel`
-4. **Arguments**: `trace $Prompt$ --dap=4711 --config $ProjectFileDir$`
-5. **Working directory**: `$ProjectFileDir$`
-
-Run it via **Tools → External Tools → Mycel Trace**. Enter the flow name when prompted, then connect your debugger to port 4711.
-
-#### Option C: Terminal + Debug Console
-
-The simplest approach — run the DAP server in IntelliJ's terminal:
-
-```bash
-mycel trace create_user --input '{"email":"test@x.com"}' --dap=4711
-```
-
-Then use any DAP client to connect. The output and breakpoints appear in the terminal.
-
----
-
-### Neovim Setup
-
-Neovim has excellent DAP support through [nvim-dap](https://github.com/mfussenegger/nvim-dap).
-
-#### Step 1: Install nvim-dap
-
-Using [lazy.nvim](https://github.com/folke/lazy.nvim):
-
-```lua
-{
-  "mfussenegger/nvim-dap",
-  dependencies = {
-    "rcarriga/nvim-dap-ui",     -- optional: visual UI
-    "nvim-neotest/nvim-nio",    -- required by dap-ui
-  },
-}
-```
-
-#### Step 2: Configure the Mycel Adapter
-
-Add this to your Neovim configuration (e.g., `~/.config/nvim/lua/dap-mycel.lua`):
+Neovim has excellent DAP support through [nvim-dap](https://github.com/mfussenegger/nvim-dap):
 
 ```lua
 local dap = require('dap')
 
--- Register the Mycel DAP adapter
 dap.adapters.mycel = function(callback, config)
-  callback({
-    type = 'server',
-    host = config.host or '127.0.0.1',
-    port = config.port or 4711,
-  })
+  callback({ type = 'server', host = '127.0.0.1', port = config.port or 4711 })
 end
 
--- Debug configuration
 dap.configurations.hcl = {
   {
     type = 'mycel',
     request = 'launch',
     name = 'Debug Mycel Flow',
-    flow = '${input:flow}',           -- prompts for flow name
+    flow = '${input:flow}',
     port = 4711,
-    input = {},                        -- override per-project
+    breakAt = { 'transform', 'write' },
   },
 }
-
--- Optional: map pipeline stages to the visual file
--- Open pipeline.mycel and set breakpoints on lines 1-11
 ```
 
-#### Step 3: Debug
-
-1. Start the DAP server in a terminal split:
-   ```bash
-   mycel trace create_user --input '{"email":"test@x.com"}' --dap=4711
-   ```
-
-2. Open `pipeline.mycel` in Neovim
-
-3. Set breakpoints with `:lua require('dap').toggle_breakpoint()` (or your keybinding, commonly `<leader>db`)
-
-4. Start debugging with `:lua require('dap').continue()` (commonly `<F5>`)
-
-5. When a breakpoint hits:
-   - `:lua require('dap').step_over()` — next stage (`<F10>`)
-   - `:lua require('dap').continue()` — run to next breakpoint (`<F5>`)
-   - `:lua require('dap.ui.widgets').hover()` — inspect variable under cursor
-   - `:lua require('dap').terminate()` — abort flow
-
-#### Recommended Keybindings
-
-```lua
-vim.keymap.set('n', '<F5>', function() require('dap').continue() end)
-vim.keymap.set('n', '<F10>', function() require('dap').step_over() end)
-vim.keymap.set('n', '<leader>db', function() require('dap').toggle_breakpoint() end)
-vim.keymap.set('n', '<leader>dr', function() require('dap').repl.open() end)
-vim.keymap.set('n', '<leader>dl', function() require('dap').run_last() end)
-```
-
-If you use [nvim-dap-ui](https://github.com/rcarriga/nvim-dap-ui), the variables, call stack, and breakpoints panels appear automatically when a debug session starts.
-
----
-
-### Other DAP Clients
-
-Any tool that speaks the Debug Adapter Protocol over TCP can connect to Mycel's DAP server. Some options:
-
-| Client | How to Connect |
-|--------|---------------|
-| **Emacs (dap-mode)** | `(dap-register-debug-provider "mycel" ...)` with `:host "localhost" :port 4711` |
-| **Sublime Text (Debugger)** | Install the Debugger package, configure a custom adapter pointing to `localhost:4711` |
-| **Eclipse** | DAP4E plugin supports custom debug adapters |
-| **Command line** | Use any DAP client library (Node.js: `@vscode/debugadapter`, Python: `debugpy`) to connect to `localhost:4711` |
-
-The DAP protocol is an open standard — see the [full specification](https://microsoft.github.io/debug-adapter-protocol/specification).
-
----
+Start the DAP server, then `:lua require('dap').continue()` (**F5**).
 
 ### Supported DAP Commands
 
 | Command | Description |
 |---------|-------------|
-| `initialize` | Capability negotiation (called once on connect) |
-| `launch` | Start flow execution with optional input and dry-run |
-| `setBreakpoints` | Set breakpoints at pipeline stages (by line number 1-11) |
-| `configurationDone` | Signal that IDE configuration is complete |
-| `threads` | List debug threads (one per flow execution) |
-| `stackTrace` | Show pipeline stages as a call stack |
-| `scopes` | List variable scopes for a stack frame |
-| `variables` | Inspect data values at the current breakpoint |
-| `continue` | Resume execution until next breakpoint |
-| `next` | Step to the next pipeline stage |
-| `disconnect` | Stop debugging and abort the flow |
+| `initialize` | Capability negotiation |
+| `launch` | Start flow execution (supports `input`, `dryRun`, `breakAt`) |
+| `setBreakpoints` | Set breakpoints at pipeline stages |
+| `configurationDone` | Signal IDE configuration complete |
+| `threads` | List debug threads (one per flow) |
+| `stackTrace` | Pipeline stages as call stack |
+| `scopes` / `variables` | Inspect data at current breakpoint |
+| `continue` / `next` | Resume or step to next stage |
+| `disconnect` | Stop debugging and abort flow |
 
 ---
 
@@ -638,7 +439,7 @@ echo "MYCEL_ENV=development" >> .env
 
 ### Breakpoints not hitting
 
-1. Make sure you're using the correct line numbers (see [Pipeline Stages](#pipeline-stages) table)
+1. Make sure you're using valid stage names (see [Pipeline Stages](#pipeline-stages) table)
 2. Not all stages execute for every flow — e.g., `enrich` only runs if the flow has enrichments configured
 3. Use `--breakpoints` (all stages) first to see which stages your flow actually goes through
 

@@ -153,6 +153,35 @@ That's it. REST API + database, zero code.
 | [Scheduled Jobs](examples/scheduled) | Cron expressions and interval-based flow triggers |
 | Hot Reload | Apply HCL changes without restart |
 | Health Checks / Prometheus | `/health`, `/metrics` endpoints |
+| [Debugging](docs/guides/debugging.md) | Trace flows, interactive breakpoints, dry-run, IDE integration (VS Code, IntelliJ, Neovim) |
+
+## Debugging
+
+Mycel has a built-in debugging toolkit for tracing data through your flows — no log statements needed.
+
+```bash
+# See what a flow does, step by step
+mycel trace get_users
+
+# Simulate a write without touching the database
+mycel trace create_user --input '{"email":"test@x.com"}' --dry-run
+
+# Interactive breakpoints — pause at each pipeline stage
+mycel trace create_user --input '{"email":"test@x.com"}' --breakpoints
+
+# Pause only at specific stages
+mycel trace create_user --input '{"email":"test@x.com"}' --break-at=transform,write
+
+# IDE debugging (VS Code, IntelliJ, Neovim) via DAP
+mycel trace create_user --input '{"email":"test@x.com"}' --dap=4711
+
+# Per-request pipeline logging in a running service
+mycel start --verbose-flow
+```
+
+All debug features are **development-only** — automatically disabled in staging/production with zero overhead.
+
+See the [Debugging Guide](docs/guides/debugging.md) for full documentation including IDE setup.
 
 ## CLI
 

@@ -53,10 +53,11 @@ type InitializeArguments struct {
 
 // LaunchArguments for the "launch" request.
 type LaunchArguments struct {
-	Flow   string                 `json:"flow"`
-	Input  map[string]interface{} `json:"input,omitempty"`
-	DryRun bool                   `json:"dryRun,omitempty"`
-	Config string                 `json:"config,omitempty"`
+	Flow    string                 `json:"flow"`
+	Input   map[string]interface{} `json:"input,omitempty"`
+	DryRun  bool                   `json:"dryRun,omitempty"`
+	Config  string                 `json:"config,omitempty"`
+	BreakAt []string               `json:"breakAt,omitempty"`
 }
 
 // SetBreakpointsArguments for "setBreakpoints".

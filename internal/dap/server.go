@@ -25,6 +25,9 @@ type Server struct {
 	session  *Session
 	listener net.Listener
 
+	// readyCh is closed when the server is listening and ready to accept connections.
+	readyCh chan struct{}
+
 	// seq is the next sequence number for server-sent messages.
 	seq atomic.Int64
 
@@ -44,6 +47,7 @@ func NewServer(port int, logger *slog.Logger) *Server {
 		port:    port,
 		logger:  logger,
 		session: NewSession(),
+		readyCh: make(chan struct{}),
 	}
 }
 
@@ -80,6 +84,9 @@ func (s *Server) ListenAndServe() error {
 	}
 	defer s.listener.Close()
 
+	// Signal that we're ready to accept connections.
+	close(s.readyCh)
+
 	s.logger.Info("DAP server listening", "port", s.port)
 	fmt.Printf("DAP server listening on port %d — connect your IDE debugger\n", s.port)
 
@@ -100,6 +107,16 @@ func (s *Server) ListenAndServe() error {
 
 	// Process messages
 	return s.processMessages(conn)
+}
+
+// Ready returns a channel that is closed when the server is listening.
+func (s *Server) Ready() <-chan struct{} {
+	return s.readyCh
+}
+
+// Addr returns the listener address. Only valid after Ready() is signaled.
+func (s *Server) Addr() net.Addr {
+	return s.listener.Addr()
 }
 
 // Close shuts down the server.
@@ -191,6 +208,15 @@ func (s *Server) handleRequest(req *Request) error {
 		s.session.dryRun = args.DryRun
 		s.session.launched = true
 		s.session.mu.Unlock()
+
+		// Apply breakAt stages from launch config
+		if len(args.BreakAt) > 0 {
+			stages := make([]trace.Stage, 0, len(args.BreakAt))
+			for _, name := range args.BreakAt {
+				stages = append(stages, trace.Stage(name))
+			}
+			s.session.SetBreakpoints(stages)
+		}
 
 		s.sendResponse(req, true, nil)
 

@@ -179,10 +179,14 @@ func TestDAPProtocol(t *testing.T) {
 	}()
 
 	// Wait for server to be ready
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-server.Ready():
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not become ready")
+	}
 
 	// Get the actual port
-	addr := server.listener.Addr().(*net.TCPAddr)
+	addr := server.Addr().(*net.TCPAddr)
 
 	// Connect as IDE client
 	conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", addr.Port))
