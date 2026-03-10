@@ -44,18 +44,36 @@ connector "db" {
 
 ```hcl
 flow "list_items" {
-  from { connector = "api", operation = "GET /items" }
-  to   { connector = "db", target = "items" }
+  from {
+    connector = "api"
+    operation = "GET /items"
+  }
+  to {
+    connector = "db"
+    target    = "items"
+  }
 }
 
 flow "create_item" {
-  from { connector = "api", operation = "POST /items" }
-  to   { connector = "db", target = "INSERT items" }
+  from {
+    connector = "api"
+    operation = "POST /items"
+  }
+  to {
+    connector = "db"
+    target    = "INSERT items"
+  }
 }
 
 flow "get_item" {
-  from { connector = "api", operation = "GET /items/:id" }
-  to   { connector = "db", target = "items WHERE id = :id" }
+  from {
+    connector = "api"
+    operation = "GET /items/:id"
+  }
+  to {
+    connector = "db"
+    target    = "items WHERE id = :id"
+  }
 }
 ```
 
@@ -131,7 +149,10 @@ Add automatic UUIDs and timestamps. Update `flows.hcl`:
 
 ```hcl
 flow "create_item" {
-  from { connector = "api", operation = "POST /items" }
+  from {
+    connector = "api"
+    operation = "POST /items"
+  }
 
   transform {
     id          = "uuid()"
@@ -140,7 +161,10 @@ flow "create_item" {
     created_at  = "now()"
   }
 
-  to { connector = "db", target = "INSERT items" }
+  to {
+    connector = "db"
+    target    = "INSERT items"
+  }
 }
 ```
 
@@ -168,8 +192,15 @@ Create `types.hcl`:
 
 ```hcl
 type "item_input" {
-  name        = string { required = true, min_length = 1, max_length = 100 }
-  description = string { required = false, max_length = 500 }
+  name = string {
+    required   = true
+    min_length = 1
+    max_length = 100
+  }
+  description = string {
+    required   = false
+    max_length = 500
+  }
 }
 ```
 
@@ -177,7 +208,10 @@ Reference it in the flow:
 
 ```hcl
 flow "create_item" {
-  from { connector = "api", operation = "POST /items" }
+  from {
+    connector = "api"
+    operation = "POST /items"
+  }
 
   validate {
     input = "item_input"
@@ -190,7 +224,10 @@ flow "create_item" {
     created_at  = "now()"
   }
 
-  to { connector = "db", target = "INSERT items" }
+  to {
+    connector = "db"
+    target    = "INSERT items"
+  }
 }
 ```
 

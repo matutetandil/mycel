@@ -6,10 +6,20 @@ Types define data schemas for validation. Attach them to flows to validate data 
 
 ```hcl
 type "user" {
-  email    = string { format = "email", required = true }
-  age      = number { min = 0, max = 150 }
+  email = string {
+    format   = "email"
+    required = true
+  }
+  age = number {
+    min = 0
+    max = 150
+  }
   role     = string { enum = ["admin", "user", "guest"] }
-  username = string { min_length = 3, max_length = 50, pattern = "^[a-zA-Z0-9_]+$" }
+  username = string {
+    min_length = 3
+    max_length = 50
+    pattern    = "^[a-zA-Z0-9_]+$"
+  }
 }
 ```
 
@@ -19,7 +29,10 @@ Use the `validate` block in a flow to apply type validation:
 
 ```hcl
 flow "create_user" {
-  from { connector = "api", operation = "POST /users" }
+  from {
+    connector = "api"
+    operation = "POST /users"
+  }
 
   validate {
     input  = "user"     # Validates request body against type "user"
@@ -32,7 +45,10 @@ flow "create_user" {
     created_at = "now()"
   }
 
-  to { connector = "db", target = "users" }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 ```
 
@@ -94,9 +110,15 @@ The `format` constraint validates well-known string formats:
 
 ```hcl
 type "contact" {
-  email  = string { format = "email" }
-  phone  = string { format = "phone", required = false }
-  url    = string { format = "url", required = false }
+  email = string { format = "email" }
+  phone = string {
+    format   = "phone"
+    required = false
+  }
+  url = string {
+    format   = "url"
+    required = false
+  }
 }
 ```
 
@@ -106,11 +128,27 @@ By default, all fields are required. Use `required = false` to make a field opti
 
 ```hcl
 type "user_input" {
-  email       = string { required = true, format = "email" }
-  name        = string { required = true, min_length = 1 }
-  nickname    = string { required = false, max_length = 50 }
-  avatar_url  = string { required = false, format = "url" }
-  age         = number { required = false, min = 0, max = 150 }
+  email = string {
+    required = true
+    format   = "email"
+  }
+  name = string {
+    required   = true
+    min_length = 1
+  }
+  nickname = string {
+    required   = false
+    max_length = 50
+  }
+  avatar_url = string {
+    required = false
+    format   = "url"
+  }
+  age = number {
+    required = false
+    min      = 0
+    max      = 150
+  }
 }
 ```
 
@@ -167,9 +205,18 @@ type "product" {
 type "create_order_input" {
   user_id    = string { format = "uuid" }
   product_id = string { format = "uuid" }
-  quantity   = number { min = 1, max = 1000 }
-  notes      = string { required = false, max_length = 500 }
-  priority   = string { required = false, enum = ["low", "normal", "high"], required = false }
+  quantity = number {
+    min = 1
+    max = 1000
+  }
+  notes = string {
+    required   = false
+    max_length = 500
+  }
+  priority = string {
+    required = false
+    enum     = ["low", "normal", "high"]
+  }
 }
 
 type "order" {
@@ -184,7 +231,10 @@ type "order" {
 
 ```hcl
 flow "create_order" {
-  from { connector = "api", operation = "POST /orders" }
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
 
   validate {
     input = "create_order_input"
@@ -203,7 +253,10 @@ flow "create_order" {
     output = "order"
   }
 
-  to { connector = "db", target = "orders" }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
 }
 ```
 

@@ -14,7 +14,10 @@ A lock guarantees only one flow instance processes a specific resource at a time
 
 ```hcl
 flow "process_payment" {
-  from { connector = "rabbit", operation = "payments" }
+  from {
+    connector = "rabbit"
+    operation = "payments"
+  }
 
   lock {
     storage = "connector.redis"
@@ -24,7 +27,10 @@ flow "process_payment" {
     retry   = "100ms"
   }
 
-  to { connector = "db", target = "UPDATE accounts" }
+  to {
+    connector = "db"
+    target    = "UPDATE accounts"
+  }
 }
 ```
 
@@ -44,7 +50,10 @@ The `key` expression determines lock granularity. Using `"account:" + input.acco
 
 ```hcl
 flow "reserve_inventory" {
-  from { connector = "api", operation = "POST /reservations" }
+  from {
+    connector = "api"
+    operation = "POST /reservations"
+  }
 
   lock {
     storage = "connector.redis"
@@ -78,7 +87,10 @@ A semaphore limits the number of concurrent flow executions globally. Use it whe
 
 ```hcl
 flow "call_ai_api" {
-  from { connector = "api", operation = "POST /analyze" }
+  from {
+    connector = "api"
+    operation = "POST /analyze"
+  }
 
   semaphore {
     storage = "connector.redis"
@@ -87,7 +99,10 @@ flow "call_ai_api" {
     timeout = "10s"    # Wait up to 10s for a slot
   }
 
-  to { connector = "ai_service", operation = "POST /analyze" }
+  to {
+    connector = "ai_service"
+    operation = "POST /analyze"
+  }
 }
 ```
 
@@ -104,7 +119,10 @@ flow "call_ai_api" {
 
 ```hcl
 flow "geocode_address" {
-  from { connector = "api", operation = "POST /geocode" }
+  from {
+    connector = "api"
+    operation = "POST /geocode"
+  }
 
   semaphore {
     storage = "connector.redis"
@@ -113,7 +131,10 @@ flow "geocode_address" {
     timeout = "5s"
   }
 
-  to { connector = "maps_api", operation = "POST /geocode/json" }
+  to {
+    connector = "maps_api"
+    operation = "POST /geocode/json"
+  }
 }
 ```
 
@@ -124,8 +145,14 @@ Coordinate synchronizes dependent flows. One flow signals completion, another wa
 ```hcl
 # Producer: signals when data is ready
 flow "produce_batch" {
-  from { connector = "api", operation = "POST /batches" }
-  to   { connector = "db", target = "batches" }
+  from {
+    connector = "api"
+    operation = "POST /batches"
+  }
+  to {
+    connector = "db"
+    target    = "batches"
+  }
 
   coordinate {
     storage = "connector.redis"
@@ -136,7 +163,10 @@ flow "produce_batch" {
 
 # Consumer: waits for signal
 flow "process_batch" {
-  from { connector = "api", operation = "POST /batches/:id/process" }
+  from {
+    connector = "api"
+    operation = "POST /batches/:id/process"
+  }
 
   coordinate {
     storage = "connector.redis"
@@ -151,7 +181,10 @@ flow "process_batch" {
     params    = [input.params.id]
   }
 
-  to { connector = "db", target = "results" }
+  to {
+    connector = "db"
+    target    = "results"
+  }
 }
 ```
 
@@ -173,7 +206,10 @@ You can combine synchronization primitives in a single flow:
 
 ```hcl
 flow "critical_payment" {
-  from { connector = "rabbit", operation = "payments" }
+  from {
+    connector = "rabbit"
+    operation = "payments"
+  }
 
   # Deduplicate first
   dedupe {
@@ -198,7 +234,10 @@ flow "critical_payment" {
     timeout = "10s"
   }
 
-  to { connector = "payment_gateway", operation = "POST /charge" }
+  to {
+    connector = "payment_gateway"
+    operation = "POST /charge"
+  }
 }
 ```
 

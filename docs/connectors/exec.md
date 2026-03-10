@@ -67,8 +67,14 @@ connector "remote" {
 
 ```hcl
 flow "run_report" {
-  from { connector = "api", operation = "POST /reports/generate" }
-  to   { connector = "script", operation = "execute" }
+  from {
+    connector = "api"
+    operation = "POST /reports/generate"
+  }
+  to {
+    connector = "script"
+    operation = "execute"
+  }
 }
 ```
 

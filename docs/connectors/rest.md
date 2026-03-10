@@ -64,18 +64,30 @@ connector "external_api" {
 
 ```hcl
 flow "list_users" {
-  from { connector = "api", operation = "GET /users" }
-  to   { connector = "db", target = "users" }
+  from {
+    connector = "api"
+    operation = "GET /users"
+  }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 
 flow "create_user" {
-  from { connector = "api", operation = "POST /users" }
+  from {
+    connector = "api"
+    operation = "POST /users"
+  }
   transform {
     id         = "uuid()"
     email      = "lower(input.email)"
     created_at = "now()"
   }
-  to { connector = "db", target = "users" }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 ```
 

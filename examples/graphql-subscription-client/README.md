@@ -81,7 +81,10 @@ flow "track_price_changes" {
     connector = "products_api"
     operation = "Subscription.priceChanged"
   }
-  to { connector = "db", target = "price_history" }
+  to {
+    connector = "db"
+    target    = "price_history"
+  }
 }
 ```
 

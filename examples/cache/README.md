@@ -38,8 +38,14 @@ Define cache settings directly in the flow:
 
 ```hcl
 flow "get_product" {
-  from { connector = "api", operation = "GET /products/:id" }
-  to   { connector = "db", target = "products" }
+  from {
+    connector = "api"
+    operation = "GET /products/:id"
+  }
+  to {
+    connector = "db"
+    target    = "products"
+  }
 
   cache {
     storage = "memory_cache"
@@ -79,8 +85,14 @@ Invalidate cache after write operations:
 
 ```hcl
 flow "update_product" {
-  from { connector = "api", operation = "PUT /products/:id" }
-  to   { connector = "db", target = "products" }
+  from {
+    connector = "api"
+    operation = "PUT /products/:id"
+  }
+  to {
+    connector = "db"
+    target    = "products"
+  }
 
   after {
     invalidate {

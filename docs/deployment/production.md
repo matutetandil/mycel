@@ -95,7 +95,10 @@ For critical message queue consumers:
 
 ```hcl
 flow "process_payment" {
-  from { connector = "rabbit", operation = "payments" }
+  from {
+    connector = "rabbit"
+    operation = "payments"
+  }
 
   dedupe {
     storage      = "connector.redis"
@@ -119,7 +122,10 @@ flow "process_payment" {
     }
   }
 
-  to { connector = "db", target = "payments" }
+  to {
+    connector = "db"
+    target    = "payments"
+  }
 }
 ```
 

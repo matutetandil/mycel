@@ -139,13 +139,23 @@ Reads a file and parses it according to the detected or specified format. If the
 ```hcl
 # Auto-detect format from extension
 flow "load_users" {
-  from { connector = "api", operation = "GET /users" }
-  to   { connector = "files", operation = "read", target = "users.json" }
+  from {
+    connector = "api"
+    operation = "GET /users"
+  }
+  to {
+    connector = "files"
+    operation = "read"
+    target    = "users.json"
+  }
 }
 
 # Override format explicitly
 flow "load_data" {
-  from { connector = "api", operation = "GET /data" }
+  from {
+    connector = "api"
+    operation = "GET /data"
+  }
   to   {
     connector = "files"
     operation = "read"
@@ -156,7 +166,10 @@ flow "load_data" {
 
 # Read a specific Excel sheet
 flow "import_products" {
-  from { connector = "api", operation = "POST /import" }
+  from {
+    connector = "api"
+    operation = "POST /import"
+  }
   to   {
     connector = "files"
     operation = "read"
@@ -173,25 +186,49 @@ Writes data to a file. Creates parent directories automatically when `create_dir
 ```hcl
 # Write JSON (auto-detected from extension)
 flow "save_report" {
-  from { connector = "api", operation = "POST /reports" }
-  to   { connector = "files", operation = "write", target = "reports/latest.json" }
+  from {
+    connector = "api"
+    operation = "POST /reports"
+  }
+  to {
+    connector = "files"
+    operation = "write"
+    target    = "reports/latest.json"
+  }
 }
 
 # Write CSV
 flow "export_users" {
-  from { connector = "db", operation = "users" }
-  to   { connector = "files", operation = "write", target = "export/users.csv" }
+  from {
+    connector = "db"
+    operation = "users"
+  }
+  to {
+    connector = "files"
+    operation = "write"
+    target    = "export/users.csv"
+  }
 }
 
 # Write Excel
 flow "export_report" {
-  from { connector = "db", operation = "report_data" }
-  to   { connector = "files", operation = "write", target = "reports/monthly.xlsx" }
+  from {
+    connector = "db"
+    operation = "report_data"
+  }
+  to {
+    connector = "files"
+    operation = "write"
+    target    = "reports/monthly.xlsx"
+  }
 }
 
 # Append to a log file
 flow "audit_log" {
-  from { connector = "api", operation = "POST /actions" }
+  from {
+    connector = "api"
+    operation = "POST /actions"
+  }
   to   {
     connector = "files"
     operation = "write"
@@ -223,8 +260,14 @@ Returns metadata for each entry in a directory:
 ```hcl
 # Check if a file exists
 flow "check_file" {
-  from { connector = "api", operation = "GET /files/:name/exists" }
-  to   { connector = "files", operation = "exists" }
+  from {
+    connector = "api"
+    operation = "GET /files/:name/exists"
+  }
+  to {
+    connector = "files"
+    operation = "exists"
+  }
 }
 ```
 
@@ -247,7 +290,10 @@ flow "check_file" {
 ```hcl
 # Copy a file
 flow "backup_config" {
-  from { connector = "scheduler", operation = "daily" }
+  from {
+    connector = "scheduler"
+    operation = "daily"
+  }
   to   {
     connector = "files"
     operation = "copy"
@@ -287,7 +333,10 @@ connector "db" {
 
 # Upload an Excel file, read it, and insert rows into the database
 flow "import_users" {
-  from { connector = "api", operation = "POST /import/users" }
+  from {
+    connector = "api"
+    operation = "POST /import/users"
+  }
 
   step "read_file" {
     connector = "storage"
@@ -296,7 +345,11 @@ flow "import_users" {
     params    = { sheet = "Users" }
   }
 
-  to { connector = "db", operation = "INSERT", target = "users" }
+  to {
+    connector = "db"
+    operation = "INSERT"
+    target    = "users"
+  }
 }
 ```
 
@@ -304,14 +357,21 @@ flow "import_users" {
 
 ```hcl
 flow "export_orders" {
-  from { connector = "api", operation = "GET /export/orders" }
+  from {
+    connector = "api"
+    operation = "GET /export/orders"
+  }
 
   step "query" {
     connector = "db"
     operation = "SELECT * FROM orders WHERE status = 'completed'"
   }
 
-  to { connector = "storage", operation = "write", target = "exports/orders.csv" }
+  to {
+    connector = "storage"
+    operation = "write"
+    target    = "exports/orders.csv"
+  }
 }
 ```
 
@@ -343,14 +403,28 @@ The `operation` in the `from` block is a glob pattern that selects which files t
 ```hcl
 # Trigger on any new/modified CSV file
 flow "process_csv" {
-  from { connector = "inbox", operation = "*.csv" }
-  to   { connector = "db", operation = "INSERT", target = "imports" }
+  from {
+    connector = "inbox"
+    operation = "*.csv"
+  }
+  to {
+    connector = "db"
+    operation = "INSERT"
+    target    = "imports"
+  }
 }
 
 # Trigger on CSV files in a specific subdirectory
 flow "process_reports" {
-  from { connector = "inbox", operation = "reports/*.csv" }
-  to   { connector = "db", operation = "INSERT", target = "report_data" }
+  from {
+    connector = "inbox"
+    operation = "reports/*.csv"
+  }
+  to {
+    connector = "db"
+    operation = "INSERT"
+    target    = "report_data"
+  }
 }
 ```
 
@@ -402,7 +476,10 @@ connector "db" {
 }
 
 flow "import_csv" {
-  from { connector = "inbox", operation = "*.csv" }
+  from {
+    connector = "inbox"
+    operation = "*.csv"
+  }
 
   transform {
     output.file   = input._path
@@ -410,7 +487,11 @@ flow "import_csv" {
     output.data   = input.rows
   }
 
-  to { connector = "db", operation = "INSERT", target = "imports" }
+  to {
+    connector = "db"
+    operation = "INSERT"
+    target    = "imports"
+  }
 }
 ```
 

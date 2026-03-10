@@ -15,7 +15,10 @@ Ensure only one payment is processed per user at a time:
 
 ```hcl
 flow "process_payment" {
-  from { connector = "rabbitmq", operation = "queue:payments" }
+  from {
+    connector = "rabbitmq"
+    operation = "queue:payments"
+  }
 
   lock {
     storage = "redis"
@@ -25,7 +28,10 @@ flow "process_payment" {
     retry   = "100ms"
   }
 
-  to { connector = "postgres", target = "payments" }
+  to {
+    connector = "postgres"
+    target    = "payments"
+  }
 }
 ```
 
@@ -35,7 +41,10 @@ Limit concurrent requests to an external API:
 
 ```hcl
 flow "call_external_api" {
-  from { connector = "rabbitmq", operation = "queue:requests" }
+  from {
+    connector = "rabbitmq"
+    operation = "queue:requests"
+  }
 
   semaphore {
     storage     = "redis"
@@ -45,7 +54,10 @@ flow "call_external_api" {
     lease       = "60s"
   }
 
-  to { connector = "external_api", target = "POST /process" }
+  to {
+    connector = "external_api"
+    target    = "POST /process"
+  }
 }
 ```
 
@@ -55,7 +67,10 @@ Ensure child entities wait for their parent to be processed first:
 
 ```hcl
 flow "process_entity" {
-  from { connector = "rabbitmq", operation = "queue:entities" }
+  from {
+    connector = "rabbitmq"
+    operation = "queue:entities"
+  }
 
   coordinate {
     storage              = "redis"
@@ -83,7 +98,10 @@ flow "process_entity" {
     }
   }
 
-  to { connector = "postgres", target = "entities" }
+  to {
+    connector = "postgres"
+    target    = "entities"
+  }
 }
 ```
 
@@ -113,7 +131,10 @@ flow "daily_cleanup" {
 flow "health_ping" {
   when = "@every 5m"
 
-  to { connector = "monitoring", target = "POST /ping" }
+  to {
+    connector = "monitoring"
+    target    = "POST /ping"
+  }
 }
 ```
 

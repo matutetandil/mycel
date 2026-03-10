@@ -53,20 +53,40 @@ The connector sends periodic heartbeat comments (`: keepalive`) to keep connecti
 ```hcl
 # Broadcast to all connected clients
 flow "live_feed" {
-  from { connector = "rabbit", operation = "feed.item" }
-  to   { connector = "sse", operation = "broadcast" }
+  from {
+    connector = "rabbit"
+    operation = "feed.item"
+  }
+  to {
+    connector = "sse"
+    operation = "broadcast"
+  }
 }
 
 # Push only to clients subscribed to a specific room
 flow "room_updates" {
-  from { connector = "rabbit", operation = "room.event" }
-  to   { connector = "sse", operation = "send_to_room", target = "input.room" }
+  from {
+    connector = "rabbit"
+    operation = "room.event"
+  }
+  to {
+    connector = "sse"
+    operation = "send_to_room"
+    target    = "input.room"
+  }
 }
 
 # Push to a single user
 flow "user_notification" {
-  from { connector = "rabbit", operation = "notification.personal" }
-  to   { connector = "sse", operation = "send_to_user", target = "input.user_id" }
+  from {
+    connector = "rabbit"
+    operation = "notification.personal"
+  }
+  to {
+    connector = "sse"
+    operation = "send_to_user"
+    target    = "input.user_id"
+  }
 }
 ```
 

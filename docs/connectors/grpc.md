@@ -58,7 +58,10 @@ connector "grpc_service" {
 
 ```hcl
 flow "get_user" {
-  from { connector = "grpc_api", operation = "GetUser" }
+  from {
+    connector = "grpc_api"
+    operation = "GetUser"
+  }
 
   step "user" {
     connector = "db"

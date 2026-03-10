@@ -157,8 +157,14 @@ The SOAP connector is commonly used to bridge between protocol worlds without wr
 
 ```hcl
 flow "soap_to_rest" {
-  from { connector = "soap_server", operation = "PlaceOrder" }
-  to   { connector = "modern_api",  operation = "POST /orders" }
+  from {
+    connector = "soap_server"
+    operation = "PlaceOrder"
+  }
+  to {
+    connector = "modern_api"
+    operation = "POST /orders"
+  }
 }
 ```
 
@@ -166,8 +172,14 @@ flow "soap_to_rest" {
 
 ```hcl
 flow "rest_to_soap" {
-  from { connector = "api", operation = "POST /orders" }
-  to   { connector = "erp", operation = "CreateOrder" }
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+  to {
+    connector = "erp"
+    operation = "CreateOrder"
+  }
 }
 ```
 
@@ -175,8 +187,14 @@ flow "rest_to_soap" {
 
 ```hcl
 flow "soap_to_db" {
-  from { connector = "soap_server", operation = "SubmitRecord" }
-  to   { connector = "db",          target    = "records" }
+  from {
+    connector = "soap_server"
+    operation = "SubmitRecord"
+  }
+  to {
+    connector = "db"
+    target    = "records"
+  }
 }
 ```
 
@@ -184,8 +202,14 @@ flow "soap_to_db" {
 
 ```hcl
 flow "soap_to_queue" {
-  from { connector = "soap_server", operation = "PublishEvent" }
-  to   { connector = "rabbitmq",    target    = "events" }
+  from {
+    connector = "soap_server"
+    operation = "PublishEvent"
+  }
+  to {
+    connector = "rabbitmq"
+    target    = "events"
+  }
 }
 ```
 

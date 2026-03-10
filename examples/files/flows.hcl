@@ -68,7 +68,10 @@ flow "get_file" {
 #
 # 4. Directory listing:
 #    flow "list_directory" {
-#      from { connector = "api", operation = "GET /files/dir/:path" }
+#      from {
+#        connector = "api"
+#        operation = "GET /files/dir/:path"
+#      }
 #      to {
 #        connector = "storage"
 #        operation = "LIST"      # Not supported in to block

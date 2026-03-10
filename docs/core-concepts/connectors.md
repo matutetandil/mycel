@@ -293,8 +293,14 @@ Then in flows:
 
 ```hcl
 flow "list_active_users" {
-  from { connector = "api", operation = "GET /users" }
-  to   { connector = "db", operation = "find_active_users" }
+  from {
+    connector = "api"
+    operation = "GET /users"
+  }
+  to {
+    connector = "db"
+    operation = "find_active_users"
+  }
 }
 ```
 

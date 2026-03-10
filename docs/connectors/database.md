@@ -103,12 +103,21 @@ connector "mongo" {
 
 ```hcl
 flow "list_users" {
-  from { connector = "api", operation = "GET /users" }
-  to   { connector = "db", target = "users" }
+  from {
+    connector = "api"
+    operation = "GET /users"
+  }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 
 flow "get_user" {
-  from { connector = "api", operation = "GET /users/:id" }
+  from {
+    connector = "api"
+    operation = "GET /users/:id"
+  }
 
   step "user" {
     connector = "db"

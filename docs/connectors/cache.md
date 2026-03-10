@@ -56,7 +56,10 @@ connector "redis_cache" {
 
 ```hcl
 flow "get_user_cached" {
-  from { connector = "api", operation = "GET /users/:id" }
+  from {
+    connector = "api"
+    operation = "GET /users/:id"
+  }
 
   cache {
     connector = "redis_cache"
@@ -64,7 +67,10 @@ flow "get_user_cached" {
     ttl       = "10m"
   }
 
-  to { connector = "db", target = "users" }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 ```
 

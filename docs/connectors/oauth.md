@@ -44,13 +44,22 @@ The `callback` operation returns: `email`, `name`, `picture`, `provider_id`, `ac
 ```hcl
 # Start login — redirects to Google's consent screen
 flow "google_login" {
-  from { connector = "api", operation = "GET /auth/google" }
-  to   { connector = "google", operation = "authorize" }
+  from {
+    connector = "api"
+    operation = "GET /auth/google"
+  }
+  to {
+    connector = "google"
+    operation = "authorize"
+  }
 }
 
 # Handle callback — exchange code for user info, store in DB
 flow "google_callback" {
-  from { connector = "api", operation = "GET /auth/google/callback" }
+  from {
+    connector = "api"
+    operation = "GET /auth/google/callback"
+  }
 
   step "auth" {
     connector = "google"
@@ -64,7 +73,10 @@ flow "google_callback" {
     output.provider_id = "step.auth.provider_id"
   }
 
-  to { connector = "db", target = "users" }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 ```
 

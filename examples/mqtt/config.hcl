@@ -26,18 +26,30 @@ connector "db" {
 
 # Receive sensor readings via MQTT and store them
 flow "sensor_reading" {
-  from { connector = "sensors", operation = "sensors/+/temperature" }
+  from {
+    connector = "sensors"
+    operation = "sensors/+/temperature"
+  }
   transform {
     device_id  = "input._topic"
     value      = "input.temperature"
     unit       = "'celsius'"
     received_at = "now()"
   }
-  to { connector = "db", target = "readings" }
+  to {
+    connector = "db"
+    target    = "readings"
+  }
 }
 
 # Publish alerts when temperature exceeds threshold
 flow "temperature_alert" {
-  from { connector = "api", operation = "POST /alerts" }
-  to   { connector = "sensors", target = "alerts/temperature" }
+  from {
+    connector = "api"
+    operation = "POST /alerts"
+  }
+  to {
+    connector = "sensors"
+    target    = "alerts/temperature"
+  }
 }

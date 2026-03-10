@@ -78,12 +78,21 @@ connector "prices" {
 
 ```hcl
 flow "get_price" {
-  from { connector = "api", operation = "GET /prices/:id" }
-  to   { connector = "prices", target = "products" }
+  from {
+    connector = "api"
+    operation = "GET /prices/:id"
+  }
+  to {
+    connector = "prices"
+    target    = "products"
+  }
 }
 
 flow "get_price_enriched" {
-  from { connector = "api", operation = "GET /products/:id/full" }
+  from {
+    connector = "api"
+    operation = "GET /products/:id/full"
+  }
 
   enrich "pricing" {
     connector = "prices"
@@ -91,7 +100,10 @@ flow "get_price_enriched" {
     params { sku = "input.sku" }
   }
 
-  to { connector = "db", target = "products" }
+  to {
+    connector = "db"
+    target    = "products"
+  }
 
   transform {
     id       = "input.id"
@@ -254,15 +266,27 @@ connector "products" {
 
 # Use read replica for GET
 flow "list_products" {
-  from { connector = "api", operation = "GET /products" }
-  to   { connector = "products", target = "products" }
+  from {
+    connector = "api"
+    operation = "GET /products"
+  }
+  to {
+    connector = "products"
+    target    = "products"
+  }
   # PRODUCT_SOURCE=read_replica
 }
 
 # Use primary for writes
 flow "create_product" {
-  from { connector = "api", operation = "POST /products" }
-  to   { connector = "products", target = "products" }
+  from {
+    connector = "api"
+    operation = "POST /products"
+  }
+  to {
+    connector = "products"
+    target    = "products"
+  }
   # PRODUCT_SOURCE=primary (or use a different connector)
 }
 ```

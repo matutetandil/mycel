@@ -71,8 +71,14 @@ data:
     }
   flows.hcl: |
     flow "get_orders" {
-      from { connector = "api", operation = "GET /orders" }
-      to   { connector = "db", target = "orders" }
+      from {
+        connector = "api"
+        operation = "GET /orders"
+      }
+      to {
+        connector = "db"
+        target    = "orders"
+      }
     }
 ```
 

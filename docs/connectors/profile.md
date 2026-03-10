@@ -78,7 +78,10 @@ When the active profile fails with a retriable error (connection timeout, 5xx):
 
 ```hcl
 flow "get_product_price" {
-  from { connector = "api", operation = "GET /products/:sku/price" }
+  from {
+    connector = "api"
+    operation = "GET /products/:sku/price"
+  }
   to   { connector = "pricing" }
 }
 ```

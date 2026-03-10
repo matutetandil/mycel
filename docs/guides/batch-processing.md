@@ -8,7 +8,10 @@ The `batch` block processes large datasets in chunks within a flow. Instead of l
 
 ```hcl
 flow "migrate_users" {
-  from { connector = "api", operation = "POST /admin/migrate" }
+  from {
+    connector = "api"
+    operation = "POST /admin/migrate"
+  }
 
   batch {
     source     = "old_db"
@@ -37,7 +40,10 @@ Pass runtime parameters from the triggering request into the batch query:
 
 ```hcl
 flow "reindex_products" {
-  from { connector = "api", operation = "POST /admin/reindex" }
+  from {
+    connector = "api"
+    operation = "POST /admin/reindex"
+  }
 
   batch {
     source     = "postgres"
@@ -116,7 +122,10 @@ Process only records changed since last run:
 
 ```hcl
 flow "incremental_sync" {
-  from { connector = "api", operation = "POST /sync" }
+  from {
+    connector = "api"
+    operation = "POST /sync"
+  }
 
   step "last_sync" {
     connector = "db"
@@ -190,7 +199,10 @@ Standard cron format: `minute hour day-of-month month day-of-week`
 # Health ping every 5 minutes
 flow "health_ping" {
   when = "@every 5m"
-  to   { connector = "monitoring", operation = "POST /heartbeat" }
+  to {
+    connector = "monitoring"
+    operation = "POST /heartbeat"
+  }
 }
 
 # Weekly report

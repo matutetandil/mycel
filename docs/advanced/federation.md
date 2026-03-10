@@ -48,8 +48,14 @@ type "Product" {
 }
 
 flow "get_products" {
-  from { connector = "api", operation = "Query.products" }
-  to   { connector = "db", target = "products" }
+  from {
+    connector = "api"
+    operation = "Query.products"
+  }
+  to {
+    connector = "db"
+    target    = "products"
+  }
 }
 ```
 
@@ -71,8 +77,14 @@ type "Product" {
 # Entity resolver — called by the gateway when another subgraph needs a Product
 flow "resolve_product" {
   entity = "Product"
-  from   { connector = "api", operation = "Query.product" }
-  to     { connector = "db", operation = "find_by_sku" }
+  from {
+    connector = "api"
+    operation = "Query.product"
+  }
+  to {
+    connector = "db"
+    operation = "find_by_sku"
+  }
 }
 ```
 
@@ -122,7 +134,10 @@ Subscriptions work in federated setups too. Mycel publishes events that the gate
 ```hcl
 # products service — publish price updates
 flow "broadcast_price_update" {
-  from { connector = "rabbit", operation = "price_updates" }
+  from {
+    connector = "rabbit"
+    operation = "price_updates"
+  }
   to {
     connector = "api"
     operation = "publish"

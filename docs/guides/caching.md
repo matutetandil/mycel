@@ -30,7 +30,10 @@ Add a `cache` block directly in a flow:
 
 ```hcl
 flow "get_product" {
-  from { connector = "api", operation = "GET /products/:id" }
+  from {
+    connector = "api"
+    operation = "GET /products/:id"
+  }
 
   cache {
     storage = "redis_cache"
@@ -38,7 +41,10 @@ flow "get_product" {
     key     = "'product:' + input.params.id"
   }
 
-  to { connector = "db", target = "products WHERE id = :id" }
+  to {
+    connector = "db"
+    target    = "products WHERE id = :id"
+  }
 }
 ```
 
@@ -88,9 +94,15 @@ Reference it in a flow:
 
 ```hcl
 flow "get_product" {
-  from { connector = "api", operation = "GET /products/:id" }
+  from {
+    connector = "api"
+    operation = "GET /products/:id"
+  }
   cache = cache.products
-  to   { connector = "db", target = "products WHERE id = :id" }
+  to {
+    connector = "db"
+    target    = "products WHERE id = :id"
+  }
 }
 ```
 
@@ -111,7 +123,10 @@ Invalidate cache entries when specific events happen. This uses event pattern ma
 
 ```hcl
 flow "get_user" {
-  from { connector = "api", operation = "GET /users/:id" }
+  from {
+    connector = "api"
+    operation = "GET /users/:id"
+  }
 
   cache {
     storage       = "redis_cache"
@@ -120,7 +135,10 @@ flow "get_user" {
     invalidate_on = ["user.updated:${input.params.id}", "user.deleted:${input.params.id}"]
   }
 
-  to { connector = "db", target = "users WHERE id = :id" }
+  to {
+    connector = "db"
+    target    = "users WHERE id = :id"
+  }
 }
 ```
 
@@ -130,8 +148,14 @@ Explicitly invalidate keys after a write operation:
 
 ```hcl
 flow "update_product" {
-  from { connector = "api", operation = "PUT /products/:id" }
-  to   { connector = "db", target = "UPDATE products" }
+  from {
+    connector = "api"
+    operation = "PUT /products/:id"
+  }
+  to {
+    connector = "db"
+    target    = "UPDATE products"
+  }
 
   after {
     invalidate {
@@ -151,7 +175,10 @@ The `dedupe` block prevents processing the same message or request more than onc
 
 ```hcl
 flow "process_payment" {
-  from { connector = "rabbit", operation = "payments" }
+  from {
+    connector = "rabbit"
+    operation = "payments"
+  }
 
   dedupe {
     storage      = "redis_cache"
@@ -160,7 +187,10 @@ flow "process_payment" {
     on_duplicate = "skip"
   }
 
-  to { connector = "db", target = "payments" }
+  to {
+    connector = "db"
+    target    = "payments"
+  }
 }
 ```
 
@@ -214,7 +244,10 @@ connector "redis_cache" {
 
 # Cache product reads for 10 minutes
 flow "get_product" {
-  from { connector = "api", operation = "GET /products/:id" }
+  from {
+    connector = "api"
+    operation = "GET /products/:id"
+  }
 
   cache {
     storage = "redis_cache"
@@ -222,13 +255,22 @@ flow "get_product" {
     key     = "'product:' + input.params.id"
   }
 
-  to { connector = "db", target = "products WHERE id = :id" }
+  to {
+    connector = "db"
+    target    = "products WHERE id = :id"
+  }
 }
 
 # Invalidate on update
 flow "update_product" {
-  from { connector = "api", operation = "PUT /products/:id" }
-  to   { connector = "db", target = "UPDATE products" }
+  from {
+    connector = "api"
+    operation = "PUT /products/:id"
+  }
+  to {
+    connector = "db"
+    target    = "UPDATE products"
+  }
 
   after {
     invalidate {
@@ -240,7 +282,10 @@ flow "update_product" {
 
 # Deduplicate webhook events
 flow "handle_inventory_update" {
-  from { connector = "rabbit", operation = "inventory.updated" }
+  from {
+    connector = "rabbit"
+    operation = "inventory.updated"
+  }
 
   dedupe {
     storage      = "redis_cache"
@@ -249,7 +294,10 @@ flow "handle_inventory_update" {
     on_duplicate = "skip"
   }
 
-  to { connector = "db", target = "UPDATE products" }
+  to {
+    connector = "db"
+    target    = "UPDATE products"
+  }
 }
 ```
 

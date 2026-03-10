@@ -45,7 +45,10 @@ Mycel's standard query model maps to Elasticsearch: filters become `bool.must` t
 ```hcl
 # Full-text search with query DSL
 flow "search_products" {
-  from { connector = "api", operation = "GET /search" }
+  from {
+    connector = "api"
+    operation = "GET /search"
+  }
 
   step "results" {
     connector = "es"
@@ -67,8 +70,15 @@ flow "search_products" {
 
 # Index a document
 flow "index_product" {
-  from { connector = "api", operation = "POST /products" }
-  to   { connector = "es", target = "products", operation = "index" }
+  from {
+    connector = "api"
+    operation = "POST /products"
+  }
+  to {
+    connector = "es"
+    target    = "products"
+    operation = "index"
+  }
 }
 ```
 

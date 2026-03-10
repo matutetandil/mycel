@@ -160,8 +160,14 @@ connector "sf" {
 }
 
 flow "sync_contacts" {
-  from { connector = "api", operation = "POST /sync" }
-  to   { connector = "sf", operation = "upsert_contact" }
+  from {
+    connector = "api"
+    operation = "POST /sync"
+  }
+  to {
+    connector = "sf"
+    operation = "upsert_contact"
+  }
 }
 ```
 

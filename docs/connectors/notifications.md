@@ -79,12 +79,18 @@ connector "slack_custom" {
 
 ```hcl
 flow "alert_slack" {
-  from { connector = "rabbit", operation = "alerts" }
+  from {
+    connector = "rabbit"
+    operation = "alerts"
+  }
   transform {
     channel = "'#alerts'"
     text    = "'Alert: ' + input.body.message"
   }
-  to { connector = "slack_api", operation = "send" }
+  to {
+    connector = "slack_api"
+    operation = "send"
+  }
 }
 ```
 
@@ -139,11 +145,17 @@ connector "discord_bot" {
 
 ```hcl
 flow "notify_discord" {
-  from { connector = "api", operation = "POST /notify/discord" }
+  from {
+    connector = "api"
+    operation = "POST /notify/discord"
+  }
   transform {
     content = "'New order: ' + input.body.order_id"
   }
-  to { connector = "discord_webhook", operation = "send" }
+  to {
+    connector = "discord_webhook"
+    operation = "send"
+  }
 }
 ```
 
@@ -246,13 +258,19 @@ connector "email_ses" {
 
 ```hcl
 flow "send_welcome_email" {
-  from { connector = "api", operation = "POST /notify/email" }
+  from {
+    connector = "api"
+    operation = "POST /notify/email"
+  }
   transform {
     to       = "[{'email': input.body.email, 'name': input.body.name}]"
     subject  = "'Welcome, ' + input.body.name + '!'"
     htmlBody = "'<h1>Welcome!</h1><p>Your account is ready.</p>'"
   }
-  to { connector = "email_smtp", operation = "send" }
+  to {
+    connector = "email_smtp"
+    operation = "send"
+  }
 }
 ```
 
@@ -316,12 +334,18 @@ connector "sms_sns" {
 
 ```hcl
 flow "send_verification_sms" {
-  from { connector = "api", operation = "POST /notify/sms" }
+  from {
+    connector = "api"
+    operation = "POST /notify/sms"
+  }
   transform {
     to   = "input.body.phone"
     body = "'Your code is: ' + input.body.code"
   }
-  to { connector = "sms_twilio", operation = "send" }
+  to {
+    connector = "sms_twilio"
+    operation = "send"
+  }
 }
 ```
 
@@ -391,14 +415,20 @@ connector "push_apns" {
 
 ```hcl
 flow "send_push" {
-  from { connector = "api", operation = "POST /notify/push" }
+  from {
+    connector = "api"
+    operation = "POST /notify/push"
+  }
   transform {
     token = "input.body.device_token"
     title = "'New message'"
     body  = "input.body.message"
     data  = "{'order_id': input.body.order_id}"
   }
-  to { connector = "push_fcm", operation = "send" }
+  to {
+    connector = "push_fcm"
+    operation = "send"
+  }
 }
 ```
 
@@ -483,17 +513,29 @@ Every outbound webhook includes:
 
 ```hcl
 flow "notify_partner" {
-  from { connector = "rabbit", operation = "order.completed" }
+  from {
+    connector = "rabbit"
+    operation = "order.completed"
+  }
   transform {
     payload    = "input.body"
     event_type = "'order.completed'"
   }
-  to { connector = "webhooks_out", operation = "send" }
+  to {
+    connector = "webhooks_out"
+    operation = "send"
+  }
 }
 
 flow "receive_stripe" {
-  from { connector = "webhooks_in", operation = "receive" }
-  to   { connector = "db", target = "webhook_events" }
+  from {
+    connector = "webhooks_in"
+    operation = "receive"
+  }
+  to {
+    connector = "db"
+    target    = "webhook_events"
+  }
 }
 ```
 

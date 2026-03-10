@@ -54,29 +54,48 @@ The flow handler receives: `input.trigger`, `input.table`, `input.schema`, `inpu
 ```hcl
 # React to new user inserts
 flow "on_user_created" {
-  from { connector = "pg_cdc", operation = "INSERT:users" }
+  from {
+    connector = "pg_cdc"
+    operation = "INSERT:users"
+  }
   transform {
     output.event = "'user.created'"
     output.data  = "input.new"
   }
-  to { connector = "events_db", target = "events" }
+  to {
+    connector = "events_db"
+    target    = "events"
+  }
 }
 
 # Track order status changes
 flow "on_order_updated" {
-  from { connector = "pg_cdc", operation = "UPDATE:orders" }
+  from {
+    connector = "pg_cdc"
+    operation = "UPDATE:orders"
+  }
   transform {
     output.event  = "'order.updated'"
     output.before = "input.old"
     output.after  = "input.new"
   }
-  to { connector = "rabbit", operation = "PUBLISH", target = "order.events" }
+  to {
+    connector = "rabbit"
+    operation = "PUBLISH"
+    target    = "order.events"
+  }
 }
 
 # Monitor all changes on a table
 flow "audit_products" {
-  from { connector = "pg_cdc", operation = "*:products" }
-  to   { connector = "audit_db", target = "change_log" }
+  from {
+    connector = "pg_cdc"
+    operation = "*:products"
+  }
+  to {
+    connector = "audit_db"
+    target    = "change_log"
+  }
 }
 ```
 

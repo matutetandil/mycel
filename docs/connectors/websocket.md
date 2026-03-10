@@ -54,20 +54,39 @@ Clients communicate using JSON messages:
 ```hcl
 # Receive messages from clients
 flow "handle_chat" {
-  from { connector = "ws", operation = "message" }
-  to   { connector = "db", target = "messages" }
+  from {
+    connector = "ws"
+    operation = "message"
+  }
+  to {
+    connector = "db"
+    target    = "messages"
+  }
 }
 
 # Broadcast to all connected clients
 flow "live_orders" {
-  from { connector = "rabbit", operation = "order.updated" }
-  to   { connector = "ws", operation = "broadcast" }
+  from {
+    connector = "rabbit"
+    operation = "order.updated"
+  }
+  to {
+    connector = "ws"
+    operation = "broadcast"
+  }
 }
 
 # Send to clients in a specific room
 flow "room_notification" {
-  from { connector = "rabbit", operation = "room.event" }
-  to   { connector = "ws", operation = "send_to_room", target = "input.room" }
+  from {
+    connector = "rabbit"
+    operation = "room.event"
+  }
+  to {
+    connector = "ws"
+    operation = "send_to_room"
+    target    = "input.room"
+  }
 }
 ```
 

@@ -8,7 +8,7 @@
 
 **Declarative microservices through configuration, not code.**
 
-Define HCL files. Run Mycel. Get a production-ready microservice.
+Define [HCL2](https://github.com/hashicorp/hcl) files. Run Mycel. Get a production-ready microservice.
 
 ## How It Works
 
@@ -63,18 +63,30 @@ connector "db" {
 **`flows.hcl`** — Wire them together:
 ```hcl
 flow "list_users" {
-  from { connector = "api", operation = "GET /users" }
-  to   { connector = "db", target = "users" }
+  from {
+    connector = "api"
+    operation = "GET /users"
+  }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 
 flow "create_user" {
-  from { connector = "api", operation = "POST /users" }
+  from {
+    connector = "api"
+    operation = "POST /users"
+  }
   transform {
     id         = "uuid()"
     email      = "lower(input.email)"
     created_at = "now()"
   }
-  to { connector = "db", target = "users" }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 ```
 

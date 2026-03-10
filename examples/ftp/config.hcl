@@ -32,22 +32,40 @@ connector "db" {
 
 # List files on the SFTP server
 flow "list_files" {
-  from { connector = "api", operation = "GET /files" }
-  to   { connector = "partner_sftp", target = "/reports" }
+  from {
+    connector = "api"
+    operation = "GET /files"
+  }
+  to {
+    connector = "partner_sftp"
+    target    = "/reports"
+  }
 }
 
 # Download and process a file
 flow "download_file" {
-  from { connector = "api", operation = "GET /files/:path" }
-  to   { connector = "partner_sftp", target = "input.path" }
+  from {
+    connector = "api"
+    operation = "GET /files/:path"
+  }
+  to {
+    connector = "partner_sftp"
+    target    = "input.path"
+  }
 }
 
 # Upload a processed file back
 flow "upload_result" {
-  from { connector = "api", operation = "POST /files/upload" }
+  from {
+    connector = "api"
+    operation = "POST /files/upload"
+  }
   transform {
     _content  = "input.content"
     _filename = "input.filename"
   }
-  to { connector = "partner_sftp", target = "input.filename" }
+  to {
+    connector = "partner_sftp"
+    target    = "input.filename"
+  }
 }

@@ -6,8 +6,14 @@ A flow is the unit of work in Mycel. It defines where data comes **from**, what 
 
 ```hcl
 flow "get_users" {
-  from { connector = "api", operation = "GET /users" }
-  to   { connector = "db", target = "users" }
+  from {
+    connector = "api"
+    operation = "GET /users"
+  }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 ```
 
@@ -130,7 +136,10 @@ Write to multiple targets by declaring multiple `to` blocks:
 
 ```hcl
 flow "create_order" {
-  from { connector = "api", operation = "POST /orders" }
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
 
   to {
     connector = "db"
@@ -167,7 +176,10 @@ flow "daily_cleanup" {
 
 flow "health_ping" {
   when = "@every 5m"
-  to   { connector = "monitoring", operation = "POST /heartbeat" }
+  to {
+    connector = "monitoring"
+    operation = "POST /heartbeat"
+  }
 }
 ```
 
@@ -179,7 +191,10 @@ Transform data between source and target using CEL expressions:
 
 ```hcl
 flow "create_user" {
-  from { connector = "api", operation = "POST /users" }
+  from {
+    connector = "api"
+    operation = "POST /users"
+  }
 
   transform {
     id         = "uuid()"
@@ -188,7 +203,10 @@ flow "create_user" {
     status     = "'active'"
   }
 
-  to { connector = "db", target = "users" }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 ```
 
@@ -210,14 +228,20 @@ Validate input or output against a type schema:
 
 ```hcl
 flow "create_user" {
-  from { connector = "api", operation = "POST /users" }
+  from {
+    connector = "api"
+    operation = "POST /users"
+  }
 
   validate {
     input  = "user_input"   # Validates request body
     output = "user"         # Validates transform result before writing
   }
 
-  to { connector = "db", target = "users" }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 ```
 
@@ -229,14 +253,20 @@ Enforce role-based or permission-based access control on a flow:
 
 ```hcl
 flow "delete_user" {
-  from { connector = "api", operation = "DELETE /users/:id" }
+  from {
+    connector = "api"
+    operation = "DELETE /users/:id"
+  }
 
   require {
     roles       = ["admin"]
     permissions = ["users:delete"]
   }
 
-  to { connector = "db", operation = "DELETE users" }
+  to {
+    connector = "db"
+    operation = "DELETE users"
+  }
 }
 ```
 
@@ -248,7 +278,10 @@ Steps call intermediate connectors and make their results available to subsequen
 
 ```hcl
 flow "get_order_detail" {
-  from { connector = "api", operation = "GET /orders/:id" }
+  from {
+    connector = "api"
+    operation = "GET /orders/:id"
+  }
 
   step "order" {
     connector = "db"
@@ -269,7 +302,10 @@ flow "get_order_detail" {
     output = merge(step.order, { "customer": step.customer })
   }
 
-  to { connector = "api", target = "response" }
+  to {
+    connector = "api"
+    target    = "response"
+  }
 }
 ```
 
@@ -297,7 +333,10 @@ Enrich data by fetching from external services before transforming:
 
 ```hcl
 flow "get_product" {
-  from { connector = "api", operation = "GET /products/:id" }
+  from {
+    connector = "api"
+    operation = "GET /products/:id"
+  }
 
   enrich "pricing" {
     connector = "pricing_service"
@@ -322,7 +361,10 @@ flow "get_product" {
     in_stock = "enriched.inventory.available > 0"
   }
 
-  to { connector = "db", target = "products" }
+  to {
+    connector = "db"
+    target    = "products"
+  }
 }
 ```
 
@@ -334,7 +376,10 @@ Cache flow responses to avoid repeated connector calls:
 
 ```hcl
 flow "get_product" {
-  from { connector = "api", operation = "GET /products/:id" }
+  from {
+    connector = "api"
+    operation = "GET /products/:id"
+  }
 
   cache {
     storage      = "redis_cache"
@@ -343,7 +388,10 @@ flow "get_product" {
     invalidate_on = ["product.updated", "product.deleted"]
   }
 
-  to { connector = "db", target = "products WHERE id = :id" }
+  to {
+    connector = "db"
+    target    = "products WHERE id = :id"
+  }
 }
 ```
 
@@ -355,8 +403,14 @@ Run cache invalidation or side effects after the flow completes:
 
 ```hcl
 flow "update_product" {
-  from { connector = "api", operation = "PUT /products/:id" }
-  to   { connector = "db", target = "UPDATE products" }
+  from {
+    connector = "api"
+    operation = "PUT /products/:id"
+  }
+  to {
+    connector = "db"
+    target    = "UPDATE products"
+  }
 
   after {
     invalidate {
@@ -374,7 +428,10 @@ Prevent processing duplicate events (useful for message queues):
 
 ```hcl
 flow "process_payment" {
-  from { connector = "rabbit", operation = "payments" }
+  from {
+    connector = "rabbit"
+    operation = "payments"
+  }
 
   dedupe {
     storage      = "redis_cache"
@@ -383,7 +440,10 @@ flow "process_payment" {
     on_duplicate = "skip"  # "skip" or "error"
   }
 
-  to { connector = "db", target = "payments" }
+  to {
+    connector = "db"
+    target    = "payments"
+  }
 }
 ```
 
@@ -393,7 +453,10 @@ Configure retry, fallback, and custom error responses:
 
 ```hcl
 flow "create_order" {
-  from { connector = "api", operation = "POST /orders" }
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
 
   error_handling {
     retry {
@@ -418,7 +481,10 @@ flow "create_order" {
     }
   }
 
-  to { connector = "db", target = "orders" }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
 }
 ```
 
@@ -430,7 +496,10 @@ Trigger a state machine transition as part of a flow:
 
 ```hcl
 flow "update_order_status" {
-  from { connector = "api", operation = "POST /orders/:id/events" }
+  from {
+    connector = "api"
+    operation = "POST /orders/:id/events"
+  }
 
   state_transition {
     machine = "order_status"
@@ -440,7 +509,10 @@ flow "update_order_status" {
     data    = "input.data"
   }
 
-  to { connector = "db", target = "orders" }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
 }
 ```
 
@@ -452,7 +524,10 @@ Prevent concurrent access to shared resources:
 
 ```hcl
 flow "process_payment" {
-  from { connector = "rabbit", operation = "payments" }
+  from {
+    connector = "rabbit"
+    operation = "payments"
+  }
 
   lock {
     storage = "connector.redis"
@@ -462,7 +537,10 @@ flow "process_payment" {
     retry   = "100ms"
   }
 
-  to { connector = "db", target = "UPDATE accounts" }
+  to {
+    connector = "db"
+    target    = "UPDATE accounts"
+  }
 }
 ```
 
@@ -470,7 +548,10 @@ flow "process_payment" {
 
 ```hcl
 flow "call_external_api" {
-  from { connector = "api", operation = "POST /enrich" }
+  from {
+    connector = "api"
+    operation = "POST /enrich"
+  }
 
   semaphore {
     storage = "connector.redis"
@@ -479,7 +560,10 @@ flow "call_external_api" {
     timeout = "5s"
   }
 
-  to { connector = "external_api", operation = "POST /enrich" }
+  to {
+    connector = "external_api"
+    operation = "POST /enrich"
+  }
 }
 ```
 
@@ -488,8 +572,14 @@ flow "call_external_api" {
 ```hcl
 # Flow A signals
 flow "produce_data" {
-  from { connector = "api", operation = "POST /data" }
-  to   { connector = "db", target = "data" }
+  from {
+    connector = "api"
+    operation = "POST /data"
+  }
+  to {
+    connector = "db"
+    target    = "data"
+  }
 
   coordinate {
     storage = "connector.redis"
@@ -500,7 +590,10 @@ flow "produce_data" {
 
 # Flow B waits
 flow "consume_data" {
-  from { connector = "api", operation = "POST /process" }
+  from {
+    connector = "api"
+    operation = "POST /process"
+  }
 
   coordinate {
     storage = "connector.redis"
@@ -509,7 +602,10 @@ flow "consume_data" {
     timeout = "60s"
   }
 
-  to { connector = "db", target = "results" }
+  to {
+    connector = "db"
+    target    = "results"
+  }
 }
 ```
 
@@ -523,8 +619,14 @@ Mark a flow as a GraphQL Federation entity resolver:
 flow "resolve_product" {
   entity = "Product"
 
-  from { connector = "gql_api", operation = "Query.product" }
-  to   { connector = "db", operation = "find_by_sku" }
+  from {
+    connector = "gql_api"
+    operation = "Query.product"
+  }
+  to {
+    connector = "db"
+    operation = "find_by_sku"
+  }
 }
 ```
 
@@ -535,8 +637,14 @@ Specify the GraphQL return type for flows used in GraphQL schema auto-generation
 ```hcl
 flow "get_users" {
   returns = "[User]"
-  from { connector = "gql", operation = "Query.users" }
-  to   { connector = "db", target = "users" }
+  from {
+    connector = "gql"
+    operation = "Query.users"
+  }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 ```
 
@@ -544,7 +652,10 @@ flow "get_users" {
 
 ```hcl
 flow "create_order" {
-  from { connector = "api", operation = "POST /orders" }
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
 
   require {
     roles = ["customer", "admin"]

@@ -149,7 +149,10 @@ Use the `state_transition` block in a flow:
 
 ```hcl
 flow "update_order_status" {
-  from { connector = "api", operation = "POST /orders/:id/events" }
+  from {
+    connector = "api"
+    operation = "POST /orders/:id/events"
+  }
 
   state_transition {
     machine = "order_status"  # Name of the state_machine block
@@ -159,7 +162,10 @@ flow "update_order_status" {
     data    = "input.data"    # Additional data for guards and actions
   }
 
-  to { connector = "db", target = "orders" }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
 }
 ```
 
@@ -201,10 +207,17 @@ Pause execution for a duration:
 
 ```hcl
 saga "onboarding" {
-  from { connector = "api", operation = "POST /onboard" }
+  from {
+    connector = "api"
+    operation = "POST /onboard"
+  }
 
   step "create_account" {
-    action { connector = "db", operation = "INSERT", target = "accounts" }
+    action {
+      connector = "db"
+      operation = "INSERT"
+      target    = "accounts"
+    }
   }
 
   step "wait_24h" {
@@ -231,10 +244,17 @@ Pause until an external system sends a signal:
 saga "loan_approval" {
   timeout = "7d"
 
-  from { connector = "api", operation = "POST /loans" }
+  from {
+    connector = "api"
+    operation = "POST /loans"
+  }
 
   step "submit" {
-    action { connector = "db", operation = "INSERT", target = "loans" }
+    action {
+      connector = "db"
+      operation = "INSERT"
+      target    = "loans"
+    }
   }
 
   step "wait_approval" {
@@ -243,7 +263,10 @@ saga "loan_approval" {
   }
 
   step "disburse" {
-    action { connector = "banking", operation = "POST /transfers" }
+    action {
+      connector = "banking"
+      operation = "POST /transfers"
+    }
   }
 
   on_failure {

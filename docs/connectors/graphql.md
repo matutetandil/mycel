@@ -74,18 +74,33 @@ connector "external_gql" {
 
 ```hcl
 flow "get_users" {
-  from { connector = "api", operation = "Query.users" }
-  to   { connector = "db", target = "users" }
+  from {
+    connector = "api"
+    operation = "Query.users"
+  }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 
 flow "create_user" {
-  from { connector = "api", operation = "Mutation.createUser" }
-  to   { connector = "db", target = "users" }
+  from {
+    connector = "api"
+    operation = "Mutation.createUser"
+  }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 
 # Subscription triggered by queue
 flow "order_updates" {
-  from { connector = "rabbit", operation = "order.updated" }
+  from {
+    connector = "rabbit"
+    operation = "order.updated"
+  }
   to {
     connector = "api"
     operation = "Subscription.orderUpdated"

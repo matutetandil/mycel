@@ -77,24 +77,42 @@ If `_content` is not present, the entire payload is JSON-serialized and uploaded
 ```hcl
 # List files on SFTP server
 flow "list_files" {
-  from { connector = "api", operation = "GET /files" }
-  to   { connector = "partner_sftp", target = "/reports" }
+  from {
+    connector = "api"
+    operation = "GET /files"
+  }
+  to {
+    connector = "partner_sftp"
+    target    = "/reports"
+  }
 }
 
 # Download a file
 flow "download_file" {
-  from { connector = "api", operation = "GET /files/:path" }
-  to   { connector = "partner_sftp", target = "input.path" }
+  from {
+    connector = "api"
+    operation = "GET /files/:path"
+  }
+  to {
+    connector = "partner_sftp"
+    target    = "input.path"
+  }
 }
 
 # Upload a file
 flow "upload_result" {
-  from { connector = "api", operation = "POST /files/upload" }
+  from {
+    connector = "api"
+    operation = "POST /files/upload"
+  }
   transform {
     _content  = "input.content"
     _filename = "input.filename"
   }
-  to { connector = "partner_sftp", target = "input.filename" }
+  to {
+    connector = "partner_sftp"
+    target    = "input.filename"
+  }
 }
 ```
 

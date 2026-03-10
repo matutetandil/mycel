@@ -83,7 +83,10 @@ Incoming messages provide these fields:
 When used as a flow target, the `target` field is the topic to publish to:
 
 ```hcl
-to { connector = "sensors", target = "alerts/temperature" }
+to {
+  connector = "sensors"
+  target    = "alerts/temperature"
+}
 ```
 
 Optional params: `qos` (int), `retain` (bool).
@@ -93,20 +96,32 @@ Optional params: `qos` (int), `retain` (bool).
 ```hcl
 # Subscribe to sensor readings and store in database
 flow "sensor_reading" {
-  from { connector = "sensors", operation = "sensors/+/temperature" }
+  from {
+    connector = "sensors"
+    operation = "sensors/+/temperature"
+  }
   transform {
     device_id   = "input._topic"
     value       = "input.temperature"
     unit        = "'celsius'"
     received_at = "now()"
   }
-  to { connector = "db", target = "readings" }
+  to {
+    connector = "db"
+    target    = "readings"
+  }
 }
 
 # Publish alerts via REST
 flow "temperature_alert" {
-  from { connector = "api", operation = "POST /alerts" }
-  to   { connector = "sensors", target = "alerts/temperature" }
+  from {
+    connector = "api"
+    operation = "POST /alerts"
+  }
+  to {
+    connector = "sensors"
+    target    = "alerts/temperature"
+  }
 }
 ```
 

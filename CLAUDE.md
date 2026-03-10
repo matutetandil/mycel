@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Mycel** is an open-source declarative microservice framework. Instead of writing code, you define configuration files (HCL) and Mycel runs as a runtime that interprets them - similar to nginx or Apache.
+**Mycel** is an open-source declarative microservice framework. Instead of writing code, you define configuration files (HCL2) and Mycel runs as a runtime that interprets them - similar to nginx or Apache.
 
 **Philosophy:** Configuration, not code. The user defines WHAT they want, Mycel handles the HOW.
 
-**Tech Stack:** Go + HCL
+**Tech Stack:** Go + HCL2 (HashiCorp Configuration Language v2)
 
 ## Build and Test Commands
 

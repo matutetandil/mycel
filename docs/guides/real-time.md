@@ -27,7 +27,10 @@ connector "ws" {
 
 ```hcl
 flow "broadcast_price" {
-  from { connector = "rabbit", operation = "price.updated" }
+  from {
+    connector = "rabbit"
+    operation = "price.updated"
+  }
   to {
     connector = "ws"
     operation = "broadcast"
@@ -39,7 +42,10 @@ flow "broadcast_price" {
 
 ```hcl
 flow "send_to_room" {
-  from { connector = "rabbit", operation = "messages" }
+  from {
+    connector = "rabbit"
+    operation = "messages"
+  }
   to {
     connector = "ws"
     operation = "room:${input.channel_id}"
@@ -53,7 +59,10 @@ Only deliver events to subscribers that match a condition:
 
 ```hcl
 flow "send_user_notification" {
-  from { connector = "rabbit", operation = "notifications" }
+  from {
+    connector = "rabbit"
+    operation = "notifications"
+  }
   to {
     connector = "ws"
     operation = "room:notifications"
@@ -70,8 +79,14 @@ WebSocket can also be a flow source — when a client sends a message, it trigge
 
 ```hcl
 flow "handle_ws_message" {
-  from { connector = "ws", operation = "message" }
-  to   { connector = "db", target = "messages" }
+  from {
+    connector = "ws"
+    operation = "message"
+  }
+  to {
+    connector = "db"
+    target    = "messages"
+  }
 }
 ```
 
@@ -93,7 +108,10 @@ connector "sse" {
 
 ```hcl
 flow "push_updates" {
-  from { connector = "rabbit", operation = "system.updates" }
+  from {
+    connector = "rabbit"
+    operation = "system.updates"
+  }
   to {
     connector = "sse"
     operation = "broadcast"
@@ -105,7 +123,10 @@ flow "push_updates" {
 
 ```hcl
 flow "push_order_update" {
-  from { connector = "rabbit", operation = "order.updated" }
+  from {
+    connector = "rabbit"
+    operation = "order.updated"
+  }
   to {
     connector = "sse"
     operation = "stream:orders"
@@ -139,8 +160,15 @@ The connection string must be for a user with replication privileges.
 
 ```hcl
 flow "sync_to_elastic" {
-  from { connector = "cdc", operation = "orders.*" }
-  to   { connector = "es", target = "orders", operation = "index" }
+  from {
+    connector = "cdc"
+    operation = "orders.*"
+  }
+  to {
+    connector = "es"
+    target    = "orders"
+    operation = "index"
+  }
 }
 ```
 
@@ -150,13 +178,25 @@ The `.*` wildcard matches any operation (`INSERT`, `UPDATE`, `DELETE`).
 
 ```hcl
 flow "notify_on_insert" {
-  from { connector = "cdc", operation = "orders.INSERT" }
-  to   { connector = "rabbit", target = "order.created" }
+  from {
+    connector = "cdc"
+    operation = "orders.INSERT"
+  }
+  to {
+    connector = "rabbit"
+    target    = "order.created"
+  }
 }
 
 flow "audit_updates" {
-  from { connector = "cdc", operation = "users.UPDATE" }
-  to   { connector = "audit_db", target = "INSERT audit_log" }
+  from {
+    connector = "cdc"
+    operation = "users.UPDATE"
+  }
+  to {
+    connector = "audit_db"
+    target    = "INSERT audit_log"
+  }
 }
 ```
 
@@ -199,7 +239,10 @@ Publish to a subscription topic from any flow:
 
 ```hcl
 flow "order_updates" {
-  from { connector = "rabbit", operation = "order.updated" }
+  from {
+    connector = "rabbit"
+    operation = "order.updated"
+  }
 
   transform {
     id     = "input.order_id"
@@ -237,7 +280,10 @@ flow "react_to_price_change" {
     connector = "external_gql"
     operation = "Subscription.priceChanged"
   }
-  to { connector = "db", target = "price_updates" }
+  to {
+    connector = "db"
+    target    = "price_updates"
+  }
 }
 ```
 
@@ -251,7 +297,10 @@ CDC → WebSocket (database changes pushed to browser):
 
 ```hcl
 flow "live_order_updates" {
-  from { connector = "cdc", operation = "orders.*" }
+  from {
+    connector = "cdc"
+    operation = "orders.*"
+  }
 
   transform {
     order_id   = "input.id"
@@ -272,7 +321,10 @@ Queue → SSE (message queue events streamed to browser):
 
 ```hcl
 flow "stream_notifications" {
-  from { connector = "rabbit", operation = "notifications" }
+  from {
+    connector = "rabbit"
+    operation = "notifications"
+  }
 
   to {
     connector = "sse"

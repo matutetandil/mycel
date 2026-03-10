@@ -23,8 +23,15 @@ The `error_handling` block inside a flow configures retry behavior and a fallbac
 
 ```hcl
 flow "process_order" {
-  from { connector = "rabbit", operation = "consume", queue = "orders" }
-  to   { connector = "db", target = "orders" }
+  from {
+    connector = "rabbit"
+    operation = "consume"
+    queue     = "orders"
+  }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
 
   error_handling {
     retry {
@@ -100,8 +107,14 @@ Define a custom HTTP error response for when a flow fails. Instead of the defaul
 
 ```hcl
 flow "create_order" {
-  from { connector = "api", operation = "POST /orders" }
-  to   { connector = "db", target = "orders" }
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
 
   error_handling {
     error_response {
@@ -145,7 +158,10 @@ Each step in a multi-step flow can define its own error behavior with `on_error`
 
 ```hcl
 flow "get_order_details" {
-  from { connector = "api", operation = "GET /orders/:id" }
+  from {
+    connector = "api"
+    operation = "GET /orders/:id"
+  }
 
   # Required — fail the entire flow if order not found
   step "order" {

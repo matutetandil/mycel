@@ -6,7 +6,10 @@ Steps add multi-step orchestration to a flow. Each step calls a connector and ma
 
 ```hcl
 flow "get_order_detail" {
-  from { connector = "api", operation = "GET /orders/:id" }
+  from {
+    connector = "api"
+    operation = "GET /orders/:id"
+  }
 
   step "order" {
     connector = "db"
@@ -26,7 +29,10 @@ flow "get_order_detail" {
     customer = "step.customer"
   }
 
-  to { connector = "api", target = "response" }
+  to {
+    connector = "api"
+    target    = "response"
+  }
 }
 ```
 
@@ -54,7 +60,10 @@ Skip expensive steps when their data is not needed:
 
 ```hcl
 flow "get_product" {
-  from { connector = "api", operation = "GET /products/:id" }
+  from {
+    connector = "api"
+    operation = "GET /products/:id"
+  }
 
   step "product" {
     connector = "db"
@@ -82,7 +91,10 @@ flow "get_product" {
     reviews   = "step.reviews"
   }
 
-  to { connector = "api", target = "response" }
+  to {
+    connector = "api"
+    target    = "response"
+  }
 }
 ```
 
@@ -141,8 +153,14 @@ Run side effects after the flow completes successfully:
 
 ```hcl
 flow "update_product" {
-  from { connector = "api", operation = "PUT /products/:id" }
-  to   { connector = "db", target = "UPDATE products" }
+  from {
+    connector = "api"
+    operation = "PUT /products/:id"
+  }
+  to {
+    connector = "db"
+    target    = "UPDATE products"
+  }
 
   after {
     invalidate {
@@ -160,7 +178,10 @@ The `after` block currently supports `invalidate` for cache invalidation. It run
 
 ```hcl
 flow "checkout" {
-  from { connector = "api", operation = "POST /checkout" }
+  from {
+    connector = "api"
+    operation = "POST /checkout"
+  }
 
   # Validate cart
   step "cart" {

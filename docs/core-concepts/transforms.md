@@ -6,7 +6,10 @@ Transforms reshape data between source and target using **CEL (Common Expression
 
 ```hcl
 flow "create_user" {
-  from { connector = "api", operation = "POST /users" }
+  from {
+    connector = "api"
+    operation = "POST /users"
+  }
 
   transform {
     id         = "uuid()"
@@ -16,7 +19,10 @@ flow "create_user" {
     status     = "input.age >= 18 ? 'active' : 'pending'"
   }
 
-  to { connector = "db", target = "users" }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 ```
 
@@ -55,14 +61,20 @@ Use in a flow:
 
 ```hcl
 flow "create_user" {
-  from { connector = "api", operation = "POST /users" }
+  from {
+    connector = "api"
+    operation = "POST /users"
+  }
 
   transform {
     use = "transform.normalize_user"
     id  = "uuid()"       # Add or override fields
   }
 
-  to { connector = "db", target = "users" }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 ```
 

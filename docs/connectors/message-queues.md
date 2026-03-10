@@ -428,7 +428,10 @@ flow "process_orders" {
     operation = "orders.new"
     filter    = "input.body.status == 'pending'"
   }
-  to { connector = "db", target = "orders" }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
 }
 
 # Block syntax — filtered messages are requeued for other consumers
@@ -444,7 +447,10 @@ flow "process_sales" {
       max_requeue = 5
     }
   }
-  to { connector = "db", target = "sales" }
+  to {
+    connector = "db"
+    target    = "sales"
+  }
 }
 
 # Block syntax — filtered messages go to DLQ
@@ -458,7 +464,10 @@ flow "process_payments" {
       on_reject = "reject"
     }
   }
-  to { connector = "db", target = "payments" }
+  to {
+    connector = "db"
+    target    = "payments"
+  }
 }
 ```
 
@@ -500,14 +509,27 @@ When using `requeue`, Mycel tracks how many times each message has been requeued
 ```hcl
 # Consume from queue, write to DB
 flow "process_order" {
-  from { connector = "rabbit", operation = "orders.new" }
-  to   { connector = "db", target = "orders" }
+  from {
+    connector = "rabbit"
+    operation = "orders.new"
+  }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
 }
 
 # API call publishes to queue
 flow "enqueue_order" {
-  from { connector = "api", operation = "POST /orders" }
-  to   { connector = "rabbit", operation = "PUBLISH", target = "orders.new" }
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+  to {
+    connector = "rabbit"
+    operation = "PUBLISH"
+    target    = "orders.new"
+  }
 }
 ```
 

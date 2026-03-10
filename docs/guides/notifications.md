@@ -29,7 +29,10 @@ connector "mailer" {
 }
 
 flow "send_welcome_email" {
-  from { connector = "rabbit", operation = "user.registered" }
+  from {
+    connector = "rabbit"
+    operation = "user.registered"
+  }
 
   transform {
     to      = "input.email"
@@ -37,7 +40,10 @@ flow "send_welcome_email" {
     body    = "'Hello ' + input.name + ', your account is ready.'"
   }
 
-  to { connector = "mailer", operation = "send" }
+  to {
+    connector = "mailer"
+    operation = "send"
+  }
 }
 ```
 
@@ -51,14 +57,20 @@ connector "slack_alerts" {
 
 flow "alert_on_error" {
   # This would typically be an aspect
-  from { connector = "api", operation = "POST /critical" }
+  from {
+    connector = "api"
+    operation = "POST /critical"
+  }
 
   transform {
     channel = "'#alerts'"
     text    = "'Critical event: ' + input.event_type"
   }
 
-  to { connector = "slack_alerts", operation = "chat.postMessage" }
+  to {
+    connector = "slack_alerts"
+    operation = "chat.postMessage"
+  }
 }
 ```
 
@@ -71,14 +83,20 @@ connector "discord_bot" {
 }
 
 flow "send_discord_notification" {
-  from { connector = "rabbit", operation = "events" }
+  from {
+    connector = "rabbit"
+    operation = "events"
+  }
 
   transform {
     channel_id = "'123456789'"
     content    = "input.message"
   }
 
-  to { connector = "discord_bot", operation = "channels.messages" }
+  to {
+    connector = "discord_bot"
+    operation = "channels.messages"
+  }
 }
 ```
 
@@ -93,14 +111,20 @@ connector "sms_service" {
 }
 
 flow "send_otp_sms" {
-  from { connector = "api", operation = "POST /auth/otp" }
+  from {
+    connector = "api"
+    operation = "POST /auth/otp"
+  }
 
   transform {
     to   = "input.phone"
     body = "'Your OTP: ' + input.code"
   }
 
-  to { connector = "sms_service", operation = "send" }
+  to {
+    connector = "sms_service"
+    operation = "send"
+  }
 }
 ```
 
@@ -115,7 +139,10 @@ connector "push_fcm" {
 }
 
 flow "send_push" {
-  from { connector = "rabbit", operation = "push.notifications" }
+  from {
+    connector = "rabbit"
+    operation = "push.notifications"
+  }
 
   transform {
     token = "input.device_token"
@@ -124,7 +151,10 @@ flow "send_push" {
     data  = "input.extra_data"
   }
 
-  to { connector = "push_fcm", operation = "send" }
+  to {
+    connector = "push_fcm"
+    operation = "send"
+  }
 }
 ```
 
@@ -142,8 +172,14 @@ connector "external_webhook" {
 }
 
 flow "notify_external_system" {
-  from { connector = "rabbit", operation = "events" }
-  to   { connector = "external_webhook", operation = "send" }
+  from {
+    connector = "rabbit"
+    operation = "events"
+  }
+  to {
+    connector = "external_webhook"
+    operation = "send"
+  }
 }
 ```
 

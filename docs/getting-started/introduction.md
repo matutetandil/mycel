@@ -1,6 +1,8 @@
 # Introduction to Mycel
 
-Mycel is a **declarative microservice framework**. Instead of writing code, you write HCL configuration files that describe what data sources to connect, how data flows between them, and what transformations to apply. Mycel runs as a binary that interprets those files — the same binary for every service, only the configuration differs.
+Mycel is a **declarative microservice framework**. Instead of writing code, you write HCL2 configuration files that describe what data sources to connect, how data flows between them, and what transformations to apply. Mycel runs as a binary that interprets those files — the same binary for every service, only the configuration differs.
+
+Mycel uses [HCL2](https://github.com/hashicorp/hcl) (HashiCorp Configuration Language v2), the same configuration language used by Terraform, Nomad, and other HashiCorp tools. HCL2 is designed for humans: it's more readable than JSON/YAML, supports expressions and functions, and catches syntax errors at parse time.
 
 Think of it like nginx: one binary, different configuration files for different services.
 
@@ -61,12 +63,21 @@ connector "db" {
 
 # flows.hcl
 flow "get_users" {
-  from { connector = "api", operation = "GET /users" }
-  to   { connector = "db", target = "users" }
+  from {
+    connector = "api"
+    operation = "GET /users"
+  }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 
 flow "create_user" {
-  from { connector = "api", operation = "POST /users" }
+  from {
+    connector = "api"
+    operation = "POST /users"
+  }
 
   transform {
     id         = "uuid()"
@@ -74,7 +85,10 @@ flow "create_user" {
     created_at = "now()"
   }
 
-  to { connector = "db", target = "users" }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 ```
 

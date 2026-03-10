@@ -30,18 +30,30 @@ connector "db" {
 
 # Process order events from Redis
 flow "process_order" {
-  from { connector = "events", operation = "orders" }
+  from {
+    connector = "events"
+    operation = "orders"
+  }
   transform {
     order_id   = "input.order_id"
     status     = "input.status"
     channel    = "input._channel"
     processed_at = "now()"
   }
-  to { connector = "db", target = "order_events" }
+  to {
+    connector = "db"
+    target    = "order_events"
+  }
 }
 
 # Publish events via REST
 flow "publish_event" {
-  from { connector = "api", operation = "POST /events/:channel" }
-  to   { connector = "events", target = "input.channel" }
+  from {
+    connector = "api"
+    operation = "POST /events/:channel"
+  }
+  to {
+    connector = "events"
+    target    = "input.channel"
+  }
 }

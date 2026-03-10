@@ -47,13 +47,25 @@ connector "tcp_client" {
 
 ```hcl
 flow "handle_tcp_message" {
-  from { connector = "tcp_server", operation = "get_users" }
-  to   { connector = "db", target = "users" }
+  from {
+    connector = "tcp_server"
+    operation = "get_users"
+  }
+  to {
+    connector = "db"
+    target    = "users"
+  }
 }
 
 flow "forward_to_tcp" {
-  from { connector = "api", operation = "POST /send" }
-  to   { connector = "tcp_client", operation = "process" }
+  from {
+    connector = "api"
+    operation = "POST /send"
+  }
+  to {
+    connector = "tcp_client"
+    operation = "process"
+  }
 }
 ```
 
