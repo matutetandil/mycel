@@ -17,7 +17,42 @@ Mycel reads these variables at startup:
 CLI flags override environment variables. Priority chain:
 
 ```
-CLI flags > existing env vars > .env file > defaults
+CLI flags > existing env vars > .env file > environment defaults > hardcoded defaults
+```
+
+## Environment-Aware Defaults
+
+Mycel automatically adjusts behavior based on the active environment. These are *defaults* — any explicit configuration always takes precedence.
+
+| Behavior | development | staging | production |
+|----------|-------------|---------|------------|
+| **Log level** | `debug` | `info` | `warn` |
+| **Log format** | `text` | `json` | `json` |
+| **Hot reload** | enabled | enabled | disabled |
+| **GraphQL Playground** | enabled | enabled | disabled |
+| **Detailed health** | latencies + messages | latencies + messages | status only |
+| **Rate limiting** | disabled | enabled (100 req/s) | enabled (100 req/s) |
+| **CORS** | permissive (all origins) | explicit config only | explicit config only |
+| **Error responses** | verbose (internal details) | verbose | minimal (no internals) |
+
+### Startup Warnings
+
+In production and staging, Mycel logs warnings for potentially unsafe configurations:
+
+- SQLite used in production (suggest PostgreSQL/MySQL)
+- No authentication configured in production
+
+### Examples
+
+```bash
+# Development: debug logs, hot reload, permissive CORS, verbose errors
+mycel start
+
+# Production: warn logs (JSON), no hot reload, strict CORS, minimal errors
+mycel start --env production
+
+# Override a default: production but with debug logging
+mycel start --env production --log-level debug
 ```
 
 ## Using env() in HCL

@@ -61,6 +61,7 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 
 	// Create connector
 	conn := New(cfg.Name, port, cors, f.logger)
+	conn.environment = cfg.Environment
 
 	// Set default format if configured
 	if format, ok := cfg.Properties["format"].(string); ok && format != "" {

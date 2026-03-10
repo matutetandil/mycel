@@ -44,16 +44,18 @@ type Manager struct {
 	timeout        time.Duration
 	ready          bool
 	readyMu        sync.RWMutex
+	detailedMode   bool // when false, omit component latencies and messages
 }
 
 // NewManager creates a new health check manager.
 func NewManager(version string) *Manager {
 	return &Manager{
-		checkers:  make([]Checker, 0),
-		startTime: time.Now(),
-		version:   version,
-		timeout:   5 * time.Second,
-		ready:     false,
+		checkers:     make([]Checker, 0),
+		startTime:    time.Now(),
+		version:      version,
+		timeout:      5 * time.Second,
+		ready:        false,
+		detailedMode: true, // default to detailed (development)
 	}
 }
 
@@ -76,6 +78,14 @@ func (m *Manager) SetServiceVersion(v string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.serviceVersion = v
+}
+
+// SetDetailedMode sets whether health responses include component latencies and messages.
+// In production, this is typically set to false for minimal health responses.
+func (m *Manager) SetDetailedMode(detailed bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.detailedMode = detailed
 }
 
 // SetReady marks the service as ready to receive traffic.
@@ -198,7 +208,16 @@ func (m *Manager) checkAll(ctx context.Context) Response {
 	hasUnhealthy := false
 	hasDegraded := false
 
+	m.mu.RLock()
+	detailed := m.detailedMode
+	m.mu.RUnlock()
+
 	for status := range statusChan {
+		if !detailed {
+			// In non-detailed mode, strip latency and error messages
+			status.Latency = ""
+			status.Message = ""
+		}
 		resp.Components = append(resp.Components, status)
 		if status.Status == "unhealthy" {
 			hasUnhealthy = true

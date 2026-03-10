@@ -168,6 +168,10 @@ type Config struct {
 
 	// Operations are named operations defined on this connector.
 	Operations []*OperationDef
+
+	// Environment is the runtime environment (development, staging, production).
+	// Injected by the runtime for environment-aware defaults.
+	Environment string
 }
 
 // GetOperation finds an operation by name.

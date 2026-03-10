@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-03-10
+
+### Added
+- **Environment-aware defaults** (`internal/envdefaults/`): `MYCEL_ENV` now changes runtime behavior, not just the banner. Central `ForEnvironment()` function returns defaults for development, staging, and production environments
+- **Environment-aware logging**: Log level and format default to the environment (debug/text in dev, info/json in staging, warn/json in production). Priority: CLI flag > env var > environment default
+- **Environment-aware hot reload**: Enabled by default in development/staging, disabled in production. Explicit `--hot-reload` flag overrides
+- **Environment-aware GraphQL Playground**: Enabled in development/staging, disabled in production. Explicit `playground` property overrides
+- **Environment-aware health checks**: Detailed mode (latencies + error messages) in development/staging, minimal (status only) in production via `SetDetailedMode()` on health manager
+- **Environment-aware rate limiting**: Disabled by default in development, enabled with sensible defaults (100 req/s, burst 200) in staging/production when no explicit config
+- **Environment-aware CORS**: Permissive (all origins) in development when no CORS config, strict (no CORS headers) in production
+- **Environment-aware error responses**: Verbose errors in development/staging, minimal errors (no internal details) in production for 500-level responses
+- **Startup warnings**: Production/staging log warnings for SQLite usage and missing auth configuration
+- **Environment label in metrics**: `mycel_service_info` gauge now includes `environment` label
+- **Environment propagation**: `connector.Config.Environment` field carries the runtime environment to all connector factories
+
+### Changed
+- `metrics.NewRegistry` now accepts an `environment` parameter for the service info metric
+- REST connector CORS middleware is now environment-aware (permissive in dev, strict in prod)
+- REST connector `writeError` now strips internal error details in production
+- GraphQL factory uses `envdefaults.ForEnvironment()` for playground default instead of hardcoded `true`
+- Logger creation uses environment defaults as baseline instead of hardcoded `info`/`text`
+- Rate limiter initialization checks environment defaults when no explicit config
+
 ## [1.10.0] - 2026-03-09
 
 ### Added

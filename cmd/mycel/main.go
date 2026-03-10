@@ -11,6 +11,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 
+	"github.com/matutetandil/mycel/internal/envdefaults"
 	"github.com/matutetandil/mycel/internal/export/asyncapi"
 	"github.com/matutetandil/mycel/internal/export/openapi"
 	"github.com/matutetandil/mycel/internal/logging"
@@ -25,7 +26,7 @@ const (
 
 var (
 	// Version information (set at build time)
-	version = "1.10.0"
+	version = "1.11.0"
 	commit  = "dev"
 )
 
@@ -268,18 +269,25 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Load .env file if present (does not override existing env vars)
 	loadDotEnv()
 
-	// Setup logger with priority: flag > env var > default
+	// Setup logger with priority: flag > env var > environment default
 	logger := createLogger()
 
 	// Resolve environment with priority: flag > env var > default
 	env := resolveEnvironment()
+
+	// Resolve hot reload: explicit flag > environment default
+	hotReloadEnabled := hotReload
+	if !cmd.Flags().Changed("hot-reload") {
+		// Flag not explicitly set — use environment default
+		hotReloadEnabled = envdefaults.ForEnvironment(env).HotReload
+	}
 
 	// Create runtime
 	rt, err := runtime.New(runtime.Options{
 		ConfigDir:   configDir,
 		Environment: env,
 		Logger:      logger,
-		HotReload:   hotReload,
+		HotReload:   hotReloadEnabled,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create runtime: %w", err)
@@ -291,16 +299,26 @@ func runStart(cmd *cobra.Command, args []string) error {
 }
 
 // createLogger creates a logger based on flags and environment variables.
-// Priority: flag > env var > default
+// Priority: flag > env var > environment default > hardcoded default
 func createLogger() *slog.Logger {
-	cfg := logging.DefaultConfig()
+	// Start with environment-aware defaults
+	env := resolveEnvironment()
+	envDefs := envdefaults.ForEnvironment(env)
 
-	// Check env vars first (will be overridden by flags if set)
-	envCfg := logging.ConfigFromEnv()
-	cfg.Level = envCfg.Level
-	cfg.Format = envCfg.Format
+	cfg := &logging.Config{
+		Level:  envDefs.LogLevel,
+		Format: envDefs.LogFormat,
+	}
 
-	// Flags override env vars
+	// Env vars override environment defaults
+	if envLevel := os.Getenv("MYCEL_LOG_LEVEL"); envLevel != "" {
+		cfg.Level = strings.ToLower(envLevel)
+	}
+	if envFormat := os.Getenv("MYCEL_LOG_FORMAT"); envFormat != "" {
+		cfg.Format = strings.ToLower(envFormat)
+	}
+
+	// Flags override everything
 	if logLevel != "" {
 		cfg.Level = logLevel
 	} else if verbose {

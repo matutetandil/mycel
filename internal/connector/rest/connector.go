@@ -37,6 +37,7 @@ type Connector struct {
 	metrics       *metrics.Registry
 	rateLimiter   *ratelimit.Limiter
 	defaultFormat string // default format for request/response ("json", "xml")
+	environment   string // runtime environment (development, staging, production)
 
 	mu         sync.Mutex
 	handlers   map[string]HandlerFunc
@@ -398,6 +399,18 @@ func (c *Connector) writeError(w http.ResponseWriter, err error) int {
 		status = http.StatusBadRequest
 	}
 
+	// In production, return minimal error info (no internal details)
+	if c.environment == "production" || c.environment == "prod" {
+		msg := http.StatusText(status)
+		if status == http.StatusBadRequest {
+			msg = errStr // validation errors are safe to expose
+		}
+		c.writeJSON(w, status, map[string]string{
+			"error": msg,
+		})
+		return status
+	}
+
 	c.writeJSON(w, status, map[string]string{
 		"error": errStr,
 	})
@@ -408,7 +421,7 @@ func (c *Connector) writeError(w http.ResponseWriter, err error) int {
 func (c *Connector) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if c.cors != nil {
-			// Set CORS headers
+			// Explicit CORS config — use it
 			origin := r.Header.Get("Origin")
 			if c.isOriginAllowed(origin) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -421,6 +434,19 @@ func (c *Connector) corsMiddleware(next http.Handler) http.Handler {
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusOK)
 				return
+			}
+		} else if c.environment != "production" && c.environment != "prod" {
+			// No CORS config + non-production: permissive CORS (allow all origins)
+			origin := r.Header.Get("Origin")
+			if origin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+				if r.Method == "OPTIONS" {
+					w.WriteHeader(http.StatusOK)
+					return
+				}
 			}
 		}
 

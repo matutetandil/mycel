@@ -37,6 +37,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector/database/postgres"
 	"github.com/matutetandil/mycel/internal/connector/database/sqlite"
 	"github.com/matutetandil/mycel/internal/connector/exec"
+	"github.com/matutetandil/mycel/internal/envdefaults"
 	"github.com/matutetandil/mycel/internal/connector/file"
 	"github.com/matutetandil/mycel/internal/connector/graphql"
 	conns3 "github.com/matutetandil/mycel/internal/connector/s3"
@@ -238,7 +239,7 @@ func New(opts Options) (*Runtime, error) {
 			serviceVersion = config.ServiceConfig.Version
 		}
 	}
-	metricsReg := metrics.NewRegistry(serviceName, serviceVersion, Version)
+	metricsReg := metrics.NewRegistry(serviceName, serviceVersion, Version, env)
 	metrics.SetDefault(metricsReg)
 
 	// Create aspect registry and register aspects from config
@@ -558,6 +559,13 @@ func (r *Runtime) Start(ctx context.Context) error {
 	// Propagate service version to health responses
 	r.health.SetServiceVersion(serviceVersion)
 
+	// Apply environment-aware health detail mode
+	envDefs := envdefaults.ForEnvironment(r.environment)
+	r.health.SetDetailedMode(envDefs.DetailedHealth)
+
+	// Print startup warnings for production environment
+	r.printStartupWarnings()
+
 	r.logger.Info("starting service",
 		"service", serviceName,
 		"version", serviceVersion,
@@ -676,11 +684,39 @@ func (r *Runtime) getRESTPort() int {
 	return 0
 }
 
+// printStartupWarnings logs warnings for unsafe configurations in production/staging.
+func (r *Runtime) printStartupWarnings() {
+	isProd := r.environment == "production" || r.environment == "prod"
+	isStaging := r.environment == "staging" || r.environment == "stage"
+
+	if !isProd && !isStaging {
+		return
+	}
+
+	for _, cfg := range r.config.Connectors {
+		// Warn about SQLite in production
+		if cfg.Type == "database" && cfg.Driver == "sqlite" && isProd {
+			r.logger.Warn("SQLite is not recommended for production use",
+				"connector", cfg.Name,
+				"suggestion", "consider PostgreSQL or MySQL")
+		}
+	}
+
+	// Warn about missing auth in production
+	if r.config.Auth == nil && isProd {
+		r.logger.Warn("no authentication configured in production",
+			"suggestion", "consider adding an auth block to secure your endpoints")
+	}
+}
+
 // initConnectors creates and connects all configured connectors.
 func (r *Runtime) initConnectors(ctx context.Context) error {
 	fmt.Println("    Connectors:")
 
 	for _, cfg := range r.config.Connectors {
+		// Propagate runtime environment to each connector config
+		cfg.Environment = r.environment
+
 		// Register connector config with operation resolver
 		r.operationResolver.Register(cfg)
 
@@ -1627,7 +1663,24 @@ func (r *Runtime) initAspects() error {
 
 // initRateLimiter initializes the rate limiter based on service configuration.
 func (r *Runtime) initRateLimiter() {
+	envDefs := envdefaults.ForEnvironment(r.environment)
+
 	if r.config.ServiceConfig == nil || r.config.ServiceConfig.RateLimit == nil {
+		// No explicit rate limit config — use environment default
+		if envDefs.RateLimitEnabled {
+			r.rateLimiter = ratelimit.New(&ratelimit.Config{
+				Enabled:           true,
+				RequestsPerSecond: 100,
+				Burst:             200,
+				ExcludePaths:      []string{"/health", "/health/live", "/health/ready", "/metrics"},
+				EnableHeaders:     true,
+			})
+			r.logger.Info("rate limiting enabled by environment default",
+				"environment", r.environment,
+				"requests_per_second", 100,
+				"burst", 200,
+			)
+		}
 		return
 	}
 
