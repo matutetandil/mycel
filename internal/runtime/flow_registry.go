@@ -142,6 +142,9 @@ type FlowHandler struct {
 
 	// Logger for request logging.
 	Logger *slog.Logger
+
+	// VerboseFlow enables per-request trace logging via LogCollector.
+	VerboseFlow bool
 }
 
 // FilteredResult is returned when a request is filtered out by the from.filter expression.
@@ -150,6 +153,15 @@ var FilteredResult = &struct{ Filtered bool }{Filtered: true}
 
 // HandleRequest processes an incoming request through the flow.
 func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interface{}) (result interface{}, err error) {
+	// Attach trace context for verbose flow logging (when no trace is already active)
+	if h.VerboseFlow && !trace.IsTracing(ctx) && h.Logger != nil {
+		tc := &trace.Context{
+			FlowName:  h.Config.Name,
+			Collector: trace.NewLogCollector(h.Logger),
+		}
+		ctx = trace.WithTrace(ctx, tc)
+	}
+
 	start := time.Now()
 	defer func() {
 		if h.Logger == nil {
@@ -1381,6 +1393,24 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 		data.RawSQL = h.Config.To.Query
 	}
 
+	// Dry-run: record what would be written without executing
+	if tc := trace.FromContext(ctx); tc != nil && tc.DryRun {
+		tc.Record(trace.Event{
+			Stage:  trace.StageWrite,
+			Name:   data.Target,
+			Input:  trace.Snapshot(data.Payload),
+			DryRun: true,
+			Detail: fmt.Sprintf("%s → %s (filters: %v)", data.Operation, data.Target, data.Filters),
+		})
+		return map[string]interface{}{
+			"dry_run":   true,
+			"operation": data.Operation,
+			"target":    data.Target,
+			"payload":   payload,
+			"filters":   data.Filters,
+		}, nil
+	}
+
 	result, err := dest.Write(ctx, data)
 	if err != nil {
 		return nil, err
@@ -1419,6 +1449,23 @@ func (h *FlowHandler) handleDelete(ctx context.Context, input map[string]interfa
 		for key, val := range input {
 			data.Filters[key] = val
 		}
+	}
+
+	// Dry-run: record what would be deleted without executing
+	if tc := trace.FromContext(ctx); tc != nil && tc.DryRun {
+		tc.Record(trace.Event{
+			Stage:  trace.StageWrite,
+			Name:   data.Target,
+			Input:  trace.Snapshot(data.Filters),
+			DryRun: true,
+			Detail: fmt.Sprintf("%s → %s (filters: %v)", data.Operation, data.Target, data.Filters),
+		})
+		return map[string]interface{}{
+			"dry_run":   true,
+			"operation": data.Operation,
+			"target":    data.Target,
+			"filters":   data.Filters,
+		}, nil
 	}
 
 	result, err := dest.Write(ctx, data)
@@ -1648,6 +1695,24 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 	// Set update document for NoSQL
 	if len(destConfig.Update) > 0 {
 		data.Update = destConfig.Update
+	}
+
+	// Dry-run: record what would be written without executing
+	if tc := trace.FromContext(ctx); tc != nil && tc.DryRun {
+		tc.Record(trace.Event{
+			Stage:  trace.StageWrite,
+			Name:   destConfig.Connector + ":" + data.Target,
+			Input:  trace.Snapshot(data.Payload),
+			DryRun: true,
+			Detail: fmt.Sprintf("%s → %s.%s", data.Operation, destConfig.Connector, data.Target),
+		})
+		return map[string]interface{}{
+			"dry_run":    true,
+			"connector":  destConfig.Connector,
+			"operation":  data.Operation,
+			"target":     data.Target,
+			"payload":    payload,
+		}, nil
 	}
 
 	writeResult, err := writer.Write(ctx, data)

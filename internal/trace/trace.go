@@ -8,8 +8,14 @@ package trace
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// ErrBreakpointAbort is returned when the user aborts execution from a breakpoint.
+var ErrBreakpointAbort = errors.New("execution aborted at breakpoint")
+
+var errBreakpointAbort = ErrBreakpointAbort
 
 // Stage represents a pipeline stage in flow execution.
 type Stage string
@@ -70,6 +76,10 @@ type Context struct {
 
 	// DryRun prevents write operations from executing.
 	DryRun bool
+
+	// Breakpoint enables interactive debugging at pipeline stages.
+	// When set, execution pauses at breakpoints and waits for user input.
+	Breakpoint *Breakpoint
 }
 
 // Record is a convenience method to record an event on this trace context.
@@ -101,10 +111,18 @@ func IsTracing(ctx context.Context) bool {
 
 // RecordStage is a helper that records a trace event with timing.
 // If no trace context is present, the function is called directly with zero overhead.
+// If a breakpoint is set for this stage, execution pauses before the function runs.
 func RecordStage(ctx context.Context, stage Stage, name string, input interface{}, fn func() (interface{}, error)) (interface{}, error) {
 	tc := FromContext(ctx)
 	if tc == nil {
 		return fn()
+	}
+
+	// Check breakpoint before executing the stage
+	if tc.Breakpoint != nil && tc.Breakpoint.ShouldBreak(stage) {
+		if !tc.Breakpoint.Pause(stage, name, input) {
+			return nil, errBreakpointAbort
+		}
 	}
 
 	start := time.Now()
@@ -121,11 +139,18 @@ func RecordStage(ctx context.Context, stage Stage, name string, input interface{
 }
 
 // RecordSimple records a trace event without wrapping a function call.
+// If a breakpoint is set for this stage, execution pauses.
 func RecordSimple(ctx context.Context, stage Stage, name string, data interface{}, detail string) {
 	tc := FromContext(ctx)
 	if tc == nil {
 		return
 	}
+
+	// Check breakpoint
+	if tc.Breakpoint != nil && tc.Breakpoint.ShouldBreak(stage) {
+		tc.Breakpoint.Pause(stage, name, data)
+	}
+
 	tc.Record(Event{
 		Stage:  stage,
 		Name:   name,

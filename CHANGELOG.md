@@ -20,8 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Environment label in metrics**: `mycel_service_info` gauge now includes `environment` label
 - **Environment propagation**: `connector.Config.Environment` field carries the runtime environment to all connector factories
 - **Flow trace system** (`internal/trace/`): `mycel trace <flow-name>` CLI command executes a single flow and shows step-by-step data pipeline trace. Stages: input → sanitize → filter → dedupe → validate → enrich → transform → steps → read/write. Zero overhead in production (nil-check). `--dry-run` simulates writes without executing. `--list` shows available flows. `MemoryCollector` for CLI, `LogCollector` for runtime verbose logging. 9 tests
-- **Debugging guide** (`docs/guides/debugging.md`): Complete reference for `mycel trace`, dry-run mode, common issues, Docker debugging, log-level debugging
+- **Debugging guide** (`docs/guides/debugging.md`): Complete reference for `mycel trace`, dry-run mode, breakpoints, verbose flow logging, Docker debugging
 - **Connector doc cross-references**: All 16 connector docs now link to full configuration reference in `docs/reference/configuration.md`
+- **Verbose flow logging** (`--verbose-flow`): Per-request pipeline tracing via structured logs at debug level. All pipeline stages logged for every request when enabled on `mycel start`
+- **Interactive breakpoints** (`--breakpoints`, `--break-at`): Step-by-step interactive debugging in `mycel trace`. Pause at every stage or specific stages (input, sanitize, validate, transform, step, read, write). Commands: next, continue, print, quit, help
+- **Dry-run for all write operations**: `--dry-run` now works for UPDATE, DELETE, and multi-destination writes (previously only INSERT)
 
 ### Changed
 - `metrics.NewRegistry` now accepts an `environment` parameter for the service info metric

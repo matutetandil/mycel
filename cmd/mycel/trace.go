@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -25,6 +26,10 @@ Useful for debugging flows without adding log statements to your HCL configurati
 With --dry-run, write operations (INSERT, UPDATE, DELETE, publish) are simulated
 and shown without actually executing — safe for production data sources.
 
+With --breakpoints, execution pauses at every pipeline stage for interactive
+debugging. You can step through stages, inspect data, and abort if needed.
+Use --break-at to pause only at specific stages.
+
 Examples:
   # Trace a read flow
   mycel trace get_users --config ./my-service
@@ -38,6 +43,12 @@ Examples:
   # Dry-run: show what would be written without executing
   mycel trace create_user --input '{"email":"test@x.com"}' --dry-run
 
+  # Interactive debugging: pause at every stage
+  mycel trace create_user --input '{"email":"test@x.com"}' --breakpoints
+
+  # Pause only at specific stages
+  mycel trace create_user --input '{"email":"test@x.com"}' --break-at=transform,write
+
   # List all available flows
   mycel trace --list`,
 	Args: cobra.MaximumNArgs(1),
@@ -45,10 +56,12 @@ Examples:
 }
 
 var (
-	traceInput  string
-	traceParams string
-	traceDryRun bool
-	traceList   bool
+	traceInput       string
+	traceParams      string
+	traceDryRun      bool
+	traceList        bool
+	traceBreakpoints bool
+	traceBreakAt     string
 )
 
 func init() {
@@ -56,6 +69,8 @@ func init() {
 	traceCmd.Flags().StringVar(&traceParams, "params", "", "Key=value parameters (comma-separated, e.g., id=123,status=active)")
 	traceCmd.Flags().BoolVar(&traceDryRun, "dry-run", false, "Simulate write operations without executing them")
 	traceCmd.Flags().BoolVar(&traceList, "list", false, "List all available flows")
+	traceCmd.Flags().BoolVar(&traceBreakpoints, "breakpoints", false, "Pause at every pipeline stage for interactive debugging")
+	traceCmd.Flags().StringVar(&traceBreakAt, "break-at", "", "Pause at specific stages (comma-separated: input,sanitize,validate,transform,step,read,write)")
 
 	rootCmd.AddCommand(traceCmd)
 }
@@ -142,12 +157,29 @@ func runTrace(cmd *cobra.Command, args []string) error {
 		Collector: collector,
 		DryRun:    traceDryRun,
 	}
+
+	// Setup breakpoints if requested
+	if traceBreakpoints {
+		tc.Breakpoint = trace.NewBreakpoint(os.Stdin, os.Stdout)
+	} else if traceBreakAt != "" {
+		stages := trace.ParseBreakStages(traceBreakAt)
+		if len(stages) > 0 {
+			tc.Breakpoint = trace.NewBreakpointForStages(stages, os.Stdin, os.Stdout)
+		}
+	}
+
 	ctx = trace.WithTrace(ctx, tc)
 
 	// Execute the flow
 	start := time.Now()
 	result, flowErr := handler.HandleRequest(ctx, input)
 	totalDuration := time.Since(start)
+
+	// Handle breakpoint abort
+	if flowErr != nil && errors.Is(flowErr, trace.ErrBreakpointAbort) {
+		fmt.Fprintf(os.Stdout, "\n  ✗ execution aborted by user\n\n")
+		return nil
+	}
 
 	// If the flow produced a result and no error, record it
 	if flowErr != nil {

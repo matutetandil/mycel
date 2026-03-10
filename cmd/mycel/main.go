@@ -223,6 +223,8 @@ var (
 	verbose     bool // deprecated, kept for backward compatibility
 	hotReload   bool
 
+	verboseFlow bool
+
 	// Export flags
 	exportOutput  string
 	exportFormat  string
@@ -239,6 +241,7 @@ func init() {
 
 	// Start command flags
 	startCmd.Flags().BoolVar(&hotReload, "hot-reload", true, "Enable hot reload (auto-reload on config changes)")
+	startCmd.Flags().BoolVar(&verboseFlow, "verbose-flow", false, "Log all flow pipeline stages per request (debug)")
 
 	// Export command flags (OpenAPI)
 	exportOpenAPICmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file (default: stdout)")
@@ -288,6 +291,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 		Environment: env,
 		Logger:      logger,
 		HotReload:   hotReloadEnabled,
+		VerboseFlow: verboseFlow,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create runtime: %w", err)

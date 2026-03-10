@@ -157,12 +157,12 @@ That's it. REST API + database, zero code.
 ## CLI
 
 ```bash
-mycel start [--config=<path>] [--env=<env>] [--log-level=<level>] [--log-format=<format>] [--hot-reload]
+mycel start [--config=<path>] [--env=<env>] [--log-level=<level>] [--log-format=<format>] [--hot-reload] [--verbose-flow]
 mycel validate [--config=<path>]
 mycel check [--config=<path>]
 mycel version
 
-mycel trace <flow-name> [--input=<json>] [--params=<k=v>] [--dry-run] [--list]
+mycel trace <flow-name> [--input=<json>] [--params=<k=v>] [--dry-run] [--breakpoints] [--break-at=<stages>] [--list]
 
 mycel plugin install [name]
 mycel plugin list

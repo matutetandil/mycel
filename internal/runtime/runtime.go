@@ -127,6 +127,9 @@ type Runtime struct {
 	// Scheduler for cron-based flow triggers
 	scheduler *scheduler.Scheduler
 
+	// Verbose flow tracing (logs all pipeline stages per request)
+	verboseFlow bool
+
 	// Hot reload components
 	hotReloadEnabled bool
 	hotReloader      *hotreload.Reloader
@@ -165,6 +168,11 @@ type Options struct {
 	// HotReloadDebounce is the debounce duration for hot reload.
 	// Defaults to 500ms.
 	HotReloadDebounce time.Duration
+
+	// VerboseFlow enables per-request flow tracing via structured logs.
+	// When true, every pipeline stage (sanitize, validate, transform, read/write)
+	// is logged at debug level for all flows.
+	VerboseFlow bool
 
 	// MockConnectors is a comma-separated list of connectors to mock.
 	// Empty means mock all when mocking is enabled.
@@ -462,6 +470,7 @@ func New(opts Options) (*Runtime, error) {
 		logger:            opts.Logger,
 		environment:       env,
 		configDir:         opts.ConfigDir,
+		verboseFlow:       opts.VerboseFlow,
 		hotReloadEnabled:  opts.HotReload,
 		shutdownTimeout:   opts.ShutdownTimeout,
 	}, nil
@@ -998,6 +1007,7 @@ func (r *Runtime) registerFlows() error {
 			Sanitizer:          r.sanitizer,
 			ValidatorRegistry:  r.validatorRegistry,
 			Logger:             r.logger,
+			VerboseFlow:        r.verboseFlow,
 		}
 
 		r.flows.Register(cfg.Name, handler)
