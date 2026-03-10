@@ -51,6 +51,14 @@ type StepConfig struct {
 
 	// OnError defines behavior on failure: "fail" (default) or "skip".
 	OnError string
+
+	// Delay pauses the workflow for a duration (e.g., "5m", "1h").
+	// Requires workflow persistence to survive restarts.
+	Delay string
+
+	// Await pauses the workflow until an external signal with this event name.
+	// Resume via POST /workflows/{id}/signal/{event}.
+	Await string
 }
 
 // ActionConfig defines a connector action (used for action, compensate, on_complete, on_failure).

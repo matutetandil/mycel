@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/matutetandil/mycel/internal/connector"
@@ -461,6 +462,387 @@ func TestFactory_Create(t *testing.T) {
 
 	if conn.Type() != "file" {
 		t.Errorf("expected type 'file', got %q", conn.Type())
+	}
+}
+
+func TestConnector_ReadWriteTSV(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-file-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	conn := New("test", &Config{
+		BasePath:   tmpDir,
+		CreateDirs: true,
+	})
+
+	ctx := context.Background()
+
+	// Write TSV manually
+	tsvContent := "name\tage\tcity\nAlice\t30\tNYC\nBob\t25\tLA\n"
+	os.WriteFile(filepath.Join(tmpDir, "data.tsv"), []byte(tsvContent), 0644)
+
+	// Read back as TSV (auto-detected from extension)
+	rows, err := conn.Read(ctx, &connector.Query{Target: "data.tsv"})
+	if err != nil {
+		t.Fatalf("failed to read TSV: %v", err)
+	}
+
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice, got %v", rows[0]["name"])
+	}
+	if rows[0]["age"] != "30" {
+		t.Errorf("expected 30, got %v", rows[0]["age"])
+	}
+
+	// Write TSV data
+	testData := []map[string]interface{}{
+		{"x": "1", "y": "2"},
+		{"x": "3", "y": "4"},
+	}
+	_, err = conn.Write(ctx, &connector.Data{
+		Target: "output.tsv",
+		Params: map[string]interface{}{
+			"content": testData,
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to write TSV: %v", err)
+	}
+
+	// Read back
+	rows, err = conn.Read(ctx, &connector.Query{Target: "output.tsv"})
+	if err != nil {
+		t.Fatalf("failed to read written TSV: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Errorf("expected 2 rows, got %d", len(rows))
+	}
+}
+
+func TestConnector_CSVDelimiter(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-file-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	conn := New("test", &Config{
+		BasePath:   tmpDir,
+		CreateDirs: true,
+	})
+
+	ctx := context.Background()
+
+	// Write a semicolon-delimited CSV
+	content := "name;age;city\nAlice;30;NYC\nBob;25;LA\n"
+	os.WriteFile(filepath.Join(tmpDir, "european.csv"), []byte(content), 0644)
+
+	// Read with semicolon delimiter
+	rows, err := conn.Read(ctx, &connector.Query{
+		Target: "european.csv",
+		Params: map[string]interface{}{"delimiter": ";"},
+	})
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice, got %v", rows[0]["name"])
+	}
+	if rows[1]["city"] != "LA" {
+		t.Errorf("expected LA, got %v", rows[1]["city"])
+	}
+}
+
+func TestConnector_CSVNoHeader(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-file-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	conn := New("test", &Config{
+		BasePath:   tmpDir,
+		CreateDirs: true,
+	})
+
+	ctx := context.Background()
+
+	// Write CSV without header
+	content := "Alice,30,NYC\nBob,25,LA\n"
+	os.WriteFile(filepath.Join(tmpDir, "noheader.csv"), []byte(content), 0644)
+
+	// Read without header
+	rows, err := conn.Read(ctx, &connector.Query{
+		Target: "noheader.csv",
+		Params: map[string]interface{}{"no_header": true},
+	})
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0]["column_1"] != "Alice" {
+		t.Errorf("expected Alice in column_1, got %v", rows[0]["column_1"])
+	}
+	if rows[0]["column_2"] != "30" {
+		t.Errorf("expected 30 in column_2, got %v", rows[0]["column_2"])
+	}
+}
+
+func TestConnector_CSVCustomColumns(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-file-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	conn := New("test", &Config{
+		BasePath:   tmpDir,
+		CreateDirs: true,
+	})
+
+	ctx := context.Background()
+
+	// Write CSV with header that we want to override
+	content := "col_a,col_b,col_c\nAlice,30,NYC\nBob,25,LA\n"
+	os.WriteFile(filepath.Join(tmpDir, "custom.csv"), []byte(content), 0644)
+
+	// Read with custom column names (overrides the header row)
+	rows, err := conn.Read(ctx, &connector.Query{
+		Target: "custom.csv",
+		Params: map[string]interface{}{
+			"columns": []interface{}{"name", "age", "city"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice in name, got %v", rows[0]["name"])
+	}
+	if rows[1]["city"] != "LA" {
+		t.Errorf("expected LA in city, got %v", rows[1]["city"])
+	}
+}
+
+func TestConnector_CSVSkipRows(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-file-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	conn := New("test", &Config{
+		BasePath:   tmpDir,
+		CreateDirs: true,
+	})
+
+	ctx := context.Background()
+
+	// Write CSV with metadata rows before the header
+	content := "Report: Users\nGenerated: 2026-03-09\nname,age\nAlice,30\nBob,25\n"
+	os.WriteFile(filepath.Join(tmpDir, "report.csv"), []byte(content), 0644)
+
+	// Read skipping 2 rows (2 metadata lines)
+	rows, err := conn.Read(ctx, &connector.Query{
+		Target: "report.csv",
+		Params: map[string]interface{}{"skip_rows": 2},
+	})
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice, got %v", rows[0]["name"])
+	}
+}
+
+func TestConnector_CSVComment(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-file-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	conn := New("test", &Config{
+		BasePath:   tmpDir,
+		CreateDirs: true,
+	})
+
+	ctx := context.Background()
+
+	// Write CSV with comment lines
+	content := "name,age\n# This is a comment\nAlice,30\n# Another comment\nBob,25\n"
+	os.WriteFile(filepath.Join(tmpDir, "comments.csv"), []byte(content), 0644)
+
+	rows, err := conn.Read(ctx, &connector.Query{
+		Target: "comments.csv",
+		Params: map[string]interface{}{"comment": "#"},
+	})
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows (comments skipped), got %d", len(rows))
+	}
+	if rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice, got %v", rows[0]["name"])
+	}
+}
+
+func TestConnector_CSVBOM(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-file-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	conn := New("test", &Config{
+		BasePath:   tmpDir,
+		CreateDirs: true,
+	})
+
+	ctx := context.Background()
+
+	// Write CSV with UTF-8 BOM (common from Excel on Windows)
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	content := append(bom, []byte("name,age\nAlice,30\n")...)
+	os.WriteFile(filepath.Join(tmpDir, "bom.csv"), content, 0644)
+
+	rows, err := conn.Read(ctx, &connector.Query{Target: "bom.csv"})
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	// Without BOM handling, the first header would be "\xef\xbb\xbfname"
+	if rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice (BOM stripped), got headers: %v", rows[0])
+	}
+}
+
+func TestConnector_CSVTrimSpace(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-file-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	conn := New("test", &Config{
+		BasePath:   tmpDir,
+		CreateDirs: true,
+	})
+
+	ctx := context.Background()
+
+	content := " name , age \n Alice , 30 \n Bob , 25 \n"
+	os.WriteFile(filepath.Join(tmpDir, "spaces.csv"), []byte(content), 0644)
+
+	rows, err := conn.Read(ctx, &connector.Query{
+		Target: "spaces.csv",
+		Params: map[string]interface{}{"trim_space": true},
+	})
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	if rows[0]["name"] != "Alice" {
+		t.Errorf("expected trimmed 'Alice', got %q", rows[0]["name"])
+	}
+	if rows[0]["age"] != "30" {
+		t.Errorf("expected trimmed '30', got %q", rows[0]["age"])
+	}
+}
+
+func TestConnector_CSVWriteColumnOrder(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-file-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	conn := New("test", &Config{
+		BasePath:   tmpDir,
+		CreateDirs: true,
+	})
+
+	ctx := context.Background()
+
+	testData := []map[string]interface{}{
+		{"name": "Alice", "age": "30", "city": "NYC"},
+	}
+
+	// Write with explicit column order
+	_, err = conn.Write(ctx, &connector.Data{
+		Target: "ordered.csv",
+		Params: map[string]interface{}{
+			"content": testData,
+			"columns": []interface{}{"city", "name", "age"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to write: %v", err)
+	}
+
+	// Read raw file to verify column order
+	raw, _ := os.ReadFile(filepath.Join(tmpDir, "ordered.csv"))
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if lines[0] != "city,name,age" {
+		t.Errorf("expected header 'city,name,age', got %q", lines[0])
+	}
+	if lines[1] != "NYC,Alice,30" {
+		t.Errorf("expected data 'NYC,Alice,30', got %q", lines[1])
+	}
+}
+
+func TestConnector_CSVConnectorDefaults(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-file-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create connector with semicolon delimiter as default
+	conn := New("test", &Config{
+		BasePath:   tmpDir,
+		CreateDirs: true,
+		CSV: CSVOptions{
+			Delimiter: ';',
+			TrimSpace: true,
+		},
+	})
+
+	ctx := context.Background()
+
+	content := "name ; age\n Alice ; 30\n"
+	os.WriteFile(filepath.Join(tmpDir, "default.csv"), []byte(content), 0644)
+
+	rows, err := conn.Read(ctx, &connector.Query{Target: "default.csv"})
+	if err != nil {
+		t.Fatalf("failed to read: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if rows[0]["name"] != "Alice" {
+		t.Errorf("expected 'Alice', got %q", rows[0]["name"])
 	}
 }
 

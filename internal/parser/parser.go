@@ -90,6 +90,17 @@ type ServiceConfig struct {
 	Version   string
 	AdminPort int // Port for standalone health/metrics server (default: 9090)
 	RateLimit *RateLimitConfig
+	Workflow  *WorkflowConfig
+}
+
+// WorkflowConfig holds workflow persistence configuration.
+type WorkflowConfig struct {
+	// Storage is the connector name to use for workflow persistence (e.g., "postgres").
+	Storage string
+	// Table is the database table name (default: "mycel_workflows").
+	Table string
+	// AutoCreate creates the table automatically on startup (default: true).
+	AutoCreate bool
 }
 
 // RateLimitConfig holds rate limiting configuration.
@@ -410,6 +421,7 @@ func parseServiceBlock(block *hcl.Block, ctx *hcl.EvalContext) (*ServiceConfig, 
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "rate_limit"},
+			{Type: "workflow"},
 		},
 	}
 
@@ -445,14 +457,21 @@ func parseServiceBlock(block *hcl.Block, ctx *hcl.EvalContext) (*ServiceConfig, 
 		svc.AdminPort = int(port)
 	}
 
-	// Parse rate_limit block
+	// Parse nested blocks
 	for _, b := range content.Blocks {
-		if b.Type == "rate_limit" {
+		switch b.Type {
+		case "rate_limit":
 			rl, err := parseRateLimitBlock(b, ctx)
 			if err != nil {
 				return nil, fmt.Errorf("rate_limit block error: %w", err)
 			}
 			svc.RateLimit = rl
+		case "workflow":
+			wf, err := parseWorkflowBlock(b, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("workflow block error: %w", err)
+			}
+			svc.Workflow = wf
 		}
 	}
 
@@ -542,4 +561,53 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 	}
 
 	return rl, nil
+}
+
+// parseWorkflowBlock parses a workflow block inside the service block.
+func parseWorkflowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*WorkflowConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "storage", Required: true},
+			{Name: "table"},
+			{Name: "auto_create"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("workflow block error: %s", diags.Error())
+	}
+
+	wf := &WorkflowConfig{
+		Table:      "mycel_workflows",
+		AutoCreate: true,
+	}
+
+	if attr, ok := content.Attributes["storage"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("workflow storage error: %s", diags.Error())
+		}
+		ref := val.AsString()
+		if strings.HasPrefix(ref, "connector.") {
+			ref = strings.TrimPrefix(ref, "connector.")
+		}
+		wf.Storage = ref
+	}
+
+	if attr, ok := content.Attributes["table"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			wf.Table = val.AsString()
+		}
+	}
+
+	if attr, ok := content.Attributes["auto_create"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			wf.AutoCreate = val.True()
+		}
+	}
+
+	return wf, nil
 }

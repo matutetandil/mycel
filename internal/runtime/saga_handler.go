@@ -65,6 +65,7 @@ func (r *Runtime) registerSagas() error {
 			SyncManager:       r.syncManager,
 			SagaExecutor:      sagaExecutor,
 			SagaConfig:        cfg,
+			WorkflowEngine:    r.workflowEngine,
 			Sanitizer:         r.sanitizer,
 			ValidatorRegistry: r.validatorRegistry,
 			Logger:            r.logger,

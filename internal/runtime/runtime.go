@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -51,6 +52,7 @@ import (
 	connsse "github.com/matutetandil/mycel/internal/connector/sse"
 	connws "github.com/matutetandil/mycel/internal/connector/websocket"
 	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/internal/saga"
 	"github.com/matutetandil/mycel/internal/sanitize"
 	"github.com/matutetandil/mycel/internal/functions"
 	"github.com/matutetandil/mycel/internal/health"
@@ -66,6 +68,7 @@ import (
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
 	"github.com/matutetandil/mycel/internal/validator"
+	"github.com/matutetandil/mycel/internal/workflow"
 )
 
 // Version is the current version of Mycel.
@@ -116,6 +119,9 @@ type Runtime struct {
 
 	// Input sanitization pipeline (always active)
 	sanitizer *sanitize.Pipeline
+
+	// Workflow engine for long-running processes with persistence
+	workflowEngine *workflow.Engine
 
 	// Scheduler for cron-based flow triggers
 	scheduler *scheduler.Scheduler
@@ -595,6 +601,12 @@ func (r *Runtime) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to register sagas: %w", err)
 	}
 
+	// Initialize workflow engine for long-running processes
+	if err := r.initWorkflowEngine(ctx); err != nil {
+		banner.PrintError(err.Error())
+		return fmt.Errorf("failed to initialize workflow engine: %w", err)
+	}
+
 	// Start REST connectors (HTTP servers)
 	if err := r.startServers(ctx); err != nil {
 		banner.PrintError(err.Error())
@@ -1060,6 +1072,85 @@ func (r *Runtime) startServers(ctx context.Context) error {
 	return nil
 }
 
+// initWorkflowEngine sets up the workflow engine for long-running processes.
+// It connects to the configured database connector and creates the workflow table.
+func (r *Runtime) initWorkflowEngine(ctx context.Context) error {
+	if r.config.ServiceConfig == nil || r.config.ServiceConfig.Workflow == nil {
+		return nil
+	}
+
+	wfCfg := r.config.ServiceConfig.Workflow
+
+	// Get the database connector
+	conn, err := r.connectors.Get(wfCfg.Storage)
+	if err != nil {
+		return fmt.Errorf("workflow storage connector %q not found: %w", wfCfg.Storage, err)
+	}
+
+	// Get *sql.DB from the connector
+	dbAccessor, ok := conn.(connector.DBAccessor)
+	if !ok {
+		return fmt.Errorf("connector %q does not support DB access (must be sqlite, postgres, or mysql)", wfCfg.Storage)
+	}
+
+	db := dbAccessor.DB()
+	if db == nil {
+		return fmt.Errorf("connector %q returned nil DB", wfCfg.Storage)
+	}
+
+	// Determine SQL dialect
+	var dialect workflow.Dialect
+	switch conn.Type() {
+	case "database":
+		// Check the actual driver by connector name pattern or try ping
+		// Use the connector's underlying type
+		switch conn.(type) {
+		case *sqlite.Connector:
+			dialect = workflow.DialectSQLite
+		case *postgres.Connector:
+			dialect = workflow.DialectPostgres
+		case *mysql.Connector:
+			dialect = workflow.DialectMySQL
+		default:
+			dialect = workflow.DialectSQLite // fallback
+		}
+	default:
+		return fmt.Errorf("connector %q type %q is not a SQL database", wfCfg.Storage, conn.Type())
+	}
+
+	// Create store
+	store := workflow.NewSQLStore(db, dialect, wfCfg.Table)
+
+	// Auto-create table
+	if wfCfg.AutoCreate {
+		if err := store.EnsureSchema(ctx); err != nil {
+			return fmt.Errorf("failed to create workflow table: %w", err)
+		}
+	}
+
+	// Create saga executor for the workflow engine
+	sagaExecutor := saga.NewExecutor(r.connectors)
+
+	// Create and start engine
+	engine := workflow.NewEngine(store, sagaExecutor, r.logger)
+
+	// Register sagas that need persistence
+	for _, cfg := range r.config.Sagas {
+		if workflow.NeedsPersistence(cfg) {
+			engine.RegisterSaga(cfg)
+		}
+	}
+
+	if err := engine.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start workflow engine: %w", err)
+	}
+
+	r.workflowEngine = engine
+	r.logger.Info("workflow engine started", "storage", wfCfg.Storage, "table", wfCfg.Table)
+
+	return nil
+}
+
 // startAdminServer starts a lightweight HTTP server for health checks and metrics.
 // This ensures health/metrics endpoints are always available, even without a REST connector.
 func (r *Runtime) startAdminServer() error {
@@ -1077,6 +1168,9 @@ func (r *Runtime) startAdminServer() error {
 	if r.metrics != nil {
 		mux.Handle("/metrics", r.metrics.Handler())
 	}
+
+	// Register workflow management endpoints
+	r.registerWorkflowEndpoints(mux)
 
 	addr := fmt.Sprintf(":%d", port)
 
@@ -1099,6 +1193,62 @@ func (r *Runtime) startAdminServer() error {
 	banner.PrintConnector("admin", "http", fmt.Sprintf("health + metrics on :%d", port))
 
 	return nil
+}
+
+// registerWorkflowEndpoints adds workflow management endpoints to an HTTP mux.
+func (r *Runtime) registerWorkflowEndpoints(mux *http.ServeMux) {
+	if r.workflowEngine == nil {
+		return
+	}
+
+	// GET /workflows/{id} — get workflow instance status
+	mux.HandleFunc("GET /workflows/{id}", func(w http.ResponseWriter, req *http.Request) {
+		id := req.PathValue("id")
+		inst, err := r.workflowEngine.GetInstance(req.Context(), id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(inst)
+	})
+
+	// POST /workflows/{id}/signal/{event} — send signal to awaiting workflow
+	mux.HandleFunc("POST /workflows/{id}/signal/{event}", func(w http.ResponseWriter, req *http.Request) {
+		id := req.PathValue("id")
+		event := req.PathValue("event")
+
+		var data map[string]interface{}
+		if req.Body != nil {
+			json.NewDecoder(req.Body).Decode(&data)
+		}
+
+		if err := r.workflowEngine.Signal(req.Context(), id, event, data); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "signaled",
+			"id":     id,
+			"event":  event,
+		})
+	})
+
+	// POST /workflows/{id}/cancel — cancel active workflow
+	mux.HandleFunc("POST /workflows/{id}/cancel", func(w http.ResponseWriter, req *http.Request) {
+		id := req.PathValue("id")
+		if err := r.workflowEngine.Cancel(req.Context(), id); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "cancelled",
+			"id":     id,
+		})
+	})
 }
 
 // registerFlowHandlers registers HTTP handlers for flows using this connector.
@@ -1360,6 +1510,11 @@ func (r *Runtime) Shutdown() error {
 		if err := r.syncManager.Close(); err != nil {
 			r.logger.Warn("error closing sync manager", "error", err)
 		}
+	}
+
+	// Stop workflow engine
+	if r.workflowEngine != nil {
+		r.workflowEngine.Stop()
 	}
 
 	// Shutdown admin server if running

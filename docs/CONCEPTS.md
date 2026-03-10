@@ -24,6 +24,13 @@ This guide explains what each Mycel concept is, why it exists, and when to use i
 - [Synchronization](#synchronization)
 - [Environments](#environments)
 - [Scheduled Jobs](#scheduled-jobs)
+- [Sagas](#sagas)
+- [State Machines](#state-machines)
+- [Long-Running Workflows](#long-running-workflows)
+- [Security](#security)
+- [Error Handling](#error-handling)
+- [Notifications](#notifications)
+- [Real-Time Connectors](#real-time-connectors)
 - [Configuration Structure](#configuration-structure)
 
 ---
@@ -790,6 +797,250 @@ Key features:
 - **Final states** cannot transition further
 - **Automatic state persistence** via the entity's `status` column
 - **Initial state** used when the entity has no `status` value yet
+
+See the [state machine example](../examples/state-machine/) for a complete setup.
+
+---
+
+## Long-Running Workflows
+
+When a saga includes steps that pause execution — waiting for a timer or an external event — Mycel persists the workflow state to a database so it survives restarts and can be resumed later. Simple sagas (no delay/await) continue to execute synchronously and don't need any extra configuration.
+
+### Delay steps
+
+A delay step pauses the workflow for a specified duration. The engine saves a `resume_at` timestamp and a background ticker resumes execution when the delay expires.
+
+```hcl
+saga "onboarding" {
+  from { connector = "api", operation = "POST /onboard" }
+
+  step "create_account" {
+    action { connector = "db", operation = "INSERT", target = "accounts" }
+  }
+
+  step "wait_before_welcome" {
+    delay = "24h"     # Pause for 24 hours
+  }
+
+  step "send_welcome" {
+    action { connector = "email", operation = "send" }
+  }
+}
+```
+
+### Await/Signal steps
+
+An await step pauses until an external system sends a signal via the REST API. This is useful for human approvals, payment confirmations, or any event that originates outside Mycel.
+
+```hcl
+saga "loan_approval" {
+  timeout = "7d"   # Maximum workflow duration
+
+  from { connector = "api", operation = "POST /loans" }
+
+  step "submit" {
+    action { connector = "db", operation = "INSERT", target = "loans" }
+  }
+
+  step "wait_approval" {
+    await   = "loan_approved"    # Pause until this event is signaled
+    timeout = "48h"              # Step-level timeout
+  }
+
+  step "disburse" {
+    action { connector = "banking", operation = "POST /transfers" }
+  }
+}
+```
+
+Signal the workflow via the auto-registered REST API:
+
+```
+POST /workflows/{workflow_id}/signal/loan_approved
+Content-Type: application/json
+
+{ "approved_by": "manager@company.com", "amount": 50000 }
+```
+
+The signal data is available in subsequent steps as `input.signal`.
+
+### Configuration
+
+Enable workflow persistence by adding a `workflow` block to the service configuration, pointing to an existing database connector:
+
+```hcl
+service {
+  name    = "loan-service"
+  version = "1.0.0"
+
+  workflow {
+    storage     = "db"              # Database connector name
+    table       = "mycel_workflows" # Table name (default)
+    auto_create = true              # Create table on startup
+  }
+}
+```
+
+### Workflow REST API
+
+The engine auto-registers three endpoints:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /workflows/{id}` | Get workflow status, current step, timestamps |
+| `POST /workflows/{id}/signal/{event}` | Resume a paused workflow awaiting an event |
+| `POST /workflows/{id}/cancel` | Cancel an active workflow (runs compensation) |
+
+When a saga with delay/await is triggered, the flow returns HTTP 202 with a `workflow_id` instead of blocking until completion.
+
+See the [Workflows Guide](WORKFLOWS.md) for implementation details and database support.
+
+---
+
+## Security
+
+Mycel includes a secure-by-default input sanitization pipeline that runs before every flow execution. It cannot be disabled — only its thresholds can be adjusted.
+
+The core pipeline protects against: null bytes, invalid UTF-8, control character injection, Unicode bidi attacks, oversized inputs, and deeply nested payloads. Connector-specific rules add protection against XXE (XML), path traversal (file), shell injection (exec), and SQL identifier injection (database).
+
+```hcl
+security {
+  max_input_size = 2097152    # 2 MB (default: 1 MB)
+  max_depth      = 20         # Nesting depth (default: 10)
+  max_string_len = 100000     # Per-string limit (default: 50000)
+
+  sanitizer "pii_redact" {
+    wasm       = "./wasm/pii.wasm"
+    entrypoint = "sanitize"
+    apply_to   = ["flows/api/*"]
+    fields     = ["ssn", "credit_card"]
+  }
+}
+```
+
+Custom sanitization logic can be implemented via WASM modules with the same interface as validators and functions.
+
+See the [Security Guide](SECURITY.md) for the full pipeline, vulnerability mitigations, and WASM sanitizer interface.
+
+---
+
+## Error Handling
+
+Mycel provides multiple layers of error handling that can be combined as needed:
+
+- **Flow-level `on_error`** with retry (exponential backoff), DLQ (dead letter queue), and fallback actions
+- **Step-level `on_error = "skip"`** to continue past non-critical failures
+- **Custom error responses** via `error_response` blocks to control HTTP status codes and body format
+- **Aspects** with `when = "on_error"` for cross-cutting error handling (logging, alerting) across multiple flows
+- **Circuit breaker** to stop calling a failing service after repeated errors
+- **Rate limiting** to prevent overload
+
+```hcl
+flow "create_order" {
+  from { connector = "api", operation = "POST /orders" }
+
+  error_handling {
+    on_error = "retry"
+    max_retries = 3
+    backoff     = "exponential"
+    dlq         = "connector.rabbit.dead_letters"
+
+    error_response {
+      status = 422
+      body   = { error = "Order creation failed", code = "ORDER_ERROR" }
+    }
+  }
+
+  to { connector = "db", target = "orders" }
+}
+```
+
+See the [Error Handling Guide](ERROR_HANDLING.md) for all 9 layers with examples.
+
+---
+
+## Notifications
+
+Mycel includes native connectors for sending notifications through multiple channels. Each connector is configured once and used in flows like any other target.
+
+| Connector | Channel | Configuration |
+|-----------|---------|---------------|
+| `email` | SMTP email | `host`, `port`, `username`, `password` |
+| `slack` | Slack messages | `token` (Bot token) |
+| `discord` | Discord messages | `token` (Bot token) |
+| `sms` | SMS via Twilio | `account_sid`, `auth_token`, `from` |
+| `push` | Mobile push (FCM/APNs) | `provider`, `credentials_file` |
+| `webhook` | HTTP callbacks | `url`, `method`, `headers` |
+
+```hcl
+connector "alerts" {
+  type  = "slack"
+  token = env("SLACK_TOKEN")
+}
+
+flow "alert_on_error" {
+  when = "on_error"
+  on   = ["flows/**"]
+
+  action {
+    connector = "alerts"
+    operation = "chat.postMessage"
+    transform {
+      output.channel = "'#alerts'"
+      output.text    = "'Error in flow: ' + flow.name"
+    }
+  }
+}
+```
+
+See the [Notifications docs](connectors/) for per-connector configuration and transform fields.
+
+---
+
+## Real-Time Connectors
+
+Mycel provides three connectors for pushing data to clients in real time, each suited to different use cases:
+
+| Connector | Protocol | Direction | Use Case |
+|-----------|----------|-----------|----------|
+| [WebSocket](connectors/websocket.md) | WebSocket | Bidirectional | Chat, collaboration, gaming |
+| [SSE](connectors/sse.md) | HTTP | Server → Client | Dashboards, notifications, feeds |
+| [CDC](connectors/cdc.md) | PostgreSQL WAL | Database → Flow | Audit logs, sync, event sourcing |
+
+All three support **rooms** (topic-based channels) and **per-user filtering** — subscribers only receive events that match their identity.
+
+```hcl
+connector "ws" {
+  type = "websocket"
+  port = 8080
+  path = "/ws"
+}
+
+flow "broadcast_price" {
+  from { connector = "rabbit", operation = "prices" }
+  to {
+    connector = "ws"
+    operation = "room:prices"
+    filter    = "input.symbol == context.params.symbol"
+  }
+}
+```
+
+CDC (Change Data Capture) streams database changes as flow events, enabling reactive patterns without polling:
+
+```hcl
+connector "cdc" {
+  type              = "cdc"
+  driver            = "postgres"
+  connection_string = env("PG_REPLICATION_URL")
+  tables            = ["orders", "payments"]
+}
+
+flow "sync_to_elastic" {
+  from { connector = "cdc", operation = "orders.*" }
+  to   { connector = "es", target = "orders", operation = "index" }
+}
+```
 
 See the [state machine example](../examples/state-machine/) for a complete setup.
 

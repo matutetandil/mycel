@@ -22,6 +22,7 @@ import (
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
 	"github.com/matutetandil/mycel/internal/validator"
+	"github.com/matutetandil/mycel/internal/workflow"
 )
 
 // FlowRegistry manages flow handlers.
@@ -120,6 +121,9 @@ type FlowHandler struct {
 
 	// SagaConfig holds the saga configuration when this handler wraps a saga.
 	SagaConfig *saga.Config
+
+	// WorkflowEngine handles long-running sagas with persistence.
+	WorkflowEngine *workflow.Engine
 
 	// StateMachineEngine handles state machine transitions.
 	StateMachineEngine *statemachine.Engine
@@ -805,8 +809,19 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 		}
 	}
 
-	// If this is a saga flow, dispatch to saga executor
+	// If this is a saga flow, dispatch to workflow engine (async) or saga executor (sync)
 	if h.SagaExecutor != nil && h.SagaConfig != nil {
+		if h.WorkflowEngine != nil && workflow.NeedsPersistence(h.SagaConfig) {
+			instance, err := h.WorkflowEngine.Execute(ctx, h.SagaConfig.Name, input)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]interface{}{
+				"workflow_id": instance.ID,
+				"status":      string(instance.Status),
+				"saga":        instance.SagaName,
+			}, nil
+		}
 		sagaResult, err := h.SagaExecutor.Execute(ctx, h.SagaConfig, input)
 		if err != nil {
 			return nil, err

@@ -41,6 +41,28 @@ func (f *Factory) Create(ctx context.Context, config *connector.Config) (connect
 		}
 	}
 
+	// Parse CSV options from connector config
+	if d := getString(config.Properties, "csv_delimiter", ""); d != "" {
+		switch d {
+		case "\\t", "\t", "tab":
+			cfg.CSV.Delimiter = '\t'
+		case ";", "semicolon":
+			cfg.CSV.Delimiter = ';'
+		case "|", "pipe":
+			cfg.CSV.Delimiter = '|'
+		default:
+			if len(d) > 0 {
+				cfg.CSV.Delimiter = rune(d[0])
+			}
+		}
+	}
+	if c := getString(config.Properties, "csv_comment", ""); c != "" && len(c) > 0 {
+		cfg.CSV.Comment = rune(c[0])
+	}
+	cfg.CSV.NoHeader = getBool(config.Properties, "csv_no_header", false)
+	cfg.CSV.TrimSpace = getBool(config.Properties, "csv_trim_space", false)
+	cfg.CSV.SkipRows = getInt(config.Properties, "csv_skip_rows", 0)
+
 	return New(config.Name, cfg), nil
 }
 

@@ -240,6 +240,11 @@ func (c *Connector) Health(ctx context.Context) error {
 	return c.db.PingContext(ctx)
 }
 
+// DB returns the underlying *sql.DB connection for direct access.
+func (c *Connector) DB() *sql.DB {
+	return c.db
+}
+
 // Read executes a query and returns results (implements connector.Reader).
 // If replicas are configured, reads are routed to replicas using round-robin.
 func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector.Result, error) {

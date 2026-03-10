@@ -220,7 +220,7 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (map[string
 		content = data.Params["content"]
 	}
 
-	bytesWritten, err := c.writeData(file, content, format)
+	bytesWritten, err := c.writeData(file, content, format, data.Params)
 	if err != nil {
 		return nil, err
 	}
@@ -320,6 +320,8 @@ func (c *Connector) detectFormat(path string) string {
 		return "json"
 	case ".csv":
 		return "csv"
+	case ".tsv", ".tab":
+		return "tsv"
 	case ".xlsx", ".xls":
 		return "excel"
 	case ".txt", ".log", ".md":
@@ -347,7 +349,13 @@ func (c *Connector) readFile(path, format string, params map[string]interface{})
 	case "json":
 		return c.readJSON(file)
 	case "csv":
-		return c.readCSV(file)
+		return c.readCSV(file, params)
+	case "tsv":
+		if params == nil {
+			params = make(map[string]interface{})
+		}
+		params["delimiter"] = "\t"
+		return c.readCSV(file, params)
 	case "text", "lines":
 		return c.readText(file, format == "lines")
 	case "binary":
@@ -379,17 +387,103 @@ func (c *Connector) readJSON(r io.Reader) ([]map[string]interface{}, error) {
 	return []map[string]interface{}{obj}, nil
 }
 
-// readCSV reads a CSV file.
-func (c *Connector) readCSV(r io.Reader) ([]map[string]interface{}, error) {
-	reader := csv.NewReader(r)
+// readCSV reads a CSV file with configurable options.
+// Options can be set at the connector level (c.config.CSV) and overridden
+// per-operation via params: delimiter, comment, skip_rows, no_header, columns, trim_space.
+func (c *Connector) readCSV(r io.Reader, params map[string]interface{}) ([]map[string]interface{}, error) {
+	opts := c.resolveCSVOptions(params)
 
-	// Read header
-	headers, err := reader.Read()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read CSV header: %w", err)
+	// Strip UTF-8 BOM if present
+	br := newBOMReader(r)
+
+	reader := csv.NewReader(br)
+	if opts.Delimiter != 0 {
+		reader.Comma = opts.Delimiter
+	}
+	if opts.Comment != 0 {
+		reader.Comment = opts.Comment
+	}
+	reader.LazyQuotes = true
+	reader.FieldsPerRecord = -1 // allow variable field counts
+
+	// Skip leading rows (metadata, blank lines before header)
+	for i := 0; i < opts.SkipRows; i++ {
+		if _, err := reader.Read(); err != nil {
+			return nil, fmt.Errorf("failed to skip row %d: %w", i+1, err)
+		}
 	}
 
-	// Read all records
+	// Determine headers
+	var headers []string
+	if len(opts.Columns) > 0 {
+		headers = opts.Columns
+		// If there IS a header row but we're overriding names, consume it
+		if !opts.NoHeader {
+			if _, err := reader.Read(); err != nil {
+				return nil, fmt.Errorf("failed to read CSV header: %w", err)
+			}
+		}
+	} else if opts.NoHeader {
+		// Read first data row to determine column count, then use it
+		firstRow, err := reader.Read()
+		if err != nil {
+			if err == io.EOF {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("failed to read first CSV row: %w", err)
+		}
+		headers = make([]string, len(firstRow))
+		for i := range firstRow {
+			headers[i] = fmt.Sprintf("column_%d", i+1)
+		}
+		// Process this first row as data
+		row := make(map[string]interface{})
+		for i, header := range headers {
+			val := firstRow[i]
+			if opts.TrimSpace {
+				val = strings.TrimSpace(val)
+			}
+			row[header] = val
+		}
+		var results []map[string]interface{}
+		results = append(results, row)
+		// Continue reading remaining rows
+		for {
+			record, err := reader.Read()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return nil, fmt.Errorf("failed to read CSV record: %w", err)
+			}
+			row := make(map[string]interface{})
+			for i, header := range headers {
+				if i < len(record) {
+					val := record[i]
+					if opts.TrimSpace {
+						val = strings.TrimSpace(val)
+					}
+					row[header] = val
+				}
+			}
+			results = append(results, row)
+		}
+		return results, nil
+	} else {
+		// Read header row
+		var err error
+		headers, err = reader.Read()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CSV header: %w", err)
+		}
+		if opts.TrimSpace {
+			for i := range headers {
+				headers[i] = strings.TrimSpace(headers[i])
+			}
+		}
+	}
+
+	// Read data records
 	var results []map[string]interface{}
 	for {
 		record, err := reader.Read()
@@ -403,13 +497,73 @@ func (c *Connector) readCSV(r io.Reader) ([]map[string]interface{}, error) {
 		row := make(map[string]interface{})
 		for i, header := range headers {
 			if i < len(record) {
-				row[header] = record[i]
+				val := record[i]
+				if opts.TrimSpace {
+					val = strings.TrimSpace(val)
+				}
+				row[header] = val
 			}
 		}
 		results = append(results, row)
 	}
 
 	return results, nil
+}
+
+// resolveCSVOptions merges connector-level CSV defaults with per-operation params.
+func (c *Connector) resolveCSVOptions(params map[string]interface{}) CSVOptions {
+	opts := c.config.CSV
+
+	if params == nil {
+		return opts
+	}
+
+	// Delimiter: string param → rune
+	if d := getParamString(params, "delimiter", ""); d != "" {
+		switch d {
+		case "\\t", "\t", "tab":
+			opts.Delimiter = '\t'
+		case ";", "semicolon":
+			opts.Delimiter = ';'
+		case "|", "pipe":
+			opts.Delimiter = '|'
+		default:
+			if len(d) > 0 {
+				opts.Delimiter = rune(d[0])
+			}
+		}
+	}
+
+	if cm := getParamString(params, "comment", ""); cm != "" && len(cm) > 0 {
+		opts.Comment = rune(cm[0])
+	}
+
+	if sr := getParamInt(params, "skip_rows", 0); sr > 0 {
+		opts.SkipRows = sr
+	}
+
+	if getParamBool(params, "no_header", false) {
+		opts.NoHeader = true
+	}
+
+	if getParamBool(params, "trim_space", false) {
+		opts.TrimSpace = true
+	}
+
+	if cols, ok := params["columns"]; ok {
+		switch v := cols.(type) {
+		case []string:
+			opts.Columns = v
+		case []interface{}:
+			for _, item := range v {
+				if s, ok := item.(string); ok {
+					opts.Columns = append(opts.Columns, s)
+				}
+			}
+		}
+	}
+
+	return opts
 }
 
 // readText reads a text file.
@@ -510,12 +664,18 @@ func (c *Connector) readExcel(path, sheet string) ([]map[string]interface{}, err
 }
 
 // writeData writes data to a file.
-func (c *Connector) writeData(w io.Writer, data interface{}, format string) (int64, error) {
+func (c *Connector) writeData(w io.Writer, data interface{}, format string, params map[string]interface{}) (int64, error) {
 	switch format {
 	case "json":
 		return c.writeJSON(w, data)
 	case "csv":
-		return c.writeCSV(w, data)
+		return c.writeCSV(w, data, params)
+	case "tsv":
+		if params == nil {
+			params = make(map[string]interface{})
+		}
+		params["delimiter"] = "\t"
+		return c.writeCSV(w, data, params)
 	case "excel":
 		return c.writeExcel(w, data)
 	case "text":
@@ -538,9 +698,13 @@ func (c *Connector) writeJSON(w io.Writer, data interface{}) (int64, error) {
 	return int64(n), err
 }
 
-// writeCSV writes data as CSV.
-func (c *Connector) writeCSV(w io.Writer, data interface{}) (int64, error) {
+// writeCSV writes data as CSV with configurable options.
+func (c *Connector) writeCSV(w io.Writer, data interface{}, params map[string]interface{}) (int64, error) {
+	opts := c.resolveCSVOptions(params)
 	writer := csv.NewWriter(w)
+	if opts.Delimiter != 0 {
+		writer.Comma = opts.Delimiter
+	}
 
 	// Convert data to rows
 	var rows []map[string]interface{}
@@ -563,18 +727,25 @@ func (c *Connector) writeCSV(w io.Writer, data interface{}) (int64, error) {
 		return 0, nil
 	}
 
-	// Extract headers from first row
+	// Determine headers: explicit columns > first row keys (sorted)
 	var headers []string
-	for key := range rows[0] {
-		headers = append(headers, key)
+	if len(opts.Columns) > 0 {
+		headers = opts.Columns
+	} else {
+		for key := range rows[0] {
+			headers = append(headers, key)
+		}
+		sort.Strings(headers)
 	}
 
-	// Write header
-	if err := writer.Write(headers); err != nil {
-		return 0, err
+	// Write header row (unless no_header is set)
+	if !opts.NoHeader {
+		if err := writer.Write(headers); err != nil {
+			return 0, err
+		}
 	}
 
-	// Write rows
+	// Write data rows
 	for _, row := range rows {
 		record := make([]string, len(headers))
 		for i, header := range headers {
@@ -588,7 +759,7 @@ func (c *Connector) writeCSV(w io.Writer, data interface{}) (int64, error) {
 	}
 
 	writer.Flush()
-	return 0, writer.Error() // CSV writer doesn't track bytes written
+	return 0, writer.Error()
 }
 
 // writeExcel writes data as an Excel (.xlsx) file.
@@ -852,4 +1023,66 @@ func getParamBool(params map[string]interface{}, key string, defaultVal bool) bo
 		}
 	}
 	return defaultVal
+}
+
+func getParamInt(params map[string]interface{}, key string, defaultVal int) int {
+	if params == nil {
+		return defaultVal
+	}
+	if v, ok := params[key]; ok {
+		switch n := v.(type) {
+		case int:
+			return n
+		case int64:
+			return int(n)
+		case float64:
+			return int(n)
+		}
+	}
+	return defaultVal
+}
+
+// bomReader wraps an io.Reader and strips a leading UTF-8 BOM (byte order mark)
+// if present. This is common in CSV files exported from Excel on Windows.
+type bomReader struct {
+	r       io.Reader
+	checked bool
+	buf     []byte
+}
+
+func newBOMReader(r io.Reader) io.Reader {
+	return &bomReader{r: r}
+}
+
+func (b *bomReader) Read(p []byte) (int, error) {
+	if !b.checked {
+		b.checked = true
+		// Read up to 3 bytes to check for BOM
+		bom := make([]byte, 3)
+		n, err := io.ReadFull(b.r, bom)
+		if n > 0 {
+			// UTF-8 BOM: EF BB BF
+			if n >= 3 && bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF {
+				// BOM detected and stripped
+			} else {
+				b.buf = bom[:n]
+			}
+		}
+		if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+			return 0, err
+		}
+	}
+
+	// Drain buffered bytes first
+	if len(b.buf) > 0 {
+		n := copy(p, b.buf)
+		b.buf = b.buf[n:]
+		if len(p) > n {
+			m, err := b.r.Read(p[n:])
+			return n + m, err
+		}
+		return n, nil
+	}
+
+	return b.r.Read(p)
 }

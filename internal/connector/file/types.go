@@ -25,6 +25,10 @@ type Config struct {
 
 	// CreateDirs automatically creates directories if they don't exist.
 	CreateDirs bool
+
+	// CSV holds default CSV/TSV options applied when reading/writing CSV files.
+	// These can be overridden per-operation via params.
+	CSV CSVOptions
 }
 
 // FileInfo represents metadata about a file.
@@ -35,6 +39,32 @@ type FileInfo struct {
 	IsDir   bool      `json:"is_dir"`
 	ModTime time.Time `json:"mod_time"`
 	Mode    string    `json:"mode"`
+}
+
+// CSVOptions configures CSV/TSV reading and writing behavior.
+type CSVOptions struct {
+	// Delimiter is the field separator character (default: comma).
+	// Common values: "," (CSV), "\t" (TSV), ";" (European CSV), "|" (pipe-delimited).
+	Delimiter rune
+
+	// Comment is the character that marks lines as comments (e.g., '#').
+	// Lines starting with this character are skipped during reading.
+	Comment rune
+
+	// SkipRows is the number of rows to skip before reading data.
+	// Useful for files with metadata rows before the header.
+	SkipRows int
+
+	// NoHeader indicates there is no header row. Columns will be named
+	// "column_1", "column_2", etc. unless Columns is specified.
+	NoHeader bool
+
+	// Columns specifies explicit column names. When set, these override
+	// the header row (or provide names when NoHeader is true).
+	Columns []string
+
+	// TrimSpace removes leading/trailing whitespace from field values.
+	TrimSpace bool
 }
 
 // ReadOptions configures how files are read.

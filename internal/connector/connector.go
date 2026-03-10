@@ -4,6 +4,7 @@ package connector
 
 import (
 	"context"
+	"database/sql"
 )
 
 // Connector represents any data source or sink.
@@ -24,6 +25,12 @@ type Connector interface {
 
 	// Health checks if the connector is healthy and responsive.
 	Health(ctx context.Context) error
+}
+
+// DBAccessor is an optional interface for database connectors that expose
+// their underlying *sql.DB for direct access (e.g., workflow persistence).
+type DBAccessor interface {
+	DB() *sql.DB
 }
 
 // Reader interface for connectors that can read data.

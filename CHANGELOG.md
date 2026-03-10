@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-03-09
+
+### Added
+- **CSV/TSV enhanced I/O** (`internal/connector/file/`): Configurable CSV options — delimiter (comma/tab/semicolon/pipe), comment character, skip_rows, no_header mode, custom column names, trim_space. TSV auto-detected from `.tsv`/`.tab` extensions. UTF-8 BOM detection and stripping. Sorted header output with optional column ordering. Connector-level CSV defaults via `csv_*` properties. 10 new tests
+- **Long-running workflow engine** (`internal/workflow/`): Persistent workflow execution for sagas with delay/await steps. `Engine` manages background ticker (5s) for processing delayed and expired instances. `SQLStore` with SQLite/Postgres/MySQL dialect support (UPSERT, indexes, nullable timestamps). Workflow states: running, paused, completed, failed, timeout, cancelled
+- **Delay steps** in sagas: `delay = "5m"` pauses workflow execution, persists `resume_at` timestamp, background ticker automatically resumes when delay expires
+- **Await/Signal steps** in sagas: `await = "payment_confirmed"` pauses workflow until external signal. Signal API resumes execution with optional data payload. Step-level timeout for await steps
+- **Workflow REST API**: `GET /workflows/{id}` (status), `POST /workflows/{id}/signal/{event}` (resume), `POST /workflows/{id}/cancel` (cancel). Auto-registered when workflow engine is active
+- **Workflow service config**: `workflow {}` block in `service {}` — `storage` (connector name), `table` (custom table name), `auto_create` (auto-create schema). Parser support with `WorkflowConfig` type
+- **Saga timeout**: `timeout = "24h"` on saga config enforces maximum workflow duration. Background ticker marks expired instances and runs compensation
+- **DBAccessor interface** (`internal/connector/connector.go`): Database connectors expose `DB() *sql.DB` for workflow engine to reuse existing connections. Implemented on PostgreSQL and MySQL connectors
+- **NeedsPersistence helper**: Detects if a saga has delay/await steps requiring async execution. Simple sagas (no delay/await) continue synchronous execution unchanged — full backward compatibility
+
+### Changed
+- **Saga parser** (`internal/parser/saga.go`): Added `delay` and `await` attributes to step schema. Delay/await steps don't require an action block
+- **Saga executor** (`internal/saga/executor.go`): Added `ExecuteStep` and `ExecuteAction` exported methods for workflow engine access
+- **FlowHandler** (`internal/runtime/flow_registry.go`): Async sagas dispatched via workflow engine return HTTP 202 with `workflow_id`. Sync sagas unchanged
+- **Runtime** (`internal/runtime/runtime.go`): Workflow engine initialization, endpoint registration, graceful shutdown integration
+
 ## [1.9.0] - 2026-03-09
 
 ### Added

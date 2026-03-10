@@ -18,7 +18,7 @@ A **flow** wires two connectors together, moving data from one to the other:
 Connector (source) ──→ Flow ──→ Connector (target)
 ```
 
-On top of this, you can add [transforms](docs/CONCEPTS.md#transforms) (reshape data), [types](docs/CONCEPTS.md#types) (validate schemas), [steps](docs/CONCEPTS.md#steps) (multi-step orchestration), [auth](docs/CONCEPTS.md#auth), [aspects](docs/CONCEPTS.md#aspects), and [more](#features). But every feature ultimately serves the same pattern: data enters through a connector, optionally gets transformed, and exits through another connector.
+On top of this, you can add [transforms](docs/CONCEPTS.md#transforms) (reshape data), [types](docs/CONCEPTS.md#types) (validate schemas), [steps](docs/CONCEPTS.md#steps) (multi-step orchestration), [sagas](docs/CONCEPTS.md#sagas) (distributed transactions), [auth](docs/CONCEPTS.md#auth), [aspects](docs/CONCEPTS.md#aspects), [security](docs/CONCEPTS.md#security), and [more](#features). But every feature ultimately serves the same pattern: data enters through a connector, optionally gets transformed, and exits through another connector.
 
 Every Mycel service automatically includes health checks (`/health`, `/health/live`, `/health/ready`), Prometheus metrics (`/metrics`), and hot reload — no configuration needed. Change an HCL file and the service reloads with zero downtime.
 
@@ -107,22 +107,23 @@ That's it. REST API + database, zero code.
 | [MongoDB](examples/mongodb) | NoSQL document database |
 | [GraphQL Server & Client](examples/graphql) | Schema-based GraphQL API |
 | [GraphQL Query Optimization](examples/graphql-optimization) | Field selection, step skipping, DataLoader |
-| [GraphQL Federation](examples/graphql-federation) | Federation v2, entity resolution, gateway-compatible subgraphs |
+| [GraphQL Federation](examples/graphql-federation) | Federation v2, entity resolution, gateway-compatible subgraphs ([concept](docs/CONCEPTS.md#federation)) |
 | [GraphQL Subscriptions](examples/graphql-federation) | Real-time push via WebSocket, per-user filtering ([concept](docs/CONCEPTS.md#subscriptions)) |
 | [GraphQL Subscription Client](examples/graphql-subscription-client) | Subscribe to external GraphQL events via WebSocket ([concept](docs/CONCEPTS.md#client-side-subscriptions)) |
 | [gRPC Server & Client](examples/grpc) | Protocol Buffers based RPC |
 | [gRPC Load Balancing](examples/grpc-loadbalancing) | Round-robin and weighted balancing |
 | [RabbitMQ / Kafka](examples/mq) | Message queue producers and consumers |
-| [WebSocket](examples/websocket) | Bidirectional real-time communication with rooms and per-user targeting ([docs](docs/connectors/websocket.md)) |
-| [CDC (Change Data Capture)](examples/cdc) | Real-time database change streaming with wildcard matching ([docs](docs/connectors/cdc.md)) |
-| [SSE (Server-Sent Events)](examples/sse) | Unidirectional HTTP push with rooms and per-user targeting ([docs](docs/connectors/sse.md)) |
+| [WebSocket](examples/websocket) | Bidirectional real-time communication with rooms and per-user targeting ([docs](docs/connectors/websocket.md), [concept](docs/CONCEPTS.md#real-time-connectors)) |
+| [CDC (Change Data Capture)](examples/cdc) | Real-time database change streaming with wildcard matching ([docs](docs/connectors/cdc.md), [concept](docs/CONCEPTS.md#real-time-connectors)) |
+| [SSE (Server-Sent Events)](examples/sse) | Unidirectional HTTP push with rooms and per-user targeting ([docs](docs/connectors/sse.md), [concept](docs/CONCEPTS.md#real-time-connectors)) |
 | [Elasticsearch](examples/elasticsearch) | Full-text search and analytics over Elasticsearch REST API ([docs](docs/connectors/elasticsearch.md)) |
 | [OAuth (Social Login)](examples/oauth) | Declarative social login: Google, GitHub, Apple, OIDC, custom ([docs](docs/connectors/oauth.md)) |
 | [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([concept](docs/CONCEPTS.md#batch-processing)) |
-| [Sagas](examples/saga) | Distributed transactions with automatic compensation ([concept](docs/CONCEPTS.md#sagas)) |
+| [Sagas](examples/saga) | Distributed transactions with automatic compensation, delay/await steps, workflow persistence ([concept](docs/CONCEPTS.md#sagas)) |
 | [State Machines](examples/state-machine) | Entity lifecycle with guards, actions, final states ([concept](docs/CONCEPTS.md#state-machines)) |
-| [SOAP](docs/connectors/soap.md) | Call or expose SOAP/XML web services (SOAP 1.1/1.2) |
-| [Format Declarations](docs/FORMAT.md) | Multi-format support (JSON, XML) at connector, flow, and step level |
+| [Long-Running Workflows](examples/workflows) | Persistent workflows with delay timers, await/signal events, timeout enforcement, REST API ([concept](docs/CONCEPTS.md#long-running-workflows), [guide](docs/WORKFLOWS.md)) |
+| [SOAP](examples/soap) | Call or expose SOAP/XML web services (SOAP 1.1/1.2) ([docs](docs/connectors/soap.md)) |
+| [Format Declarations](examples/format) | Multi-format support (JSON, XML) at connector, flow, and step level ([docs](docs/FORMAT.md)) |
 | [TCP Server & Client](examples/tcp) | JSON, msgpack, and NestJS protocols |
 | [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
 | [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching |
@@ -134,14 +135,16 @@ That's it. REST API + database, zero code.
 | [Connector Profiles](examples/profiles) | Multiple backends with fallback |
 | [Read Replicas](examples/read-replicas) | Route reads to replica databases |
 | [Synchronization](examples/sync) | Distributed locks, semaphores, coordination ([concept](docs/CONCEPTS.md#synchronization)) |
-| [Notifications](examples/notifications) | Email, Slack, Discord, SMS, Push, Webhook |
+| [Notifications](examples/notifications) | Email, Slack, Discord, SMS, Push, Webhook ([concept](docs/CONCEPTS.md#notifications)) |
 | [Aspects (AOP)](examples/aspects) | Cross-cutting concerns via pattern matching ([concept](docs/CONCEPTS.md#aspects)) |
 | [Validators](examples/validators) | Regex, CEL, and custom validation rules ([concept](docs/CONCEPTS.md#validators)) |
 | [WASM](examples/wasm-functions) | Custom functions and validators via WebAssembly ([concept](docs/CONCEPTS.md#wasm)) |
 | [Mocks](examples/mocks) | Mock data for development and testing ([concept](docs/CONCEPTS.md#mocks)) |
 | [Plugins](examples/plugin) | Extend Mycel with WASM plugins ([concept](docs/CONCEPTS.md#plugins)) |
 | [Exec](examples/exec) | Execute shell commands from flows |
-| [Security](docs/SECURITY.md) | Secure-by-default input sanitization, XXE/injection protection, WASM sanitizers |
+| [Error Handling](examples/error-handling) | Retry, DLQ, circuit breaker, custom error responses, on_error aspects ([concept](docs/CONCEPTS.md#error-handling), [guide](docs/ERROR_HANDLING.md)) |
+| [Security](examples/security) | Secure-by-default input sanitization, XXE/injection protection, WASM sanitizers ([concept](docs/CONCEPTS.md#security), [guide](docs/SECURITY.md)) |
+| [Scheduled Jobs](examples/scheduled) | Cron expressions and interval-based flow triggers ([concept](docs/CONCEPTS.md#scheduled-jobs)) |
 | Hot Reload | Apply HCL changes without restart |
 | Health Checks / Prometheus | `/health`, `/metrics` endpoints |
 
@@ -225,6 +228,8 @@ See [helm/mycel/README.md](helm/mycel/README.md) for full Helm documentation inc
 - **[Connector Catalog](docs/connectors/)** - Individual documentation for every connector type
 - **[Format System](docs/FORMAT.md)** - Multi-format support (JSON, XML), auto-detection, and XML mapping rules
 - **[Security](docs/SECURITY.md)** - Secure-by-default sanitization, XXE protection, WASM sanitizers, all security options
+- **[Workflows](docs/WORKFLOWS.md)** - Long-running processes with delay, await/signal, timeouts, and REST API
+- **[WASM](docs/WASM.md)** - Building WASM modules in Rust, Go, C, C++, AssemblyScript, and Zig
 - **[Configuration Reference](docs/CONFIGURATION.md)** - Complete HCL syntax reference
 - **[Deployment Guide](docs/DEPLOYMENT.md)** - Docker, Docker Compose, Kubernetes, environment variables, .env files
 - **[Integration Patterns](docs/integration-patterns.md)** - Common use cases

@@ -105,6 +105,21 @@ func (e *Executor) Execute(ctx context.Context, config *Config, input map[string
 	return result, nil
 }
 
+// ExecuteStep executes a single saga step's action.
+// This is used by the workflow engine to run individual steps with persistence.
+func (e *Executor) ExecuteStep(ctx context.Context, step *StepConfig, input map[string]interface{}, stepResults map[string]interface{}) (interface{}, error) {
+	if step.Action == nil {
+		return nil, nil
+	}
+	return e.executeAction(ctx, step.Action, input, stepResults)
+}
+
+// ExecuteAction executes a single action (on_complete, on_failure, compensate).
+// This is used by the workflow engine for callbacks and compensations.
+func (e *Executor) ExecuteAction(ctx context.Context, action *ActionConfig, input map[string]interface{}, stepResults map[string]interface{}) (interface{}, error) {
+	return e.executeAction(ctx, action, input, stepResults)
+}
+
 // executeAction dispatches an action to the appropriate connector.
 func (e *Executor) executeAction(ctx context.Context, action *ActionConfig, input map[string]interface{}, stepResults map[string]interface{}) (interface{}, error) {
 	if action.Connector == "" {

@@ -1017,6 +1017,134 @@ saga "create_order" {
 	}
 }
 
+func TestParseSagaWithDelayAndAwait(t *testing.T) {
+	hcl := `
+saga "order_fulfillment" {
+  timeout = "24h"
+
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+
+  step "create_order" {
+    action {
+      connector = "orders_db"
+      operation = "INSERT"
+      target    = "orders"
+    }
+  }
+
+  step "wait_processing" {
+    delay = "5m"
+  }
+
+  step "await_payment" {
+    await   = "payment_confirmed"
+    timeout = "1h"
+  }
+
+  step "ship_order" {
+    action {
+      connector = "shipping"
+      operation = "POST /shipments"
+    }
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "saga.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.Sagas) != 1 {
+		t.Fatalf("expected 1 saga, got %d", len(config.Sagas))
+	}
+
+	saga := config.Sagas[0]
+	if saga.Timeout != "24h" {
+		t.Errorf("expected saga timeout '24h', got '%s'", saga.Timeout)
+	}
+	if len(saga.Steps) != 4 {
+		t.Fatalf("expected 4 steps, got %d", len(saga.Steps))
+	}
+
+	// Step 0: normal action
+	if saga.Steps[0].Action == nil {
+		t.Error("expected step 0 to have action")
+	}
+
+	// Step 1: delay
+	if saga.Steps[1].Delay != "5m" {
+		t.Errorf("expected step 1 delay '5m', got '%s'", saga.Steps[1].Delay)
+	}
+	if saga.Steps[1].Action != nil {
+		t.Error("delay step should not have action")
+	}
+
+	// Step 2: await with timeout
+	if saga.Steps[2].Await != "payment_confirmed" {
+		t.Errorf("expected step 2 await 'payment_confirmed', got '%s'", saga.Steps[2].Await)
+	}
+	if saga.Steps[2].Timeout != "1h" {
+		t.Errorf("expected step 2 timeout '1h', got '%s'", saga.Steps[2].Timeout)
+	}
+
+	// Step 3: normal action
+	if saga.Steps[3].Action == nil {
+		t.Error("expected step 3 to have action")
+	}
+}
+
+func TestParseServiceWithWorkflow(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configHCL := `
+service {
+  name    = "order-service"
+  version = "1.0.0"
+
+  workflow {
+    storage     = "orders_db"
+    table       = "workflow_instances"
+    auto_create = true
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.hcl"), []byte(configHCL), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	p := NewHCLParser()
+	config, err := p.Parse(context.Background(), tmpDir)
+	if err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+
+	if config.ServiceConfig == nil {
+		t.Fatal("expected ServiceConfig to be set")
+	}
+	if config.ServiceConfig.Workflow == nil {
+		t.Fatal("expected Workflow config to be set")
+	}
+	if config.ServiceConfig.Workflow.Storage != "orders_db" {
+		t.Errorf("expected workflow storage 'orders_db', got '%s'", config.ServiceConfig.Workflow.Storage)
+	}
+	if config.ServiceConfig.Workflow.Table != "workflow_instances" {
+		t.Errorf("expected workflow table 'workflow_instances', got '%s'", config.ServiceConfig.Workflow.Table)
+	}
+	if !config.ServiceConfig.Workflow.AutoCreate {
+		t.Error("expected workflow auto_create to be true")
+	}
+}
+
 func TestParseStateMachine(t *testing.T) {
 	hcl := `
 state_machine "order_status" {

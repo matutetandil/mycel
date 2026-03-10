@@ -142,6 +142,8 @@ func parseSagaStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.StepConfi
 		Attributes: []hcl.AttributeSchema{
 			{Name: "timeout"},
 			{Name: "on_error"},
+			{Name: "delay"},
+			{Name: "await"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "action"},
@@ -170,6 +172,22 @@ func parseSagaStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.StepConfi
 		}
 	}
 
+	// Parse delay
+	if attr, ok := content.Attributes["delay"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			step.Delay = val.AsString()
+		}
+	}
+
+	// Parse await
+	if attr, ok := content.Attributes["await"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			step.Await = val.AsString()
+		}
+	}
+
 	// Parse action and compensate blocks
 	for _, nestedBlock := range content.Blocks {
 		switch nestedBlock.Type {
@@ -189,8 +207,9 @@ func parseSagaStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.StepConfi
 		}
 	}
 
-	if step.Action == nil {
-		return nil, fmt.Errorf("saga step %q must have an action block", step.Name)
+	// Delay and await steps don't need an action block
+	if step.Action == nil && step.Delay == "" && step.Await == "" {
+		return nil, fmt.Errorf("saga step %q must have an action, delay, or await", step.Name)
 	}
 
 	return step, nil
