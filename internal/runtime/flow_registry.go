@@ -882,6 +882,9 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	} else if len(h.Config.MultiTo) > 0 && operation.Method != "GET" {
 		// Check for multi-destination writes
 		result, err = h.handleMultiDestWrite(ctx, input, operation)
+	} else if h.Dest == nil {
+		// Echo flow (no "to" block) — return transformed input as-is
+		result = input
 	} else {
 		// Single destination (original behavior)
 		// Get the destination as a reader/writer

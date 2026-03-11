@@ -990,10 +990,13 @@ func (r *Runtime) registerFlows() error {
 			return fmt.Errorf("flow %s: source connector not found: %w", cfg.Name, err)
 		}
 
-		// Get destination connector
-		dest, err := r.connectors.Get(cfg.To.Connector)
-		if err != nil {
-			return fmt.Errorf("flow %s: destination connector not found: %w", cfg.Name, err)
+		// Get destination connector (optional — flows without "to" are echo flows)
+		var dest connector.Connector
+		if cfg.To != nil && cfg.To.Connector != "" {
+			dest, err = r.connectors.Get(cfg.To.Connector)
+			if err != nil {
+				return fmt.Errorf("flow %s: destination connector not found: %w", cfg.Name, err)
+			}
 		}
 
 		// Register the flow
@@ -1044,7 +1047,7 @@ func (r *Runtime) registerFlows() error {
 		}
 
 		// If the to operation is a subscription, register the subscription field on the dest connector
-		if isSubscriptionTarget(cfg.To.Operation) {
+		if cfg.To != nil && isSubscriptionTarget(cfg.To.Operation) {
 			if subReg, ok := dest.(SubscriptionRegistrar); ok {
 				fieldName := strings.TrimPrefix(cfg.To.Operation, "Subscription.")
 				filter := cfg.To.Filter
@@ -1058,9 +1061,12 @@ func (r *Runtime) registerFlows() error {
 
 		// Parse operation to get method and path
 		method, path := r.parseFlowOperation(cfg.From.Connector, cfg.From.Operation)
-		target := cfg.To.Connector + ":" + cfg.To.Target
-		if isSubscriptionTarget(cfg.To.Operation) {
-			target = cfg.To.Connector + ":" + cfg.To.Operation
+		target := "(echo)"
+		if cfg.To != nil {
+			target = cfg.To.Connector + ":" + cfg.To.Target
+			if isSubscriptionTarget(cfg.To.Operation) {
+				target = cfg.To.Connector + ":" + cfg.To.Operation
+			}
 		}
 		banner.PrintFlow(method, path, target)
 	}
