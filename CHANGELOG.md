@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-03-11
+
+### Added
+- **Response block**: New `response` block in flows transforms data **after** receiving it from the destination connector. For echo flows (no `to` block), the response block defines the output directly. Variables: `input.*` (original request), `output.*` (destination result)
+- **Echo flows**: Flows without a `to` block are now fully supported. They return the transformed input (or response block output) directly, enabling pure transformation endpoints, health checks, and stub responses
+- **HTTP status code override**: `http_status_code` field in response block sets custom HTTP status codes (REST, SOAP connectors). Example: `http_status_code = "501"` returns HTTP 501
+- **gRPC status code override**: `grpc_status_code` field in response block sets custom gRPC status codes with optional `error` message field
+- **`ExtractStatusCode` helper** (`internal/connector/connector.go`): Shared utility for extracting protocol-specific status codes from flow results, used by REST, SOAP, and gRPC connectors
+- **`TransformResponse` method** (`internal/transform/cel.go`): CEL transformer method for response blocks with `input` and `output` context variables
+
+### Fixed
+- **Nil pointer dereference in echo flows**: Fixed multiple nil dereferences when `Config.To` is nil — in `registerFlows` (runtime.go), `executeFlowCoreInternal` (flow_registry.go lines 818, 874), and flow banner printing
+
 ## [1.11.0] - 2026-03-10
 
 ### Added

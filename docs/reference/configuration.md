@@ -562,6 +562,7 @@ flow "NAME" {
   step "NAME" { ... }
   enrich "NAME" { ... }
   transform { ... }
+  response { ... }
   validate { ... }
   require { ... }
   cache { ... }
@@ -650,12 +651,29 @@ enrich "NAME" {
 
 ### transform block
 
+Transforms input data **before** sending to destination:
+
 ```hcl
 transform {
   use        = "transform.normalize_user"   # Reference named transform
   field_name = "CEL expression"
 }
 ```
+
+### response block
+
+Transforms output data **after** receiving from destination. For echo flows (no `to`), defines the response directly:
+
+```hcl
+response {
+  full_name        = "output.first_name + ' ' + output.last_name"
+  email            = "lower(output.email)"
+  http_status_code = "200"      # Override HTTP status (REST/SOAP)
+  grpc_status_code = "0"        # Override gRPC status code
+}
+```
+
+Variables: `input.*` (request), `output.*` (destination result).
 
 ### validate block
 

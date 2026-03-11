@@ -637,7 +637,7 @@ func (h *FlowHandler) handleRequestWithAspects(ctx context.Context, input map[st
 		h.FlowPath,
 		h.Config.Name,
 		h.Config.From.Operation,
-		h.Config.To.Target,
+		h.toTarget(),
 		input,
 		flowFn,
 	)
@@ -815,7 +815,7 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 
 	// For non-REST sources (gRPC, SOAP, etc.) where the from.operation doesn't
 	// contain an HTTP method, use to.Operation to determine the write intent.
-	if operation.Method == "GET" && h.Config.To.Operation != "" {
+	if operation.Method == "GET" && h.Config.To != nil && h.Config.To.Operation != "" {
 		switch strings.ToUpper(h.Config.To.Operation) {
 		case "INSERT":
 			operation.Method = "POST"
@@ -871,7 +871,7 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	}
 
 	// Check if the destination is a subscription publish target
-	if isSubscriptionPublish(h.Config.To.Operation) {
+	if h.Config.To != nil && isSubscriptionPublish(h.Config.To.Operation) {
 		return h.handleSubscriptionPublish(ctx, input)
 	}
 
@@ -911,6 +911,14 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 
 	if err != nil {
 		return nil, err
+	}
+
+	// Apply response transform if configured
+	if len(h.Config.Response) > 0 {
+		result, err = h.applyResponseTransform(ctx, input, result)
+		if err != nil {
+			return nil, fmt.Errorf("response transform error: %w", err)
+		}
 	}
 
 	// For read operations, store result in cache
@@ -2249,6 +2257,43 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 }
 
 // applyTransforms applies configured transformations to the input data.
+// applyResponseTransform applies response transformation rules to the result.
+// Available variables: input (original request), output (destination result).
+func (h *FlowHandler) applyResponseTransform(ctx context.Context, input map[string]interface{}, result interface{}) (interface{}, error) {
+	// Initialize CEL transformer if needed
+	if h.Transformer == nil {
+		var err error
+		celOptions := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
+		h.Transformer, err = transform.NewCELTransformerWithOptions(celOptions...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create CEL transformer: %w", err)
+		}
+	}
+
+	// Build rules from response config
+	rules := make([]transform.Rule, 0, len(h.Config.Response))
+	for target, expr := range h.Config.Response {
+		rules = append(rules, transform.Rule{Target: target, Expression: expr})
+	}
+
+	// Build context: input = original request, output = destination result
+	output := make(map[string]interface{})
+	switch v := result.(type) {
+	case map[string]interface{}:
+		output = v
+	case []interface{}:
+		// For array results, make the array available as output.items
+		output["items"] = v
+	}
+
+	transformed, err := h.Transformer.TransformResponse(ctx, input, output, rules)
+	if err != nil {
+		return nil, err
+	}
+
+	return transformed, nil
+}
+
 func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
 	// No transform configured and no steps - return input as-is
 	if h.Config.Transform == nil && len(h.Config.Enrichments) == 0 && len(h.Config.Steps) == 0 {
@@ -2529,6 +2574,14 @@ func (h *FlowHandler) executeStateTransition(ctx context.Context, input map[stri
 // ===== Cache Helper Methods =====
 
 // hasCacheConfig returns true if the flow has cache configuration.
+// toTarget returns the destination target string, or empty string for echo flows.
+func (h *FlowHandler) toTarget() string {
+	if h.Config.To != nil {
+		return h.Config.To.Target
+	}
+	return ""
+}
+
 func (h *FlowHandler) hasCacheConfig() bool {
 	if h.Config.Cache == nil {
 		return false

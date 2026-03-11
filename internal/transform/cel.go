@@ -1051,6 +1051,37 @@ func (t *CELTransformer) TransformWithSteps(ctx context.Context, input map[strin
 	return t.TransformWithContext(ctx, input, enriched, steps, rules)
 }
 
+// TransformResponse applies transformation rules for response blocks.
+// input = original request data, output = destination result (pre-filled).
+// In CEL expressions: input.* references request, output.* references destination result.
+func (t *CELTransformer) TransformResponse(ctx context.Context, input map[string]interface{}, output map[string]interface{}, rules []Rule) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+
+	activation := map[string]interface{}{
+		"input":  input,
+		"output": output,
+		"ctx":    make(map[string]interface{}),
+	}
+
+	for _, rule := range rules {
+		prog, err := t.Compile(rule.Expression)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compile expression for '%s': %w", rule.Target, err)
+		}
+
+		val, _, err := prog.Eval(activation)
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate expression for '%s': %w", rule.Target, err)
+		}
+
+		if err := setNestedValue(result, rule.Target, val.Value()); err != nil {
+			return nil, fmt.Errorf("failed to set '%s': %w", rule.Target, err)
+		}
+	}
+
+	return result, nil
+}
+
 // TransformWithContext applies transformation rules with all context data available.
 func (t *CELTransformer) TransformWithContext(ctx context.Context, input map[string]interface{}, enriched map[string]interface{}, steps map[string]interface{}, rules []Rule) (map[string]interface{}, error) {
 	output := make(map[string]interface{})

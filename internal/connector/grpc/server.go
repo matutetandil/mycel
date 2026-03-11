@@ -14,9 +14,12 @@ import (
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/desc/protoparse"
 	"github.com/jhump/protoreflect/dynamic"
+	"github.com/matutetandil/mycel/internal/connector"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoregistry"
 )
@@ -412,6 +415,18 @@ func (c *ServerConnector) handleUnary(ctx context.Context, md *desc.MethodDescri
 	result, err := handler(ctx, inputData)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check for grpc_status_code override in response (from response block)
+	if resultMap, ok := result.(map[string]interface{}); ok {
+		if code, found := connector.ExtractStatusCode(resultMap, "grpc_status_code"); found {
+			msg := ""
+			if m, exists := resultMap["error"]; exists {
+				msg = fmt.Sprintf("%v", m)
+				delete(resultMap, "error")
+			}
+			return nil, status.Error(codes.Code(code), msg)
+		}
 	}
 
 	// Adapt result to match proto output type:

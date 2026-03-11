@@ -2,6 +2,8 @@
 
 Transforms reshape data between source and target using **CEL (Common Expression Language)** expressions. CEL is sandboxed, compiled at startup, and cached — meaning any expression error is caught before the service starts, and transforms run at near-native speed.
 
+> **Note:** `transform` reshapes data **before** sending to the destination. To reshape the **response** after receiving from the destination, use the [`response` block](flows.md#response).
+
 ## Basic Transform Block
 
 ```hcl

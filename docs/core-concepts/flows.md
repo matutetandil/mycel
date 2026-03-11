@@ -222,6 +222,75 @@ transform {
 
 See [Transforms](transforms.md) for all CEL functions and patterns.
 
+## Response
+
+Transform the output **after** receiving the result from the destination (or define the response directly for echo flows without `to`):
+
+```hcl
+# With destination — transform what the DB returns before sending to the client
+flow "get_user" {
+  from {
+    connector = "api"
+    operation = "GET /users/:id"
+  }
+  to {
+    connector = "db"
+    target    = "users"
+  }
+  response {
+    full_name = "output.first_name + ' ' + output.last_name"
+    email     = "lower(output.email)"
+  }
+}
+
+# Without destination — define the response directly (echo flow)
+flow "process" {
+  from {
+    connector = "api"
+    operation = "POST /process"
+  }
+  response {
+    id    = "uuid()"
+    email = "lower(input.email)"
+    name  = "upper(input.name)"
+  }
+}
+```
+
+Available variables:
+- `input.*` — original request data
+- `output.*` — destination result (only when `to` is present)
+
+### Status Code Override
+
+Control the HTTP status code from the response block:
+
+```hcl
+flow "not_implemented" {
+  from {
+    connector = "api"
+    operation = "DELETE /users/:id"
+  }
+  response {
+    http_status_code = "501"
+    error            = "'Not yet implemented'"
+  }
+}
+```
+
+Supported status code fields by connector:
+- **REST / SOAP**: `http_status_code`
+- **gRPC**: `grpc_status_code` (maps to gRPC status codes)
+
+### Transform vs Response
+
+| Block | When it runs | Available variables | Purpose |
+|-------|-------------|---------------------|---------|
+| `transform` | **Before** sending to destination | `input.*`, `enriched.*`, `step.*` | Reshape input data |
+| `response` | **After** receiving from destination | `input.*`, `output.*` | Reshape output data |
+
+Both blocks are optional and can be used together in the same flow.
+
 ## Validate Block
 
 Validate input or output against a type schema:

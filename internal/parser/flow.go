@@ -40,6 +40,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			{Type: "validate"},
 			{Type: "enrich", LabelNames: []string{"name"}},
 			{Type: "transform"},
+			{Type: "response"},
 			{Type: "require"},
 			{Type: "after"},
 			{Type: "error_handling"},
@@ -163,6 +164,13 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 				return nil, fmt.Errorf("transform block error: %w", err)
 			}
 			config.Transform = transform
+
+		case "response":
+			mappings, err := parseTransformMappings(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("response block error: %w", err)
+			}
+			config.Response = mappings
 
 		case "require":
 			require, err := parseRequireBlock(nestedBlock, ctx)

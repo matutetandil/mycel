@@ -231,3 +231,33 @@ func (c *Config) GetMap(key string) map[string]interface{} {
 	}
 	return nil
 }
+
+// ExtractStatusCode extracts a status code from a result map by key name,
+// removes it from the map, and returns the integer value.
+// Used by connectors to support response block _status overrides
+// (e.g., http_status_code, grpc_status_code).
+func ExtractStatusCode(result map[string]interface{}, key string) (int, bool) {
+	v, exists := result[key]
+	if !exists {
+		return 0, false
+	}
+	delete(result, key)
+	switch val := v.(type) {
+	case string:
+		code := 0
+		for _, c := range val {
+			if c < '0' || c > '9' {
+				return 0, false
+			}
+			code = code*10 + int(c-'0')
+		}
+		return code, code > 0
+	case int64:
+		return int(val), true
+	case float64:
+		return int(val), true
+	case int:
+		return val, true
+	}
+	return 0, false
+}

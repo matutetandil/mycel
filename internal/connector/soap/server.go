@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 // HandlerFunc handles a SOAP operation request.
@@ -161,6 +163,12 @@ func (s *Server) handleSOAPRequest(w http.ResponseWriter, r *http.Request) {
 		resultMap = map[string]interface{}{"result": result}
 	}
 
+	// Check for http_status_code override in response (from response block)
+	statusCode := http.StatusOK
+	if code, found := connector.ExtractStatusCode(resultMap, "http_status_code"); found {
+		statusCode = code
+	}
+
 	// Build response envelope
 	responseOp := operation + "Response"
 	envelope, err := Envelope(s.soapVersion, s.namespace, responseOp, resultMap)
@@ -170,7 +178,7 @@ func (s *Server) handleSOAPRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", ContentTypeForVersion(s.soapVersion))
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(statusCode)
 	w.Write(envelope)
 }
 

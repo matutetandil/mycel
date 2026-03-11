@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/matutetandil/mycel/internal/codec"
+	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/health"
 	"github.com/matutetandil/mycel/internal/metrics"
@@ -265,10 +266,18 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 		return
 	}
 
+	// Check for http_status_code override in response (from response block)
+	statusCode := http.StatusOK
+	if resultMap, ok := result.(map[string]interface{}); ok {
+		if code, found := connector.ExtractStatusCode(resultMap, "http_status_code"); found {
+			statusCode = code
+		}
+	}
+
 	// Write response using format-aware codec
-	c.writeResponse(w, r, http.StatusOK, result)
+	c.writeResponse(w, r, statusCode, result)
 	if c.metrics != nil {
-		c.metrics.RecordRequest(r.Method, path, "200", duration)
+		c.metrics.RecordRequest(r.Method, path, strconv.Itoa(statusCode), duration)
 	}
 }
 

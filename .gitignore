@@ -55,3 +55,6 @@ internal/plugin/validator.wasm
 
 # Private local instructions
 CLAUDE.local.md
+
+# Benchmark / load testing
+benchmark/

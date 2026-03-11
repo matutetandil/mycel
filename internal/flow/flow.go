@@ -126,8 +126,13 @@ type Config struct {
 	// These are executed before transform and results are available as enriched.*
 	Enrichments []*EnrichConfig
 
-	// Transform defines transformation rules.
+	// Transform defines transformation rules applied to input BEFORE sending to destination.
 	Transform *TransformConfig
+
+	// Response defines transformation rules applied to the result AFTER receiving from destination.
+	// Available variables: input (original request), output (destination result).
+	// For echo flows (no "to" block), only input is available.
+	Response map[string]string
 
 	// Require defines authorization requirements.
 	Require *RequireConfig
