@@ -146,6 +146,7 @@ else
     scripts/test-redis-pubsub.sh
     scripts/test-ftp.sh
     scripts/test-federation.sh
+    scripts/test-aspects.sh
     scripts/test-security.sh
     scripts/test-plugin.sh
   )
