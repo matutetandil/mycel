@@ -471,20 +471,39 @@ connector "slack_alerts" {
 
 ```hcl
 # aspects.hcl
-aspect "alert_on_error" {
+aspect "alert_server_errors" {
   when = "on_error"
   on   = ["*"]
+  if   = "error.code >= 500"
 
   action {
     connector = "slack_alerts"
     transform {
-      text = "':rotating_light: *Flow failed*\n>Flow: `' + _flow + '`\n>Error: ' + error + '\n>Time: ' + string(now())'"
+      text = "':rotating_light: *Server error in ' + _flow + '*\n>Code: ' + string(error.code) + '\n>Error: ' + error.message + '\n>Type: ' + error.type"
+    }
+  }
+}
+
+aspect "log_client_errors" {
+  when = "on_error"
+  on   = ["*"]
+  if   = "error.code >= 400 && error.code < 500"
+
+  action {
+    connector = "db"
+    target    = "client_error_logs"
+    transform {
+      id        = "uuid()"
+      flow      = "_flow"
+      code      = "error.code"
+      message   = "error.message"
+      timestamp = "now()"
     }
   }
 }
 ```
 
-One aspect covers every flow in the service. No matter how many flows you add, errors are always reported.
+Two aspects handle errors differently: 5xx errors go to Slack as critical alerts, 4xx errors are logged to a database table for analytics. The `error.code`, `error.message`, and `error.type` fields let you route errors precisely.
 
 ---
 

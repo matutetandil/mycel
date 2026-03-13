@@ -272,7 +272,9 @@ In aspect action transforms:
 | `_target` | Target connector/resource |
 | `_timestamp` | Unix timestamp |
 | `result` | Flow result (after/on_error) |
-| `error` | Error message (on_error) |
+| `error.message` | Error message string (on_error) |
+| `error.code` | HTTP status code, e.g. 404, 500 (on_error) |
+| `error.type` | Error category: `http`, `timeout`, `connection`, `validation`, `not_found`, `auth`, `flow`, `unknown` (on_error) |
 
 ### Pattern Matching
 

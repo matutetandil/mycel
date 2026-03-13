@@ -197,7 +197,7 @@ aspect "notify_on_error" {
     operation = "chat.postMessage"
     transform {
       channel = "'#errors'"
-      text    = "'Flow failed: ' + _flow + ' | Error: ' + error"
+      text    = "':rotating_light: Flow failed: ' + _flow + ' (' + string(error.code) + '): ' + error.message"
     }
   }
 }

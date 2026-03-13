@@ -335,23 +335,60 @@ aspect "log_errors" {
 
 On-error aspects:
 - Only fire when the flow returns an error (never on success)
-- Have access to `error.message` in transform expressions
+- Have access to `error.message`, `error.code`, and `error.type` in transform and `if` expressions
 - Do not swallow the original error — it is still returned to the caller
 - Execute after "after" aspects, in definition order
-- Support the `if` condition for selective error handling
+- Support the `if` condition for selective error handling based on error code or type
+
+The `error` variable is a structured object:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `error.message` | string | The error message |
+| `error.code` | int | HTTP status code (e.g., 404, 500) or 0 if unknown |
+| `error.type` | string | `http`, `flow`, `validation`, `not_found`, `timeout`, `connection`, `auth`, `unknown` |
 
 ```hcl
+# Alert only on server errors (5xx)
 aspect "alert_critical" {
   when = "on_error"
   on   = ["payment_*"]
-  if   = "error != ''"
+  if   = "error.code >= 500"
 
   action {
     connector = "slack"
-    operation = "POST /webhook"
-
     transform {
-      text = "'Payment flow failed: ' + error"
+      text = "':rotating_light: Payment flow failed (' + string(error.code) + '): ' + error.message"
+    }
+  }
+}
+
+# Handle timeouts differently
+aspect "timeout_handler" {
+  when = "on_error"
+  on   = ["*"]
+  if   = "error.type == 'timeout'"
+
+  action {
+    connector = "slack"
+    transform {
+      text = "':hourglass: Timeout in ' + _flow + ' — check external service health'"
+    }
+  }
+}
+
+# Log 404s to analytics
+aspect "not_found_tracker" {
+  when = "on_error"
+  on   = ["get_*"]
+  if   = "error.code == 404"
+
+  action {
+    connector = "db"
+    target    = "not_found_logs"
+    transform {
+      flow      = "_flow"
+      timestamp = "now()"
     }
   }
 }
