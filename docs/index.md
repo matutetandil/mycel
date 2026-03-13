@@ -44,6 +44,7 @@ Step-by-step guides for specific features and patterns.
 
 | Document | Description |
 |----------|-------------|
+| [Common Use Cases](guides/use-cases.md) | Complete examples: CRUD + Slack notification, welcome emails, audit logs, caching, event publishing, error alerting, and more |
 | [Multi-Step Flows](guides/multi-step-flows.md) | Orchestrate data from multiple sources in a single flow using steps, enrich, and after blocks |
 | [Caching](guides/caching.md) | In-memory and Redis caching: inline cache, named cache, invalidation, and deduplication |
 | [Synchronization](guides/synchronization.md) | Distributed locks, semaphores, and coordinate (signal/wait) for concurrent flow safety |
