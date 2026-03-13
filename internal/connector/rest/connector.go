@@ -3,6 +3,7 @@ package rest
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -274,6 +275,14 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 		}
 	}
 
+	// Check for binary response (e.g., PDF, images)
+	if c.writeBinaryResponse(w, statusCode, result) {
+		if c.metrics != nil {
+			c.metrics.RecordRequest(r.Method, path, strconv.Itoa(statusCode), duration)
+		}
+		return
+	}
+
 	// Write response using format-aware codec
 	c.writeResponse(w, r, statusCode, result)
 	if c.metrics != nil {
@@ -371,6 +380,53 @@ func (c *Connector) writeResponse(w http.ResponseWriter, r *http.Request, status
 		}
 		w.Write(encoded)
 	}
+}
+
+// writeBinaryResponse checks if the result contains binary data (_binary + _content_type)
+// and writes it as a raw binary HTTP response. Returns true if handled.
+func (c *Connector) writeBinaryResponse(w http.ResponseWriter, status int, data interface{}) bool {
+	resultMap, ok := data.(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	binaryData, hasBinary := resultMap["_binary"]
+	contentType, hasContentType := resultMap["_content_type"]
+	if !hasBinary || !hasContentType {
+		return false
+	}
+
+	ct, _ := contentType.(string)
+	if ct == "" {
+		return false
+	}
+
+	var raw []byte
+	switch v := binaryData.(type) {
+	case []byte:
+		raw = v
+	case string:
+		// Assume base64-encoded
+		decoded, err := base64.StdEncoding.DecodeString(v)
+		if err != nil {
+			c.logger.Error("Failed to decode binary response", slog.Any("error", err))
+			return false
+		}
+		raw = decoded
+	default:
+		return false
+	}
+
+	w.Header().Set("Content-Type", ct)
+
+	// Set Content-Disposition if filename is provided
+	if filename, ok := resultMap["_filename"].(string); ok && filename != "" {
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", filename))
+	}
+
+	w.WriteHeader(status)
+	w.Write(raw)
+	return true
 }
 
 // writeJSON writes a JSON response (used by internal endpoints like health/errors).

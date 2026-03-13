@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-03-13
+
+### Added
+- **PDF connector** (`internal/connector/pdf/`): Generate PDF documents from HTML templates using pure Go (no CGO, no external binaries). Uses `go-pdf/fpdf` for rendering and Go's `text/template` for data binding. Supports: headings (h1-h6), paragraphs, tables with headers, bold/italic, lists (ul/ol), horizontal rules, images, and basic CSS styles (text-align, font-size, color). Two operations: `generate` (returns PDF bytes for HTTP response) and `save` (writes to file)
+- **Binary HTTP responses**: REST connector now detects `_binary` + `_content_type` fields in results and serves raw binary responses (PDF, images, etc.) with proper Content-Type and Content-Disposition headers
+- **Use case examples #15-21**: Queue consumer to database, scheduled/cron jobs, API aggregation (BFF pattern), CDC pipeline, GraphQL API over database, circuit breaker on external APIs, PDF generation from HTML template. Total: 21 complete examples
+- New dependency: `github.com/go-pdf/fpdf` v0.9.0 (pure Go, BSD license)
+
 ## [1.12.3] - 2026-03-13
 
 ### Added

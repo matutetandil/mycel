@@ -75,6 +75,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.5.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
+	github.com/go-pdf/fpdf v0.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/go-webauthn/x v0.1.26 // indirect
 	github.com/golang/snappy v0.0.4 // indirect

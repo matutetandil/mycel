@@ -51,6 +51,7 @@ import (
 	connoauth "github.com/matutetandil/mycel/internal/connector/oauth"
 	connmqtt "github.com/matutetandil/mycel/internal/connector/mqtt"
 	connftp "github.com/matutetandil/mycel/internal/connector/ftp"
+	connpdf "github.com/matutetandil/mycel/internal/connector/pdf"
 	connsoap "github.com/matutetandil/mycel/internal/connector/soap"
 	connsse "github.com/matutetandil/mycel/internal/connector/sse"
 	connws "github.com/matutetandil/mycel/internal/connector/websocket"
@@ -549,6 +550,9 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 
 	// FTP/SFTP connector for remote file transfer
 	registry.RegisterFactory(connftp.NewFactory())
+
+	// PDF connector for generating PDF documents from templates
+	registry.RegisterFactory(connpdf.NewFactory())
 
 	// Profile connector (must be registered last - uses other factories)
 	registry.RegisterFactory(profile.NewFactory(registry))

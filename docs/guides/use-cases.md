@@ -1857,6 +1857,111 @@ aspect "circuit_alert" {
 
 ---
 
+## 21. PDF generation from HTML template
+
+Generate PDF documents (invoices, reports, receipts) from HTML templates. The PDF connector renders an HTML subset to PDF using pure Go — no external binaries required.
+
+### connectors.hcl
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  dsn    = env("DATABASE_URL")
+}
+
+connector "pdf" {
+  type      = "pdf"
+  page_size = "A4"
+}
+```
+
+### templates/invoice.html
+
+```html
+<h1 style="text-align: center; color: #336699">Invoice #{{.number}}</h1>
+
+<p>Date: {{.date}}</p>
+<p>Customer: {{.customer_name}}</p>
+<p>Email: {{.customer_email}}</p>
+
+<hr>
+
+<table>
+  <tr><th>Item</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr>
+  {{range .items}}
+  <tr>
+    <td>{{.name}}</td>
+    <td>{{.quantity}}</td>
+    <td>${{.unit_price}}</td>
+    <td>${{.line_total}}</td>
+  </tr>
+  {{end}}
+</table>
+
+<hr>
+
+<p style="text-align: right; font-size: 18px"><strong>Total: ${{.total}}</strong></p>
+
+<p style="font-size: 10px; color: #999999">Thank you for your business.</p>
+```
+
+### flows.hcl
+
+```hcl
+# Fetch invoice data and generate PDF
+flow "get_invoice_pdf" {
+  from {
+    connector = "api"
+    operation = "GET /invoices/:id/pdf"
+  }
+
+  step "invoice" {
+    connector = "db"
+    query     = "SELECT * FROM invoices WHERE id = :id"
+    params    = { id = "input.params.id" }
+  }
+
+  step "items" {
+    connector = "db"
+    query     = "SELECT * FROM invoice_items WHERE invoice_id = :id"
+    params    = { id = "input.params.id" }
+  }
+
+  transform {
+    template       = "'./templates/invoice.html'"
+    filename       = "'invoice-' + step.invoice.number + '.pdf'"
+    number         = "step.invoice.number"
+    date           = "step.invoice.date"
+    customer_name  = "step.invoice.customer_name"
+    customer_email = "step.invoice.customer_email"
+    total          = "string(step.invoice.total)"
+    items          = "step.items"
+  }
+
+  to {
+    connector = "pdf"
+    operation = "generate"
+  }
+}
+```
+
+### How it works
+
+1. `GET /invoices/123/pdf` triggers the flow
+2. Two steps fetch the invoice header and line items from PostgreSQL
+3. The transform builds the template data, including the template file path
+4. The PDF connector renders the HTML template with Go template syntax (`{{.field}}`, `{{range}}`)
+5. The result is served directly as `application/pdf` with `Content-Disposition` header
+6. Supported HTML: headings, paragraphs, tables, bold/italic, lists, images, horizontal rules, basic CSS styles
+
+---
+
 ## See Also
 
 - [Integration Patterns](../advanced/integration-patterns.md) -- advanced patterns (GraphQL, gRPC, message queues)
