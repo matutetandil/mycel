@@ -859,6 +859,390 @@ aspect "welcome_email" {
 
 ---
 
+## 12. Error recovery flow
+
+When an order fails, an `on_error` aspect invokes a recovery flow that logs the failure and enqueues a retry message for later processing.
+
+### connectors.hcl
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  dsn    = env("DATABASE_URL")
+}
+
+connector "rabbit" {
+  type   = "queue"
+  driver = "rabbitmq"
+  url    = env("RABBITMQ_URL")
+}
+```
+
+### flows.hcl
+
+```hcl
+flow "create_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+  to {
+    connector = "db"
+    operation = "INSERT orders"
+  }
+}
+
+# Internal flow — logs failure and enqueues retry
+flow "handle_order_failure" {
+  step "log_failure" {
+    connector = "db"
+    operation = "INSERT failed_orders"
+    body {
+      order_data   = "input.order_data"
+      error_reason = "input.error_reason"
+      failed_at    = "now()"
+      retry_count  = "0"
+    }
+  }
+
+  step "enqueue_retry" {
+    connector = "rabbit"
+    operation = "orders.retry"
+    body {
+      order_data = "input.order_data"
+      attempt    = "1"
+    }
+  }
+}
+```
+
+### aspects.hcl
+
+```hcl
+aspect "order_failure_recovery" {
+  when = "on_error"
+  on   = ["create_order"]
+
+  action {
+    flow = "handle_order_failure"
+    transform {
+      order_data   = "input"
+      error_reason = "error.message"
+    }
+  }
+}
+```
+
+### How it works
+
+1. `POST /orders` attempts to create an order in the database
+2. If it fails, the `order_failure_recovery` aspect fires
+3. The aspect invokes `handle_order_failure` with the original input and error details
+4. The recovery flow logs the failure to `failed_orders` and publishes a retry message to RabbitMQ
+5. A separate consumer (another Mycel service or the same one) processes the retry queue
+
+---
+
+## 13. Notification hub — route by event type
+
+A single internal flow decides where to notify (Slack, email, or SMS) based on the event severity passed by the aspect.
+
+### connectors.hcl
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  dsn    = env("DATABASE_URL")
+}
+
+connector "slack_alerts" {
+  type  = "slack"
+  token = env("SLACK_BOT_TOKEN")
+}
+
+connector "mailer" {
+  type     = "email"
+  host     = env("SMTP_HOST")
+  port     = 587
+  username = env("SMTP_USER")
+  password = env("SMTP_PASSWORD")
+  from     = "alerts@example.com"
+  tls      = true
+}
+
+connector "sms_service" {
+  type        = "sms"
+  account_sid = env("TWILIO_ACCOUNT_SID")
+  auth_token  = env("TWILIO_AUTH_TOKEN")
+  from        = env("TWILIO_FROM_NUMBER")
+}
+```
+
+### flows.hcl
+
+```hcl
+flow "create_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+  to {
+    connector = "db"
+    operation = "INSERT orders"
+  }
+}
+
+flow "update_order" {
+  from {
+    connector = "api"
+    operation = "PUT /orders/:id"
+  }
+  to {
+    connector = "db"
+    operation = "UPDATE orders"
+  }
+}
+
+flow "delete_order" {
+  from {
+    connector = "api"
+    operation = "DELETE /orders/:id"
+  }
+  to {
+    connector = "db"
+    operation = "DELETE orders"
+  }
+}
+
+# Internal flow — notify Slack on every event
+flow "notify_slack" {
+  transform {
+    channel = "'#operations'"
+    text    = "input.message"
+  }
+  to {
+    connector = "slack_alerts"
+    operation = "chat.postMessage"
+  }
+}
+
+# Internal flow — email for important events
+flow "notify_email" {
+  transform {
+    to      = "input.recipient"
+    subject = "input.subject"
+    body    = "input.body"
+  }
+  to {
+    connector = "mailer"
+    operation = "send"
+  }
+}
+
+# Internal flow — SMS for critical events
+flow "notify_sms" {
+  transform {
+    to   = "input.phone"
+    body = "input.message"
+  }
+  to {
+    connector = "sms_service"
+    operation = "send"
+  }
+}
+```
+
+### aspects.hcl
+
+```hcl
+# All write operations → Slack
+aspect "slack_on_writes" {
+  when = "after"
+  on   = ["create_*", "update_*", "delete_*"]
+
+  action {
+    flow = "notify_slack"
+    transform {
+      message = "':white_check_mark: ' + _flow + ' completed successfully'"
+    }
+  }
+}
+
+# Deletions → email to admin
+aspect "email_on_delete" {
+  when = "after"
+  on   = ["delete_*"]
+
+  action {
+    flow = "notify_email"
+    transform {
+      recipient = "'admin@example.com'"
+      subject   = "'Deletion alert: ' + _flow"
+      body      = "'A delete operation was performed: ' + _flow + ' at ' + string(_timestamp)"
+    }
+  }
+}
+
+# Critical errors → SMS to on-call
+aspect "sms_on_critical" {
+  when = "on_error"
+  on   = ["create_order", "delete_*"]
+  if   = "error.code >= 500"
+
+  action {
+    flow = "notify_sms"
+    transform {
+      phone   = "'+1234567890'"
+      message = "'CRITICAL: ' + _flow + ' failed with ' + string(error.code)"
+    }
+  }
+}
+```
+
+### How it works
+
+1. Every write operation sends a Slack message via the `notify_slack` flow
+2. Delete operations additionally email the admin via `notify_email`
+3. Server errors (5xx) on critical flows send SMS via `notify_sms`
+4. Each notification channel is an independent internal flow — easy to test, reuse, or replace
+5. Aspect failures are soft — the main flow always succeeds regardless of notification errors
+
+---
+
+## 14. Data sync to external system
+
+After any product change, an aspect invokes a sync flow that pushes the updated data to an external search index.
+
+### connectors.hcl
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  dsn    = env("DATABASE_URL")
+}
+
+connector "search" {
+  type = "elasticsearch"
+  urls = [env("ELASTICSEARCH_URL")]
+}
+```
+
+### flows.hcl
+
+```hcl
+flow "create_product" {
+  from {
+    connector = "api"
+    operation = "POST /products"
+  }
+  to {
+    connector = "db"
+    operation = "INSERT products"
+  }
+}
+
+flow "update_product" {
+  from {
+    connector = "api"
+    operation = "PUT /products/:id"
+  }
+  to {
+    connector = "db"
+    operation = "UPDATE products"
+  }
+}
+
+flow "delete_product" {
+  from {
+    connector = "api"
+    operation = "DELETE /products/:id"
+  }
+  to {
+    connector = "db"
+    operation = "DELETE products"
+  }
+}
+
+# Internal flow — index product in Elasticsearch
+flow "sync_product_to_search" {
+  to {
+    connector = "search"
+    operation = "index"
+    target    = "products"
+  }
+}
+
+# Internal flow — remove product from Elasticsearch
+flow "remove_product_from_search" {
+  to {
+    connector = "search"
+    operation = "delete"
+    target    = "products"
+  }
+}
+```
+
+### aspects.hcl
+
+```hcl
+# Sync to search index after create/update
+aspect "sync_search_index" {
+  when = "after"
+  on   = ["create_product", "update_product"]
+
+  action {
+    flow = "sync_product_to_search"
+    transform {
+      id          = "input.id"
+      name        = "input.name"
+      description = "input.description"
+      price       = "input.price"
+      updated_at  = "string(_timestamp)"
+    }
+  }
+}
+
+# Remove from search index after delete
+aspect "remove_from_search" {
+  when = "after"
+  on   = ["delete_product"]
+
+  action {
+    flow = "remove_product_from_search"
+    transform {
+      id = "input.id"
+    }
+  }
+}
+```
+
+### How it works
+
+1. `create_product` / `update_product` write to PostgreSQL, then the aspect invokes `sync_product_to_search` to index the product in Elasticsearch
+2. `delete_product` removes from PostgreSQL, then the aspect invokes `remove_product_from_search` to delete from the index
+3. The sync is decoupled from the main flow — if Elasticsearch is down, the database write still succeeds
+4. Adding more sync targets (e.g., Redis cache, analytics) is just another aspect — no changes to the original flows
+
+---
+
 ## See Also
 
 - [Integration Patterns](../advanced/integration-patterns.md) -- advanced patterns (GraphQL, gRPC, message queues)
