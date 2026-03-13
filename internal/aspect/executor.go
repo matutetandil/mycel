@@ -235,7 +235,7 @@ func (e *Executor) executeAfter(ctx context.Context, aspects []*Config, input ma
 		}
 
 		// Apply response enrichment if present
-		if len(asp.Response) > 0 {
+		if asp.Response != nil {
 			result = e.applyResponseEnrichment(ctx, asp, input, result)
 		}
 	}
@@ -438,10 +438,13 @@ func getIntValue(m map[string]interface{}, key string) int64 {
 
 // applyResponseEnrichment evaluates CEL expressions in the response block
 // and merges the results into each row of the connector.Result.
+// Headers are stored in a special _response_headers field for connectors to pick up.
 func (e *Executor) applyResponseEnrichment(ctx context.Context, asp *Config, input map[string]interface{}, result *connector.Result) *connector.Result {
 	if result == nil {
 		result = &connector.Result{}
 	}
+
+	resp := asp.Response
 
 	// Build evaluation context with result data
 	evalInput := make(map[string]interface{})
@@ -453,9 +456,9 @@ func (e *Executor) applyResponseEnrichment(ctx context.Context, asp *Config, inp
 		"data":     result.Rows,
 	}
 
-	// Evaluate each response field
+	// Evaluate each response field (CEL expressions)
 	enriched := make(map[string]interface{})
-	for field, expr := range asp.Response {
+	for field, expr := range resp.Fields {
 		val, err := e.cel.EvaluateExpression(ctx, evalInput, nil, expr)
 		if err != nil {
 			slog.Warn("response enrichment field error",
@@ -465,6 +468,24 @@ func (e *Executor) applyResponseEnrichment(ctx context.Context, asp *Config, inp
 			continue
 		}
 		enriched[field] = val
+	}
+
+	// Add response headers as a special field for connectors
+	if len(resp.Headers) > 0 {
+		// Merge with any existing response headers from other aspects
+		existing := make(map[string]string)
+		if result.Metadata == nil {
+			result.Metadata = make(map[string]interface{})
+		}
+		if prev, ok := result.Metadata["_response_headers"].(map[string]string); ok {
+			for k, v := range prev {
+				existing[k] = v
+			}
+		}
+		for k, v := range resp.Headers {
+			existing[k] = v
+		}
+		result.Metadata["_response_headers"] = existing
 	}
 
 	if len(enriched) == 0 {

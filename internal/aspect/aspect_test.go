@@ -793,15 +793,20 @@ func TestExecutor_FlowAction_OnError(t *testing.T) {
 func TestExecutor_ResponseEnrichment(t *testing.T) {
 	registry := NewRegistry()
 
-	// Register an after aspect with response enrichment
+	// Register an after aspect with response enrichment (fields + headers)
 	registry.Register(&Config{
 		Name: "deprecation_warning",
 		On:   []string{"*_v1"},
 		When: After,
-		Response: map[string]string{
-			"_deprecated": "'true'",
-			"_sunset":     "'2026-06-01'",
-			"_warning":    "'This API version is deprecated. Migrate to v2.'",
+		Response: &ResponseConfig{
+			Fields: map[string]string{
+				"_deprecated": "'true'",
+				"_warning":    "'This API version is deprecated. Migrate to v2.'",
+			},
+			Headers: map[string]string{
+				"Deprecation": "true",
+				"Sunset":      "2026-06-01",
+			},
 		},
 	})
 
@@ -837,13 +842,10 @@ func TestExecutor_ResponseEnrichment(t *testing.T) {
 		t.Fatalf("expected 2 rows, got %d", len(result.Rows))
 	}
 
-	// Verify each row has enriched fields
+	// Verify each row has enriched body fields
 	for i, row := range result.Rows {
 		if row["_deprecated"] != "true" {
 			t.Errorf("row %d: expected _deprecated='true', got %v", i, row["_deprecated"])
-		}
-		if row["_sunset"] != "2026-06-01" {
-			t.Errorf("row %d: expected _sunset='2026-06-01', got %v", i, row["_sunset"])
 		}
 		if row["_warning"] != "This API version is deprecated. Migrate to v2." {
 			t.Errorf("row %d: expected _warning message, got %v", i, row["_warning"])
@@ -852,6 +854,21 @@ func TestExecutor_ResponseEnrichment(t *testing.T) {
 		if row["name"] == nil {
 			t.Errorf("row %d: original field 'name' missing", i)
 		}
+	}
+
+	// Verify headers stored in metadata
+	if result.Metadata == nil {
+		t.Fatal("expected metadata with response headers")
+	}
+	headers, ok := result.Metadata["_response_headers"].(map[string]string)
+	if !ok {
+		t.Fatal("expected _response_headers in metadata")
+	}
+	if headers["Deprecation"] != "true" {
+		t.Errorf("expected Deprecation header 'true', got %q", headers["Deprecation"])
+	}
+	if headers["Sunset"] != "2026-06-01" {
+		t.Errorf("expected Sunset header '2026-06-01', got %q", headers["Sunset"])
 	}
 }
 
@@ -862,8 +879,10 @@ func TestExecutor_ResponseEnrichment_NonMatchingFlow(t *testing.T) {
 		Name: "deprecation_warning",
 		On:   []string{"*_v1"},
 		When: After,
-		Response: map[string]string{
-			"_deprecated": "'true'",
+		Response: &ResponseConfig{
+			Fields: map[string]string{
+				"_deprecated": "'true'",
+			},
 		},
 	})
 
@@ -906,8 +925,10 @@ func TestExecutor_ResponseEnrichment_WithCELExpression(t *testing.T) {
 		Name: "add_metadata",
 		On:   []string{"list_*"},
 		When: After,
-		Response: map[string]string{
-			"_total": "size(result.data)",
+		Response: &ResponseConfig{
+			Fields: map[string]string{
+				"_total": "size(result.data)",
+			},
 		},
 	})
 
@@ -959,8 +980,10 @@ func TestConfig_Validate_ResponseOnlyAfter(t *testing.T) {
 		Name: "bad_response",
 		On:   []string{"*"},
 		When: Before,
-		Response: map[string]string{
-			"_test": "'value'",
+		Response: &ResponseConfig{
+			Fields: map[string]string{
+				"_test": "'value'",
+			},
 		},
 	}
 	if err := config.Validate(); err == nil {
@@ -971,6 +994,21 @@ func TestConfig_Validate_ResponseOnlyAfter(t *testing.T) {
 	config.When = After
 	if err := config.Validate(); err != nil {
 		t.Errorf("unexpected validation error: %v", err)
+	}
+
+	// Headers-only response on "after" should also pass
+	config2 := &Config{
+		Name: "headers_only",
+		On:   []string{"*"},
+		When: After,
+		Response: &ResponseConfig{
+			Headers: map[string]string{
+				"X-Custom": "value",
+			},
+		},
+	}
+	if err := config2.Validate(); err != nil {
+		t.Errorf("unexpected validation error for headers-only response: %v", err)
 	}
 }
 

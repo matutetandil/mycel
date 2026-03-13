@@ -1033,9 +1033,14 @@ aspect "v1_deprecation" {
   on   = ["*_v1"]
 
   response {
-    _deprecated = "'true'"
-    _sunset     = "'2026-06-01'"
-    _warning    = "'This API version is deprecated. Migrate to v2.'"
+    # HTTP headers (or protocol equivalent)
+    headers = {
+      Deprecation = "true"
+      Sunset      = "Thu, 01 Jun 2026 00:00:00 GMT"
+    }
+
+    # Body fields (CEL expressions)
+    _warning = "'This API version is deprecated. Migrate to v2.'"
   }
 }
 
@@ -1050,7 +1055,7 @@ aspect "add_count" {
 }
 ```
 
-The `response` block is only valid for `after` aspects. Enriched fields are merged into every row of the response. This is useful for API versioning (deprecation notices), pagination metadata, or any cross-cutting response decoration.
+The `response` block is only valid for `after` aspects. Body fields (CEL expressions) are merged into every row of the response. Headers are set as HTTP headers by the REST connector (or mapped to protocol equivalents by other connectors, e.g., gRPC metadata). Useful for API versioning, deprecation notices, pagination metadata, CORS, or any cross-cutting response decoration.
 
 ### on_error variables
 

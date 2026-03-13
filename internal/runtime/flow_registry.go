@@ -656,23 +656,37 @@ func (h *FlowHandler) handleRequestWithAspects(ctx context.Context, input map[st
 		return nil, nil
 	}
 
+	// Build the response value
+	var response interface{}
+
 	// For GET operations, return rows directly
 	if operation.Method == "GET" {
-		return result.Rows, nil
-	}
-
-	// For write operations, return appropriate format
-	if len(result.Rows) > 0 {
+		response = result.Rows
+	} else if len(result.Rows) > 0 {
+		// For write operations, return appropriate format
 		if len(result.Rows) == 1 {
-			return result.Rows[0], nil
+			response = result.Rows[0]
+		} else {
+			response = result.Rows
 		}
-		return result.Rows, nil
+	} else {
+		response = map[string]interface{}{
+			"affected": result.Affected,
+			"id":       result.LastID,
+		}
 	}
 
-	return map[string]interface{}{
-		"affected": result.Affected,
-		"id":       result.LastID,
-	}, nil
+	// Propagate response headers from aspect metadata
+	if result.Metadata != nil {
+		if headers, ok := result.Metadata["_response_headers"].(map[string]string); ok && len(headers) > 0 {
+			response = map[string]interface{}{
+				"_data":             response,
+				"_response_headers": headers,
+			}
+		}
+	}
+
+	return response, nil
 }
 
 // resultToConnectorResult converts an interface{} result to connector.Result.

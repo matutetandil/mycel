@@ -275,6 +275,9 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 		}
 	}
 
+	// Extract and apply response headers from aspects
+	result = c.applyResponseHeaders(w, result)
+
 	// Check for binary response (e.g., PDF, images)
 	if c.writeBinaryResponse(w, statusCode, result) {
 		if c.metrics != nil {
@@ -380,6 +383,31 @@ func (c *Connector) writeResponse(w http.ResponseWriter, r *http.Request, status
 		}
 		w.Write(encoded)
 	}
+}
+
+// applyResponseHeaders extracts _response_headers from the result wrapper
+// (injected by aspect response enrichment) and sets them as HTTP headers.
+// Returns the unwrapped data for normal response writing.
+func (c *Connector) applyResponseHeaders(w http.ResponseWriter, data interface{}) interface{} {
+	wrapper, ok := data.(map[string]interface{})
+	if !ok {
+		return data
+	}
+
+	headersRaw, hasHeaders := wrapper["_response_headers"]
+	innerData, hasData := wrapper["_data"]
+	if !hasHeaders || !hasData {
+		return data
+	}
+
+	// Set HTTP headers
+	if headers, ok := headersRaw.(map[string]string); ok {
+		for k, v := range headers {
+			w.Header().Set(k, v)
+		}
+	}
+
+	return innerData
 }
 
 // writeBinaryResponse checks if the result contains binary data (_binary + _content_type)

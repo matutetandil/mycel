@@ -41,10 +41,10 @@ type Config struct {
 	// Action defines what the aspect does (for before/after).
 	Action *ActionConfig
 
-	// Response defines fields to merge into the response (only for "after" aspects).
-	// Each key is a field name, each value is a CEL expression.
-	// Available variables: result.data, result.affected, input, _flow, _operation.
-	Response map[string]string
+	// Response defines response enrichment (only for "after" aspects).
+	// Fields are CEL expressions merged into the response body.
+	// Headers are set as HTTP headers (or protocol equivalent).
+	Response *ResponseConfig
 
 	// Cache defines caching behavior (for around aspects).
 	Cache *CacheConfig
@@ -77,6 +77,16 @@ type ActionConfig struct {
 
 	// Transform defines field mappings using CEL expressions.
 	Transform map[string]string
+}
+
+// ResponseConfig defines response enrichment for after aspects.
+type ResponseConfig struct {
+	// Fields are CEL expressions merged into each row of the response body.
+	Fields map[string]string
+
+	// Headers are key-value pairs set as HTTP headers (or protocol equivalent).
+	// Values are literal strings, not CEL expressions.
+	Headers map[string]string
 }
 
 // CacheConfig defines caching behavior for around aspects.
@@ -185,7 +195,7 @@ func (c *Config) Validate() error {
 	hasInvalidate := c.Invalidate != nil
 	hasRateLimit := c.RateLimit != nil
 	hasCircuitBreaker := c.CircuitBreaker != nil
-	hasResponse := len(c.Response) > 0
+	hasResponse := c.Response != nil && (len(c.Response.Fields) > 0 || len(c.Response.Headers) > 0)
 
 	if !hasAction && !hasCache && !hasInvalidate && !hasRateLimit && !hasCircuitBreaker && !hasResponse {
 		return &ValidationError{Field: "action", Message: "aspect must have at least one action type"}

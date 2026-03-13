@@ -228,23 +228,42 @@ func parseAspectTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[stri
 }
 
 // parseAspectResponseBlock parses a response block within an aspect.
-// The response block contains CEL expressions that enrich the flow result.
-func parseAspectResponseBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]string, error) {
+// Supports CEL expression fields (body enrichment) and a headers map (HTTP headers).
+func parseAspectResponseBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.ResponseConfig, error) {
 	attrs, diags := block.Body.JustAttributes()
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("aspect response block error: %s", diags.Error())
 	}
 
-	response := make(map[string]string)
-	for name, attr := range attrs {
-		val, diags := attr.Expr.Value(ctx)
-		if diags.HasErrors() {
-			return nil, fmt.Errorf("response '%s' error: %s", name, diags.Error())
-		}
-		response[name] = val.AsString()
+	config := &aspect.ResponseConfig{
+		Fields:  make(map[string]string),
+		Headers: make(map[string]string),
 	}
 
-	return response, nil
+	for name, attr := range attrs {
+		if name == "headers" {
+			// Parse headers as a map of string → string
+			val, valDiags := attr.Expr.Value(ctx)
+			if valDiags.HasErrors() {
+				return nil, fmt.Errorf("response 'headers' error: %s", valDiags.Error())
+			}
+			if val.Type().IsObjectType() || val.Type().IsMapType() {
+				for k, v := range val.AsValueMap() {
+					config.Headers[k] = v.AsString()
+				}
+			}
+			continue
+		}
+
+		// Regular field — CEL expression
+		val, valDiags := attr.Expr.Value(ctx)
+		if valDiags.HasErrors() {
+			return nil, fmt.Errorf("response '%s' error: %s", name, valDiags.Error())
+		}
+		config.Fields[name] = val.AsString()
+	}
+
+	return config, nil
 }
 
 // parseAspectCacheBlock parses a cache block within an aspect.

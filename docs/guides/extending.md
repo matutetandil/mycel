@@ -312,16 +312,21 @@ aspect "v1_deprecation" {
   on   = ["*_v1"]
 
   response {
-    _deprecated = "'true'"
-    _sunset     = "'2026-06-01'"
-    _warning    = "'This API version is deprecated. Migrate to v2.'"
+    headers = {
+      Deprecation = "true"
+      Sunset      = "Thu, 01 Jun 2026 00:00:00 GMT"
+    }
+
+    _warning = "'This API version is deprecated. Migrate to v2.'"
   }
 }
 ```
 
-Response expressions have access to `result.data`, `result.affected`, `input`, `_flow`, and `_operation`. The `response` block is only valid for `after` aspects.
+The `response` block supports two types of enrichment:
+- **Body fields** — CEL expressions merged into every row of the response. Have access to `result.data`, `result.affected`, `input`, `_flow`, and `_operation`
+- **Headers** — key-value pairs set as HTTP headers (or protocol equivalent for gRPC metadata, etc.). Values are literal strings
 
-An aspect can have both an `action` and a `response` block — the action runs as a side-effect and the response enriches the output.
+The `response` block is only valid for `after` aspects. An aspect can have both an `action` and a `response` block — the action runs as a side-effect and the response enriches the output.
 
 ### Pattern Matching
 

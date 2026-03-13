@@ -2015,15 +2015,20 @@ flow "get_users_v2" {
 ### aspects.hcl
 
 ```hcl
-# Automatically inject deprecation metadata into all v1 responses
+# Automatically inject deprecation headers and body metadata into all v1 responses
 aspect "v1_deprecation" {
   when = "after"
   on   = ["*_v1"]
 
   response {
-    _deprecated = "'true'"
-    _sunset     = "'2026-06-01'"
-    _warning    = "'This API version is deprecated. Please migrate to v2.'"
+    # HTTP headers (standard RFC 8594 deprecation headers)
+    headers = {
+      Deprecation = "true"
+      Sunset      = "Thu, 01 Jun 2026 00:00:00 GMT"
+    }
+
+    # Body fields (CEL expressions)
+    _warning = "'This API version is deprecated. Please migrate to v2.'"
   }
 }
 ```
@@ -2032,13 +2037,21 @@ aspect "v1_deprecation" {
 
 1. `GET /v1/users` and `GET /v2/users` are separate flows — different queries, different response shapes
 2. The `v1_deprecation` aspect matches all flows ending in `_v1` (glob pattern)
-3. After the flow executes, the `response` block injects `_deprecated`, `_sunset`, and `_warning` fields into every row of the response
+3. After the flow executes, the `response` block:
+   - Sets `Deprecation` and `Sunset` as actual HTTP headers (RFC 8594)
+   - Injects `_warning` into the JSON response body
 4. v2 flows are unaffected — the aspect only matches `*_v1`
 5. No code changes needed in individual flows — the deprecation policy is centralized in one aspect
+6. Headers are connector-agnostic in HCL — the REST connector sets them as HTTP headers, other connectors can map them to their protocol equivalent (e.g., gRPC metadata)
 
 ### Example response
 
-```json
+```
+HTTP/1.1 200 OK
+Content-Type: application/json
+Deprecation: true
+Sunset: Thu, 01 Jun 2026 00:00:00 GMT
+
 // GET /v1/users
 [
   {
@@ -2046,13 +2059,11 @@ aspect "v1_deprecation" {
     "first_name": "Alice",
     "last_name": "Smith",
     "email": "alice@example.com",
-    "_deprecated": "true",
-    "_sunset": "2026-06-01",
     "_warning": "This API version is deprecated. Please migrate to v2."
   }
 ]
 
-// GET /v2/users — no deprecation fields
+// GET /v2/users — no deprecation headers or fields
 [
   {
     "id": 1,
