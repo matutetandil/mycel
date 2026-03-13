@@ -302,6 +302,27 @@ The invoked flow receives the transform output as its input. This is useful for:
 
 `connector` and `flow` are mutually exclusive in an action block.
 
+### Response Enrichment
+
+After aspects can include a `response` block to inject fields into every row of the flow result. This is useful for API versioning, deprecation notices, or adding metadata without modifying individual flows:
+
+```hcl
+aspect "v1_deprecation" {
+  when = "after"
+  on   = ["*_v1"]
+
+  response {
+    _deprecated = "'true'"
+    _sunset     = "'2026-06-01'"
+    _warning    = "'This API version is deprecated. Migrate to v2.'"
+  }
+}
+```
+
+Response expressions have access to `result.data`, `result.affected`, `input`, `_flow`, and `_operation`. The `response` block is only valid for `after` aspects.
+
+An aspect can have both an `action` and a `response` block — the action runs as a side-effect and the response enriches the output.
+
 ### Pattern Matching
 
 The `on` attribute accepts glob patterns matching flow names:

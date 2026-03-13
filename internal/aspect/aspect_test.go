@@ -790,6 +790,190 @@ func TestExecutor_FlowAction_OnError(t *testing.T) {
 	}
 }
 
+func TestExecutor_ResponseEnrichment(t *testing.T) {
+	registry := NewRegistry()
+
+	// Register an after aspect with response enrichment
+	registry.Register(&Config{
+		Name: "deprecation_warning",
+		On:   []string{"*_v1"},
+		When: After,
+		Response: map[string]string{
+			"_deprecated": "'true'",
+			"_sunset":     "'2026-06-01'",
+			"_warning":    "'This API version is deprecated. Migrate to v2.'",
+		},
+	})
+
+	connRegistry := connector.NewRegistry()
+	executor, err := NewExecutor(registry, connRegistry)
+	if err != nil {
+		t.Fatalf("failed to create executor: %v", err)
+	}
+
+	// Execute flow that matches *_v1
+	flowFn := func(ctx context.Context, input map[string]interface{}) (*connector.Result, error) {
+		return &connector.Result{
+			Rows: []map[string]interface{}{
+				{"id": 1, "name": "Alice"},
+				{"id": 2, "name": "Bob"},
+			},
+		}, nil
+	}
+
+	result, err := executor.Execute(
+		context.Background(),
+		"get_users_v1",
+		"GET /v1/users",
+		"users",
+		map[string]interface{}{},
+		flowFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(result.Rows))
+	}
+
+	// Verify each row has enriched fields
+	for i, row := range result.Rows {
+		if row["_deprecated"] != "true" {
+			t.Errorf("row %d: expected _deprecated='true', got %v", i, row["_deprecated"])
+		}
+		if row["_sunset"] != "2026-06-01" {
+			t.Errorf("row %d: expected _sunset='2026-06-01', got %v", i, row["_sunset"])
+		}
+		if row["_warning"] != "This API version is deprecated. Migrate to v2." {
+			t.Errorf("row %d: expected _warning message, got %v", i, row["_warning"])
+		}
+		// Original fields preserved
+		if row["name"] == nil {
+			t.Errorf("row %d: original field 'name' missing", i)
+		}
+	}
+}
+
+func TestExecutor_ResponseEnrichment_NonMatchingFlow(t *testing.T) {
+	registry := NewRegistry()
+
+	registry.Register(&Config{
+		Name: "deprecation_warning",
+		On:   []string{"*_v1"},
+		When: After,
+		Response: map[string]string{
+			"_deprecated": "'true'",
+		},
+	})
+
+	connRegistry := connector.NewRegistry()
+	executor, err := NewExecutor(registry, connRegistry)
+	if err != nil {
+		t.Fatalf("failed to create executor: %v", err)
+	}
+
+	// Execute flow that does NOT match *_v1
+	flowFn := func(ctx context.Context, input map[string]interface{}) (*connector.Result, error) {
+		return &connector.Result{
+			Rows: []map[string]interface{}{{"id": 1, "name": "Alice"}},
+		}, nil
+	}
+
+	result, err := executor.Execute(
+		context.Background(),
+		"get_users_v2",
+		"GET /v2/users",
+		"users",
+		map[string]interface{}{},
+		flowFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// v2 flow should NOT have deprecation fields
+	if result.Rows[0]["_deprecated"] != nil {
+		t.Errorf("v2 flow should not have _deprecated, got %v", result.Rows[0]["_deprecated"])
+	}
+}
+
+func TestExecutor_ResponseEnrichment_WithCELExpression(t *testing.T) {
+	registry := NewRegistry()
+
+	// Response with dynamic CEL expression using result data
+	registry.Register(&Config{
+		Name: "add_metadata",
+		On:   []string{"list_*"},
+		When: After,
+		Response: map[string]string{
+			"_total": "size(result.data)",
+		},
+	})
+
+	connRegistry := connector.NewRegistry()
+	executor, err := NewExecutor(registry, connRegistry)
+	if err != nil {
+		t.Fatalf("failed to create executor: %v", err)
+	}
+
+	flowFn := func(ctx context.Context, input map[string]interface{}) (*connector.Result, error) {
+		return &connector.Result{
+			Rows: []map[string]interface{}{
+				{"id": 1}, {"id": 2}, {"id": 3},
+			},
+		}, nil
+	}
+
+	result, err := executor.Execute(
+		context.Background(),
+		"list_products",
+		"GET /products",
+		"products",
+		map[string]interface{}{},
+		flowFn,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Each row should have _total = 3
+	for i, row := range result.Rows {
+		total, ok := row["_total"].(int64)
+		if !ok {
+			// Try int
+			if totalInt, ok2 := row["_total"].(int); ok2 {
+				total = int64(totalInt)
+				ok = true
+			}
+		}
+		if !ok || total != 3 {
+			t.Errorf("row %d: expected _total=3, got %v (type %T)", i, row["_total"], row["_total"])
+		}
+	}
+}
+
+func TestConfig_Validate_ResponseOnlyAfter(t *testing.T) {
+	// Response block on "before" should fail validation
+	config := &Config{
+		Name: "bad_response",
+		On:   []string{"*"},
+		When: Before,
+		Response: map[string]string{
+			"_test": "'value'",
+		},
+	}
+	if err := config.Validate(); err == nil {
+		t.Error("expected validation error for response on before aspect")
+	}
+
+	// Response block on "after" should pass
+	config.When = After
+	if err := config.Validate(); err != nil {
+		t.Errorf("unexpected validation error: %v", err)
+	}
+}
+
 func TestRegistry_MatchFlowNamePatterns(t *testing.T) {
 	registry := NewRegistry()
 

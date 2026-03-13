@@ -1023,6 +1023,35 @@ aspect "trigger_notification" {
 
 `connector` and `flow` are mutually exclusive in an action block. The invoked flow receives the transform output as its input. Errors in the invoked flow are logged as warnings — they do not fail the main flow.
 
+### Response enrichment
+
+After aspects can include a `response` block to inject fields into the flow result. Each field is a CEL expression with access to `result.data`, `result.affected`, `input`, `_flow`, and `_operation`:
+
+```hcl
+aspect "v1_deprecation" {
+  when = "after"
+  on   = ["*_v1"]
+
+  response {
+    _deprecated = "'true'"
+    _sunset     = "'2026-06-01'"
+    _warning    = "'This API version is deprecated. Migrate to v2.'"
+  }
+}
+
+# Dynamic values using result data
+aspect "add_count" {
+  when = "after"
+  on   = ["list_*"]
+
+  response {
+    _total = "size(result.data)"
+  }
+}
+```
+
+The `response` block is only valid for `after` aspects. Enriched fields are merged into every row of the response. This is useful for API versioning (deprecation notices), pagination metadata, or any cross-cutting response decoration.
+
 ### on_error variables
 
 In `on_error` aspects, the `error` variable is a structured object:

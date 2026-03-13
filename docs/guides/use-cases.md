@@ -14,6 +14,7 @@ Complete, copy-paste ready examples for things you'll want to do in almost every
 8. [Enrich response with data from another service](#8-enrich-response-with-data-from-another-service)
 9. [Webhook relay with transform](#9-webhook-relay-with-transform)
 10. [Rate-limited public API](#10-rate-limited-public-api)
+22. [API versioning with deprecation warnings](#22-api-versioning-with-deprecation-warnings)
 
 ---
 
@@ -1959,6 +1960,107 @@ flow "get_invoice_pdf" {
 4. The PDF connector renders the HTML template with Go template syntax (`{{.field}}`, `{{range}}`)
 5. The result is served directly as `application/pdf` with `Content-Disposition` header
 6. Supported HTML: headings, paragraphs, tables, bold/italic, lists, images, horizontal rules, basic CSS styles
+
+---
+
+## 22. API versioning with deprecation warnings
+
+Handle API versioning through separate flows per version. Use an `after` aspect with a `response` block to inject deprecation metadata into v1 responses automatically.
+
+### connectors.hcl
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type   = "database"
+  driver = "sqlite"
+  dsn    = "./data.db"
+}
+```
+
+### flows.hcl
+
+```hcl
+# v1 — returns flat fields
+flow "get_users_v1" {
+  from {
+    connector = "api"
+    operation = "GET /v1/users"
+  }
+
+  to {
+    connector = "db"
+    operation = "SELECT id, first_name, last_name, email FROM users"
+  }
+}
+
+# v2 — returns combined full_name
+flow "get_users_v2" {
+  from {
+    connector = "api"
+    operation = "GET /v2/users"
+  }
+
+  to {
+    connector = "db"
+    operation = "SELECT id, first_name || ' ' || last_name AS full_name, email FROM users"
+  }
+}
+```
+
+### aspects.hcl
+
+```hcl
+# Automatically inject deprecation metadata into all v1 responses
+aspect "v1_deprecation" {
+  when = "after"
+  on   = ["*_v1"]
+
+  response {
+    _deprecated = "'true'"
+    _sunset     = "'2026-06-01'"
+    _warning    = "'This API version is deprecated. Please migrate to v2.'"
+  }
+}
+```
+
+### How it works
+
+1. `GET /v1/users` and `GET /v2/users` are separate flows — different queries, different response shapes
+2. The `v1_deprecation` aspect matches all flows ending in `_v1` (glob pattern)
+3. After the flow executes, the `response` block injects `_deprecated`, `_sunset`, and `_warning` fields into every row of the response
+4. v2 flows are unaffected — the aspect only matches `*_v1`
+5. No code changes needed in individual flows — the deprecation policy is centralized in one aspect
+
+### Example response
+
+```json
+// GET /v1/users
+[
+  {
+    "id": 1,
+    "first_name": "Alice",
+    "last_name": "Smith",
+    "email": "alice@example.com",
+    "_deprecated": "true",
+    "_sunset": "2026-06-01",
+    "_warning": "This API version is deprecated. Please migrate to v2."
+  }
+]
+
+// GET /v2/users — no deprecation fields
+[
+  {
+    "id": 1,
+    "full_name": "Alice Smith",
+    "email": "alice@example.com"
+  }
+]
+```
 
 ---
 

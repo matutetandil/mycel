@@ -104,8 +104,8 @@ func (e *Executor) Execute(
 	// Execute the flow (with around wrappers)
 	result, flowErr := execFn(ctx, enrichedInput)
 
-	// Execute after aspects (even if flow failed)
-	afterErr := e.executeAfter(ctx, afterAspects, enrichedInput, result, flowErr)
+	// Execute after aspects (even if flow failed) — may enrich the result
+	result, afterErr := e.executeAfter(ctx, afterAspects, enrichedInput, result, flowErr)
 	if afterErr != nil {
 		slog.Warn("after aspect error",
 			"flow", flowName,
@@ -202,40 +202,45 @@ func (e *Executor) wrapAround(ctx context.Context, aspect *Config, input map[str
 }
 
 // executeAfter executes all after aspects.
-func (e *Executor) executeAfter(ctx context.Context, aspects []*Config, input map[string]interface{}, result *connector.Result, flowErr error) error {
+func (e *Executor) executeAfter(ctx context.Context, aspects []*Config, input map[string]interface{}, result *connector.Result, flowErr error) (*connector.Result, error) {
 	// Reverse order for after aspects
 	for i := len(aspects) - 1; i >= 0; i-- {
-		aspect := aspects[i]
+		asp := aspects[i]
 
 		// Check condition
-		if !e.evaluateCondition(ctx, aspect, input, result, flowErr) {
+		if !e.evaluateCondition(ctx, asp, input, result, flowErr) {
 			continue
 		}
 
 		slog.Debug("executing after aspect",
-			"aspect", aspect.Name,
+			"aspect", asp.Name,
 			"flow", input["_flow"])
 
 		// Execute action if present
-		if aspect.Action != nil {
-			if err := e.executeAction(ctx, aspect.Action, input, result); err != nil {
+		if asp.Action != nil {
+			if err := e.executeAction(ctx, asp.Action, input, result); err != nil {
 				slog.Warn("after aspect action error",
-					"aspect", aspect.Name,
+					"aspect", asp.Name,
 					"error", err)
 			}
 		}
 
 		// Execute invalidate if present
-		if aspect.Invalidate != nil {
-			if err := e.executeInvalidate(ctx, aspect.Invalidate, input, result); err != nil {
+		if asp.Invalidate != nil {
+			if err := e.executeInvalidate(ctx, asp.Invalidate, input, result); err != nil {
 				slog.Warn("after aspect invalidate error",
-					"aspect", aspect.Name,
+					"aspect", asp.Name,
 					"error", err)
 			}
 		}
+
+		// Apply response enrichment if present
+		if len(asp.Response) > 0 {
+			result = e.applyResponseEnrichment(ctx, asp, input, result)
+		}
 	}
 
-	return nil
+	return result, nil
 }
 
 // executeOnError executes all on_error aspects when a flow fails.
@@ -429,6 +434,61 @@ func getIntValue(m map[string]interface{}, key string) int64 {
 		}
 	}
 	return 0
+}
+
+// applyResponseEnrichment evaluates CEL expressions in the response block
+// and merges the results into each row of the connector.Result.
+func (e *Executor) applyResponseEnrichment(ctx context.Context, asp *Config, input map[string]interface{}, result *connector.Result) *connector.Result {
+	if result == nil {
+		result = &connector.Result{}
+	}
+
+	// Build evaluation context with result data
+	evalInput := make(map[string]interface{})
+	for k, v := range input {
+		evalInput[k] = v
+	}
+	evalInput["result"] = map[string]interface{}{
+		"affected": result.Affected,
+		"data":     result.Rows,
+	}
+
+	// Evaluate each response field
+	enriched := make(map[string]interface{})
+	for field, expr := range asp.Response {
+		val, err := e.cel.EvaluateExpression(ctx, evalInput, nil, expr)
+		if err != nil {
+			slog.Warn("response enrichment field error",
+				"aspect", asp.Name,
+				"field", field,
+				"error", err)
+			continue
+		}
+		enriched[field] = val
+	}
+
+	if len(enriched) == 0 {
+		return result
+	}
+
+	// Merge enriched fields into each row
+	if len(result.Rows) > 0 {
+		for i, row := range result.Rows {
+			newRow := make(map[string]interface{})
+			for k, v := range row {
+				newRow[k] = v
+			}
+			for k, v := range enriched {
+				newRow[k] = v
+			}
+			result.Rows[i] = newRow
+		}
+	} else {
+		// No rows — create a single row with the enriched fields
+		result.Rows = []map[string]interface{}{enriched}
+	}
+
+	return result
 }
 
 // executeAction executes an aspect action (connector write or flow invocation).

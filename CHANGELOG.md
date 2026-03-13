@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **PDF connector** (`internal/connector/pdf/`): Generate PDF documents from HTML templates using pure Go (no CGO, no external binaries). Uses `go-pdf/fpdf` for rendering and Go's `text/template` for data binding. Supports: headings (h1-h6), paragraphs, tables with headers, bold/italic, lists (ul/ol), horizontal rules, images, and basic CSS styles (text-align, font-size, color). Two operations: `generate` (returns PDF bytes for HTTP response) and `save` (writes to file)
 - **Binary HTTP responses**: REST connector now detects `_binary` + `_content_type` fields in results and serves raw binary responses (PDF, images, etc.) with proper Content-Type and Content-Disposition headers
-- **Use case examples #15-21**: Queue consumer to database, scheduled/cron jobs, API aggregation (BFF pattern), CDC pipeline, GraphQL API over database, circuit breaker on external APIs, PDF generation from HTML template. Total: 21 complete examples
+- **Response enrichment in after aspects**: After aspects can now include a `response` block with CEL expressions that inject fields into every row of the flow result. Expressions have access to `result.data`, `result.affected`, `input`, `_flow`, and `_operation`. Only valid for `after` aspects (validated at parse time). Useful for API versioning (deprecation notices), pagination metadata, and cross-cutting response decoration
+- **Use case examples #15-22**: Queue consumer to database, scheduled/cron jobs, API aggregation (BFF pattern), CDC pipeline, GraphQL API over database, circuit breaker on external APIs, PDF generation from HTML template, API versioning with deprecation warnings. Total: 22 complete examples
 - New dependency: `github.com/go-pdf/fpdf` v0.9.0 (pure Go, BSD license)
 
 ## [1.12.3] - 2026-03-13

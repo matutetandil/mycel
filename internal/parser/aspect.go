@@ -25,6 +25,7 @@ func parseAspectBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Config, e
 			{Type: "invalidate"},
 			{Type: "rate_limit"},
 			{Type: "circuit_breaker"},
+			{Type: "response"},
 		},
 	}
 
@@ -118,6 +119,13 @@ func parseAspectBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Config, e
 				return nil, err
 			}
 			config.CircuitBreaker = circuitBreaker
+
+		case "response":
+			response, err := parseAspectResponseBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, err
+			}
+			config.Response = response
 		}
 	}
 
@@ -217,6 +225,26 @@ func parseAspectTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[stri
 	}
 
 	return transform, nil
+}
+
+// parseAspectResponseBlock parses a response block within an aspect.
+// The response block contains CEL expressions that enrich the flow result.
+func parseAspectResponseBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]string, error) {
+	attrs, diags := block.Body.JustAttributes()
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("aspect response block error: %s", diags.Error())
+	}
+
+	response := make(map[string]string)
+	for name, attr := range attrs {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("response '%s' error: %s", name, diags.Error())
+		}
+		response[name] = val.AsString()
+	}
+
+	return response, nil
 }
 
 // parseAspectCacheBlock parses a cache block within an aspect.
