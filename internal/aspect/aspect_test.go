@@ -18,7 +18,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "valid config with action",
 			config: &Config{
 				Name: "audit_log",
-				On:   []string{"flows/**/create_*.hcl"},
+				On:   []string{"create_*"},
 				When: After,
 				Action: &ActionConfig{
 					Connector: "audit_db",
@@ -31,7 +31,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "valid config with cache",
 			config: &Config{
 				Name: "cache_products",
-				On:   []string{"flows/**/get_*.hcl"},
+				On:   []string{"get_*"},
 				When: Around,
 				Cache: &CacheConfig{
 					Storage: "redis",
@@ -44,7 +44,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "missing name",
 			config: &Config{
-				On:   []string{"flows/**/*.hcl"},
+				On:   []string{"*"},
 				When: Before,
 				Action: &ActionConfig{
 					Connector: "db",
@@ -67,7 +67,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "missing when",
 			config: &Config{
 				Name: "test",
-				On:   []string{"flows/**/*.hcl"},
+				On:   []string{"*"},
 				Action: &ActionConfig{
 					Connector: "db",
 				},
@@ -78,7 +78,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "invalid when value",
 			config: &Config{
 				Name: "test",
-				On:   []string{"flows/**/*.hcl"},
+				On:   []string{"*"},
 				When: When("invalid"),
 				Action: &ActionConfig{
 					Connector: "db",
@@ -90,7 +90,7 @@ func TestConfig_Validate(t *testing.T) {
 			name: "no action type",
 			config: &Config{
 				Name: "test",
-				On:   []string{"flows/**/*.hcl"},
+				On:   []string{"*"},
 				When: Before,
 			},
 			wantError: true,
@@ -115,7 +115,7 @@ func TestRegistry_Register(t *testing.T) {
 
 	aspect := &Config{
 		Name: "test_aspect",
-		On:   []string{"flows/**/*.hcl"},
+		On:   []string{"*"},
 		When: Before,
 		Action: &ActionConfig{
 			Connector: "db",
@@ -135,10 +135,10 @@ func TestRegistry_Register(t *testing.T) {
 func TestRegistry_Match(t *testing.T) {
 	registry := NewRegistry()
 
-	// Register aspects with different patterns
+	// Register aspects with different flow name patterns
 	registry.Register(&Config{
 		Name: "audit_create",
-		On:   []string{"flows/**/create_*.hcl"},
+		On:   []string{"create_*"},
 		When: After,
 		Action: &ActionConfig{
 			Connector: "audit",
@@ -147,7 +147,7 @@ func TestRegistry_Match(t *testing.T) {
 
 	registry.Register(&Config{
 		Name: "cache_get",
-		On:   []string{"flows/**/get_*.hcl"},
+		On:   []string{"get_*"},
 		When: Around,
 		Cache: &CacheConfig{
 			Storage: "cache",
@@ -158,7 +158,7 @@ func TestRegistry_Match(t *testing.T) {
 
 	registry.Register(&Config{
 		Name: "log_all",
-		On:   []string{"flows/**/*.hcl"},
+		On:   []string{"*"},
 		When: Before,
 		Action: &ActionConfig{
 			Connector: "logger",
@@ -166,35 +166,30 @@ func TestRegistry_Match(t *testing.T) {
 	})
 
 	tests := []struct {
-		flowPath      string
+		flowName      string
 		expectedCount int
 		expectedNames []string
 	}{
 		{
-			flowPath:      "flows/users/create_user.hcl",
+			flowName:      "create_user",
 			expectedCount: 2, // log_all (before) + audit_create (after)
 			expectedNames: []string{"log_all", "audit_create"},
 		},
 		{
-			flowPath:      "flows/products/get_product.hcl",
+			flowName:      "get_product",
 			expectedCount: 2, // log_all (before) + cache_get (around)
 			expectedNames: []string{"log_all", "cache_get"},
 		},
 		{
-			flowPath:      "flows/orders/list_orders.hcl",
+			flowName:      "list_orders",
 			expectedCount: 1, // log_all only
 			expectedNames: []string{"log_all"},
-		},
-		{
-			flowPath:      "other/file.hcl",
-			expectedCount: 0,
-			expectedNames: []string{},
 		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.flowPath, func(t *testing.T) {
-			matches := registry.Match(tt.flowPath)
+		t.Run(tt.flowName, func(t *testing.T) {
+			matches := registry.Match(tt.flowName)
 			if len(matches) != tt.expectedCount {
 				t.Errorf("expected %d matches, got %d", tt.expectedCount, len(matches))
 			}
@@ -213,7 +208,7 @@ func TestRegistry_MatchByWhen(t *testing.T) {
 
 	registry.Register(&Config{
 		Name: "before_1",
-		On:   []string{"flows/**/*.hcl"},
+		On:   []string{"*"},
 		When: Before,
 		Action: &ActionConfig{
 			Connector: "db",
@@ -222,7 +217,7 @@ func TestRegistry_MatchByWhen(t *testing.T) {
 
 	registry.Register(&Config{
 		Name: "around_1",
-		On:   []string{"flows/**/*.hcl"},
+		On:   []string{"*"},
 		When: Around,
 		Cache: &CacheConfig{
 			Storage: "cache",
@@ -233,24 +228,24 @@ func TestRegistry_MatchByWhen(t *testing.T) {
 
 	registry.Register(&Config{
 		Name: "after_1",
-		On:   []string{"flows/**/*.hcl"},
+		On:   []string{"*"},
 		When: After,
 		Action: &ActionConfig{
 			Connector: "db",
 		},
 	})
 
-	before := registry.GetBefore("flows/test/test.hcl")
+	before := registry.GetBefore("test_flow")
 	if len(before) != 1 || before[0].Name != "before_1" {
 		t.Errorf("expected 1 before aspect, got %d", len(before))
 	}
 
-	around := registry.GetAround("flows/test/test.hcl")
+	around := registry.GetAround("test_flow")
 	if len(around) != 1 || around[0].Name != "around_1" {
 		t.Errorf("expected 1 around aspect, got %d", len(around))
 	}
 
-	after := registry.GetAfter("flows/test/test.hcl")
+	after := registry.GetAfter("test_flow")
 	if len(after) != 1 || after[0].Name != "after_1" {
 		t.Errorf("expected 1 after aspect, got %d", len(after))
 	}
@@ -261,7 +256,7 @@ func TestRegistry_Priority(t *testing.T) {
 
 	registry.Register(&Config{
 		Name:     "low_priority",
-		On:       []string{"flows/**/*.hcl"},
+		On:       []string{"*"},
 		When:     Before,
 		Priority: 10,
 		Action: &ActionConfig{
@@ -271,7 +266,7 @@ func TestRegistry_Priority(t *testing.T) {
 
 	registry.Register(&Config{
 		Name:     "high_priority",
-		On:       []string{"flows/**/*.hcl"},
+		On:       []string{"*"},
 		When:     Before,
 		Priority: 1,
 		Action: &ActionConfig{
@@ -281,7 +276,7 @@ func TestRegistry_Priority(t *testing.T) {
 
 	registry.Register(&Config{
 		Name:     "medium_priority",
-		On:       []string{"flows/**/*.hcl"},
+		On:       []string{"*"},
 		When:     Before,
 		Priority: 5,
 		Action: &ActionConfig{
@@ -289,7 +284,7 @@ func TestRegistry_Priority(t *testing.T) {
 		},
 	})
 
-	matches := registry.Match("flows/test/test.hcl")
+	matches := registry.Match("test_flow")
 
 	expected := []string{"high_priority", "medium_priority", "low_priority"}
 	for i, name := range expected {
@@ -304,7 +299,7 @@ func TestRegistry_Clear(t *testing.T) {
 
 	registry.Register(&Config{
 		Name: "test",
-		On:   []string{"flows/**/*.hcl"},
+		On:   []string{"*"},
 		When: Before,
 		Action: &ActionConfig{
 			Connector: "db",
@@ -344,7 +339,6 @@ func TestExecutor_Execute_NoAspects(t *testing.T) {
 
 	result, err := executor.Execute(
 		context.Background(),
-		"flows/users/create_user.hcl",
 		"create_user",
 		"POST /users",
 		"users",
@@ -363,15 +357,12 @@ func TestExecutor_Execute_NoAspects(t *testing.T) {
 	if callCount != 1 {
 		t.Errorf("expected flow to be called once, got %d", callCount)
 	}
-
-	// Verify metadata was added to input
-	// This is implicitly tested by the successful execution
 }
 
 func TestConfig_Validate_OnError(t *testing.T) {
 	config := &Config{
 		Name: "error_handler",
-		On:   []string{"flows/**/*.hcl"},
+		On:   []string{"*"},
 		When: OnError,
 		Action: &ActionConfig{
 			Connector: "error_db",
@@ -389,7 +380,7 @@ func TestRegistry_GetOnError(t *testing.T) {
 
 	registry.Register(&Config{
 		Name: "before_1",
-		On:   []string{"flows/**/*.hcl"},
+		On:   []string{"*"},
 		When: Before,
 		Action: &ActionConfig{
 			Connector: "db",
@@ -398,7 +389,7 @@ func TestRegistry_GetOnError(t *testing.T) {
 
 	registry.Register(&Config{
 		Name: "on_error_1",
-		On:   []string{"flows/**/*.hcl"},
+		On:   []string{"*"},
 		When: OnError,
 		Action: &ActionConfig{
 			Connector: "error_db",
@@ -408,7 +399,7 @@ func TestRegistry_GetOnError(t *testing.T) {
 
 	registry.Register(&Config{
 		Name: "on_error_2",
-		On:   []string{"flows/**/create_*.hcl"},
+		On:   []string{"create_*"},
 		When: OnError,
 		Action: &ActionConfig{
 			Connector: "slack",
@@ -417,19 +408,19 @@ func TestRegistry_GetOnError(t *testing.T) {
 	})
 
 	// Should return both on_error aspects for matching flow
-	onError := registry.GetOnError("flows/users/create_user.hcl")
+	onError := registry.GetOnError("create_user")
 	if len(onError) != 2 {
 		t.Errorf("expected 2 on_error aspects, got %d", len(onError))
 	}
 
 	// Should return only 1 for non-create flow
-	onError = registry.GetOnError("flows/users/list_users.hcl")
+	onError = registry.GetOnError("list_users")
 	if len(onError) != 1 {
 		t.Errorf("expected 1 on_error aspect, got %d", len(onError))
 	}
 
 	// Before should still work normally
-	before := registry.GetBefore("flows/users/create_user.hcl")
+	before := registry.GetBefore("create_user")
 	if len(before) != 1 {
 		t.Errorf("expected 1 before aspect, got %d", len(before))
 	}
@@ -441,7 +432,7 @@ func TestExecutor_OnError_ExecutedOnFlowFailure(t *testing.T) {
 	// Register an on_error aspect
 	registry.Register(&Config{
 		Name: "error_logger",
-		On:   []string{"flows/**/*.hcl"},
+		On:   []string{"*"},
 		When: OnError,
 		Action: &ActionConfig{
 			Connector: "error_db",
@@ -463,7 +454,6 @@ func TestExecutor_OnError_ExecutedOnFlowFailure(t *testing.T) {
 	// Should still return the flow error (on_error aspects don't swallow errors)
 	_, flowErr := executor.Execute(
 		context.Background(),
-		"flows/users/create_user.hcl",
 		"create_user",
 		"POST /users",
 		"users",
@@ -486,7 +476,7 @@ func TestExecutor_OnError_NotExecutedOnSuccess(t *testing.T) {
 	// Register on_error aspect - should NOT fire on success
 	registry.Register(&Config{
 		Name: "error_logger",
-		On:   []string{"flows/**/*.hcl"},
+		On:   []string{"*"},
 		When: OnError,
 		Action: &ActionConfig{
 			Connector: "error_db",
@@ -503,7 +493,6 @@ func TestExecutor_OnError_NotExecutedOnSuccess(t *testing.T) {
 
 	result, err := executor.Execute(
 		context.Background(),
-		"flows/users/create_user.hcl",
 		"create_user",
 		"POST /users",
 		"users",
@@ -517,9 +506,6 @@ func TestExecutor_OnError_NotExecutedOnSuccess(t *testing.T) {
 	if result == nil {
 		t.Error("expected result, got nil")
 	}
-	// on_error aspect should not have fired (no error to trigger it)
-	// This test passes if no panic/crash occurs from trying to execute the action
-	// with a non-existent connector
 }
 
 func TestExecutor_EnrichInput(t *testing.T) {
@@ -548,5 +534,56 @@ func TestExecutor_EnrichInput(t *testing.T) {
 
 	if enriched["name"] != "test" {
 		t.Errorf("expected name to be preserved, got %v", enriched["name"])
+	}
+}
+
+func TestRegistry_MatchFlowNamePatterns(t *testing.T) {
+	registry := NewRegistry()
+
+	registry.Register(&Config{
+		Name: "write_audit",
+		On:   []string{"create_*", "update_*", "delete_*"},
+		When: After,
+		Action: &ActionConfig{
+			Connector: "audit",
+		},
+	})
+
+	registry.Register(&Config{
+		Name: "read_cache",
+		On:   []string{"get_*", "list_*"},
+		When: Around,
+		Cache: &CacheConfig{
+			Storage: "cache",
+			TTL:     "5m",
+			Key:     "test",
+		},
+	})
+
+	tests := []struct {
+		flowName      string
+		expectedCount int
+		expectedNames []string
+	}{
+		{"create_user", 1, []string{"write_audit"}},
+		{"update_order", 1, []string{"write_audit"}},
+		{"delete_product", 1, []string{"write_audit"}},
+		{"get_user", 1, []string{"read_cache"}},
+		{"list_products", 1, []string{"read_cache"}},
+		{"health_check", 0, []string{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.flowName, func(t *testing.T) {
+			matches := registry.Match(tt.flowName)
+			if len(matches) != tt.expectedCount {
+				t.Errorf("expected %d matches for %s, got %d", tt.expectedCount, tt.flowName, len(matches))
+			}
+			for i, name := range tt.expectedNames {
+				if i < len(matches) && matches[i].Name != name {
+					t.Errorf("expected aspect %s at position %d, got %s", name, i, matches[i].Name)
+				}
+			}
+		})
 	}
 }

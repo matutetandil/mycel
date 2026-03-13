@@ -2193,9 +2193,9 @@ flow "create_product" {
 
 	// Create aspects file
 	writeFile(t, filepath.Join(tmpDir, "aspects.hcl"), `
-# After aspect - logs all create operations
+# After aspect - logs all create operations (matches by flow name)
 aspect "audit_creates" {
-  on   = ["**/create_*.hcl"]
+  on   = ["create_*"]
   when = "after"
   if   = "result.affected > 0"
 
@@ -2275,17 +2275,17 @@ aspect "audit_creates" {
 		}
 	})
 
-	// Test 3: Verify aspect matching works
+	// Test 3: Verify aspect matching works by flow name
 	t.Run("aspect_matching", func(t *testing.T) {
-		// The audit_creates aspect should match flows/products/create_product.hcl
-		// but not flows/products/get_products.hcl
-		matches := rt.aspectRegistry.Match("flows/products/create_product.hcl")
+		// The audit_creates aspect should match "create_product" flow name
+		// but not "get_products"
+		matches := rt.aspectRegistry.Match("create_product")
 		if len(matches) == 0 {
 			t.Error("expected audit_creates aspect to match create_product flow")
 		}
 
 		// get_products should not match
-		getMatches := rt.aspectRegistry.Match("flows/products/get_products.hcl")
+		getMatches := rt.aspectRegistry.Match("get_products")
 		for _, m := range getMatches {
 			if m.Name == "audit_creates" {
 				t.Error("audit_creates should not match get_products flow")

@@ -23,8 +23,8 @@ type Config struct {
 	// Name is the aspect identifier.
 	Name string
 
-	// On is a list of glob patterns matching flow files.
-	// Example: ["flows/**/create_*.hcl", "flows/**/delete_*.hcl"]
+	// On is a list of glob patterns matching flow names.
+	// Example: ["create_*", "update_*", "delete_*"]
 	On []string
 
 	// When defines when the aspect executes: before, after, around, on_error.

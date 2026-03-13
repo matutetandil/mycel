@@ -1,11 +1,11 @@
 # Aspects (AOP) Configuration
 # Aspects define cross-cutting concerns that are automatically applied to flows
-# based on pattern matching. They execute before, after, or around flow execution.
+# based on flow name pattern matching. They execute before, after, or around flow execution.
 
 # Audit logging for all write operations (create, update, delete)
 # Applied AFTER the flow completes successfully
 aspect "audit_writes" {
-  on   = ["**/create_*.hcl", "**/update_*.hcl", "**/delete_*.hcl"]
+  on   = ["create_*", "update_*", "delete_*"]
   when = "after"
 
   # Only log if the operation was successful (has affected rows)
@@ -30,7 +30,7 @@ aspect "audit_writes" {
 # Cache all GET operations for products
 # Applied AROUND the flow (checks cache before, stores after)
 aspect "cache_products" {
-  on   = ["**/get_product*.hcl"]
+  on   = ["get_product*"]
   when = "around"
 
   cache {
@@ -43,7 +43,7 @@ aspect "cache_products" {
 # Cache invalidation after product mutations
 # Applied AFTER create/update/delete operations
 aspect "invalidate_product_cache" {
-  on   = ["**/create_product*.hcl", "**/update_product*.hcl", "**/delete_product*.hcl"]
+  on   = ["create_product*", "update_product*", "delete_product*"]
   when = "after"
 
   invalidate {
@@ -56,7 +56,7 @@ aspect "invalidate_product_cache" {
 # Request logging (before all flows)
 # This would log every incoming request
 aspect "request_log" {
-  on       = ["**/*.hcl"]
+  on       = ["*"]
   when     = "before"
   priority = 1  # Execute first
 
@@ -76,7 +76,7 @@ aspect "request_log" {
 # Rate limiting example (before execution)
 # Limits requests per second per IP/key
 # aspect "rate_limit_api" {
-#   on   = ["**/api/**/*.hcl"]
+#   on   = ["api_*"]
 #   when = "before"
 #
 #   rate_limit {
@@ -89,7 +89,7 @@ aspect "request_log" {
 # Circuit breaker example (around execution)
 # Protects against cascading failures
 # aspect "circuit_breaker_external" {
-#   on   = ["**/external/**/*.hcl"]
+#   on   = ["external_*", "call_*"]
 #   when = "around"
 #
 #   circuit_breaker {
@@ -103,7 +103,7 @@ aspect "request_log" {
 # Error logging aspect (on_error execution)
 # Logs all flow errors to a database table
 aspect "error_logger" {
-  on   = ["**/*.hcl"]
+  on   = ["*"]
   when = "on_error"
 
   action {

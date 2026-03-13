@@ -190,7 +190,7 @@ The most powerful use of notifications is with aspects — send alerts or notifi
 ```hcl
 aspect "notify_on_error" {
   when = "on_error"
-  on   = ["flows/api/*"]
+  on   = ["api_*"]
 
   action {
     connector = "slack_alerts"

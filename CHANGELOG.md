@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.1] - 2026-03-12
+
+### Changed
+- **Aspects target flow names instead of file paths**: `on` patterns in aspects now match against flow names using `filepath.Match` glob syntax (e.g., `create_*`, `*_user`). File path matching removed entirely — aspects are now decoupled from filesystem layout
+- **Unique name validation per type**: Parser now enforces unique names within each configuration type (connector, flow, type, transform, aspect, validator). Duplicate names produce clear errors with file locations: `duplicate flow name "create_user": defined in flows/api.hcl and flows/users.hcl`
+
+### Removed
+- **File path matching in aspects**: All `doublestar` and path-based matching code removed from `internal/aspect/registry.go`. No backward compatibility — patterns must reference flow names
+- **`FlowPath` field**: Removed from `FlowHandler` struct in `internal/runtime/flow_registry.go`
+
 ## [1.12.0] - 2026-03-11
 
 ### Added
@@ -585,7 +595,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added - Phase 5 Complete: Aspects Runtime (AOP)
 - **Aspect-Oriented Programming (AOP)** for cross-cutting concerns
-  - Pattern-based matching with glob patterns (`**/create_*.hcl`, `flows/**/*.hcl`)
+  - Pattern-based matching with flow name glob patterns (`create_*`, `update_*`, `*`)
   - Before/After/Around execution points
   - Priority ordering for multiple matching aspects
   - Conditional execution with `if` CEL expressions

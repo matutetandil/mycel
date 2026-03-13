@@ -185,7 +185,7 @@ All core features are implemented and production-ready. The roadmap below reflec
 
 ### Phase 5 - Extensibility (Complete)
 - ✅ **Aspects (AOP)** for cross-cutting concerns
-  - Pattern matching on flows (e.g., `flows/**/create_*.hcl`)
+  - Pattern matching on flow names (e.g., `create_*`, `update_*`)
   - When: before, after, around, on_error
   - Use cases: audit logging, caching, rate limiting, enrichment
 - ✅ **Mock system** for testing

@@ -49,24 +49,22 @@ func NewExecutor(registry *Registry, connectors *connector.Registry) (*Executor,
 }
 
 // Execute executes a flow with all matching aspects applied.
-// flowPath is used to match aspects (e.g., "flows/users/create_user.hcl")
-// flowName is the flow identifier
+// flowName is the flow identifier used to match aspects (e.g., "create_user")
 // operation is the operation being performed (e.g., "POST /users")
 // target is the target connector/table
 func (e *Executor) Execute(
 	ctx context.Context,
-	flowPath string,
 	flowName string,
 	operation string,
 	target string,
 	input map[string]interface{},
 	flowFn FlowFunc,
 ) (*connector.Result, error) {
-	// Get matching aspects
-	beforeAspects := e.registry.GetBefore(flowPath)
-	aroundAspects := e.registry.GetAround(flowPath)
-	afterAspects := e.registry.GetAfter(flowPath)
-	onErrorAspects := e.registry.GetOnError(flowPath)
+	// Get matching aspects by flow name
+	beforeAspects := e.registry.GetBefore(flowName)
+	aroundAspects := e.registry.GetAround(flowName)
+	afterAspects := e.registry.GetAfter(flowName)
+	onErrorAspects := e.registry.GetOnError(flowName)
 
 	// Add metadata to input
 	enrichedInput := e.enrichInput(input, flowName, operation, target)

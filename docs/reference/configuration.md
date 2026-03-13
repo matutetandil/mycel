@@ -968,12 +968,12 @@ plugin "NAME" {
 
 ## aspect
 
-Cross-cutting concerns applied via glob patterns:
+Cross-cutting concerns applied via flow name patterns:
 
 ```hcl
 aspect "NAME" {
   when = "after"         # "before", "after", "around", "on_error"
-  on   = ["flows/**/create_*.hcl"]  # Glob patterns
+  on   = ["create_*", "update_*"]  # Flow name patterns (glob syntax)
 
   condition = "result.status == 'ok'"  # Optional CEL condition
 

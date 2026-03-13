@@ -71,10 +71,6 @@ type FlowHandler struct {
 	// Config is the flow configuration from HCL.
 	Config *flow.Config
 
-	// FlowPath is the path to the flow file (used for aspect matching).
-	// Example: "flows/users/create_user.hcl"
-	FlowPath string
-
 	// Source is the source connector (where data comes from).
 	Source connector.Connector
 
@@ -256,7 +252,7 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 	// Core execution function
 	executeFn := func() (interface{}, error) {
 		// If aspect executor is configured, wrap execution with aspects
-		if h.AspectExecutor != nil && h.FlowPath != "" {
+		if h.AspectExecutor != nil && h.Config.Name != "" {
 			return h.handleRequestWithAspects(ctx, input)
 		}
 		// Execute without aspects
@@ -631,10 +627,9 @@ func (h *FlowHandler) handleRequestWithAspects(ctx context.Context, input map[st
 		return h.resultToConnectorResult(result), nil
 	}
 
-	// Execute with aspects
+	// Execute with aspects (match by flow name)
 	result, err := h.AspectExecutor.Execute(
 		ctx,
-		h.FlowPath,
 		h.Config.Name,
 		h.Config.From.Operation,
 		h.toTarget(),

@@ -91,7 +91,7 @@ Three modes: `fail` (abort flow), `skip` (continue without data), `default` (use
 
 ```hcl
 aspect "db_circuit_breaker" {
-  on   = ["flows/**/*.hcl"]
+  on   = ["*"]
   when = "around"
 
   circuit_breaker {

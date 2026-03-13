@@ -82,6 +82,11 @@ type Configuration struct {
 
 	// Security is the security configuration (sanitization, thresholds, WASM sanitizers).
 	Security *security.Config
+
+	// SourceFiles tracks which files each named item was defined in.
+	// Key format: "type:name" (e.g., "connector:postgres", "flow:create_user").
+	// Value is a slice because duplicates may exist (which ValidateUniqueNames catches).
+	SourceFiles map[string][]string
 }
 
 // ServiceConfig holds global service configuration.
@@ -127,6 +132,7 @@ func NewConfiguration() *Configuration {
 		Plugins:       make([]*plugin.PluginDeclaration, 0),
 		Sagas:         make([]*saga.Config, 0),
 		StateMachines: make([]*statemachine.Config, 0),
+		SourceFiles:   make(map[string][]string),
 	}
 }
 
@@ -152,6 +158,85 @@ func (c *Configuration) Merge(other *Configuration) {
 	if other.Security != nil {
 		c.Security = other.Security
 	}
+	for k, v := range other.SourceFiles {
+		c.SourceFiles[k] = append(c.SourceFiles[k], v...)
+	}
+}
+
+// ValidateUniqueNames checks that no two items of the same type share a name.
+// Returns an error if duplicates are found, with file paths for both definitions.
+func (c *Configuration) ValidateUniqueNames() error {
+	// Check each category using the SourceFiles map which tracks all files per key
+	categories := []struct {
+		itemType string
+		key      func() []string // returns keys like "connector:name"
+	}{
+		{"connector", func() []string {
+			keys := make([]string, len(c.Connectors))
+			for i, conn := range c.Connectors {
+				keys[i] = "connector:" + conn.Name
+			}
+			return keys
+		}},
+		{"flow", func() []string {
+			keys := make([]string, len(c.Flows))
+			for i, f := range c.Flows {
+				keys[i] = "flow:" + f.Name
+			}
+			return keys
+		}},
+		{"type", func() []string {
+			keys := make([]string, len(c.Types))
+			for i, t := range c.Types {
+				keys[i] = "type:" + t.Name
+			}
+			return keys
+		}},
+		{"transform", func() []string {
+			keys := make([]string, len(c.Transforms))
+			for i, tr := range c.Transforms {
+				keys[i] = "transform:" + tr.Name
+			}
+			return keys
+		}},
+		{"aspect", func() []string {
+			keys := make([]string, len(c.Aspects))
+			for i, a := range c.Aspects {
+				keys[i] = "aspect:" + a.Name
+			}
+			return keys
+		}},
+		{"validator", func() []string {
+			keys := make([]string, len(c.Validators))
+			for i, v := range c.Validators {
+				keys[i] = "validator:" + v.Name
+			}
+			return keys
+		}},
+	}
+
+	for _, cat := range categories {
+		seen := make(map[string]bool)
+		for _, key := range cat.key() {
+			name := key[len(cat.itemType)+1:] // strip "type:" prefix
+			if seen[name] {
+				files := c.SourceFiles[key]
+				first := "(unknown)"
+				second := "(unknown)"
+				if len(files) >= 2 {
+					first = files[0]
+					second = files[1]
+				} else if len(files) == 1 {
+					first = files[0]
+					second = files[0]
+				}
+				return fmt.Errorf("duplicate %s name %q: defined in %s and %s", cat.itemType, name, first, second)
+			}
+			seen[name] = true
+		}
+	}
+
+	return nil
 }
 
 // HCLParser implements Parser using hashicorp/hcl/v2.
@@ -255,6 +340,11 @@ func (p *HCLParser) Parse(ctx context.Context, configDir string) (*Configuration
 		return nil, err
 	}
 
+	// Validate that no two items of the same type share a name
+	if err := config.ValidateUniqueNames(); err != nil {
+		return nil, err
+	}
+
 	return config, nil
 }
 
@@ -282,15 +372,16 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 				return nil, fmt.Errorf("connector parse error: %w", err)
 			}
 			config.Connectors = append(config.Connectors, conn)
+			config.SourceFiles["connector:"+conn.Name] = append(config.SourceFiles["connector:"+conn.Name], path)
 
 		case "flow":
 			f, err := parseFlowBlock(block, p.evalCtx)
 			if err != nil {
 				return nil, fmt.Errorf("flow parse error: %w", err)
 			}
-			// Set the source file path for aspect matching
 			f.SourceFile = path
 			config.Flows = append(config.Flows, f)
+			config.SourceFiles["flow:"+f.Name] = append(config.SourceFiles["flow:"+f.Name], path)
 
 		case "type":
 			t, err := parseTypeBlock(block, p.evalCtx)
@@ -298,6 +389,7 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 				return nil, fmt.Errorf("type parse error: %w", err)
 			}
 			config.Types = append(config.Types, t)
+			config.SourceFiles["type:"+t.Name] = append(config.SourceFiles["type:"+t.Name], path)
 
 		case "transform":
 			tr, err := parseNamedTransformBlock(block, p.evalCtx)
@@ -305,6 +397,7 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 				return nil, fmt.Errorf("transform parse error: %w", err)
 			}
 			config.Transforms = append(config.Transforms, tr)
+			config.SourceFiles["transform:"+tr.Name] = append(config.SourceFiles["transform:"+tr.Name], path)
 
 		case "cache":
 			cache, err := parseNamedCacheBlock(block, p.evalCtx)
@@ -319,6 +412,7 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 				return nil, fmt.Errorf("aspect parse error: %w", err)
 			}
 			config.Aspects = append(config.Aspects, asp)
+			config.SourceFiles["aspect:"+asp.Name] = append(config.SourceFiles["aspect:"+asp.Name], path)
 
 		case "service":
 			svc, err := parseServiceBlock(block, p.evalCtx)
@@ -340,6 +434,7 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 				return nil, fmt.Errorf("validator parse error: %w", err)
 			}
 			config.Validators = append(config.Validators, v)
+			config.SourceFiles["validator:"+v.Name] = append(config.SourceFiles["validator:"+v.Name], path)
 
 		case "functions":
 			fn, err := parseFunctionsBlock(block, p.evalCtx)

@@ -5,7 +5,7 @@
 # During that time, requests fail fast without hitting the database.
 
 aspect "db_circuit_breaker" {
-  on   = ["flows/**/*.hcl"]
+  on   = ["*"]
   when = "around"
 
   circuit_breaker {

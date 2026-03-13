@@ -125,11 +125,11 @@ type "user" {
 ```
 
 ### Aspects (AOP)
-Cross-cutting concerns applied via pattern matching:
+Cross-cutting concerns applied via flow name pattern matching:
 ```hcl
 aspect "audit_log" {
   when = "after"
-  on   = ["flows/**/create_*.hcl"]
+  on   = ["create_*", "update_*"]
   action { ... }
 }
 ```

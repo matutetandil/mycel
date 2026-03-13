@@ -1002,7 +1002,6 @@ func (r *Runtime) registerFlows() error {
 		// Register the flow
 		handler := &FlowHandler{
 			Config:             cfg,
-			FlowPath:           cfg.SourceFile,
 			Source:             source,
 			SourceType:         r.getConnectorType(cfg.From.Connector),
 			Dest:               dest,

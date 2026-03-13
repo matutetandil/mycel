@@ -237,7 +237,7 @@ Aspects implement cross-cutting concerns that apply across multiple flows via pa
 ```hcl
 aspect "audit_log" {
   when = "after"
-  on   = ["flows/**/create_*.hcl", "flows/**/update_*.hcl"]
+  on   = ["create_*", "update_*"]
 
   action {
     connector = "audit_db"
@@ -276,12 +276,12 @@ In aspect action transforms:
 
 ### Pattern Matching
 
-The `on` attribute accepts glob patterns matching flow file paths:
+The `on` attribute accepts glob patterns matching flow names:
 
 ```hcl
-on = ["flows/**"]            # All flows
-on = ["flows/api/*"]         # Direct children of flows/api/
-on = ["flows/**/orders.hcl"] # Any file named orders.hcl
+on = ["*"]                          # All flows
+on = ["create_*", "update_*"]       # All create and update flows
+on = ["get_product*"]               # Flows starting with "get_product"
 ```
 
 ## See Also

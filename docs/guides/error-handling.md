@@ -253,7 +253,7 @@ Circuit breakers prevent cascading failures by stopping calls to a failing servi
 ```hcl
 aspect "protect_magento" {
   when = "around"
-  on   = ["flows/**/magento_*.hcl"]
+  on   = ["magento_*"]
 
   circuit_breaker {
     failure_threshold = 5
@@ -292,7 +292,7 @@ Prevents overload by limiting how many requests reach a connector. Applied via a
 ```hcl
 aspect "throttle_api" {
   when = "before"
-  on   = ["flows/**/external_*.hcl"]
+  on   = ["external_*"]
 
   rate_limit {
     key                 = "input._client_ip"
@@ -317,7 +317,7 @@ On-error aspects execute only when a flow fails. Use them for cross-cutting erro
 ```hcl
 aspect "log_errors" {
   when = "on_error"
-  on   = ["flows/**/*.hcl"]
+  on   = ["*"]
 
   action {
     connector = "db"
@@ -343,7 +343,7 @@ On-error aspects:
 ```hcl
 aspect "alert_critical" {
   when = "on_error"
-  on   = ["flows/**/payment_*.hcl"]
+  on   = ["payment_*"]
   if   = "error != ''"
 
   action {
@@ -490,7 +490,7 @@ A production flow typically combines multiple layers:
 # Aspect: circuit breaker on all Magento API flows
 aspect "magento_circuit_breaker" {
   when = "around"
-  on   = ["flows/**/magento_*.hcl"]
+  on   = ["magento_*"]
 
   circuit_breaker {
     failure_threshold = 5
@@ -502,7 +502,7 @@ aspect "magento_circuit_breaker" {
 # Aspect: rate limit external API calls
 aspect "magento_rate_limit" {
   when = "before"
-  on   = ["flows/**/magento_*.hcl"]
+  on   = ["magento_*"]
 
   rate_limit {
     requests_per_second = 10

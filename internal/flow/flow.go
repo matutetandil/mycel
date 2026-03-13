@@ -81,7 +81,7 @@ type Config struct {
 	Name string
 
 	// SourceFile is the path to the HCL file that defined this flow.
-	// Used for aspect pattern matching (e.g., "flows/users/create_user.hcl").
+	// Used for duplicate name detection and error reporting.
 	SourceFile string
 
 	// When defines the flow trigger schedule.
