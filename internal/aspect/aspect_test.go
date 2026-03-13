@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/matutetandil/mycel/internal/connector"
+	httpconn "github.com/matutetandil/mycel/internal/connector/http"
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 func TestConfig_Validate(t *testing.T) {
@@ -534,6 +536,88 @@ func TestExecutor_EnrichInput(t *testing.T) {
 
 	if enriched["name"] != "test" {
 		t.Errorf("expected name to be preserved, got %v", enriched["name"])
+	}
+}
+
+func TestBuildErrorInfo(t *testing.T) {
+	tests := []struct {
+		name         string
+		err          error
+		expectedCode int64
+		expectedType string
+	}{
+		{
+			name:         "HTTP 404 error",
+			err:          &httpconn.HTTPError{StatusCode: 404, Status: "Not Found", Body: "user not found"},
+			expectedCode: 404,
+			expectedType: "http",
+		},
+		{
+			name:         "HTTP 500 error",
+			err:          &httpconn.HTTPError{StatusCode: 500, Status: "Internal Server Error", Body: "db error"},
+			expectedCode: 500,
+			expectedType: "http",
+		},
+		{
+			name:         "FlowError with status",
+			err:          flow.NewFlowError(fmt.Errorf("bad request"), 422, nil, nil),
+			expectedCode: 422,
+			expectedType: "flow",
+		},
+		{
+			name:         "not found heuristic",
+			err:          fmt.Errorf("resource not found"),
+			expectedCode: 404,
+			expectedType: "not_found",
+		},
+		{
+			name:         "timeout heuristic",
+			err:          fmt.Errorf("operation timed out"),
+			expectedCode: 504,
+			expectedType: "timeout",
+		},
+		{
+			name:         "connection refused heuristic",
+			err:          fmt.Errorf("connection refused"),
+			expectedCode: 503,
+			expectedType: "connection",
+		},
+		{
+			name:         "unknown error",
+			err:          fmt.Errorf("something went wrong"),
+			expectedCode: 0,
+			expectedType: "unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := buildErrorInfo(tt.err)
+
+			code, ok := info["code"].(int64)
+			if !ok {
+				t.Fatalf("expected code to be int64, got %T", info["code"])
+			}
+			if code != tt.expectedCode {
+				t.Errorf("expected code %d, got %d", tt.expectedCode, code)
+			}
+
+			errType, ok := info["type"].(string)
+			if !ok {
+				t.Fatalf("expected type to be string, got %T", info["type"])
+			}
+			if errType != tt.expectedType {
+				t.Errorf("expected type %q, got %q", tt.expectedType, errType)
+			}
+
+			msg, ok := info["message"].(string)
+			if !ok {
+				t.Fatalf("expected message to be string, got %T", info["message"])
+			}
+			if msg == "" {
+				t.Error("expected non-empty message")
+			}
+		})
 	}
 }
 

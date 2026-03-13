@@ -168,8 +168,60 @@ In aspect expressions (`if`, `transform`):
 - `input.*` - Original request input
 - `result.affected` - Rows affected (after)
 - `result.data` - Result data (after)
-- `error` - Error message if failed (after)
+- `error.message` - Error message (on_error)
+- `error.code` - HTTP status code or 0 (on_error)
+- `error.type` - Error category: `http`, `flow`, `validation`, `not_found`, `timeout`, `connection`, `auth`, `unknown` (on_error)
 - `_flow` - Flow name
 - `_operation` - Operation string
 - `_target` - Target table/collection
 - `_timestamp` - Request timestamp
+
+## Error-Based Routing
+
+Use `if` with `error.code` or `error.type` to route errors to different actions:
+
+```hcl
+# Alert on 5xx errors only
+aspect "alert_server_errors" {
+  when = "on_error"
+  on   = ["*"]
+  if   = "error.code >= 500"
+
+  action {
+    connector = "slack_alerts"
+    transform {
+      text = "':rotating_light: Server error in ' + _flow + ': ' + error.message"
+    }
+  }
+}
+
+# Log 404s to a separate table
+aspect "log_not_found" {
+  when = "on_error"
+  on   = ["get_*"]
+  if   = "error.code == 404"
+
+  action {
+    connector = "db"
+    target    = "not_found_logs"
+    transform {
+      flow      = "_flow"
+      timestamp = "now()"
+    }
+  }
+}
+
+# Handle timeouts differently
+aspect "timeout_handler" {
+  when = "on_error"
+  on   = ["*"]
+  if   = "error.type == 'timeout'"
+
+  action {
+    connector = "slack_alerts"
+    transform {
+      text = "':hourglass: Timeout in ' + _flow + ' — check external service health'"
+    }
+  }
+}
+```

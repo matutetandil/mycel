@@ -2,6 +2,7 @@ package aspect
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -10,6 +11,10 @@ import (
 
 	"github.com/matutetandil/mycel/internal/circuitbreaker"
 	"github.com/matutetandil/mycel/internal/connector"
+	gqlconn "github.com/matutetandil/mycel/internal/connector/graphql"
+	httpconn "github.com/matutetandil/mycel/internal/connector/http"
+	"github.com/matutetandil/mycel/internal/flow"
+	myerrors "github.com/matutetandil/mycel/pkg/errors"
 	"github.com/matutetandil/mycel/internal/ratelimit"
 	"github.com/matutetandil/mycel/internal/transform"
 )
@@ -222,6 +227,9 @@ func (e *Executor) executeAfter(ctx context.Context, aspects []*Config, input ma
 
 // executeOnError executes all on_error aspects when a flow fails.
 func (e *Executor) executeOnError(ctx context.Context, aspects []*Config, input map[string]interface{}, result *connector.Result, flowErr error) error {
+	// Build structured error info once for all aspects
+	errorInfo := buildErrorInfo(flowErr)
+
 	for _, aspect := range aspects {
 		// Check condition (error is always available for on_error aspects)
 		if !e.evaluateCondition(ctx, aspect, input, result, flowErr) {
@@ -240,9 +248,7 @@ func (e *Executor) executeOnError(ctx context.Context, aspects []*Config, input 
 			for k, v := range input {
 				errorInput[k] = v
 			}
-			errorInput["error"] = map[string]interface{}{
-				"message": flowErr.Error(),
-			}
+			errorInput["error"] = errorInfo
 
 			if err := e.executeAction(ctx, aspect.Action, errorInput, result); err != nil {
 				slog.Warn("on_error aspect action error",
@@ -253,6 +259,72 @@ func (e *Executor) executeOnError(ctx context.Context, aspects []*Config, input 
 	}
 
 	return nil
+}
+
+// buildErrorInfo extracts structured error information from an error.
+// Returns a map with: message (string), code (int), type (string).
+func buildErrorInfo(err error) map[string]interface{} {
+	info := map[string]interface{}{
+		"message": err.Error(),
+		"code":    int64(0),
+		"type":    "unknown",
+	}
+
+	// Check for HTTP errors (from HTTP client connector)
+	var httpErr *httpconn.HTTPError
+	if errors.As(err, &httpErr) {
+		info["code"] = int64(httpErr.StatusCode)
+		info["type"] = "http"
+		info["body"] = httpErr.Body
+		return info
+	}
+
+	// Check for GraphQL HTTP errors
+	var gqlErr *gqlconn.HTTPError
+	if errors.As(err, &gqlErr) {
+		info["code"] = int64(gqlErr.StatusCode)
+		info["type"] = "http"
+		info["body"] = gqlErr.Body
+		return info
+	}
+
+	// Check for FlowError (from error_response block)
+	var flowErr *flow.FlowError
+	if errors.As(err, &flowErr) {
+		info["code"] = int64(flowErr.Status)
+		info["type"] = "flow"
+		if flowErr.Err != nil {
+			info["message"] = flowErr.Err.Error()
+		}
+		return info
+	}
+
+	// Check for validation errors
+	var valErr *myerrors.ValidationError
+	if errors.As(err, &valErr) {
+		info["code"] = int64(400)
+		info["type"] = "validation"
+		return info
+	}
+
+	// Heuristic: check for common error patterns in the message
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "not found"):
+		info["code"] = int64(404)
+		info["type"] = "not_found"
+	case strings.Contains(msg, "connection refused") || strings.Contains(msg, "connection reset"):
+		info["code"] = int64(503)
+		info["type"] = "connection"
+	case strings.Contains(msg, "timeout") || strings.Contains(msg, "timed out"):
+		info["code"] = int64(504)
+		info["type"] = "timeout"
+	case strings.Contains(msg, "permission denied") || strings.Contains(msg, "unauthorized"):
+		info["code"] = int64(403)
+		info["type"] = "auth"
+	}
+
+	return info
 }
 
 // evaluateCondition evaluates the aspect's if condition.
@@ -282,11 +354,15 @@ func (e *Executor) evaluateCondition(ctx context.Context, aspect *Config, input 
 		evalInput["result"] = map[string]interface{}{}
 	}
 
-	// Add error if available
+	// Add error if available (structured object with code, message, type)
 	if flowErr != nil {
-		evalInput["error"] = flowErr.Error()
+		evalInput["error"] = buildErrorInfo(flowErr)
 	} else {
-		evalInput["error"] = ""
+		evalInput["error"] = map[string]interface{}{
+			"message": "",
+			"code":    int64(0),
+			"type":    "",
+		}
 	}
 
 	// Add flow metadata (from enriched input)

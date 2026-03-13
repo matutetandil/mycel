@@ -1003,6 +1003,48 @@ aspect "NAME" {
 }
 ```
 
+### on_error variables
+
+In `on_error` aspects, the `error` variable is a structured object:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `error.message` | string | The error message |
+| `error.code` | int | HTTP status code (e.g., 404, 500) or 0 if unknown |
+| `error.type` | string | Error category (see below) |
+
+Error types: `http` (from HTTP/GraphQL client), `flow` (from error_response block), `validation` (input validation failed), `not_found`, `timeout`, `connection`, `auth`, `unknown`.
+
+```hcl
+# Route errors by status code
+aspect "alert_5xx" {
+  when = "on_error"
+  on   = ["*"]
+  if   = "error.code >= 500"
+
+  action {
+    connector = "slack"
+    transform {
+      text = "':rotating_light: ' + _flow + ' failed (' + string(error.code) + '): ' + error.message"
+    }
+  }
+}
+
+# Route errors by type
+aspect "handle_timeouts" {
+  when = "on_error"
+  on   = ["*"]
+  if   = "error.type == 'timeout'"
+
+  action {
+    connector = "slack"
+    transform {
+      text = "':hourglass: Timeout in ' + _flow"
+    }
+  }
+}
+```
+
 ---
 
 ## security

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.12.1] - 2026-03-12
 
+### Added
+- **Structured error object in on_error aspects**: The `error` variable in `on_error` aspects is now a structured object with `error.code` (int, HTTP status code), `error.message` (string), and `error.type` (string: `http`, `flow`, `validation`, `not_found`, `timeout`, `connection`, `auth`, `unknown`). Enables routing errors to different actions based on status code or error type (e.g., `if = "error.code == 404"` or `if = "error.type == 'timeout'"`)
+
 ### Changed
 - **Aspects target flow names instead of file paths**: `on` patterns in aspects now match against flow names using `filepath.Match` glob syntax (e.g., `create_*`, `*_user`). File path matching removed entirely — aspects are now decoupled from filesystem layout
 - **Unique name validation per type**: Parser now enforces unique names within each configuration type (connector, flow, type, transform, aspect, validator). Duplicate names produce clear errors with file locations: `duplicate flow name "create_user": defined in flows/api.hcl and flows/users.hcl`
