@@ -776,6 +776,89 @@ The rate limit applies globally. Clients exceeding 10 req/s get a 429 response. 
 
 ---
 
+## 11. Flow orchestration via aspects
+
+Chain flows together using aspects. An internal flow (no `from` block) handles welcome emails, triggered automatically after user creation.
+
+### connectors.hcl
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type   = "database"
+  driver = "sqlite"
+  dsn    = "./users.db"
+}
+
+connector "mailer" {
+  type     = "email"
+  host     = env("SMTP_HOST")
+  port     = 587
+  username = env("SMTP_USER")
+  password = env("SMTP_PASSWORD")
+  from     = "noreply@example.com"
+  tls      = true
+}
+```
+
+### flows.hcl
+
+```hcl
+flow "create_user" {
+  from {
+    connector = "api"
+    operation = "POST /users"
+  }
+  to {
+    connector = "db"
+    operation = "INSERT users"
+  }
+}
+
+# Internal flow — no "from" block, only invocable from aspects
+flow "send_welcome_email" {
+  transform {
+    to      = "input.email"
+    subject = "'Welcome, ' + input.name + '!'"
+    body    = "'Hello ' + input.name + ', your account is ready.'"
+  }
+  to {
+    connector = "mailer"
+    operation = "send"
+  }
+}
+```
+
+### aspects.hcl
+
+```hcl
+aspect "welcome_email" {
+  when = "after"
+  on   = ["create_user"]
+
+  action {
+    flow = "send_welcome_email"
+    transform {
+      email = "input.email"
+      name  = "input.name"
+    }
+  }
+}
+```
+
+### How it works
+
+1. `POST /users` creates a user in the database via `create_user`
+2. The `welcome_email` aspect matches the flow name and fires after success
+3. The aspect's transform builds the input for `send_welcome_email`
+4. The internal flow sends the email — if it fails, the user creation still succeeds (soft failure)
+
+---
+
 ## See Also
 
 - [Integration Patterns](../advanced/integration-patterns.md) -- advanced patterns (GraphQL, gRPC, message queues)

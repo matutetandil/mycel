@@ -990,7 +990,7 @@ aspect "NAME" {
   condition = "result.status == 'ok'"  # Optional CEL condition
 
   action {
-    connector = "audit_db"
+    connector = "audit_db"          # Target connector (mutually exclusive with "flow")
     operation = "INSERT audit_logs"
 
     transform {
@@ -1002,6 +1002,26 @@ aspect "NAME" {
   }
 }
 ```
+
+### Flow invocation from aspects
+
+Actions can invoke flows instead of writing to connectors. Use `flow` instead of `connector`:
+
+```hcl
+aspect "trigger_notification" {
+  when = "after"
+  on   = ["create_*"]
+
+  action {
+    flow = "send_notification"       # Invokes flow by name
+    transform {
+      message = "'New item created in ' + _flow"
+    }
+  }
+}
+```
+
+`connector` and `flow` are mutually exclusive in an action block. The invoked flow receives the transform output as its input. Errors in the invoked flow are logged as warnings — they do not fail the main flow.
 
 ### on_error variables
 

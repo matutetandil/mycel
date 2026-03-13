@@ -276,6 +276,32 @@ In aspect action transforms:
 | `error.code` | HTTP status code, e.g. 404, 500 (on_error) |
 | `error.type` | Error category: `http`, `timeout`, `connection`, `validation`, `not_found`, `auth`, `flow`, `unknown` (on_error) |
 
+### Flow Invocation
+
+Aspect actions can invoke flows directly instead of writing to connectors. Use `flow` instead of `connector` in the action block:
+
+```hcl
+aspect "notify_on_create" {
+  when = "after"
+  on   = ["create_*"]
+
+  action {
+    flow = "send_notification"
+    transform {
+      message = "'Created: ' + _flow"
+      user_id = "input.user_id"
+    }
+  }
+}
+```
+
+The invoked flow receives the transform output as its input. This is useful for:
+- **Flow orchestration** — chain flows through aspects without coupling them directly
+- **Internal flows** — flows without a `from` block that are only invocable from aspects
+- **Error handling** — invoke recovery flows on failure
+
+`connector` and `flow` are mutually exclusive in an action block.
+
 ### Pattern Matching
 
 The `on` attribute accepts glob patterns matching flow names:

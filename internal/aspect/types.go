@@ -55,9 +55,14 @@ type Config struct {
 }
 
 // ActionConfig defines an action to perform.
+// Either Connector or Flow must be set, but not both.
 type ActionConfig struct {
-	// Connector is the target connector name.
+	// Connector is the target connector name (mutually exclusive with Flow).
 	Connector string
+
+	// Flow is the target flow name to invoke (mutually exclusive with Connector).
+	// The invoked flow receives the transform output as input.
+	Flow string
 
 	// Operation is the operation to perform (e.g., "POST /audit").
 	Operation string

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.3] - 2026-03-13
+
+### Added
+- **Flow invocation from aspects**: Aspect actions can now invoke flows directly using `action { flow = "flow_name" }` instead of only writing to connectors. The `connector` and `flow` attributes are mutually exclusive. The invoked flow receives the transform output as its input. Errors in invoked flows are soft failures (warning log, main flow unaffected)
+- **Internal flows**: Flows without a `from` block can now serve as reusable building blocks, invocable only from aspects. Enables flow orchestration and composition through the AOP system
+- **`FlowInvoker` interface** (`internal/aspect/executor.go`): Decoupled interface for flow invocation from aspect executor. `FlowRegistry` implements it via `InvokeFlow` method
+- Use case example #11: flow orchestration via aspects (welcome email pattern)
+
 ## [1.12.2] - 2026-03-13
 
 ### Added

@@ -621,6 +621,175 @@ func TestBuildErrorInfo(t *testing.T) {
 	}
 }
 
+// mockFlowInvoker implements FlowInvoker for testing.
+type mockFlowInvoker struct {
+	invocations []struct {
+		FlowName string
+		Input    map[string]interface{}
+	}
+	err error
+}
+
+func (m *mockFlowInvoker) InvokeFlow(ctx context.Context, flowName string, input map[string]interface{}) (interface{}, error) {
+	m.invocations = append(m.invocations, struct {
+		FlowName string
+		Input    map[string]interface{}
+	}{FlowName: flowName, Input: input})
+	if m.err != nil {
+		return nil, m.err
+	}
+	return map[string]interface{}{"ok": true}, nil
+}
+
+func TestExecutor_FlowAction(t *testing.T) {
+	registry := NewRegistry()
+
+	// Register an after aspect that invokes a flow
+	registry.Register(&Config{
+		Name: "notify_flow",
+		On:   []string{"create_*"},
+		When: After,
+		Action: &ActionConfig{
+			Flow: "send_notification",
+			Transform: map[string]string{
+				"message": "'User created: ' + input.name",
+			},
+		},
+	})
+
+	connRegistry := connector.NewRegistry()
+	executor, err := NewExecutor(registry, connRegistry)
+	if err != nil {
+		t.Fatalf("failed to create executor: %v", err)
+	}
+
+	// Set up mock flow invoker
+	invoker := &mockFlowInvoker{}
+	executor.SetFlowInvoker(invoker)
+
+	// Execute flow
+	flowFn := func(ctx context.Context, input map[string]interface{}) (*connector.Result, error) {
+		return &connector.Result{Rows: []map[string]interface{}{{"id": 1}}}, nil
+	}
+
+	_, err = executor.Execute(
+		context.Background(),
+		"create_user",
+		"POST /users",
+		"users",
+		map[string]interface{}{"name": "Alice"},
+		flowFn,
+	)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Verify flow was invoked
+	if len(invoker.invocations) != 1 {
+		t.Fatalf("expected 1 flow invocation, got %d", len(invoker.invocations))
+	}
+	if invoker.invocations[0].FlowName != "send_notification" {
+		t.Errorf("expected flow 'send_notification', got %q", invoker.invocations[0].FlowName)
+	}
+	msg, ok := invoker.invocations[0].Input["message"].(string)
+	if !ok || msg != "User created: Alice" {
+		t.Errorf("expected transformed message, got %v", invoker.invocations[0].Input["message"])
+	}
+}
+
+func TestExecutor_FlowAction_ErrorIsSoftFailure(t *testing.T) {
+	registry := NewRegistry()
+
+	registry.Register(&Config{
+		Name: "broken_flow",
+		On:   []string{"*"},
+		When: After,
+		Action: &ActionConfig{
+			Flow: "failing_flow",
+		},
+	})
+
+	connRegistry := connector.NewRegistry()
+	executor, _ := NewExecutor(registry, connRegistry)
+
+	// Flow invoker that returns an error
+	invoker := &mockFlowInvoker{err: fmt.Errorf("flow failed")}
+	executor.SetFlowInvoker(invoker)
+
+	flowFn := func(ctx context.Context, input map[string]interface{}) (*connector.Result, error) {
+		return &connector.Result{Rows: []map[string]interface{}{{"id": 1}}}, nil
+	}
+
+	// Main flow should still succeed (after aspect errors are soft failures)
+	result, err := executor.Execute(
+		context.Background(),
+		"create_user",
+		"POST /users",
+		"users",
+		map[string]interface{}{"name": "test"},
+		flowFn,
+	)
+	if err != nil {
+		t.Errorf("expected main flow to succeed despite aspect flow error, got: %v", err)
+	}
+	if result == nil {
+		t.Error("expected result, got nil")
+	}
+}
+
+func TestExecutor_FlowAction_OnError(t *testing.T) {
+	registry := NewRegistry()
+
+	// Register on_error aspect that invokes a flow (no transform — just invoke)
+	registry.Register(&Config{
+		Name: "error_handler_flow",
+		On:   []string{"*"},
+		When: OnError,
+		Action: &ActionConfig{
+			Flow: "handle_error",
+			Transform: map[string]string{
+				"flow_name": "_flow",
+			},
+		},
+	})
+
+	connRegistry := connector.NewRegistry()
+	executor, _ := NewExecutor(registry, connRegistry)
+
+	invoker := &mockFlowInvoker{}
+	executor.SetFlowInvoker(invoker)
+
+	// Flow that fails
+	flowFn := func(ctx context.Context, input map[string]interface{}) (*connector.Result, error) {
+		return nil, fmt.Errorf("database connection refused")
+	}
+
+	_, flowErr := executor.Execute(
+		context.Background(),
+		"create_user",
+		"POST /users",
+		"users",
+		map[string]interface{}{"name": "test"},
+		flowFn,
+	)
+
+	// Original error should still be returned
+	if flowErr == nil {
+		t.Error("expected flow error to be preserved")
+	}
+
+	// Verify the error handler flow was invoked
+	if len(invoker.invocations) != 1 {
+		t.Fatalf("expected 1 flow invocation, got %d", len(invoker.invocations))
+	}
+	if invoker.invocations[0].FlowName != "handle_error" {
+		t.Errorf("expected flow 'handle_error', got %q", invoker.invocations[0].FlowName)
+	}
+	if invoker.invocations[0].Input["flow_name"] != "create_user" {
+		t.Errorf("expected flow_name 'create_user', got %v", invoker.invocations[0].Input["flow_name"])
+	}
+}
+
 func TestRegistry_MatchFlowNamePatterns(t *testing.T) {
 	registry := NewRegistry()
 

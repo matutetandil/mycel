@@ -620,6 +620,11 @@ func (r *Runtime) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to register flows: %w", err)
 	}
 
+	// Wire flow invoker into aspect executor (allows aspects to invoke flows)
+	if r.aspectExecutor != nil {
+		r.aspectExecutor.SetFlowInvoker(r.flows)
+	}
+
 	// Register sagas
 	if err := r.registerSagas(); err != nil {
 		banner.PrintError(err.Error())
@@ -752,6 +757,11 @@ func (r *Runtime) InitForTrace(ctx context.Context) error {
 	// Register flows
 	if err := r.registerFlows(); err != nil {
 		return fmt.Errorf("failed to register flows: %w", err)
+	}
+
+	// Wire flow invoker into aspect executor
+	if r.aspectExecutor != nil {
+		r.aspectExecutor.SetFlowInvoker(r.flows)
 	}
 
 	return nil
@@ -1962,6 +1972,11 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 	if err := r.registerFlows(); err != nil {
 		r.config = oldConfig
 		return fmt.Errorf("failed to register flows: %w", err)
+	}
+
+	// Wire flow invoker into aspect executor
+	if r.aspectExecutor != nil {
+		r.aspectExecutor.SetFlowInvoker(r.flows)
 	}
 
 	// Note: We don't restart HTTP servers here because they're already running

@@ -54,6 +54,16 @@ func (r *FlowRegistry) Get(name string) (*FlowHandler, bool) {
 	return h, ok
 }
 
+// InvokeFlow executes a flow by name with the given input.
+// Implements aspect.FlowInvoker interface.
+func (r *FlowRegistry) InvokeFlow(ctx context.Context, flowName string, input map[string]interface{}) (interface{}, error) {
+	handler, ok := r.Get(flowName)
+	if !ok {
+		return nil, fmt.Errorf("flow %q not found", flowName)
+	}
+	return handler.HandleRequest(ctx, input)
+}
+
 // List returns all registered flow names.
 func (r *FlowRegistry) List() []string {
 	r.mu.RLock()

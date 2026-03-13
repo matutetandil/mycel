@@ -129,6 +129,7 @@ func parseAspectActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Act
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "connector"},
+			{Name: "flow"},
 			{Name: "operation"},
 			{Name: "target"},
 		},
@@ -150,6 +151,22 @@ func parseAspectActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Act
 			return nil, fmt.Errorf("action 'connector' error: %s", diags.Error())
 		}
 		action.Connector = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["flow"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("action 'flow' error: %s", diags.Error())
+		}
+		action.Flow = val.AsString()
+	}
+
+	// Validate mutual exclusivity: connector XOR flow
+	if action.Connector != "" && action.Flow != "" {
+		return nil, fmt.Errorf("aspect action: 'connector' and 'flow' are mutually exclusive")
+	}
+	if action.Connector == "" && action.Flow == "" {
+		return nil, fmt.Errorf("aspect action: either 'connector' or 'flow' must be specified")
 	}
 
 	if attr, ok := content.Attributes["operation"]; ok {

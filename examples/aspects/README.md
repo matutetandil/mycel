@@ -176,6 +176,41 @@ In aspect expressions (`if`, `transform`):
 - `_target` - Target table/collection
 - `_timestamp` - Request timestamp
 
+## Flow Invocation from Aspects
+
+Aspect actions can invoke flows directly instead of writing to connectors. Use `flow` instead of `connector`:
+
+```hcl
+# Internal flow (no "from" block — only invocable from aspects)
+flow "send_welcome_email" {
+  transform {
+    to      = "input.email"
+    subject = "'Welcome, ' + input.name + '!'"
+    body    = "'Your account is ready.'"
+  }
+  to {
+    connector = "mailer"
+    operation = "send"
+  }
+}
+
+# Aspect that invokes the flow after user creation
+aspect "welcome_email" {
+  when = "after"
+  on   = ["create_user"]
+
+  action {
+    flow = "send_welcome_email"
+    transform {
+      email = "input.email"
+      name  = "input.name"
+    }
+  }
+}
+```
+
+`connector` and `flow` are mutually exclusive — each action uses one or the other.
+
 ## Error-Based Routing
 
 Use `if` with `error.code` or `error.type` to route errors to different actions:

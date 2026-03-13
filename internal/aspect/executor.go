@@ -22,11 +22,18 @@ import (
 // FlowFunc is a function that executes a flow and returns the result.
 type FlowFunc func(ctx context.Context, input map[string]interface{}) (*connector.Result, error)
 
+// FlowInvoker allows the aspect executor to invoke flows by name.
+type FlowInvoker interface {
+	// InvokeFlow executes a flow by name with the given input.
+	InvokeFlow(ctx context.Context, flowName string, input map[string]interface{}) (interface{}, error)
+}
+
 // Executor executes aspects around flows.
 type Executor struct {
 	registry   *Registry
 	cel        *transform.CELTransformer
 	connectors *connector.Registry
+	flows      FlowInvoker
 
 	// Rate limiters by config key (rps:burst)
 	rateLimiters   map[string]*ratelimit.Limiter
@@ -51,6 +58,12 @@ func NewExecutor(registry *Registry, connectors *connector.Registry) (*Executor,
 		rateLimiters:    make(map[string]*ratelimit.Limiter),
 		circuitBreakers: make(map[string]*circuitbreaker.Breaker),
 	}, nil
+}
+
+// SetFlowInvoker sets the flow invoker for executing flows from aspect actions.
+// Called after the flow registry is populated (avoids circular dependency).
+func (e *Executor) SetFlowInvoker(invoker FlowInvoker) {
+	e.flows = invoker
 }
 
 // Execute executes a flow with all matching aspects applied.
@@ -418,14 +431,8 @@ func getIntValue(m map[string]interface{}, key string) int64 {
 	return 0
 }
 
-// executeAction executes an aspect action.
+// executeAction executes an aspect action (connector write or flow invocation).
 func (e *Executor) executeAction(ctx context.Context, action *ActionConfig, input map[string]interface{}, result *connector.Result) error {
-	// Get connector
-	conn, err := e.connectors.Get(action.Connector)
-	if err != nil {
-		return fmt.Errorf("connector %s not found: %w", action.Connector, err)
-	}
-
 	// Build data from transform
 	data := make(map[string]interface{})
 
@@ -450,6 +457,38 @@ func (e *Executor) executeAction(ctx context.Context, action *ActionConfig, inpu
 			}
 			data[field] = val
 		}
+	}
+
+	// Route to flow or connector
+	if action.Flow != "" {
+		return e.executeFlowAction(ctx, action.Flow, data)
+	}
+
+	return e.executeConnectorAction(ctx, action, data)
+}
+
+// executeFlowAction invokes a flow by name with the transformed data as input.
+func (e *Executor) executeFlowAction(ctx context.Context, flowName string, data map[string]interface{}) error {
+	if e.flows == nil {
+		return fmt.Errorf("flow invocation not available (no flow invoker configured)")
+	}
+
+	slog.Debug("aspect invoking flow", "flow", flowName)
+
+	_, err := e.flows.InvokeFlow(ctx, flowName, data)
+	if err != nil {
+		return fmt.Errorf("flow %s invocation error: %w", flowName, err)
+	}
+
+	return nil
+}
+
+// executeConnectorAction writes data to a connector.
+func (e *Executor) executeConnectorAction(ctx context.Context, action *ActionConfig, data map[string]interface{}) error {
+	// Get connector
+	conn, err := e.connectors.Get(action.Connector)
+	if err != nil {
+		return fmt.Errorf("connector %s not found: %w", action.Connector, err)
 	}
 
 	// Write to connector
