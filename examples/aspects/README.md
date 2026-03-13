@@ -21,20 +21,20 @@ Aspects are reusable behaviors that can be automatically applied to multiple flo
 
 ## Pattern Matching
 
-Aspects use glob patterns to match flow files:
+Aspects use glob patterns to match flow names:
 
 ```hcl
 aspect "audit_writes" {
-  on = ["**/create_*.hcl", "**/update_*.hcl", "**/delete_*.hcl"]
+  on = ["create_*", "update_*", "delete_*"]
   # ...
 }
 ```
 
 Common patterns:
-- `**/*.hcl` - All flows
-- `**/users/*.hcl` - All flows in users directory
-- `**/create_*.hcl` - All create operations
-- `flows/products/*.hcl` - Specific directory
+- `*` - All flows
+- `create_*` - All create operations
+- `*_user` - All operations ending with _user
+- `get_product*` - All flows starting with get_product
 
 ## Running this Example
 
@@ -67,7 +67,7 @@ sqlite3 audit_logs.db "SELECT * FROM audit_logs"
 
 ```hcl
 aspect "audit_log" {
-  on   = ["**/create_*.hcl"]
+  on   = ["create_*"]
   when = "after"
   if   = "result.affected > 0"  # Conditional execution
 
@@ -86,7 +86,7 @@ aspect "audit_log" {
 
 ```hcl
 aspect "cache_reads" {
-  on   = ["**/get_*.hcl"]
+  on   = ["get_*"]
   when = "around"
 
   cache {
@@ -101,7 +101,7 @@ aspect "cache_reads" {
 
 ```hcl
 aspect "invalidate_cache" {
-  on   = ["**/update_*.hcl"]
+  on   = ["update_*"]
   when = "after"
 
   invalidate {
@@ -116,7 +116,7 @@ aspect "invalidate_cache" {
 
 ```hcl
 aspect "rate_limit" {
-  on   = ["**/*.hcl"]
+  on   = ["*"]
   when = "before"
 
   rate_limit {
@@ -131,7 +131,7 @@ aspect "rate_limit" {
 
 ```hcl
 aspect "circuit_breaker" {
-  on   = ["**/external/*.hcl"]
+  on   = ["external_*"]
   when = "around"
 
   circuit_breaker {
@@ -149,13 +149,13 @@ Aspects can have priority for execution order (lower = first):
 
 ```hcl
 aspect "auth_check" {
-  on       = ["**/*.hcl"]
+  on       = ["*"]
   when     = "before"
   priority = 1  # Runs first
 }
 
 aspect "logging" {
-  on       = ["**/*.hcl"]
+  on       = ["*"]
   when     = "before"
   priority = 10  # Runs second
 }

@@ -203,7 +203,7 @@ aspect "notify_on_error" {
 }
 ```
 
-This sends a Slack message whenever any flow in `flows/api/` fails.
+This sends a Slack message whenever any flow matching `api_*` fails.
 
 ## Configurable API URLs
 
