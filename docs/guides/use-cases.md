@@ -1243,6 +1243,620 @@ aspect "remove_from_search" {
 
 ---
 
+## 15. Queue consumer to database
+
+Process messages from RabbitMQ and store them in PostgreSQL. One of the most common microservice patterns — zero code required.
+
+### connectors.hcl
+
+```hcl
+connector "rabbit" {
+  type   = "queue"
+  driver = "rabbitmq"
+  url    = env("RABBITMQ_URL")
+}
+
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  dsn    = env("DATABASE_URL")
+}
+```
+
+### flows.hcl
+
+```hcl
+# Consume order events and persist them
+flow "process_order_event" {
+  from {
+    connector = "rabbit"
+    operation = "orders.created"
+  }
+
+  transform {
+    order_id   = "input.order_id"
+    customer   = "input.customer_name"
+    total      = "input.total_amount"
+    status     = "'pending'"
+    created_at = "now()"
+  }
+
+  to {
+    connector = "db"
+    operation = "INSERT orders"
+  }
+}
+
+# Consume payment confirmations and update orders
+flow "process_payment" {
+  from {
+    connector = "rabbit"
+    operation = "payments.confirmed"
+  }
+
+  to {
+    connector = "db"
+    operation = "UPDATE orders"
+    filter    = "id = input.order_id"
+  }
+}
+```
+
+### How it works
+
+1. Mycel subscribes to `orders.created` and `payments.confirmed` queues on startup
+2. Each message is transformed and written to PostgreSQL
+3. If the database write fails, the message is nacked (RabbitMQ requeues it)
+4. No HTTP server involved — this is a pure consumer service
+
+---
+
+## 16. Scheduled jobs (cron)
+
+Run flows on a schedule. Clean up old data, generate reports, or ping health endpoints — all via HCL configuration.
+
+### connectors.hcl
+
+```hcl
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  dsn    = env("DATABASE_URL")
+}
+
+connector "slack_alerts" {
+  type  = "slack"
+  token = env("SLACK_BOT_TOKEN")
+}
+```
+
+### flows.hcl
+
+```hcl
+# Clean up expired sessions every hour
+flow "cleanup_sessions" {
+  when = "@every 1h"
+
+  to {
+    connector = "db"
+    operation = "DELETE sessions"
+    filter    = "expires_at < now()"
+  }
+}
+
+# Daily report at 9:00 AM
+flow "daily_order_summary" {
+  when = "0 9 * * *"
+
+  step "count" {
+    connector = "db"
+    query     = "SELECT count(*) as total, sum(amount) as revenue FROM orders WHERE created_at > now() - interval '1 day'"
+  }
+
+  to {
+    connector = "slack_alerts"
+    operation = "chat.postMessage"
+  }
+
+  transform {
+    channel = "'#reports'"
+    text    = "':bar_chart: Daily summary — ' + string(step.count.total) + ' orders, $' + string(step.count.revenue) + ' revenue'"
+  }
+}
+
+# Heartbeat every 5 minutes
+flow "health_ping" {
+  when = "@every 5m"
+
+  transform {
+    service    = "'order-service'"
+    status     = "'alive'"
+    checked_at = "now()"
+  }
+
+  to {
+    connector = "db"
+    operation = "INSERT heartbeats"
+  }
+}
+```
+
+### How it works
+
+1. Scheduled flows have no `from` block — the `when` attribute defines the trigger
+2. Cron expressions use standard 5-field format (`minute hour day month weekday`)
+3. Interval format `@every <duration>` supports Go durations (`5m`, `1h`, `30s`)
+4. Shortcuts available: `@hourly`, `@daily`, `@weekly`, `@monthly`
+5. Scheduled flows can use steps, transforms, and aspects like any other flow
+
+---
+
+## 17. API aggregation (BFF pattern)
+
+Combine data from multiple sources into a single API response using multi-step flows. Perfect for Backend-for-Frontend patterns.
+
+### connectors.hcl
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  dsn    = env("DATABASE_URL")
+}
+
+connector "inventory_api" {
+  type    = "http"
+  base_url = env("INVENTORY_SERVICE_URL")
+}
+
+connector "reviews_api" {
+  type    = "http"
+  base_url = env("REVIEWS_SERVICE_URL")
+}
+```
+
+### flows.hcl
+
+```hcl
+flow "get_product_detail" {
+  from {
+    connector = "api"
+    operation = "GET /products/:id"
+  }
+
+  # Step 1: Get product from database
+  step "product" {
+    connector = "db"
+    query     = "SELECT * FROM products WHERE id = :id"
+    params    = { id = "input.params.id" }
+  }
+
+  # Step 2: Get inventory from external service
+  step "inventory" {
+    connector = "inventory_api"
+    operation = "GET /stock/${step.product.sku}"
+    timeout   = "3s"
+    on_error  = "default"
+    default   = { available = 0, warehouse = "unknown" }
+  }
+
+  # Step 3: Get reviews (optional, skip on error)
+  step "reviews" {
+    connector = "reviews_api"
+    operation = "GET /reviews?product_id=${step.product.id}"
+    timeout   = "2s"
+    on_error  = "skip"
+    default   = []
+  }
+
+  # Combine everything into one response
+  response {
+    id          = "step.product.id"
+    name        = "step.product.name"
+    price       = "step.product.price"
+    description = "step.product.description"
+    stock       = "step.inventory.available"
+    warehouse   = "step.inventory.warehouse"
+    reviews     = "step.reviews"
+    review_count = "size(step.reviews)"
+  }
+}
+```
+
+### How it works
+
+1. A single `GET /products/:id` request triggers 3 parallel-safe steps
+2. `product` step fetches from the local database (required — fails the flow if missing)
+3. `inventory` step calls an external service with a 3s timeout — returns defaults if unavailable
+4. `reviews` step is fully optional — skipped on error with empty array default
+5. The `response` block combines all step results into one clean JSON response
+6. External service failures don't break the API — degraded but functional
+
+---
+
+## 18. CDC pipeline — real-time database sync
+
+React to PostgreSQL changes in real-time using Change Data Capture. Automatically sync data to Elasticsearch and publish events to a message queue.
+
+### connectors.hcl
+
+```hcl
+connector "pg_cdc" {
+  type        = "cdc"
+  driver      = "postgres"
+  host        = env("DB_HOST")
+  port        = 5432
+  database    = env("DB_NAME")
+  user        = env("DB_REPLICATION_USER")
+  password    = env("DB_REPLICATION_PASSWORD")
+  slot_name   = "mycel_products_slot"
+  publication = "mycel_products_pub"
+}
+
+connector "search" {
+  type = "elasticsearch"
+  urls = [env("ELASTICSEARCH_URL")]
+}
+
+connector "rabbit" {
+  type   = "queue"
+  driver = "rabbitmq"
+  url    = env("RABBITMQ_URL")
+}
+```
+
+### flows.hcl
+
+```hcl
+# Sync new products to search index
+flow "cdc_product_created" {
+  from {
+    connector = "pg_cdc"
+    operation = "INSERT:products"
+  }
+
+  transform {
+    id          = "input.new.id"
+    name        = "input.new.name"
+    description = "input.new.description"
+    price       = "input.new.price"
+    category    = "input.new.category"
+  }
+
+  to {
+    connector = "search"
+    operation = "index"
+    target    = "products"
+  }
+}
+
+# Update search index when product changes
+flow "cdc_product_updated" {
+  from {
+    connector = "pg_cdc"
+    operation = "UPDATE:products"
+    filter    = "input.new.name != input.old.name || input.new.price != input.old.price"
+  }
+
+  transform {
+    id          = "input.new.id"
+    name        = "input.new.name"
+    description = "input.new.description"
+    price       = "input.new.price"
+    category    = "input.new.category"
+  }
+
+  to {
+    connector = "search"
+    operation = "index"
+    target    = "products"
+  }
+}
+
+# Remove from search on delete
+flow "cdc_product_deleted" {
+  from {
+    connector = "pg_cdc"
+    operation = "DELETE:products"
+  }
+
+  to {
+    connector = "search"
+    operation = "delete"
+    target    = "products"
+  }
+}
+
+# Publish all product changes as events
+flow "cdc_product_events" {
+  from {
+    connector = "pg_cdc"
+    operation = "*:products"
+  }
+
+  transform {
+    event     = "'product.' + lower(input.trigger)"
+    table     = "input.table"
+    data      = "input.new"
+    old_data  = "input.old"
+    timestamp = "input.timestamp"
+  }
+
+  to {
+    connector = "rabbit"
+    operation = "PUBLISH"
+    target    = "product.events"
+  }
+}
+```
+
+### How it works
+
+1. The CDC connector listens to PostgreSQL's WAL (Write-Ahead Log) via logical replication
+2. `INSERT:products` fires when a new row is inserted — indexes it in Elasticsearch
+3. `UPDATE:products` fires on changes — the `filter` skips updates that don't affect searchable fields
+4. `DELETE:products` removes the document from the search index
+5. `*:products` catches all changes and publishes them as events to RabbitMQ
+6. CDC variables: `input.new` (new row), `input.old` (old row), `input.trigger` (INSERT/UPDATE/DELETE)
+
+---
+
+## 19. GraphQL API over database
+
+Expose a full GraphQL API (queries + mutations) backed by a database — auto-generated schema from HCL types, no resolvers to write.
+
+### connectors.hcl
+
+```hcl
+connector "api" {
+  type       = "graphql"
+  driver     = "server"
+  port       = 4000
+  endpoint   = "/graphql"
+  playground = true
+}
+
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  dsn    = env("DATABASE_URL")
+}
+```
+
+### types.hcl
+
+```hcl
+type "User" {
+  id    = string { required = false }
+  name  = string
+  email = string { format = "email" }
+  role  = string { enum = ["admin", "user", "viewer"] }
+}
+
+type "Post" {
+  id        = string { required = false }
+  title     = string { min_length = 1, max_length = 200 }
+  body      = string
+  author_id = string
+  published = boolean
+}
+```
+
+### flows.hcl
+
+```hcl
+# Query: fetch all users
+flow "get_users" {
+  from {
+    connector = "api"
+    operation = "Query.users"
+  }
+  to {
+    connector = "db"
+    target    = "users"
+  }
+}
+
+# Query: fetch single user
+flow "get_user" {
+  from {
+    connector = "api"
+    operation = "Query.user"
+  }
+  to {
+    connector = "db"
+    target    = "users"
+    filter    = "id = input.id"
+  }
+}
+
+# Mutation: create user
+flow "create_user" {
+  from {
+    connector = "api"
+    operation = "Mutation.createUser"
+  }
+  to {
+    connector = "db"
+    operation = "INSERT users"
+  }
+}
+
+# Query: fetch posts by author
+flow "get_posts" {
+  from {
+    connector = "api"
+    operation = "Query.posts"
+  }
+  to {
+    connector = "db"
+    target    = "posts"
+    filter    = "author_id = input.author_id"
+  }
+}
+
+# Mutation: create post
+flow "create_post" {
+  from {
+    connector = "api"
+    operation = "Mutation.createPost"
+  }
+  to {
+    connector = "db"
+    operation = "INSERT posts"
+  }
+}
+```
+
+### How it works
+
+1. The `graphql` connector with `driver = "server"` exposes a GraphQL endpoint at port 4000
+2. Schema is auto-generated from `type` blocks — `User` and `Post` become GraphQL types
+3. `Query.users` and `Mutation.createUser` map directly to flow operations
+4. GraphiQL playground available at `http://localhost:4000/graphql` for testing
+5. Input types are generated automatically (e.g., `CreateUserInput` from the `User` type)
+6. Field selection optimization: only requested fields are fetched from the database
+
+---
+
+## 20. Circuit breaker on external APIs
+
+Protect your service from cascading failures when external APIs go down. The circuit breaker aspect wraps flows and short-circuits requests when failures exceed the threshold.
+
+### connectors.hcl
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "payment_api" {
+  type     = "http"
+  base_url = env("PAYMENT_SERVICE_URL")
+  timeout  = "5s"
+}
+
+connector "shipping_api" {
+  type     = "http"
+  base_url = env("SHIPPING_SERVICE_URL")
+  timeout  = "5s"
+}
+
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  dsn    = env("DATABASE_URL")
+}
+```
+
+### flows.hcl
+
+```hcl
+flow "charge_payment" {
+  from {
+    connector = "api"
+    operation = "POST /payments"
+  }
+
+  step "charge" {
+    connector = "payment_api"
+    operation = "POST /charge"
+    body {
+      amount   = "input.amount"
+      currency = "input.currency"
+      token    = "input.payment_token"
+    }
+  }
+
+  response {
+    transaction_id = "step.charge.transaction_id"
+    status         = "step.charge.status"
+  }
+}
+
+flow "create_shipment" {
+  from {
+    connector = "api"
+    operation = "POST /shipments"
+  }
+
+  step "ship" {
+    connector = "shipping_api"
+    operation = "POST /shipments"
+    body {
+      order_id = "input.order_id"
+      address  = "input.address"
+    }
+  }
+
+  response {
+    tracking_number = "step.ship.tracking_number"
+    carrier         = "step.ship.carrier"
+  }
+}
+```
+
+### aspects.hcl
+
+```hcl
+# Payment API circuit breaker
+aspect "payment_circuit_breaker" {
+  when = "around"
+  on   = ["charge_payment"]
+
+  circuit_breaker {
+    name              = "payment_api"
+    failure_threshold = 3
+    success_threshold = 2
+    timeout           = "30s"
+  }
+}
+
+# Shipping API circuit breaker
+aspect "shipping_circuit_breaker" {
+  when = "around"
+  on   = ["create_shipment"]
+
+  circuit_breaker {
+    name              = "shipping_api"
+    failure_threshold = 5
+    success_threshold = 2
+    timeout           = "60s"
+  }
+}
+
+# Alert when any circuit opens
+aspect "circuit_alert" {
+  when = "on_error"
+  on   = ["charge_payment", "create_shipment"]
+  if   = "error.type == 'connection' || error.type == 'timeout'"
+
+  action {
+    flow = "notify_slack"
+    transform {
+      message = "':warning: Circuit breaker tripped for ' + _flow + ': ' + error.message"
+    }
+  }
+}
+```
+
+### How it works
+
+1. The `payment_circuit_breaker` wraps `charge_payment` — after 3 consecutive failures, the circuit opens
+2. While open, all requests to `charge_payment` immediately fail with "circuit breaker open" (no external call)
+3. After 30s, the circuit enters half-open state — the next request is a probe
+4. If the probe succeeds twice, the circuit closes and normal operation resumes
+5. The `circuit_alert` aspect sends a Slack message when connection/timeout errors occur
+6. Each external API has its own named circuit breaker — they operate independently
+
+---
+
 ## See Also
 
 - [Integration Patterns](../advanced/integration-patterns.md) -- advanced patterns (GraphQL, gRPC, message queues)
