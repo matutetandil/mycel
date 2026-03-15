@@ -80,7 +80,13 @@ func (c *Connector) Connect(ctx context.Context) error {
 
 // Close stops the cache and cleanup goroutine.
 func (c *Connector) Close(ctx context.Context) error {
-	close(c.stopCh)
+	select {
+	case <-c.stopCh:
+		// Already closed
+		return nil
+	default:
+		close(c.stopCh)
+	}
 	if c.cache != nil {
 		c.cache.Purge()
 	}

@@ -274,6 +274,57 @@ flow "send_welcome_email" {
 }
 ```
 
+### HTML Email Templates
+
+Use the `template_file` attribute to render an HTML file as the email body. The template uses Go `text/template` syntax and receives the full flow payload as its data context.
+
+This is different from `template_id`, which references a provider-side template (e.g., a SendGrid dynamic template). With `template_file`, the rendering happens locally before sending.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `template_file` | string | Path to an HTML template file (Go `text/template` syntax) |
+
+Template variables use `{{.FieldName}}` syntax, where each field corresponds to a key in the transform payload.
+
+#### Example
+
+```hcl
+flow "send_order_confirmation" {
+  from {
+    connector = "api"
+    operation = "POST /orders/:id/confirm"
+  }
+
+  step "order" {
+    connector = "db"
+    query     = "SELECT * FROM orders WHERE id = :id"
+    params    = { id = "input.params.id" }
+  }
+
+  transform {
+    to            = "[{'email': step.order.email, 'name': step.order.customer_name}]"
+    subject       = "'Order #' + step.order.number + ' confirmed'"
+    template_file = "'./templates/order_confirmation.html'"
+    Name          = "step.order.customer_name"
+    OrderNumber   = "step.order.number"
+    Total         = "string(step.order.total)"
+  }
+
+  to {
+    connector = "email_smtp"
+    operation = "send"
+  }
+}
+```
+
+**templates/order_confirmation.html:**
+
+```html
+<h1>Thank you, {{.Name}}!</h1>
+<p>Your order <strong>#{{.OrderNumber}}</strong> has been confirmed.</p>
+<p>Total: ${{.Total}}</p>
+```
+
 ---
 
 ## SMS

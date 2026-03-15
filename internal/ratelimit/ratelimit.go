@@ -36,15 +36,19 @@ type Config struct {
 
 	// EnableHeaders adds rate limit headers to responses.
 	EnableHeaders bool
+
+	// Storage specifies the storage backend: "" (in-memory) or a cache connector name for distributed rate limiting.
+	Storage string
 }
 
 // Limiter implements rate limiting logic.
 type Limiter struct {
-	config   *Config
-	limiters map[string]*clientLimiter
-	mu       sync.RWMutex
-	cleanup  *time.Ticker
-	done     chan struct{}
+	config     *Config
+	limiters   map[string]*clientLimiter
+	mu         sync.RWMutex
+	cleanup    *time.Ticker
+	done       chan struct{}
+	redisStore *RedisStore // optional Redis backend for distributed rate limiting
 }
 
 type clientLimiter struct {
@@ -111,10 +115,28 @@ func (l *Limiter) Middleware(next http.Handler) http.Handler {
 	})
 }
 
+// SetRedisStore sets a Redis store for distributed rate limiting.
+// When set, Allow/AllowKey will use Redis instead of in-memory storage.
+func (l *Limiter) SetRedisStore(store *RedisStore) {
+	l.redisStore = store
+}
+
 // Allow checks if a request with the given key is allowed.
 func (l *Limiter) Allow(key string) bool {
 	if !l.config.Enabled {
 		return true
+	}
+	if l.redisStore != nil {
+		limit := l.config.Burst
+		if limit == 0 {
+			limit = int(l.config.RequestsPerSecond)
+		}
+		allowed, _, err := l.redisStore.Allow(context.Background(), key, limit, time.Second)
+		if err != nil {
+			// Fall back to local limiter on Redis errors
+			return l.getLimiter(key).Allow()
+		}
+		return allowed
 	}
 	return l.getLimiter(key).Allow()
 }

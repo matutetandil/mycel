@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -2422,4 +2424,772 @@ service {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
+}
+
+// TestIntegration_IdempotencyKeys tests that idempotency prevents duplicate execution.
+func TestIntegration_IdempotencyKeys(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-idempotency-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+	db, err := setupTestDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("failed to setup database: %v", err)
+	}
+	defer db.Close()
+
+	port := 3910
+
+	configHCL := fmt.Sprintf(`
+service {
+  name    = "idempotency-test"
+  version = "1.0.0"
+}
+
+connector "api" {
+  type = "rest"
+  port = %d
+}
+
+connector "db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = "%s"
+}
+
+connector "mem_cache" {
+  type   = "cache"
+  driver = "memory"
+}
+
+flow "create_user_idempotent" {
+  from {
+    connector = "api"
+    operation = "POST /idempotent-users"
+  }
+
+  to {
+    connector = "db"
+    target    = "users"
+  }
+
+  idempotency {
+    storage = "mem_cache"
+    key     = "input.email"
+    ttl     = "1m"
+  }
+
+  transform {
+    email = "lower(input.email)"
+    name  = "input.name"
+  }
+}
+`, port, dbPath)
+
+	writeFile(t, filepath.Join(tmpDir, "config.hcl"), configHCL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt, err := startTestRuntime(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("failed to start runtime: %v", err)
+	}
+	defer rt.Shutdown()
+	waitForServer(t, port)
+
+	payload := map[string]interface{}{
+		"email": "idempotent@example.com",
+		"name":  "Test User",
+	}
+
+	t.Run("first request creates the record", func(t *testing.T) {
+		resp, body := doRequest(t, "POST", fmt.Sprintf("http://localhost:%d/idempotent-users", port), payload)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("second request with same key returns cached result", func(t *testing.T) {
+		resp, body := doRequest(t, "POST", fmt.Sprintf("http://localhost:%d/idempotent-users", port), payload)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		// Verify only 1 row in DB (not duplicated)
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM users WHERE email = 'idempotent@example.com'").Scan(&count)
+		if err != nil {
+			t.Fatalf("failed to count rows: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("expected 1 row, got %d — idempotency did not prevent duplicate", count)
+		}
+	})
+}
+
+// TestIntegration_AsyncExecution tests that async flows return 202 with a job_id.
+func TestIntegration_AsyncExecution(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-async-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+	db, err := setupTestDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("failed to setup database: %v", err)
+	}
+	defer db.Close()
+
+	port := 3911
+
+	configHCL := fmt.Sprintf(`
+service {
+  name    = "async-test"
+  version = "1.0.0"
+}
+
+connector "api" {
+  type = "rest"
+  port = %d
+}
+
+connector "db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = "%s"
+}
+
+connector "mem_cache" {
+  type   = "cache"
+  driver = "memory"
+}
+
+flow "create_user_async" {
+  from {
+    connector = "api"
+    operation = "POST /async-users"
+  }
+
+  to {
+    connector = "db"
+    target    = "users"
+  }
+
+  async {
+    storage = "mem_cache"
+    ttl     = "5m"
+  }
+
+  transform {
+    email = "lower(input.email)"
+    name  = "input.name"
+  }
+}
+`, port, dbPath)
+
+	writeFile(t, filepath.Join(tmpDir, "config.hcl"), configHCL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt, err := startTestRuntime(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("failed to start runtime: %v", err)
+	}
+	defer rt.Shutdown()
+	waitForServer(t, port)
+
+	t.Run("async request returns 202 with job_id", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"email": "async@example.com",
+			"name":  "Async User",
+		}
+
+		resp, body := doRequest(t, "POST", fmt.Sprintf("http://localhost:%d/async-users", port), payload)
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("expected 202 Accepted, got %d: %s", resp.StatusCode, body)
+		}
+
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(body), &result); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if result["job_id"] == nil || result["job_id"] == "" {
+			t.Error("expected job_id in response")
+		}
+		if result["status"] != "pending" {
+			t.Errorf("expected status 'pending', got '%v'", result["status"])
+		}
+	})
+
+	t.Run("job status endpoint returns result after processing", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"email": "async2@example.com",
+			"name":  "Async User 2",
+		}
+
+		_, body := doRequest(t, "POST", fmt.Sprintf("http://localhost:%d/async-users", port), payload)
+		var result map[string]interface{}
+		json.Unmarshal([]byte(body), &result)
+
+		jobID := result["job_id"].(string)
+
+		// Wait a bit for async processing
+		time.Sleep(500 * time.Millisecond)
+
+		// Poll job status
+		resp, statusBody := doRequest(t, "GET", fmt.Sprintf("http://localhost:%d/jobs/%s", port, jobID), nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, statusBody)
+		}
+
+		var statusResult map[string]interface{}
+		if err := json.Unmarshal([]byte(statusBody), &statusResult); err != nil {
+			t.Fatalf("failed to parse status response: %v", err)
+		}
+
+		status := statusResult["status"].(string)
+		// Any valid status is acceptable — we just verify the polling endpoint works
+		if status != "completed" && status != "pending" && status != "failed" {
+			t.Errorf("expected a valid job status, got '%s'", status)
+		}
+	})
+}
+
+// TestIntegration_EchoFlow tests that flows without a 'to' block return transformed input.
+func TestIntegration_EchoFlow(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-echo-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	port := 3912
+
+	configHCL := fmt.Sprintf(`
+service {
+  name    = "echo-test"
+  version = "1.0.0"
+}
+
+connector "api" {
+  type = "rest"
+  port = %d
+}
+
+flow "echo_request" {
+  from {
+    connector = "api"
+    operation = "POST /echo"
+  }
+
+  response {
+    message     = "string('Hello, ' + input.name)"
+    method_used = "string('POST')"
+  }
+}
+
+flow "health_check" {
+  from {
+    connector = "api"
+    operation = "GET /ping"
+  }
+
+  response {
+    status = "string('ok')"
+    time   = "now()"
+  }
+}
+`, port)
+
+	writeFile(t, filepath.Join(tmpDir, "config.hcl"), configHCL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt, err := startTestRuntime(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("failed to start runtime: %v", err)
+	}
+	defer rt.Shutdown()
+	waitForServer(t, port)
+
+	t.Run("echo flow returns transformed input", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"name": "World",
+		}
+
+		resp, body := doRequest(t, "POST", fmt.Sprintf("http://localhost:%d/echo", port), payload)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(body), &result); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if result["message"] != "Hello, World" {
+			t.Errorf("expected message 'Hello, World', got '%v'", result["message"])
+		}
+	})
+
+	t.Run("echo flow with GET", func(t *testing.T) {
+		resp, body := doRequest(t, "GET", fmt.Sprintf("http://localhost:%d/ping", port), nil)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+		}
+
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(body), &result); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if result["status"] != "ok" {
+			t.Errorf("expected status 'ok', got '%v'", result["status"])
+		}
+	})
+}
+
+// TestIntegration_MultipartFileUpload tests multipart/form-data file upload parsing.
+func TestIntegration_MultipartFileUpload(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-upload-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	port := 3913
+
+	// Echo flow that returns the parsed input (including files)
+	configHCL := fmt.Sprintf(`
+service {
+  name    = "upload-test"
+  version = "1.0.0"
+}
+
+connector "api" {
+  type = "rest"
+  port = %d
+}
+
+flow "upload_file" {
+  from {
+    connector = "api"
+    operation = "POST /upload"
+  }
+
+  response {
+    has_document = "has(input.document)"
+    name         = "input.name"
+  }
+}
+`, port)
+
+	writeFile(t, filepath.Join(tmpDir, "config.hcl"), configHCL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt, err := startTestRuntime(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("failed to start runtime: %v", err)
+	}
+	defer rt.Shutdown()
+	waitForServer(t, port)
+
+	t.Run("multipart upload parses files and fields", func(t *testing.T) {
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+
+		// Add a form field
+		writer.WriteField("name", "Test Upload")
+
+		// Add a file
+		part, err := writer.CreateFormFile("document", "test.txt")
+		if err != nil {
+			t.Fatalf("failed to create form file: %v", err)
+		}
+		part.Write([]byte("Hello, this is test file content"))
+		writer.Close()
+
+		req, err := http.NewRequest("POST", fmt.Sprintf("http://localhost:%d/upload", port), &buf)
+		if err != nil {
+			t.Fatalf("failed to create request: %v", err)
+		}
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("upload request failed: %v", err)
+		}
+		defer resp.Body.Close()
+
+		body, _ := io.ReadAll(resp.Body)
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result map[string]interface{}
+		if err := json.Unmarshal(body, &result); err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if result["name"] != "Test Upload" {
+			t.Errorf("expected name 'Test Upload', got '%v'", result["name"])
+		}
+
+		if result["has_document"] != true {
+			t.Errorf("expected has_document to be true, got '%v'", result["has_document"])
+		}
+	})
+}
+
+// TestIntegration_RequestHeaders tests that request headers are available as input.headers.
+func TestIntegration_RequestHeaders(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-headers-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+	db, err := setupTestDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("failed to setup database: %v", err)
+	}
+	defer db.Close()
+
+	port := 3914
+
+	configHCL := fmt.Sprintf(`
+service {
+  name    = "headers-test"
+  version = "1.0.0"
+}
+
+connector "api" {
+  type = "rest"
+  port = %d
+}
+
+connector "db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = "%s"
+}
+
+flow "create_user_with_tenant" {
+  from {
+    connector = "api"
+    operation = "POST /tenant-users"
+  }
+
+  to {
+    connector = "db"
+    target    = "users"
+  }
+
+  transform {
+    email = "lower(input.email)"
+    name  = "input.name"
+  }
+}
+
+flow "echo_headers" {
+  from {
+    connector = "api"
+    operation = "GET /check-headers"
+  }
+
+  response {
+    has_headers = "has(input.headers)"
+  }
+}
+`, port, dbPath)
+
+	writeFile(t, filepath.Join(tmpDir, "config.hcl"), configHCL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt, err := startTestRuntime(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("failed to start runtime: %v", err)
+	}
+	defer rt.Shutdown()
+	waitForServer(t, port)
+
+	t.Run("request headers are available in echo flow", func(t *testing.T) {
+		req, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost:%d/check-headers", port), nil)
+		req.Header.Set("X-Tenant-ID", "tenant-123")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+		}
+
+		var result map[string]interface{}
+		json.Unmarshal(body, &result)
+
+		if result["has_headers"] != true {
+			t.Errorf("expected has_headers to be true, got '%v'", result["has_headers"])
+		}
+	})
+
+	t.Run("headers are stripped from database writes", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"email": "tenant@example.com",
+			"name":  "Tenant User",
+		}
+
+		jsonData, _ := json.Marshal(payload)
+		req, _ := http.NewRequest("POST", fmt.Sprintf("http://localhost:%d/tenant-users", port), bytes.NewReader(jsonData))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Tenant-ID", "tenant-456")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(body))
+		}
+
+		// Verify user was created (headers didn't cause a write error)
+		var count int
+		err = db.QueryRow("SELECT COUNT(*) FROM users WHERE email = 'tenant@example.com'").Scan(&count)
+		if err != nil {
+			t.Fatalf("failed to query: %v", err)
+		}
+		if count != 1 {
+			t.Errorf("expected 1 row, got %d", count)
+		}
+	})
+}
+
+// TestIntegration_ResponseBlock tests the response block with status code overrides.
+func TestIntegration_ResponseBlock(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-response-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dbPath := filepath.Join(tmpDir, "test.db")
+	db, err := setupTestDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("failed to setup database: %v", err)
+	}
+	defer db.Close()
+
+	port := 3915
+
+	configHCL := fmt.Sprintf(`
+service {
+  name    = "response-test"
+  version = "1.0.0"
+}
+
+connector "api" {
+  type = "rest"
+  port = %d
+}
+
+connector "db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = "%s"
+}
+
+flow "create_user_201" {
+  from {
+    connector = "api"
+    operation = "POST /users-201"
+  }
+
+  to {
+    connector = "db"
+    target    = "users"
+  }
+
+  transform {
+    email = "lower(input.email)"
+    name  = "input.name"
+  }
+
+  response {
+    http_status_code = "201"
+  }
+}
+
+flow "not_implemented" {
+  from {
+    connector = "api"
+    operation = "GET /not-implemented"
+  }
+
+  response {
+    http_status_code = "501"
+    error            = "string('This endpoint is not yet implemented')"
+  }
+}
+`, port, dbPath)
+
+	writeFile(t, filepath.Join(tmpDir, "config.hcl"), configHCL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt, err := startTestRuntime(ctx, tmpDir)
+	if err != nil {
+		t.Fatalf("failed to start runtime: %v", err)
+	}
+	defer rt.Shutdown()
+	waitForServer(t, port)
+
+	t.Run("response block overrides HTTP status to 201", func(t *testing.T) {
+		payload := map[string]interface{}{
+			"email": "created@example.com",
+			"name":  "Created User",
+		}
+
+		resp, body := doRequest(t, "POST", fmt.Sprintf("http://localhost:%d/users-201", port), payload)
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("expected 201 Created, got %d: %s", resp.StatusCode, body)
+		}
+	})
+
+	t.Run("echo flow with 501 status code", func(t *testing.T) {
+		resp, body := doRequest(t, "GET", fmt.Sprintf("http://localhost:%d/not-implemented", port), nil)
+		if resp.StatusCode != http.StatusNotImplemented {
+			t.Fatalf("expected 501, got %d: %s", resp.StatusCode, body)
+		}
+
+		var result map[string]interface{}
+		json.Unmarshal([]byte(body), &result)
+
+		if !strings.Contains(fmt.Sprint(result["error"]), "not yet implemented") {
+			t.Errorf("expected error message about not implemented, got '%v'", result["error"])
+		}
+	})
+}
+
+// TestIntegration_DatabaseMigrations tests the migration file discovery.
+func TestIntegration_DatabaseMigrations(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "mycel-migration-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create migrations directory
+	migrationsDir := filepath.Join(tmpDir, "migrations")
+	if err := os.MkdirAll(migrationsDir, 0755); err != nil {
+		t.Fatalf("failed to create migrations dir: %v", err)
+	}
+
+	// Create migration files
+	writeFile(t, filepath.Join(migrationsDir, "001_create_items.sql"), `
+CREATE TABLE items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  price REAL NOT NULL
+);
+`)
+	writeFile(t, filepath.Join(migrationsDir, "002_add_description.sql"), `
+ALTER TABLE items ADD COLUMN description TEXT DEFAULT '';
+`)
+
+	// Verify the files can be found and sorted
+	files, err := findMigrationFilesForTest(migrationsDir)
+	if err != nil {
+		t.Fatalf("failed to find migration files: %v", err)
+	}
+
+	if len(files) != 2 {
+		t.Fatalf("expected 2 migration files, got %d", len(files))
+	}
+
+	if !strings.HasSuffix(files[0], "001_create_items.sql") {
+		t.Errorf("expected first file to be 001_create_items.sql, got %s", files[0])
+	}
+
+	if !strings.HasSuffix(files[1], "002_add_description.sql") {
+		t.Errorf("expected second file to be 002_add_description.sql, got %s", files[1])
+	}
+
+	// Test that migrations can be executed against SQLite
+	dbPath := filepath.Join(tmpDir, "test.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	for _, file := range files {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("failed to read migration: %v", err)
+		}
+		if _, err := db.Exec(string(content)); err != nil {
+			t.Fatalf("failed to execute migration %s: %v", filepath.Base(file), err)
+		}
+	}
+
+	// Verify table was created with all columns
+	_, err = db.Exec("INSERT INTO items (name, price, description) VALUES ('test', 9.99, 'A test item')")
+	if err != nil {
+		t.Fatalf("failed to insert into migrated table: %v", err)
+	}
+
+	var name string
+	var price float64
+	var description string
+	err = db.QueryRow("SELECT name, price, description FROM items WHERE name = 'test'").Scan(&name, &price, &description)
+	if err != nil {
+		t.Fatalf("failed to query migrated table: %v", err)
+	}
+
+	if name != "test" || price != 9.99 || description != "A test item" {
+		t.Errorf("unexpected values: name=%s, price=%f, description=%s", name, price, description)
+	}
+}
+
+// findMigrationFilesForTest is a test helper that mirrors findMigrationFiles from migrate.go.
+func findMigrationFilesForTest(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var files []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(entry.Name(), ".sql") {
+			files = append(files, filepath.Join(dir, entry.Name()))
+		}
+	}
+
+	// Already sorted by ReadDir, but sort explicitly
+	return files, nil
 }

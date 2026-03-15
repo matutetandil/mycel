@@ -74,6 +74,13 @@ func (c *SMTPConnector) Connect(ctx context.Context) error {
 
 // Send sends an email
 func (c *SMTPConnector) Send(ctx context.Context, email *Email) (*SendResult, error) {
+	// Render HTML template if specified
+	if email.TemplateFile != "" {
+		if err := email.RenderTemplate(nil); err != nil {
+			return &SendResult{Success: false, Provider: "smtp", Error: err.Error()}, err
+		}
+	}
+
 	// Get connection from pool
 	conn, err := c.getConnection(ctx)
 	if err != nil {

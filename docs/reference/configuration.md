@@ -50,6 +50,7 @@ service {
     key_extractor       = "ip"              # "ip", "header:X-API-Key", "query:api_key"
     exclude_paths       = ["/health", "/metrics"]
     enable_headers      = true              # X-RateLimit-* headers
+    storage             = "redis_cache"     # Optional: Redis connector for distributed rate limiting
   }
 
   workflow {
@@ -78,6 +79,7 @@ service {
 | `key_extractor` | string | `"ip"` | Client identifier |
 | `exclude_paths` | list | `["/health", "/metrics"]` | Paths excluded from limiting |
 | `enable_headers` | bool | `true` | Add X-RateLimit-* headers |
+| `storage` | string | `""` | Cache connector name for distributed rate limiting (e.g., `"redis_cache"`) |
 
 ### workflow attributes
 
@@ -586,6 +588,8 @@ flow "NAME" {
   coordinate { ... }
   batch { ... }
   state_transition { ... }
+  idempotency { ... }
+  async { ... }
 }
 ```
 
@@ -739,6 +743,29 @@ dedupe {
   on_duplicate = "skip"                # "skip" or "error"
 }
 ```
+
+### idempotency block
+
+```hcl
+idempotency {
+  storage = "redis_cache"         # Required: cache connector name
+  key     = "input.payment_id"   # Required: CEL expression for idempotency key
+  ttl     = "24h"                 # How long to cache results
+}
+```
+
+Returns cached results for duplicate requests with matching keys. The flow is not re-executed if a cached result exists.
+
+### async block
+
+```hcl
+async {
+  storage = "redis_cache"         # Required: cache connector for storing job results
+  ttl     = "1h"                  # How long to keep job results
+}
+```
+
+Returns HTTP 202 immediately with a `job_id`. The flow executes in the background. Auto-registers a `GET /jobs/{job_id}` endpoint for polling job status (pending, completed, or failed).
 
 ### error_handling block
 

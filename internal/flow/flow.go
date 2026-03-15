@@ -157,6 +157,15 @@ type Config struct {
 
 	// StateTransition triggers a state machine transition during flow execution.
 	StateTransition *StateTransitionConfig
+
+	// Idempotency defines idempotency key configuration.
+	// When set, duplicate requests with the same key return the cached result.
+	Idempotency *IdempotencyConfig
+
+	// Async makes the flow return 202 Accepted immediately.
+	// The flow executes in the background and stores the result.
+	// A status endpoint is auto-registered at GET /jobs/:job_id.
+	Async *AsyncConfig
 }
 
 // StateTransitionConfig defines a state machine transition within a flow.
@@ -488,6 +497,30 @@ type DedupeConfig struct {
 	// - "skip": Silently skip the duplicate (default)
 	// - "fail": Return an error for duplicates
 	OnDuplicate string
+}
+
+// AsyncConfig defines async execution for a flow.
+type AsyncConfig struct {
+	// Storage is the cache connector for storing job results (e.g., "redis", "memory_cache").
+	Storage string
+
+	// TTL is how long to keep job results (e.g., "1h", "24h").
+	TTL string
+}
+
+// IdempotencyConfig defines idempotency key behavior for a flow.
+// Unlike dedupe (which discards duplicates), idempotency returns the cached result.
+type IdempotencyConfig struct {
+	// Storage is the cache connector name (e.g., "redis", "memory_cache").
+	Storage string
+
+	// Key is a CEL expression that extracts the idempotency key from input.
+	// Example: "input.headers['X-Idempotency-Key']"
+	Key string
+
+	// TTL is how long to keep cached results (e.g., "24h").
+	// After TTL expires, the same key triggers a new execution.
+	TTL string
 }
 
 // DuplicateResult is returned when a message is identified as duplicate.

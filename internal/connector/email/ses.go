@@ -71,6 +71,13 @@ func (c *SESConnector) Connect(ctx context.Context) error {
 
 // Send sends an email via SES
 func (c *SESConnector) Send(ctx context.Context, email *Email) (*SendResult, error) {
+	// Render HTML template if specified
+	if email.TemplateFile != "" {
+		if err := email.RenderTemplate(nil); err != nil {
+			return &SendResult{Success: false, Provider: "ses", Error: err.Error()}, err
+		}
+	}
+
 	if c.client == nil {
 		return &SendResult{
 			Success:  false,

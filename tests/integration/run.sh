@@ -149,6 +149,7 @@ else
     scripts/test-aspects.sh
     scripts/test-security.sh
     scripts/test-plugin.sh
+    scripts/test-new-features.sh
   )
 fi
 

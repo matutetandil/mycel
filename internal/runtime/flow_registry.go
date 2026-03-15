@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -251,6 +253,21 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		}
 	}
 
+	// Async execution — return 202 immediately, process in background
+	if h.Config.Async != nil {
+		return h.executeAsync(ctx, input)
+	}
+
+	// Idempotency check — return cached result for duplicate keys
+	if h.Config.Idempotency != nil {
+		cachedResult, found, err := h.checkIdempotency(ctx, input)
+		if err != nil {
+			slog.Warn("idempotency check error, proceeding with execution", "error", err)
+		} else if found {
+			return cachedResult, nil
+		}
+	}
+
 	// Validate input if schema is configured
 	_, valErr := trace.RecordStage(ctx, trace.StageValidateIn, "", input, func() (interface{}, error) {
 		return nil, h.validateInput(ctx, input)
@@ -270,20 +287,27 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 	}
 
 	// If error handling is configured, wrap with retry logic
+	var finalResult interface{}
+	var finalErr error
+
 	if h.Config.ErrorHandling != nil {
-		result, err := h.executeWithRetry(ctx, input, executeFn)
-		if err != nil {
-			return result, h.wrapErrorResponse(ctx, input, err)
+		finalResult, finalErr = h.executeWithRetry(ctx, input, executeFn)
+		if finalErr != nil {
+			return finalResult, h.wrapErrorResponse(ctx, input, finalErr)
 		}
-		return result, nil
+	} else {
+		finalResult, finalErr = executeFn()
+		if finalErr != nil && h.Config.ErrorHandling != nil {
+			return finalResult, h.wrapErrorResponse(ctx, input, finalErr)
+		}
 	}
 
-	// Execute without error handling wrapper
-	result, err = executeFn()
-	if err != nil && h.Config.ErrorHandling != nil {
-		return result, h.wrapErrorResponse(ctx, input, err)
+	// Store result for idempotency (only on success)
+	if finalErr == nil && h.Config.Idempotency != nil {
+		h.storeIdempotencyResult(ctx, input, finalResult)
 	}
-	return result, err
+
+	return finalResult, finalErr
 }
 
 // executeWithRetry executes the flow with retry and fallback handling.
@@ -622,6 +646,196 @@ func (h *FlowHandler) checkDedupe(ctx context.Context, input map[string]interfac
 	return false, nil
 }
 
+// executeAsync returns 202 immediately and processes the flow in the background.
+// Results are stored in cache and retrievable via GET /jobs/:job_id.
+func (h *FlowHandler) executeAsync(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+	// Generate job ID
+	b := make([]byte, 16)
+	rand.Read(b)
+	jobID := hex.EncodeToString(b)
+
+	async := h.Config.Async
+
+	// Store initial status
+	storageConn, err := h.Connectors.Get(async.Storage)
+	if err != nil {
+		return nil, fmt.Errorf("async storage connector not found: %s: %w", async.Storage, err)
+	}
+
+	cacheStorage, ok := storageConn.(cache.Cache)
+	if !ok {
+		return nil, fmt.Errorf("async storage %s does not implement cache interface", async.Storage)
+	}
+
+	ttl := time.Hour
+	if async.TTL != "" {
+		if d, parseErr := time.ParseDuration(async.TTL); parseErr == nil {
+			ttl = d
+		}
+	}
+
+	cacheKey := "job:" + jobID
+
+	// Store pending status
+	status := map[string]interface{}{
+		"job_id": jobID,
+		"status": "pending",
+		"flow":   h.Config.Name,
+	}
+	statusBytes, _ := json.Marshal(status)
+	_ = cacheStorage.Set(ctx, cacheKey, statusBytes, ttl)
+
+	// Execute in background
+	go func() {
+		bgCtx := context.Background()
+
+		// Run the flow core
+		result, err := h.executeFlowCore(bgCtx, input)
+
+		// Store result
+		var finalStatus map[string]interface{}
+		if err != nil {
+			finalStatus = map[string]interface{}{
+				"job_id": jobID,
+				"status": "failed",
+				"flow":   h.Config.Name,
+				"error":  err.Error(),
+			}
+		} else {
+			finalStatus = map[string]interface{}{
+				"job_id": jobID,
+				"status": "completed",
+				"flow":   h.Config.Name,
+				"result": result,
+			}
+		}
+
+		finalBytes, _ := json.Marshal(finalStatus)
+		_ = cacheStorage.Set(bgCtx, cacheKey, finalBytes, ttl)
+	}()
+
+	// Return 202 response
+	return map[string]interface{}{
+		"job_id":           jobID,
+		"status":           "pending",
+		"http_status_code": 202,
+	}, nil
+}
+
+// checkIdempotency checks if a cached result exists for the idempotency key.
+// Returns (result, found, error). On cache miss, returns (nil, false, nil).
+func (h *FlowHandler) checkIdempotency(ctx context.Context, input map[string]interface{}) (interface{}, bool, error) {
+	idem := h.Config.Idempotency
+	if idem == nil {
+		return nil, false, nil
+	}
+
+	key, err := h.evaluateIdempotencyKey(ctx, input)
+	if err != nil {
+		return nil, false, err
+	}
+	if key == "" {
+		// No idempotency key provided — proceed normally
+		return nil, false, nil
+	}
+
+	cacheKey := "idempotency:" + h.Config.Name + ":" + key
+
+	storageConn, err := h.Connectors.Get(idem.Storage)
+	if err != nil {
+		return nil, false, fmt.Errorf("idempotency storage connector not found: %s: %w", idem.Storage, err)
+	}
+
+	cacheStorage, ok := storageConn.(cache.Cache)
+	if !ok {
+		return nil, false, fmt.Errorf("idempotency storage %s does not implement cache interface", idem.Storage)
+	}
+
+	data, exists, err := cacheStorage.Get(ctx, cacheKey)
+	if err != nil {
+		return nil, false, nil // Fail open
+	}
+
+	if !exists {
+		return nil, false, nil
+	}
+
+	// Deserialize cached result
+	var result interface{}
+	if jsonErr := json.Unmarshal(data, &result); jsonErr != nil {
+		return nil, false, nil // Corrupted cache, re-execute
+	}
+
+	slog.Debug("idempotency cache hit", "flow", h.Config.Name, "key", key)
+	return result, true, nil
+}
+
+// storeIdempotencyResult stores the execution result in cache for future idempotent requests.
+func (h *FlowHandler) storeIdempotencyResult(ctx context.Context, input map[string]interface{}, result interface{}) {
+	idem := h.Config.Idempotency
+	if idem == nil {
+		return
+	}
+
+	key, err := h.evaluateIdempotencyKey(ctx, input)
+	if err != nil || key == "" {
+		return
+	}
+
+	cacheKey := "idempotency:" + h.Config.Name + ":" + key
+
+	storageConn, err := h.Connectors.Get(idem.Storage)
+	if err != nil {
+		return
+	}
+
+	cacheStorage, ok := storageConn.(cache.Cache)
+	if !ok {
+		return
+	}
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		return
+	}
+
+	ttl := 24 * time.Hour // Default 24h
+	if idem.TTL != "" {
+		if d, parseErr := time.ParseDuration(idem.TTL); parseErr == nil {
+			ttl = d
+		}
+	}
+
+	_ = cacheStorage.Set(ctx, cacheKey, data, ttl)
+}
+
+// evaluateIdempotencyKey evaluates the CEL expression for the idempotency key.
+func (h *FlowHandler) evaluateIdempotencyKey(ctx context.Context, input map[string]interface{}) (string, error) {
+	if h.Transformer == nil {
+		var err error
+		celOptions := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
+		h.Transformer, err = transform.NewCELTransformerWithOptions(celOptions...)
+		if err != nil {
+			return "", fmt.Errorf("failed to create CEL transformer: %w", err)
+		}
+	}
+
+	result, err := h.Transformer.EvaluateExpression(ctx, input, nil, h.Config.Idempotency.Key)
+	if err != nil {
+		return "", err
+	}
+
+	switch v := result.(type) {
+	case string:
+		return v, nil
+	default:
+		if v == nil {
+			return "", nil
+		}
+		return fmt.Sprintf("%v", v), nil
+	}
+}
+
 // handleRequestWithAspects wraps flow execution with aspect executor.
 func (h *FlowHandler) handleRequestWithAspects(ctx context.Context, input map[string]interface{}) (interface{}, error) {
 	operation := parseOperation(h.Config.From.Operation)
@@ -659,8 +873,8 @@ func (h *FlowHandler) handleRequestWithAspects(ctx context.Context, input map[st
 	// Build the response value
 	var response interface{}
 
-	// For GET operations, return rows directly
-	if operation.Method == "GET" {
+	// For GET operations, return rows directly (unless echo flow with single result)
+	if operation.Method == "GET" && !(h.Dest == nil && len(result.Rows) == 1) {
 		response = result.Rows
 	} else if len(result.Rows) > 0 {
 		// For write operations, return appropriate format
@@ -1315,6 +1529,9 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		return nil, fmt.Errorf("transform error: %w", err)
 	}
 
+	// Remove meta fields that should not be written to destination
+	delete(payload, "headers")
+
 	data := &connector.Data{
 		Target:    h.Config.To.Target,
 		Operation: "INSERT",
@@ -1410,6 +1627,9 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 	if err != nil {
 		return nil, fmt.Errorf("transform error: %w", err)
 	}
+
+	// Remove meta fields that should not be written to destination
+	delete(payload, "headers")
 
 	data := &connector.Data{
 		Target:    h.Config.To.Target,
@@ -1566,6 +1786,9 @@ func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string
 	if err != nil {
 		return nil, fmt.Errorf("transform error: %w", err)
 	}
+
+	// Remove meta fields that should not be written to destination
+	delete(basePayload, "headers")
 
 	// Determine which destinations should be written in parallel
 	var parallelDests []*flow.ToConfig

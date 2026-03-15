@@ -116,6 +116,7 @@ type RateLimitConfig struct {
 	KeyExtractor      string   // "ip", "header:X-API-Key", "query:api_key"
 	ExcludePaths      []string // paths to exclude from rate limiting
 	EnableHeaders     bool     // add X-RateLimit-* headers
+	Storage           string   // cache connector name for distributed rate limiting (e.g., "redis_cache")
 }
 
 // NewConfiguration creates an empty configuration.
@@ -583,6 +584,7 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 			{Name: "key_extractor"},
 			{Name: "exclude_paths"},
 			{Name: "enable_headers"},
+			{Name: "storage"},
 		},
 	}
 
@@ -653,6 +655,14 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 			return nil, fmt.Errorf("enable_headers error: %s", diags.Error())
 		}
 		rl.EnableHeaders = val.True()
+	}
+
+	if attr, ok := content.Attributes["storage"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("storage error: %s", diags.Error())
+		}
+		rl.Storage = val.AsString()
 	}
 
 	return rl, nil

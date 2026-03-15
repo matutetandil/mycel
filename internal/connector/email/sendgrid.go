@@ -58,6 +58,13 @@ func (c *SendGridConnector) Connect(ctx context.Context) error {
 
 // Send sends an email via SendGrid
 func (c *SendGridConnector) Send(ctx context.Context, email *Email) (*SendResult, error) {
+	// Render HTML template if specified
+	if email.TemplateFile != "" {
+		if err := email.RenderTemplate(nil); err != nil {
+			return &SendResult{Success: false, Provider: "sendgrid", Error: err.Error()}, err
+		}
+	}
+
 	// Build SendGrid request
 	payload := c.buildPayload(email)
 

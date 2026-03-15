@@ -1,6 +1,10 @@
 package email
 
 import (
+	"bytes"
+	"fmt"
+	"os"
+	"text/template"
 	"time"
 )
 
@@ -124,6 +128,11 @@ type Email struct {
 	TemplateID   string                 `json:"template_id,omitempty"`
 	TemplateData map[string]interface{} `json:"template_data,omitempty"`
 
+	// TemplateFile is a path to a local HTML template file.
+	// If set, the file is rendered using Go text/template with TemplateData
+	// (or the full payload) and the result is set as HTMLBody.
+	TemplateFile string `json:"template_file,omitempty"`
+
 	// Attachments
 	Attachments []Attachment `json:"attachments,omitempty"`
 
@@ -177,6 +186,38 @@ type RecipientResult struct {
 	Email   string `json:"email"`
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
+}
+
+// RenderTemplate renders the TemplateFile (if set) into HTMLBody.
+// Uses Go text/template syntax ({{.field}}, {{range}}, etc.).
+// Data comes from TemplateData if set, otherwise falls back to the full payload fields.
+func (e *Email) RenderTemplate(payload map[string]interface{}) error {
+	if e.TemplateFile == "" {
+		return nil
+	}
+
+	content, err := os.ReadFile(e.TemplateFile)
+	if err != nil {
+		return fmt.Errorf("failed to read email template %s: %w", e.TemplateFile, err)
+	}
+
+	tmpl, err := template.New("email").Parse(string(content))
+	if err != nil {
+		return fmt.Errorf("failed to parse email template: %w", err)
+	}
+
+	data := e.TemplateData
+	if data == nil {
+		data = payload
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return fmt.Errorf("failed to execute email template: %w", err)
+	}
+
+	e.HTMLBody = buf.String()
+	return nil
 }
 
 // DefaultSMTPConfig returns sensible SMTP defaults

@@ -64,6 +64,14 @@ CREATE TABLE http_results (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    price NUMERIC,
+    sku TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Enable logical replication for CDC
 ALTER SYSTEM SET wal_level = logical;
 SELECT pg_reload_conf();

@@ -314,26 +314,39 @@ func (c *Connector) buildInput(r *http.Request, paramNames []string) map[string]
 		}
 	}
 
+	// Request headers (available as input.headers in transforms/CEL)
+	headers := make(map[string]interface{})
+	for key := range r.Header {
+		headers[strings.ToLower(key)] = r.Header.Get(key)
+	}
+	input["headers"] = headers
+
 	// Body for POST/PUT/PATCH — auto-detect format from Content-Type
 	if r.Method == "POST" || r.Method == "PUT" || r.Method == "PATCH" {
 		ct := r.Header.Get("Content-Type")
-		// Determine codec: flow-level format override > Content-Type detection > connector default
-		var bodyCodec codec.Codec
-		if ctxFormat := codec.FormatFromContext(r.Context()); ctxFormat != "" {
-			bodyCodec = codec.Get(ctxFormat)
-		} else if ct != "" {
-			bodyCodec = codec.DetectFromContentType(ct)
-		} else if c.defaultFormat != "" {
-			bodyCodec = codec.Get(c.defaultFormat)
-		} else {
-			bodyCodec = codec.Get("json")
-		}
 
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err == nil && len(bodyBytes) > 0 {
-			if decoded, err := bodyCodec.Decode(bodyBytes); err == nil {
-				for k, v := range decoded {
-					input[k] = v
+		// Handle multipart/form-data (file uploads)
+		if strings.HasPrefix(ct, "multipart/form-data") {
+			c.parseMultipart(r, input)
+		} else {
+			// Determine codec: flow-level format override > Content-Type detection > connector default
+			var bodyCodec codec.Codec
+			if ctxFormat := codec.FormatFromContext(r.Context()); ctxFormat != "" {
+				bodyCodec = codec.Get(ctxFormat)
+			} else if ct != "" {
+				bodyCodec = codec.DetectFromContentType(ct)
+			} else if c.defaultFormat != "" {
+				bodyCodec = codec.Get(c.defaultFormat)
+			} else {
+				bodyCodec = codec.Get("json")
+			}
+
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err == nil && len(bodyBytes) > 0 {
+				if decoded, err := bodyCodec.Decode(bodyBytes); err == nil {
+					for k, v := range decoded {
+						input[k] = v
+					}
 				}
 			}
 		}
@@ -382,6 +395,52 @@ func (c *Connector) writeResponse(w http.ResponseWriter, r *http.Request, status
 			return
 		}
 		w.Write(encoded)
+	}
+}
+
+// parseMultipart extracts multipart/form-data fields and files into the input map.
+// Form fields are added directly. Files are added as maps with metadata.
+func (c *Connector) parseMultipart(r *http.Request, input map[string]interface{}) {
+	// 32 MB max memory (rest spills to temp files)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		return
+	}
+
+	// Regular form fields
+	for key, values := range r.MultipartForm.Value {
+		if len(values) == 1 {
+			input[key] = values[0]
+		} else {
+			input[key] = values
+		}
+	}
+
+	// File fields
+	for key, fileHeaders := range r.MultipartForm.File {
+		var files []map[string]interface{}
+		for _, fh := range fileHeaders {
+			file, err := fh.Open()
+			if err != nil {
+				continue
+			}
+			data, err := io.ReadAll(file)
+			file.Close()
+			if err != nil {
+				continue
+			}
+
+			files = append(files, map[string]interface{}{
+				"filename":     fh.Filename,
+				"size":         fh.Size,
+				"content_type": fh.Header.Get("Content-Type"),
+				"data":         base64.StdEncoding.EncodeToString(data),
+			})
+		}
+		if len(files) == 1 {
+			input[key] = files[0]
+		} else if len(files) > 0 {
+			input[key] = files
+		}
 	}
 }
 

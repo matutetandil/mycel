@@ -45,6 +45,8 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			{Type: "after"},
 			{Type: "error_handling"},
 			{Type: "dedupe"},            // Deduplication
+			{Type: "idempotency"},       // Idempotency keys
+			{Type: "async"},             // Async execution (202 + polling)
 		{Type: "batch"},            // Batch processing
 		{Type: "state_transition"}, // State machine transition
 		},
@@ -199,6 +201,20 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 				return nil, fmt.Errorf("dedupe block error: %w", err)
 			}
 			config.Dedupe = dedupe
+
+		case "idempotency":
+			idem, err := parseIdempotencyBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("idempotency block error: %w", err)
+			}
+			config.Idempotency = idem
+
+		case "async":
+			async, err := parseAsyncBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("async block error: %w", err)
+			}
+			config.Async = async
 
 		case "batch":
 			batch, err := parseBatchBlock(nestedBlock, ctx)
@@ -1295,6 +1311,101 @@ func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfi
 	}
 
 	return dedupe, nil
+}
+
+// parseAsyncBlock parses an async block for background execution.
+func parseAsyncBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.AsyncConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "storage", Required: true},
+			{Name: "ttl"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("async block content error: %s", diags.Error())
+	}
+
+	config := &flow.AsyncConfig{}
+
+	if attr, ok := content.Attributes["storage"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("async storage error: %s", diags.Error())
+		}
+		config.Storage = parseConnectorReference(val.AsString())
+	}
+
+	if attr, ok := content.Attributes["ttl"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("async ttl error: %s", diags.Error())
+		}
+		config.TTL = val.AsString()
+	}
+
+	return config, nil
+}
+
+// parseIdempotencyBlock parses an idempotency block.
+// Example:
+//
+//	idempotency {
+//	  storage = "redis"
+//	  key     = "input.headers['X-Idempotency-Key']"
+//	  ttl     = "24h"
+//	}
+func parseIdempotencyBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.IdempotencyConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "storage", Required: true},
+			{Name: "key", Required: true},
+			{Name: "ttl"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("idempotency block content error: %s", diags.Error())
+	}
+
+	config := &flow.IdempotencyConfig{}
+
+	if attr, ok := content.Attributes["storage"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("idempotency storage error: %s", diags.Error())
+		}
+		config.Storage = parseConnectorReference(val.AsString())
+	}
+
+	if attr, ok := content.Attributes["key"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			config.Key = extractExpressionText(attr.Expr)
+		} else {
+			config.Key = val.AsString()
+		}
+	}
+
+	if attr, ok := content.Attributes["ttl"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("idempotency ttl error: %s", diags.Error())
+		}
+		config.TTL = val.AsString()
+	}
+
+	if config.Storage == "" {
+		return nil, fmt.Errorf("idempotency block must specify a storage connector")
+	}
+
+	if config.Key == "" {
+		return nil, fmt.Errorf("idempotency block must specify a key expression")
+	}
+
+	return config, nil
 }
 
 // parseNamedTransformBlock parses a named transform block.

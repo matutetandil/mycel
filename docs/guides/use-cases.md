@@ -15,6 +15,11 @@ Complete, copy-paste ready examples for things you'll want to do in almost every
 9. [Webhook relay with transform](#9-webhook-relay-with-transform)
 10. [Rate-limited public API](#10-rate-limited-public-api)
 22. [API versioning with deprecation warnings](#22-api-versioning-with-deprecation-warnings)
+23. [Idempotent payment processing](#23-idempotent-payment-processing)
+24. [Async long-running export with polling](#24-async-long-running-export-with-polling)
+25. [Database migrations](#25-database-migrations)
+26. [Distributed rate limiting with Redis](#26-distributed-rate-limiting-with-redis)
+27. [Multi-tenancy via request headers](#27-multi-tenancy-via-request-headers)
 
 ---
 
@@ -2071,6 +2076,267 @@ Sunset: Thu, 01 Jun 2026 00:00:00 GMT
     "email": "alice@example.com"
   }
 ]
+```
+
+---
+
+## 23. Idempotent payment processing
+
+Prevent duplicate charges by caching results keyed on the payment ID.
+
+### config
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  dsn    = env("DATABASE_URL")
+}
+
+connector "redis_cache" {
+  type   = "cache"
+  driver = "redis"
+  url    = env("REDIS_URL")
+}
+```
+
+### flow
+
+```hcl
+flow "process_payment" {
+  from { connector.api = "POST /payments" }
+  to   { connector.db  = "payments" }
+
+  idempotency {
+    storage = "redis_cache"
+    key     = "input.payment_id"
+    ttl     = "24h"
+  }
+
+  transform {
+    output.payment_id = input.payment_id
+    output.amount     = input.amount
+    output.status     = "completed"
+    output.created_at = now()
+  }
+}
+```
+
+### How it works
+
+1. First request with `payment_id = "pay_123"` executes the flow normally and caches the result
+2. Subsequent requests with the same `payment_id` return the cached result without re-executing the flow
+3. Cache entry expires after `ttl` (24 hours)
+
+---
+
+## 24. Async long-running export with polling
+
+Return HTTP 202 immediately and process in background.
+
+### config
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  dsn    = env("DATABASE_URL")
+}
+
+connector "redis_cache" {
+  type   = "cache"
+  driver = "redis"
+  url    = env("REDIS_URL")
+}
+```
+
+### flow
+
+```hcl
+flow "export_report" {
+  from { connector.api = "POST /reports/export" }
+  to   { connector.db  = "SELECT * FROM orders WHERE date >= :start_date" }
+
+  async {
+    storage = "redis_cache"
+    ttl     = "1h"
+  }
+}
+```
+
+### How it works
+
+1. `POST /reports/export` returns `202 Accepted` with `{"job_id": "abc123", "status": "pending", "poll_url": "/jobs/abc123"}`
+2. Flow executes in the background
+3. Client polls `GET /jobs/abc123` to check status: `{"status": "completed", "result": [...]}`
+4. Job results are stored for `ttl` (1 hour), then expire
+
+---
+
+## 25. Database migrations
+
+Run SQL migrations from the `migrations/` directory.
+
+### migrations/001_create_users.sql
+
+```sql
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Usage
+
+```bash
+# Run pending migrations
+mycel migrate --config ./my-service
+
+# Show migration status
+mycel migrate status --config ./my-service
+
+# Specify a particular database connector
+mycel migrate --connector pg_main
+```
+
+### How it works
+
+1. Mycel reads all `.sql` files from `migrations/` in alphabetical order
+2. A `_mycel_migrations` tracking table records which migrations have been applied
+3. Only pending (unapplied) migrations are executed
+4. Compatible with SQLite and PostgreSQL
+
+---
+
+## 26. Distributed rate limiting with Redis
+
+Share rate limits across multiple service instances.
+
+### config
+
+```hcl
+service {
+  name    = "api-gateway"
+  version = "1.0.0"
+
+  rate_limit {
+    requests_per_second = 50
+    burst               = 100
+    key_extractor       = "header:X-API-Key"
+    storage             = "redis_cache"
+    enable_headers      = true
+  }
+}
+
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "redis_cache" {
+  type   = "cache"
+  driver = "redis"
+  url    = env("REDIS_URL")
+}
+```
+
+### How it works
+
+1. Rate limit counters are stored in Redis instead of in-memory
+2. All service instances share the same counters, providing true distributed rate limiting
+3. If Redis becomes unavailable, rate limiting falls back to local in-memory counters automatically
+4. Uses fixed-window counter algorithm with 1-second windows
+
+---
+
+## 27. Multi-tenancy via request headers
+
+Isolate data per tenant using HTTP request headers. The `X-Tenant-ID` header is read in flow transforms and used to filter database queries, ensuring each tenant only sees their own data.
+
+### connectors.hcl
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  dsn    = env("DATABASE_URL")
+}
+```
+
+### flows.hcl
+
+```hcl
+# List products filtered by tenant
+flow "list_products" {
+  from {
+    connector = "api"
+    operation = "GET /products"
+  }
+
+  to {
+    connector = "db"
+    operation = "SELECT * FROM products WHERE tenant_id = :tenant"
+    params    = { tenant = "input.headers[\"x-tenant-id\"]" }
+  }
+}
+
+# Create a product scoped to the tenant
+flow "create_product" {
+  from {
+    connector = "api"
+    operation = "POST /products"
+  }
+
+  transform {
+    name       = "input.name"
+    price      = "input.price"
+    tenant_id  = "input.headers[\"x-tenant-id\"]"
+    created_at = "now()"
+  }
+
+  to {
+    connector = "db"
+    operation = "INSERT products"
+  }
+}
+```
+
+### How it works
+
+1. Request headers are available as `input.headers` in flow transforms and CEL expressions
+2. Header names are lowercase (e.g., `X-Tenant-ID` becomes `input.headers["x-tenant-id"]`)
+3. Headers are automatically stripped from the payload before database writes, so `x-tenant-id` does not end up as a column unless explicitly mapped in a transform (as `tenant_id` in the example above)
+4. Use `input.headers["x-tenant-id"]` (bracket syntax) for headers containing hyphens, or `input.headers.x_tenant_id` (dot syntax) if the header name uses underscores
+5. This pattern works with any connector as source (REST, GraphQL, gRPC) -- headers or metadata are always exposed via `input.headers`
+
+### Example request
+
+```bash
+curl -H "X-Tenant-ID: acme-corp" http://localhost:3000/products
+# Returns only products where tenant_id = 'acme-corp'
+
+curl -X POST http://localhost:3000/products \
+  -H "X-Tenant-ID: acme-corp" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Widget", "price": 9.99}'
+# Inserts with tenant_id = 'acme-corp'
 ```
 
 ---

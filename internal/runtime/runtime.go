@@ -66,6 +66,7 @@ import (
 	"github.com/matutetandil/mycel/internal/parser"
 	"github.com/matutetandil/mycel/internal/plugin"
 	"github.com/matutetandil/mycel/internal/ratelimit"
+	goredis "github.com/redis/go-redis/v9"
 	"github.com/matutetandil/mycel/internal/scheduler"
 	"github.com/matutetandil/mycel/internal/statemachine"
 	msync "github.com/matutetandil/mycel/internal/sync"
@@ -602,6 +603,9 @@ func (r *Runtime) Start(ctx context.Context) error {
 		banner.PrintError(err.Error())
 		return fmt.Errorf("failed to initialize connectors: %w", err)
 	}
+
+	// Upgrade rate limiter to Redis if configured (needs connectors)
+	r.upgradeRateLimiterToRedis()
 
 	// Initialize sync manager (needs connectors to be ready)
 	r.syncManager = msync.NewManager(r.connectors)
@@ -1425,6 +1429,82 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 
 	// Register federated entity resolvers
 	r.registerEntityResolvers(connectorName, conn)
+
+	// Register job status endpoint if any flow uses async
+	r.registerJobStatusEndpoint(connectorName, conn)
+}
+
+// registerJobStatusEndpoint registers a GET /jobs/:job_id endpoint on REST connectors
+// when any flow uses async execution. Returns job status from cache.
+func (r *Runtime) registerJobStatusEndpoint(connectorName string, conn connector.Connector) {
+	// Check if any flow for this connector uses async
+	hasAsync := false
+	for _, handler := range r.flows.handlers {
+		if handler.Config.From != nil && handler.Config.Async != nil {
+			fromConn := handler.Config.From.Connector
+			if fromConn == connectorName {
+				hasAsync = true
+				break
+			}
+		}
+	}
+
+	if !hasAsync {
+		return
+	}
+
+	router, ok := conn.(RouteRegistrar)
+	if !ok {
+		return
+	}
+
+	// Find the async storage connector from the first async flow
+	var storageName string
+	for _, handler := range r.flows.handlers {
+		if handler.Config.From != nil && handler.Config.Async != nil {
+			fromConn := handler.Config.From.Connector
+			if fromConn == connectorName {
+				storageName = handler.Config.Async.Storage
+				break
+			}
+		}
+	}
+
+	connRegistry := r.connectors
+	router.RegisterRoute("GET /jobs/:job_id", func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		jobID, _ := input["job_id"].(string)
+		if jobID == "" {
+			return map[string]interface{}{
+				"error":            "job_id is required",
+				"http_status_code": 400,
+			}, nil
+		}
+
+		storageConn, err := connRegistry.Get(storageName)
+		if err != nil {
+			return nil, fmt.Errorf("async storage not available: %w", err)
+		}
+
+		cacheStorage, ok := storageConn.(cache.Cache)
+		if !ok {
+			return nil, fmt.Errorf("async storage does not implement cache interface")
+		}
+
+		data, exists, err := cacheStorage.Get(ctx, "job:"+jobID)
+		if err != nil || !exists {
+			return map[string]interface{}{
+				"error":            "job not found",
+				"http_status_code": 404,
+			}, nil
+		}
+
+		var result map[string]interface{}
+		if jsonErr := json.Unmarshal(data, &result); jsonErr != nil {
+			return nil, jsonErr
+		}
+
+		return result, nil
+	})
 }
 
 // registerEntityResolvers registers Federation entity resolvers on a GraphQL connector.
@@ -1768,21 +1848,63 @@ func (r *Runtime) initRateLimiter() {
 		return
 	}
 
-	r.rateLimiter = ratelimit.New(&ratelimit.Config{
+	rlCfg := &ratelimit.Config{
 		Enabled:           rlConfig.Enabled,
 		RequestsPerSecond: rlConfig.RequestsPerSecond,
 		Burst:             rlConfig.Burst,
 		KeyExtractor:      rlConfig.KeyExtractor,
 		ExcludePaths:      rlConfig.ExcludePaths,
 		EnableHeaders:     rlConfig.EnableHeaders,
-	})
+		Storage:           rlConfig.Storage,
+	}
+
+	r.rateLimiter = ratelimit.New(rlCfg)
 
 	r.logger.Info("rate limiting configured",
 		"requests_per_second", rlConfig.RequestsPerSecond,
 		"burst", rlConfig.Burst,
 		"key_extractor", rlConfig.KeyExtractor,
 		"exclude_paths", rlConfig.ExcludePaths,
+		"storage", rlConfig.Storage,
 	)
+}
+
+// upgradeRateLimiterToRedis upgrades the rate limiter to use Redis storage if configured.
+// Must be called after connectors are initialized.
+func (r *Runtime) upgradeRateLimiterToRedis() {
+	if r.rateLimiter == nil || r.config.ServiceConfig == nil || r.config.ServiceConfig.RateLimit == nil {
+		return
+	}
+	storage := r.config.ServiceConfig.RateLimit.Storage
+	if storage == "" {
+		return
+	}
+
+	conn, err := r.connectors.Get(storage)
+	if err != nil {
+		r.logger.Error("rate limit storage connector not found", "connector", storage, "error", err)
+		return
+	}
+
+	type redisClientProvider interface {
+		Client() *goredis.Client
+	}
+
+	provider, ok := conn.(redisClientProvider)
+	if !ok {
+		r.logger.Error("rate limit storage connector does not provide a Redis client", "connector", storage)
+		return
+	}
+
+	client := provider.Client()
+	if client == nil {
+		r.logger.Error("rate limit storage connector returned nil Redis client", "connector", storage)
+		return
+	}
+
+	store := ratelimit.NewRedisStore(client, "mycel:ratelimit")
+	r.rateLimiter.SetRedisStore(store)
+	r.logger.Info("rate limiting upgraded to distributed Redis storage", "connector", storage)
 }
 
 // Helper functions for extracting configuration values
