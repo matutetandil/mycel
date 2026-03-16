@@ -150,6 +150,7 @@ else
     scripts/test-security.sh
     scripts/test-plugin.sh
     scripts/test-new-features.sh
+    scripts/test-fanout.sh
   )
 fi
 

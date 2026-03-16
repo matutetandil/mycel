@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/graphql-go/graphql"
+	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/validate"
 )
 
@@ -257,6 +258,16 @@ func (b *SchemaBuilder) RegisterHandler(operation string, handler HandlerFunc) e
 	typeName := parts[0]
 	fieldName := parts[1]
 
+	// Fan-out: if a handler already exists for this operation, chain them
+	if existing, ok := b.handlers[operation]; ok {
+		b.handlers[operation] = HandlerFunc(connector.ChainRequestResponse(
+			connector.HandlerFunc(existing),
+			connector.HandlerFunc(handler),
+			nil,
+		))
+		return nil // Field already registered
+	}
+
 	// Store the handler
 	b.handlers[operation] = handler
 
@@ -345,6 +356,16 @@ func (b *SchemaBuilder) RegisterHandlerWithArgs(operation string, handler Handle
 
 	typeName := parts[0]
 	fieldName := parts[1]
+
+	// Fan-out: if a handler already exists for this operation, chain them
+	if existing, ok := b.handlers[operation]; ok {
+		b.handlers[operation] = HandlerFunc(connector.ChainRequestResponse(
+			connector.HandlerFunc(existing),
+			connector.HandlerFunc(handler),
+			nil,
+		))
+		return nil // Field already registered
+	}
 
 	b.handlers[operation] = handler
 

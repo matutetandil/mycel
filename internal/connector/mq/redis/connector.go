@@ -153,7 +153,16 @@ func (c *Connector) Health(ctx context.Context) error {
 func (c *Connector) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.handlers[operation] = handler
+	if existing, ok := c.handlers[operation]; ok {
+		c.handlers[operation] = HandlerFunc(connector.ChainEventDriven(
+			connector.HandlerFunc(existing),
+			connector.HandlerFunc(handler),
+			c.logger,
+		))
+		c.logger.Info("fan-out: multiple flows registered", "channel", operation)
+	} else {
+		c.handlers[operation] = handler
+	}
 	c.logger.Debug("registered handler", "channel", operation)
 }
 

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.1] - 2026-03-16
+
+### Added
+- **Fan-out from source**: Multiple flows can now share the same `from` connector and operation. When a request or message arrives, all registered flows execute concurrently. For request-response connectors (REST, gRPC, TCP, WebSocket, SOAP, SSE, GraphQL), the first registered flow returns the response while additional flows run as fire-and-forget. For event-driven connectors (RabbitMQ, Kafka, Redis Pub/Sub, MQTT, CDC, File watch), all flows execute in parallel and the message is acknowledged only after all complete. 13 tests covering chain helpers, input isolation, error handling, and nested chaining
+- **Fan-out chain helpers** (`internal/connector/fanout.go`): `ChainRequestResponse` and `ChainEventDriven` helper functions that compose multiple handlers into a single handler. `CopyInput` ensures input isolation between concurrent handlers. Used by all 14 connector types
+- **Common `HandlerFunc` type** (`internal/connector/fanout.go`): Universal handler type in the connector package, enabling type-safe chaining across all connector implementations
+
+### Changed
+- **All connector `RegisterRoute` methods**: Now detect duplicate registrations and chain handlers using fan-out instead of silently overwriting. Logs `fan-out: multiple flows registered` at Info level when chaining occurs. Affects: REST, gRPC, TCP, WebSocket, SOAP, SSE, GraphQL (server+client), RabbitMQ, Kafka, Redis Pub/Sub, MQTT, CDC, File watch (14 connectors)
+
 ## [1.14.0] - 2026-03-15
 
 ### Added

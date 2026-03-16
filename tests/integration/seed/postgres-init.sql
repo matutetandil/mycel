@@ -72,6 +72,28 @@ CREATE TABLE products (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Fan-out integration test tables
+CREATE TABLE fanout_primary (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    target TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE fanout_secondary (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    target TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE fanout_mq_results (
+    id SERIAL PRIMARY KEY,
+    source TEXT,
+    data TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Enable logical replication for CDC
 ALTER SYSTEM SET wal_level = logical;
 SELECT pg_reload_conf();

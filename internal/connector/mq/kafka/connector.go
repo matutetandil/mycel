@@ -197,7 +197,16 @@ func (c *Connector) Start(ctx context.Context) error {
 func (c *Connector) RegisterHandler(pattern string, handler HandlerFunc) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.handlers[pattern] = handler
+	if existing, ok := c.handlers[pattern]; ok {
+		c.handlers[pattern] = HandlerFunc(connector.ChainEventDriven(
+			connector.HandlerFunc(existing),
+			connector.HandlerFunc(handler),
+			c.logger,
+		))
+		c.logger.Info("fan-out: multiple flows registered", "topic", pattern)
+	} else {
+		c.handlers[pattern] = handler
+	}
 }
 
 // RegisterRoute implements runtime.RouteRegistrar for flow integration.

@@ -88,8 +88,9 @@ Ports are auto-remapped if busy (e.g., `:3000` → `:3001`).
 | test-filter.sh | HTTP | REST | 3 — CEL filter pass/reject |
 | test-federation.sh | GraphQL | Cosmo Router + GraphQL | 5 — Federated queries + mutations |
 | test-security.sh | HTTP, GraphQL, SOAP | REST + GraphQL + SOAP + File | 29 — Null bytes, control chars, bidi, XXE, path traversal, oversized, deep nesting |
+| test-fanout.sh | HTTP, AMQP | REST + RabbitMQ + PostgreSQL | 8 — Source fan-out: REST (2 flows, 1 endpoint) + MQ (2 consumers, 1 queue) |
 
-**26 test suites, 95 assertions**
+**27 test suites, 103 assertions**
 
 ## Mock Server
 

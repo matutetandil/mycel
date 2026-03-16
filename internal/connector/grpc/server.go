@@ -183,10 +183,21 @@ func (c *ServerConnector) Health(ctx context.Context) error {
 
 // RegisterRoute registers a handler for a gRPC method.
 // Operation format: "package.Service/Method" or "Service/Method"
+// Multiple flows can register for the same operation (fan-out): the first handler
+// returns the gRPC response, additional handlers run concurrently as fire-and-forget.
 func (c *ServerConnector) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.handlers[operation] = handler
+	if existing, ok := c.handlers[operation]; ok {
+		c.handlers[operation] = HandlerFunc(connector.ChainRequestResponse(
+			connector.HandlerFunc(existing),
+			connector.HandlerFunc(handler),
+			c.logger,
+		))
+		c.logger.Info("fan-out: multiple flows registered", "operation", operation)
+	} else {
+		c.handlers[operation] = handler
+	}
 }
 
 // Start starts the gRPC server.

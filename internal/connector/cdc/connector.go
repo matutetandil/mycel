@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 // HandlerFunc is a function that handles a CDC event.
@@ -110,7 +112,17 @@ func (c *Connector) Health(ctx context.Context) error {
 func (c *Connector) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.handlers[normalizeOperation(operation)] = handler
+	op := normalizeOperation(operation)
+	if existing, ok := c.handlers[op]; ok {
+		c.handlers[op] = HandlerFunc(connector.ChainEventDriven(
+			connector.HandlerFunc(existing),
+			connector.HandlerFunc(handler),
+			c.logger,
+		))
+		c.logger.Info("fan-out: multiple flows registered", "operation", op)
+	} else {
+		c.handlers[op] = handler
+	}
 }
 
 // normalizeOperation normalizes an operation string: uppercase trigger, lowercase table.

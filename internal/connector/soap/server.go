@@ -73,7 +73,16 @@ func (s *Server) Health(ctx context.Context) error {
 func (s *Server) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.handlers[operation] = handler
+	if existing, ok := s.handlers[operation]; ok {
+		s.handlers[operation] = HandlerFunc(connector.ChainRequestResponse(
+			connector.HandlerFunc(existing),
+			connector.HandlerFunc(handler),
+			s.logger,
+		))
+		s.logger.Info("fan-out: multiple flows registered", "operation", operation)
+	} else {
+		s.handlers[operation] = handler
+	}
 }
 
 // Start starts the SOAP HTTP server.

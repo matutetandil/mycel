@@ -148,6 +148,7 @@ That's it. REST API + database, zero code.
 | [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
 | [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching ([docs](docs/guides/caching.md)) |
 | [Multi-step Flow Orchestration](examples/steps) | Sequential and conditional step execution ([docs](docs/guides/multi-step-flows.md)) |
+| Source Fan-Out | Multiple flows from the same connector+operation, concurrent execution ([docs](docs/core-concepts/flows.md#source-fan-out-multiple-flows-from-same-source)) |
 | [Named Operations](examples/named-operations) | Reusable parameterized operations |
 | [Data Enrichment](examples/enrich) | Combine data from multiple sources |
 | [Auth (JWT, MFA, WebAuthn)](examples/auth) | Authentication with presets and MFA ([docs](docs/guides/auth.md)) |

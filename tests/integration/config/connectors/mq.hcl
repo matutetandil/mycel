@@ -41,6 +41,49 @@ connector "rabbit_sub" {
   }
 }
 
+# RabbitMQ publisher for fan-out tests
+connector "rabbit_fanout_pub" {
+  type   = "mq"
+  driver = "rabbitmq"
+
+  host     = env("RABBITMQ_HOST", "localhost")
+  port     = env("RABBITMQ_PORT", 5672)
+  username = env("RABBITMQ_USER", "guest")
+  password = env("RABBITMQ_PASS", "guest")
+  vhost    = "/"
+
+  publisher {
+    exchange     = ""
+    routing_key  = "fanout_queue"
+    persistent   = true
+    content_type = "application/json"
+  }
+}
+
+# RabbitMQ consumer for fan-out tests (multiple flows share this connector)
+connector "rabbit_fanout_sub" {
+  type   = "mq"
+  driver = "rabbitmq"
+
+  host     = env("RABBITMQ_HOST", "localhost")
+  port     = env("RABBITMQ_PORT", 5672)
+  username = env("RABBITMQ_USER", "guest")
+  password = env("RABBITMQ_PASS", "guest")
+  vhost    = "/"
+
+  queue {
+    name        = "fanout_queue"
+    durable     = true
+    auto_delete = false
+  }
+
+  consumer {
+    auto_ack    = false
+    concurrency = 1
+    prefetch    = 10
+  }
+}
+
 # Kafka publisher
 connector "kafka_pub" {
   type   = "mq"

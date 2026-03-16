@@ -104,11 +104,22 @@ func (c *Connector) Health(ctx context.Context) error {
 
 // RegisterRoute registers a flow handler for an operation.
 // Operation format: "METHOD /path" e.g., "GET /users", "POST /users", "GET /users/:id"
+// Multiple flows can register for the same operation (fan-out): the first handler
+// returns the HTTP response, additional handlers run concurrently as fire-and-forget.
 func (c *Connector) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.handlers[operation] = handler
+	if existing, ok := c.handlers[operation]; ok {
+		c.handlers[operation] = HandlerFunc(connector.ChainRequestResponse(
+			connector.HandlerFunc(existing),
+			connector.HandlerFunc(handler),
+			c.logger,
+		))
+		c.logger.Info("fan-out: multiple flows registered", "operation", operation)
+	} else {
+		c.handlers[operation] = handler
+	}
 }
 
 // SetHealthManager sets the health manager for this connector.

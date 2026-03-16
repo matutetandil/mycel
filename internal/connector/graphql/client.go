@@ -405,7 +405,16 @@ func isClientError(err error) bool {
 func (c *ClientConnector) RegisterRoute(operation string, handler HandlerFunc) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.handlers[operation] = handler
+	if existing, ok := c.handlers[operation]; ok {
+		c.handlers[operation] = HandlerFunc(connector.ChainEventDriven(
+			connector.HandlerFunc(existing),
+			connector.HandlerFunc(handler),
+			c.logger,
+		))
+		c.logger.Info("fan-out: multiple flows registered", "operation", operation)
+	} else {
+		c.handlers[operation] = handler
+	}
 	c.logger.Debug("registered subscription handler", "connector", c.name, "operation", operation)
 }
 

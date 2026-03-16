@@ -8,6 +8,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 // HandlerFunc is the function signature for message handlers.
@@ -481,10 +483,21 @@ func (s *ServerConnector) sendResponse(framer *Framer, msg *Message) {
 
 // RegisterRoute registers a handler for a message type.
 // This implements the RouteRegistrar interface used by the runtime.
+// Multiple flows can register for the same operation (fan-out): the first handler
+// returns the TCP response, additional handlers run concurrently as fire-and-forget.
 func (s *ServerConnector) RegisterRoute(operation string, handler HandlerFunc) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.handlers[operation] = handler
+	if existing, ok := s.handlers[operation]; ok {
+		s.handlers[operation] = HandlerFunc(connector.ChainRequestResponse(
+			connector.HandlerFunc(existing),
+			connector.HandlerFunc(handler),
+			s.logger,
+		))
+		s.logger.Info("fan-out: multiple flows registered", "operation", operation)
+	} else {
+		s.handlers[operation] = handler
+	}
 	s.logger.Debug("registered handler", "type", operation)
 }
 

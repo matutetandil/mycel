@@ -20,6 +20,7 @@ Complete, copy-paste ready examples for things you'll want to do in almost every
 25. [Database migrations](#25-database-migrations)
 26. [Distributed rate limiting with Redis](#26-distributed-rate-limiting-with-redis)
 27. [Multi-tenancy via request headers](#27-multi-tenancy-via-request-headers)
+28. [Fan-out from source (multiple flows, same trigger)](#28-fan-out-from-source-multiple-flows-same-trigger)
 
 ---
 
@@ -2338,6 +2339,96 @@ curl -X POST http://localhost:3000/products \
   -d '{"name": "Widget", "price": 9.99}'
 # Inserts with tenant_id = 'acme-corp'
 ```
+
+---
+
+## 28. Fan-out from source (multiple flows, same trigger)
+
+**Use case:** A single REST endpoint or MQ topic triggers multiple independent workflows — e.g., when an order arrives, save it to the database AND send a notification AND update analytics, each as a separate flow with its own transform and error handling.
+
+### REST: One endpoint, two flows
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  # ...
+}
+
+connector "slack" {
+  type   = "notification"
+  driver = "slack"
+  # ...
+}
+
+# Flow 1: Save to database (returns the HTTP response)
+flow "save_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+
+# Flow 2: Notify on Slack (fire-and-forget, same endpoint)
+flow "notify_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+  transform {
+    channel = "'#orders'"
+    text    = "'New order from ' + input.customer"
+  }
+  to {
+    connector = "slack"
+    target    = "message"
+  }
+}
+```
+
+Both flows share `POST /orders`. The first registered flow returns the HTTP response to the client. The second runs concurrently in the background — if it fails, the client still gets a successful response and the error is logged.
+
+### MQ: One queue, two consumers
+
+```hcl
+# Two flows consuming from the same RabbitMQ queue
+flow "process_payment" {
+  from {
+    connector = "orders_queue"
+    operation = "orders"
+  }
+  to {
+    connector = "payments_db"
+    target    = "payments"
+  }
+}
+
+flow "update_inventory" {
+  from {
+    connector = "orders_queue"
+    operation = "orders"
+  }
+  transform {
+    sku      = "input.body.sku"
+    quantity = "input.body.quantity * -1"
+  }
+  to {
+    connector = "inventory_db"
+    target    = "stock"
+  }
+}
+```
+
+For event-driven connectors (RabbitMQ, Kafka, MQTT, etc.), **all flows run in parallel** and the message is acknowledged only after all complete. If any flow fails, the message is NACKed and retried.
 
 ---
 

@@ -160,6 +160,51 @@ flow "create_order" {
 
 By default, multiple `to` blocks execute in parallel. Set `parallel = false` on a `to` block to force sequential execution.
 
+### Source Fan-Out (Multiple Flows from Same Source)
+
+Multiple flows can share the same `from` connector and operation. When a request or message arrives, **all registered flows execute concurrently**:
+
+```hcl
+# Flow 1: Save order to database
+flow "save_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+
+# Flow 2: Send notification (same source, runs concurrently)
+flow "notify_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+  transform {
+    channel = "'#orders'"
+    text    = "'New order received: ' + input.customer"
+  }
+  to {
+    connector = "slack"
+    target    = "message"
+  }
+}
+```
+
+The behavior depends on the connector type:
+
+| Connector type | Behavior |
+|---|---|
+| **Request-response** (REST, gRPC, TCP, WebSocket, SOAP, SSE, GraphQL) | First registered flow returns the response. Additional flows run as fire-and-forget in background goroutines. |
+| **Event-driven** (RabbitMQ, Kafka, Redis Pub/Sub, MQTT, CDC, File watch) | All flows execute in parallel. The message is acknowledged only after **all** flows complete successfully. |
+
+Errors in fire-and-forget flows (request-response) are logged but don't affect the primary response. Errors in event-driven flows cause the message to be NACKed/retried according to the connector's error handling policy.
+
+This differs from [multi-to](#multi-to-fan-out) which sends the _same flow's_ output to multiple destinations. Source fan-out runs _independent flows_ with their own transforms, validation, and error handling.
+
 ## Scheduled Flows (Cron)
 
 Run a flow on a schedule instead of from a connector event:
