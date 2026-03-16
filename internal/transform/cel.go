@@ -881,21 +881,42 @@ func (t *CELTransformer) Transform(ctx context.Context, input map[string]interfa
 		"ctx":    make(map[string]interface{}),
 	}
 
-	for _, rule := range rules {
+	hook := HookFromContext(ctx)
+
+	for i, rule := range rules {
+		// TransformHook: before rule
+		if hook != nil {
+			if !hook.BeforeRule(ctx, i, rule, activation) {
+				return nil, fmt.Errorf("transform aborted at rule %d ('%s')", i, rule.Target)
+			}
+		}
+
 		// Compile/get cached program
 		prog, err := t.Compile(rule.Expression)
 		if err != nil {
+			if hook != nil {
+				hook.AfterRule(ctx, i, rule, nil, err)
+			}
 			return nil, fmt.Errorf("failed to compile expression for '%s': %w", rule.Target, err)
 		}
 
 		// Evaluate with current activation (output grows with each rule)
 		result, _, err := prog.Eval(activation)
 		if err != nil {
+			if hook != nil {
+				hook.AfterRule(ctx, i, rule, nil, err)
+			}
 			return nil, fmt.Errorf("failed to evaluate expression for '%s': %w", rule.Target, err)
 		}
 
 		// Set the result in output
 		value := result.Value()
+
+		// TransformHook: after rule
+		if hook != nil {
+			hook.AfterRule(ctx, i, rule, value, nil)
+		}
+
 		if err := setNestedValue(output, rule.Target, value); err != nil {
 			return nil, fmt.Errorf("failed to set '%s': %w", rule.Target, err)
 		}
@@ -1063,18 +1084,37 @@ func (t *CELTransformer) TransformResponse(ctx context.Context, input map[string
 		"ctx":    make(map[string]interface{}),
 	}
 
-	for _, rule := range rules {
+	hook := HookFromContext(ctx)
+
+	for i, rule := range rules {
+		if hook != nil {
+			if !hook.BeforeRule(ctx, i, rule, activation) {
+				return nil, fmt.Errorf("transform aborted at rule %d ('%s')", i, rule.Target)
+			}
+		}
+
 		prog, err := t.Compile(rule.Expression)
 		if err != nil {
+			if hook != nil {
+				hook.AfterRule(ctx, i, rule, nil, err)
+			}
 			return nil, fmt.Errorf("failed to compile expression for '%s': %w", rule.Target, err)
 		}
 
 		val, _, err := prog.Eval(activation)
 		if err != nil {
+			if hook != nil {
+				hook.AfterRule(ctx, i, rule, nil, err)
+			}
 			return nil, fmt.Errorf("failed to evaluate expression for '%s': %w", rule.Target, err)
 		}
 
-		if err := setNestedValue(result, rule.Target, val.Value()); err != nil {
+		value := val.Value()
+		if hook != nil {
+			hook.AfterRule(ctx, i, rule, value, nil)
+		}
+
+		if err := setNestedValue(result, rule.Target, value); err != nil {
 			return nil, fmt.Errorf("failed to set '%s': %w", rule.Target, err)
 		}
 	}
@@ -1105,21 +1145,39 @@ func (t *CELTransformer) TransformWithContext(ctx context.Context, input map[str
 		"step":     steps,
 	}
 
-	for _, rule := range rules {
+	hook := HookFromContext(ctx)
+
+	for i, rule := range rules {
+		if hook != nil {
+			if !hook.BeforeRule(ctx, i, rule, activation) {
+				return nil, fmt.Errorf("transform aborted at rule %d ('%s')", i, rule.Target)
+			}
+		}
+
 		// Compile/get cached program
 		prog, err := t.Compile(rule.Expression)
 		if err != nil {
+			if hook != nil {
+				hook.AfterRule(ctx, i, rule, nil, err)
+			}
 			return nil, fmt.Errorf("failed to compile expression for '%s': %w", rule.Target, err)
 		}
 
 		// Evaluate with current activation (output grows with each rule)
 		result, _, err := prog.Eval(activation)
 		if err != nil {
+			if hook != nil {
+				hook.AfterRule(ctx, i, rule, nil, err)
+			}
 			return nil, fmt.Errorf("failed to evaluate expression for '%s': %w", rule.Target, err)
 		}
 
 		// Set the result in output
 		value := result.Value()
+		if hook != nil {
+			hook.AfterRule(ctx, i, rule, value, nil)
+		}
+
 		if err := setNestedValue(output, rule.Target, value); err != nil {
 			return nil, fmt.Errorf("failed to set '%s': %w", rule.Target, err)
 		}

@@ -37,6 +37,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector/database/postgres"
 	"github.com/matutetandil/mycel/internal/connector/database/sqlite"
 	"github.com/matutetandil/mycel/internal/connector/exec"
+	"github.com/matutetandil/mycel/internal/debug"
 	"github.com/matutetandil/mycel/internal/envdefaults"
 	"github.com/matutetandil/mycel/internal/connector/file"
 	"github.com/matutetandil/mycel/internal/connector/graphql"
@@ -142,6 +143,9 @@ type Runtime struct {
 
 	// Admin server for health/metrics when no REST connector is present
 	adminServer *http.Server
+
+	// Debug protocol server for Mycel Studio IDE integration
+	debugServer *debug.Server
 
 	// shutdownTimeout is the maximum time to wait for graceful shutdown.
 	shutdownTimeout time.Duration
@@ -452,7 +456,7 @@ func New(opts Options) (*Runtime, error) {
 		}
 	}
 
-	return &Runtime{
+	r := &Runtime{
 		config:            config,
 		connectors:        registry,
 		operationResolver: opResolver,
@@ -477,7 +481,12 @@ func New(opts Options) (*Runtime, error) {
 		verboseFlow:       opts.VerboseFlow,
 		hotReloadEnabled:  opts.HotReload,
 		shutdownTimeout:   opts.ShutdownTimeout,
-	}, nil
+	}
+
+	// Initialize debug server early so flow handlers can reference it
+	r.debugServer = debug.NewServer(r, opts.Logger)
+
+	return r, nil
 }
 
 // registerBuiltinFactories registers the built-in connector factories.
@@ -785,6 +794,66 @@ func (r *Runtime) ListFlows() []string {
 	return r.flows.List()
 }
 
+// GetFlowConfig returns a flow config by name (debug.RuntimeInspector).
+func (r *Runtime) GetFlowConfig(name string) (*flow.Config, bool) {
+	handler, ok := r.flows.Get(name)
+	if !ok {
+		return nil, false
+	}
+	return handler.Config, true
+}
+
+// ListConnectors returns all registered connector names (debug.RuntimeInspector).
+func (r *Runtime) ListConnectors() []string {
+	return r.connectors.List()
+}
+
+// GetConnectorConfig returns a connector config by name (debug.RuntimeInspector).
+func (r *Runtime) GetConnectorConfig(name string) (*connector.Config, bool) {
+	for _, cfg := range r.config.Connectors {
+		if cfg.Name == name {
+			return cfg, true
+		}
+	}
+	return nil, false
+}
+
+// ListTypes returns all type schemas (debug.RuntimeInspector).
+func (r *Runtime) ListTypes() []*validate.TypeSchema {
+	schemas := make([]*validate.TypeSchema, 0, len(r.types))
+	for _, schema := range r.types {
+		schemas = append(schemas, schema)
+	}
+	return schemas
+}
+
+// ListTransforms returns all named transform configs (debug.RuntimeInspector).
+func (r *Runtime) ListTransforms() []*transform.Config {
+	configs := make([]*transform.Config, 0, len(r.transforms))
+	for _, cfg := range r.transforms {
+		configs = append(configs, cfg)
+	}
+	return configs
+}
+
+// GetCELTransformer returns a CEL transformer for expression evaluation (debug.RuntimeInspector).
+func (r *Runtime) GetCELTransformer() *transform.CELTransformer {
+	// Return the first flow handler's transformer, or create a new one
+	for _, name := range r.flows.List() {
+		if handler, ok := r.flows.Get(name); ok && handler.Transformer != nil {
+			return handler.Transformer
+		}
+	}
+	// Fallback: create a fresh transformer
+	t, _ := transform.NewCELTransformer()
+	return t
+}
+
+// GetDebugServer returns the debug protocol server for flow handler integration.
+func (r *Runtime) GetDebugServer() *debug.Server {
+	return r.debugServer
+}
+
 // initConnectors creates and connects all configured connectors.
 func (r *Runtime) initConnectors(ctx context.Context) error {
 	fmt.Println("    Connectors:")
@@ -1036,6 +1105,7 @@ func (r *Runtime) registerFlows() error {
 			ValidatorRegistry:  r.validatorRegistry,
 			Logger:             r.logger,
 			VerboseFlow:        r.verboseFlow,
+			DebugServer:        r.debugServer,
 		}
 
 		r.flows.Register(cfg.Name, handler)
@@ -1141,16 +1211,12 @@ func parseOperationString(op string) (method, path string) {
 
 // startServers starts all REST connector HTTP servers.
 func (r *Runtime) startServers(ctx context.Context) error {
-	hasHTTPServer := false
-
 	// Find REST connectors and start their servers
 	for _, name := range r.connectors.List() {
 		conn, _ := r.connectors.Get(name)
 
 		// Check if this is a startable connector (REST)
 		if starter, ok := conn.(Starter); ok {
-			hasHTTPServer = true
-
 			// Set health manager if connector supports it
 			if hr, ok := conn.(HealthRegistrar); ok {
 				hr.SetHealthManager(r.health)
@@ -1176,12 +1242,9 @@ func (r *Runtime) startServers(ctx context.Context) error {
 		}
 	}
 
-	// If no REST connector exists, start a standalone admin server
-	// so health checks and metrics are always available
-	if !hasHTTPServer {
-		if err := r.startAdminServer(); err != nil {
-			return fmt.Errorf("failed to start admin server: %w", err)
-		}
+	// Always start admin server (health, metrics, debug protocol)
+	if err := r.startAdminServer(); err != nil {
+		return fmt.Errorf("failed to start admin server: %w", err)
 	}
 
 	// Mark service as ready after all servers are started
@@ -1290,6 +1353,9 @@ func (r *Runtime) startAdminServer() error {
 	// Register workflow management endpoints
 	r.registerWorkflowEndpoints(mux)
 
+	// Register debug protocol (Mycel Studio IDE)
+	r.debugServer.RegisterHandlers(mux)
+
 	addr := fmt.Sprintf(":%d", port)
 
 	listener, err := net.Listen("tcp", addr)
@@ -1307,8 +1373,8 @@ func (r *Runtime) startAdminServer() error {
 		}
 	}()
 
-	r.logger.Info("admin server started", "port", port, "endpoints", []string{"/health", "/health/live", "/health/ready", "/metrics"})
-	banner.PrintConnector("admin", "http", fmt.Sprintf("health + metrics on :%d", port))
+	r.logger.Info("admin server started", "port", port, "endpoints", []string{"/health", "/health/live", "/health/ready", "/metrics", "/debug"})
+	banner.PrintConnector("admin", "http", fmt.Sprintf("health + metrics + debug on :%d", port))
 
 	return nil
 }

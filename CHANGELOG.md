@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-03-15
+
+### Added
+- **Mycel Studio Debug Protocol** (`internal/debug/`): WebSocket JSON-RPC 2.0 debug server for IDE integration. Mounted on admin server at `:9090/debug`. Provides full runtime introspection and live debugging of running Mycel services. 29 tests covering all 6 protocol phases
+- **Session management**: `debug.attach` / `debug.detach` RPC methods. Each connected client gets an isolated session with its own breakpoints, threads, and resume channels. Multiple IDE clients can connect simultaneously
+- **Runtime introspection**: `RuntimeInspector` interface exposes read-only views of a live service. RPC methods: `inspect.flows`, `inspect.flow`, `inspect.connectors`, `inspect.types`, `inspect.transforms`. Enables IDEs to build autocompletion and object trees from a running service
+- **Event streaming**: `EventStream` fan-out broadcasts pipeline trace events to all connected debug clients in real time. `StudioCollector` implements `trace.Collector`. Events: `event.flowStart`, `event.flowEnd`, `event.stageEnter`, `event.stageExit`, `event.ruleEval`
+- **Stage-level breakpoints**: `StudioBreakpointController` implements `trace.BreakpointController`. `debug.setBreakpoints` configures stage breakpoints per flow. `debug.continue` / `debug.next` resume execution. `debug.threads` lists in-flight requests. `debug.variables` inspects data at paused stage. `event.stopped` / `event.continued` notifications. One `DebugThread` per concurrent request
+- **Per-CEL-rule breakpoints**: `TransformHook` interface (`BeforeRule` / `AfterRule`) injected via `context.Context` into CEL rule evaluation loops. `StudioTransformHook` streams `event.ruleEval` and pauses at individual rules. `debug.stepInto` steps into the next rule within a transform block
+- **Watch expressions and evaluate**: `debug.evaluate` executes a CEL expression against the paused thread's activation record. Enables ad-hoc queries like `output.email` or `size(input.items)` while paused at a breakpoint
+- **Conditional breakpoints**: `debug.setBreakpoints` accepts an optional `condition` field (CEL expression). Breakpoint only pauses when condition evaluates to `true`
+- **TransformHook context helpers** (`internal/transform/hook.go`): `WithTransformHook(ctx, hook)` / `HookFromContext(ctx)`. Zero-cost when no hook (~10ns nil-check)
+
+### Changed
+- **Admin server always starts**: `:9090` now starts unconditionally on every `mycel start`, regardless of REST connector presence. Ensures debug protocol, health checks, and metrics are always reachable
+- **`internal/transform/cel.go`**: Hook injection in `Transform`, `TransformResponse`, `TransformWithContext` rule loops. Zero overhead when no hook: single nil-check per transform invocation
+- **`internal/runtime/runtime.go`**: Debug server initialization, `RuntimeInspector` methods on Runtime, admin mux registration
+- **`internal/runtime/flow_registry.go`**: Debug context injection in `HandleRequest` — trace, breakpoints, and transform hooks attached when debug session is active
+
 ## [1.13.0] - 2026-03-13
 
 ### Added

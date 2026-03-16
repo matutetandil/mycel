@@ -13,6 +13,7 @@ import (
 
 	"github.com/matutetandil/mycel/internal/aspect"
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/debug"
 	"github.com/matutetandil/mycel/internal/connector/cache"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/functions"
@@ -153,6 +154,10 @@ type FlowHandler struct {
 
 	// VerboseFlow enables per-request trace logging via LogCollector.
 	VerboseFlow bool
+
+	// DebugServer provides access to the Studio debug protocol server.
+	// When a debug client is connected, trace context and breakpoints are injected.
+	DebugServer *debug.Server
 }
 
 // FilteredResult is returned when a request is filtered out by the from.filter expression.
@@ -170,8 +175,48 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		ctx = trace.WithTrace(ctx, tc)
 	}
 
+	// Attach Studio debug context when a debug client is connected
+	var debugThread *debug.DebugThread
+	var debugCollector *debug.StudioCollector
+	if h.DebugServer != nil && h.DebugServer.HasClients() && !trace.IsTracing(ctx) {
+		if session := h.DebugServer.ActiveSession(); session != nil {
+			threadID := generateThreadID()
+			debugThread = debug.NewDebugThread(threadID, h.Config.Name)
+			session.RegisterThread(debugThread)
+			defer session.UnregisterThread(threadID)
+
+			stream := h.DebugServer.Stream()
+			debugCollector = debug.NewStudioCollector(stream, threadID, h.Config.Name)
+
+			tc := &trace.Context{
+				FlowName:  h.Config.Name,
+				Collector: debugCollector,
+			}
+
+			// Add breakpoint controller if breakpoints are set
+			if session.HasBreakpoints(h.Config.Name) {
+				tc.Breakpoint = debug.NewStudioBreakpointController(session, debugThread, stream, debugCollector)
+			}
+
+			ctx = trace.WithTrace(ctx, tc)
+
+			// Add transform hook for per-rule debugging
+			if session.HasBreakpoints(h.Config.Name) {
+				hook := debug.NewStudioTransformHook(session, debugThread, stream, debugCollector, h.Config.Name, trace.StageTransform)
+				ctx = transform.WithTransformHook(ctx, hook)
+			}
+
+			debugCollector.BroadcastFlowStart(input)
+		}
+	}
+
 	start := time.Now()
 	defer func() {
+		// Broadcast flow end to debug clients
+		if debugCollector != nil {
+			debugCollector.BroadcastFlowEnd(result, time.Since(start), err)
+		}
+
 		if h.Logger == nil {
 			return
 		}
@@ -3070,4 +3115,11 @@ func (h *FlowHandler) executeInvalidation(ctx context.Context, input map[string]
 	}
 
 	return nil
+}
+
+// generateThreadID creates a short random ID for debug threads.
+func generateThreadID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return "t" + hex.EncodeToString(b)
 }

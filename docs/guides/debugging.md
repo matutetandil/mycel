@@ -18,6 +18,11 @@ All debug features (breakpoints, DAP, verbose flow) are **development-only** —
   - [IntelliJ / WebStorm](#intellij--webstorm)
   - [Neovim](#neovim)
   - [Supported DAP Commands](#supported-dap-commands)
+- [Studio Debug Protocol](#studio-debug-protocol)
+  - [Connecting](#connecting)
+  - [Methods](#methods)
+  - [Events](#events)
+  - [Per-CEL-Rule Debugging](#per-cel-rule-debugging)
 - [Verbose Flow Logging](#verbose-flow-logging)
 - [Log-Level Debugging](#log-level-debugging)
 - [Local vs Docker](#local-vs-docker)
@@ -322,6 +327,90 @@ Start the DAP server, then `:lua require('dap').continue()` (**F5**).
 
 ---
 
+## Studio Debug Protocol
+
+The Studio Debug Protocol provides a WebSocket-based debug interface designed for **Mycel Studio** (the desktop IDE) and any WebSocket-capable client. Unlike the DAP server which debugs a single trace, Studio connects to a **running service** and debugs requests in real time — similar to Chrome DevTools or IntelliJ's debugger.
+
+The protocol uses **JSON-RPC 2.0** over WebSocket at `:9090/debug` (the admin server port).
+
+### Connecting
+
+```javascript
+// From Electron/Tauri IDE or any WebSocket client
+const ws = new WebSocket("ws://localhost:9090/debug");
+
+// Attach to get session ID and flow list
+ws.send(JSON.stringify({
+  jsonrpc: "2.0", id: 1,
+  method: "debug.attach",
+  params: { clientName: "mycel-studio 1.0" }
+}));
+// Response: { jsonrpc: "2.0", id: 1, result: { sessionId: "s1", flows: ["create_user", "get_users"] } }
+```
+
+### Methods
+
+| Method | Purpose |
+|---|---|
+| `debug.attach` | Connect debugger, get session + flow list |
+| `debug.detach` | Disconnect cleanly |
+| `debug.setBreakpoints` | Set breakpoints (stage + rule-level + conditional) |
+| `debug.continue` | Resume paused thread |
+| `debug.next` | Step to next pipeline stage |
+| `debug.stepInto` | Step per-CEL-rule within transform |
+| `debug.evaluate` | Evaluate arbitrary CEL in current context |
+| `debug.variables` | Get variables at current breakpoint |
+| `debug.threads` | List active debug threads |
+| `inspect.flows` | List all flows with configs |
+| `inspect.flow` | Full flow config detail |
+| `inspect.connectors` | List connectors |
+| `inspect.types` | List type schemas |
+| `inspect.transforms` | List named transforms |
+
+### Events
+
+Events are JSON-RPC notifications (no `id`, no response expected) pushed from the runtime to the IDE:
+
+| Event | Purpose |
+|---|---|
+| `event.stopped` | Thread hit breakpoint (stage or rule-level) |
+| `event.continued` | Thread resumed |
+| `event.stageEnter` | Pipeline stage starting (with input data) |
+| `event.stageExit` | Pipeline stage completed (with output, duration, error) |
+| `event.ruleEval` | Individual CEL rule evaluated (target, expression, result) |
+| `event.flowStart` | Request entered flow |
+| `event.flowEnd` | Request completed flow |
+
+### Per-CEL-Rule Debugging
+
+Set a rule-level breakpoint to pause at a specific CEL expression within a transform:
+
+```json
+{
+  "jsonrpc": "2.0", "id": 2,
+  "method": "debug.setBreakpoints",
+  "params": {
+    "flow": "create_user",
+    "breakpoints": [
+      { "stage": "transform", "ruleIndex": -1 },
+      { "stage": "transform", "ruleIndex": 1, "condition": "input.email != \"\"" }
+    ]
+  }
+}
+```
+
+- `ruleIndex: -1` pauses at the transform stage (before any rules execute)
+- `ruleIndex: 0` pauses before the first CEL rule
+- `condition` is a CEL expression evaluated against the current activation — only pauses when true
+
+Use `debug.stepInto` to step through rules one at a time, and `debug.evaluate` to run ad-hoc CEL expressions against the paused thread's data.
+
+**Zero-cost when idle**: When no Studio client is connected, the overhead is zero. When connected but no breakpoints set, only lightweight event streaming occurs. Breakpoints add pause/resume overhead only to flows that have them.
+
+**DAP coexistence**: Studio protocol and DAP are fully independent. Both implement `trace.BreakpointController` but use different transports (WebSocket vs TCP) and lifecycle models (long-lived vs one-shot).
+
+---
+
 ## Verbose Flow Logging
 
 For runtime debugging without stopping the service, use `--verbose-flow` to log every pipeline stage for all requests as structured log entries:
@@ -501,4 +590,9 @@ Global Flags:
   -e, --env string      Environment (dev, staging, prod)
   --log-level string    Log level: debug, info, warn, error
   --log-format string   Log format: text, json
+
+Admin Server (always available on :9090):
+  /health             Health check endpoints
+  /metrics            Prometheus metrics
+  /debug              Studio Debug Protocol (WebSocket JSON-RPC 2.0)
 ```
