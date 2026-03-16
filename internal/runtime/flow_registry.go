@@ -158,6 +158,10 @@ type FlowHandler struct {
 	// DebugServer provides access to the Studio debug protocol server.
 	// When a debug client is connected, trace context and breakpoints are injected.
 	DebugServer *debug.Server
+
+	// transformerOnce ensures the CEL transformer is initialized only once (thread-safe).
+	transformerOnce sync.Once
+	transformerErr  error
 }
 
 // FilteredResult is returned when a request is filtered out by the from.filter expression.
@@ -730,12 +734,18 @@ func (h *FlowHandler) executeAsync(ctx context.Context, input map[string]interfa
 	statusBytes, _ := json.Marshal(status)
 	_ = cacheStorage.Set(ctx, cacheKey, statusBytes, ttl)
 
+	// Copy input to avoid race between caller and background goroutine
+	inputCopy := make(map[string]interface{}, len(input))
+	for k, v := range input {
+		inputCopy[k] = v
+	}
+
 	// Execute in background
 	go func() {
 		bgCtx := context.Background()
 
 		// Run the flow core
-		result, err := h.executeFlowCore(bgCtx, input)
+		result, err := h.executeFlowCore(bgCtx, inputCopy)
 
 		// Store result
 		var finalStatus map[string]interface{}
@@ -2587,15 +2597,13 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 		return input, nil
 	}
 
-	// Initialize CEL transformer if needed
-	if h.Transformer == nil {
-		var err error
-		// Create CEL transformer with WASM functions if registry is available
+	// Initialize CEL transformer if needed (thread-safe for concurrent async flows)
+	h.transformerOnce.Do(func() {
 		celOptions := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
-		h.Transformer, err = transform.NewCELTransformerWithOptions(celOptions...)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create CEL transformer: %w", err)
-		}
+		h.Transformer, h.transformerErr = transform.NewCELTransformerWithOptions(celOptions...)
+	})
+	if h.transformerErr != nil {
+		return nil, fmt.Errorf("failed to create CEL transformer: %w", h.transformerErr)
 	}
 
 	// Execute steps first (their results are available in transforms)
