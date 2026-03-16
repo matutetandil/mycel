@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.3] - 2026-03-16
+
+### Changed
+- **PDF connector: template in config**: Template path moved from flow transform payload to connector configuration (`template` attribute). Connector-level template serves as default; flows can still override via `template` payload field for dynamic template selection. Follows the black-box principle — infrastructure details belong in connector config, not in business flows
+- **Email connector: template in config**: Template path moved from flow payload (`template_file`) to connector configuration (`template` attribute). Same resolution: connector config as default, payload override for dynamic cases. Field renamed from `template_file` to `template` for consistency with PDF connector
+- **Consistent template naming**: Both PDF and email connectors now use `template` as the field name (email previously used `template_file`)
+
 ## [1.14.2] - 2026-03-16
 
 ### Fixed

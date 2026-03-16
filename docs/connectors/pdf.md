@@ -7,6 +7,7 @@ Generate PDF documents from HTML templates. Uses Go's `text/template` syntax for
 ```hcl
 connector "pdf" {
   type         = "pdf"
+  template     = "./templates/invoice.html"
   page_size    = "A4"
   font         = "Helvetica"
   margin_left  = 15
@@ -18,6 +19,7 @@ connector "pdf" {
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
+| `template` | string | | Default HTML template file path (can be overridden per-request via payload) |
 | `page_size` | string | `"A4"` | Page size: `A4`, `Letter`, `Legal` |
 | `font` | string | `"Helvetica"` | Default font family |
 | `margin_left` | number | `15` | Left margin in mm |
@@ -37,6 +39,12 @@ connector "pdf" {
 Returns the PDF as a binary HTTP response. The REST connector automatically detects the `_binary` and `_content_type` fields and serves the raw PDF with appropriate headers (`Content-Type: application/pdf`, `Content-Disposition: attachment`).
 
 ```hcl
+connector "invoice_pdf" {
+  type      = "pdf"
+  template  = "./templates/invoice.html"
+  page_size = "A4"
+}
+
 flow "download_invoice" {
   from {
     connector = "api"
@@ -50,7 +58,6 @@ flow "download_invoice" {
   }
 
   transform {
-    template = "'./templates/invoice.html'"
     filename = "'invoice-' + step.invoice.number + '.pdf'"
     number   = "step.invoice.number"
     date     = "step.invoice.date"
@@ -59,7 +66,7 @@ flow "download_invoice" {
   }
 
   to {
-    connector = "pdf"
+    connector = "invoice_pdf"
     operation = "generate"
   }
 }
@@ -72,6 +79,12 @@ flow "download_invoice" {
 Writes the PDF to the filesystem. The file is saved to `output_dir/filename`.
 
 ```hcl
+connector "report_pdf" {
+  type       = "pdf"
+  template   = "./templates/report.html"
+  output_dir = "./reports"
+}
+
 flow "archive_report" {
   from {
     connector = "api"
@@ -79,14 +92,13 @@ flow "archive_report" {
   }
 
   transform {
-    template = "'./templates/report.html'"
     filename = "'report-' + now() + '.pdf'"
     title    = "input.title"
     data     = "input.data"
   }
 
   to {
-    connector = "pdf"
+    connector = "report_pdf"
     operation = "save"
   }
 }
@@ -103,11 +115,13 @@ The `transform` block builds the payload sent to the PDF connector:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `template` | string | Yes | Path to the HTML template file |
+| `template` | string | No | Override the connector-level template path for this request |
 | `filename` | string | No | Output filename (default: `document.pdf`) |
 | *(any other)* | any | No | Template variables available as `{{.field_name}}` |
 
 All fields except `template` and `filename` are passed as template data.
+
+**Template resolution order:** payload `template` field > connector config `template` > flow `to.target` fallback.
 
 ## HTML Templates
 
@@ -189,6 +203,7 @@ connector "db" {
 
 connector "pdf" {
   type      = "pdf"
+  template  = "./templates/invoice.html"
   page_size = "A4"
   font      = "Helvetica"
 }
@@ -215,7 +230,6 @@ flow "get_invoice_pdf" {
   }
 
   transform {
-    template = "'./templates/invoice.html'"
     filename = "'invoice-' + step.invoice.number + '.pdf'"
     number   = "step.invoice.number"
     date     = "step.invoice.date"

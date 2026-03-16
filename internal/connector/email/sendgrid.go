@@ -58,8 +58,12 @@ func (c *SendGridConnector) Connect(ctx context.Context) error {
 
 // Send sends an email via SendGrid
 func (c *SendGridConnector) Send(ctx context.Context, email *Email) (*SendResult, error) {
+	// Apply config-level template as default if no per-email template
+	if email.Template == "" && c.config.Template != "" {
+		email.Template = c.config.Template
+	}
 	// Render HTML template if specified
-	if email.TemplateFile != "" {
+	if email.Template != "" {
 		if err := email.RenderTemplate(nil); err != nil {
 			return &SendResult{Success: false, Provider: "sendgrid", Error: err.Error()}, err
 		}

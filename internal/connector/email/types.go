@@ -16,6 +16,10 @@ type Config struct {
 	// Driver: "smtp", "sendgrid", "ses"
 	Driver string
 
+	// Template is the default HTML template file path.
+	// Can be overridden per-email via the "template" payload field.
+	Template string
+
 	// SMTP configuration
 	SMTP *SMTPConfig
 
@@ -128,10 +132,10 @@ type Email struct {
 	TemplateID   string                 `json:"template_id,omitempty"`
 	TemplateData map[string]interface{} `json:"template_data,omitempty"`
 
-	// TemplateFile is a path to a local HTML template file.
+	// Template is a path to a local HTML template file.
 	// If set, the file is rendered using Go text/template with TemplateData
 	// (or the full payload) and the result is set as HTMLBody.
-	TemplateFile string `json:"template_file,omitempty"`
+	Template string `json:"template,omitempty"`
 
 	// Attachments
 	Attachments []Attachment `json:"attachments,omitempty"`
@@ -188,17 +192,17 @@ type RecipientResult struct {
 	Error   string `json:"error,omitempty"`
 }
 
-// RenderTemplate renders the TemplateFile (if set) into HTMLBody.
+// RenderTemplate renders the Template file (if set) into HTMLBody.
 // Uses Go text/template syntax ({{.field}}, {{range}}, etc.).
 // Data comes from TemplateData if set, otherwise falls back to the full payload fields.
 func (e *Email) RenderTemplate(payload map[string]interface{}) error {
-	if e.TemplateFile == "" {
+	if e.Template == "" {
 		return nil
 	}
 
-	content, err := os.ReadFile(e.TemplateFile)
+	content, err := os.ReadFile(e.Template)
 	if err != nil {
-		return fmt.Errorf("failed to read email template %s: %w", e.TemplateFile, err)
+		return fmt.Errorf("failed to read email template %s: %w", e.Template, err)
 	}
 
 	tmpl, err := template.New("email").Parse(string(content))

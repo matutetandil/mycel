@@ -22,6 +22,7 @@ func (f *Factory) Supports(connType, driver string) bool {
 // Create creates a new PDF connector based on configuration.
 func (f *Factory) Create(_ context.Context, config *connector.Config) (connector.Connector, error) {
 	cfg := &Config{
+		Template:    getString(config.Properties, "template", ""),
 		OutputDir:   getString(config.Properties, "output_dir", ""),
 		PageSize:    getString(config.Properties, "page_size", "A4"),
 		Font:        getString(config.Properties, "font", "Helvetica"),

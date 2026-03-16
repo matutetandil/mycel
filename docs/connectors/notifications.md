@@ -276,19 +276,32 @@ flow "send_welcome_email" {
 
 ### HTML Email Templates
 
-Use the `template_file` attribute to render an HTML file as the email body. The template uses Go `text/template` syntax and receives the full flow payload as its data context.
+Set the `template` attribute on the connector to specify a default HTML template file. The template uses Go `text/template` syntax and receives the flow payload as its data context.
 
-This is different from `template_id`, which references a provider-side template (e.g., a SendGrid dynamic template). With `template_file`, the rendering happens locally before sending.
+This is different from `template_id`, which references a provider-side template (e.g., a SendGrid dynamic template). With `template`, the rendering happens locally before sending.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `template_file` | string | Path to an HTML template file (Go `text/template` syntax) |
+The template can be set at two levels:
+1. **Connector config** (recommended) — infrastructure detail, keeps flows focused on business data
+2. **Flow payload** — override per-request for dynamic template selection
+
+| Level | Field | Description |
+|-------|-------|-------------|
+| Connector | `template` | Default HTML template file path |
+| Flow payload | `template` | Per-request override (CEL expression) |
 
 Template variables use `{{.FieldName}}` syntax, where each field corresponds to a key in the transform payload.
 
 #### Example
 
 ```hcl
+connector "order_email" {
+  type     = "email"
+  driver   = "smtp"
+  host     = "${SMTP_HOST}"
+  port     = 587
+  template = "./templates/order_confirmation.html"
+}
+
 flow "send_order_confirmation" {
   from {
     connector = "api"
@@ -302,16 +315,15 @@ flow "send_order_confirmation" {
   }
 
   transform {
-    to            = "[{'email': step.order.email, 'name': step.order.customer_name}]"
-    subject       = "'Order #' + step.order.number + ' confirmed'"
-    template_file = "'./templates/order_confirmation.html'"
-    Name          = "step.order.customer_name"
-    OrderNumber   = "step.order.number"
-    Total         = "string(step.order.total)"
+    to          = "[{'email': step.order.email, 'name': step.order.customer_name}]"
+    subject     = "'Order #' + step.order.number + ' confirmed'"
+    Name        = "step.order.customer_name"
+    OrderNumber = "step.order.number"
+    Total       = "string(step.order.total)"
   }
 
   to {
-    connector = "email_smtp"
+    connector = "order_email"
     operation = "send"
   }
 }

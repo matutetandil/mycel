@@ -21,6 +21,10 @@ type Connector struct {
 
 // Config holds the PDF connector configuration.
 type Config struct {
+	// Template is the default HTML template file path.
+	// Can be overridden per-request via the "template" payload field.
+	Template string
+
 	// OutputDir is the default directory for saving PDFs (optional).
 	OutputDir string
 
@@ -73,13 +77,16 @@ func (c *Connector) Health(_ context.Context) error      { return nil }
 //   - data (map):        template variables
 //   - filename (string): output filename (for save operation)
 func (c *Connector) Write(_ context.Context, data *connector.Data) (*connector.Result, error) {
+	// Template resolution order: payload override > connector config > target fallback
 	templatePath, _ := data.Payload["template"].(string)
 	if templatePath == "" {
-		// Also check the Target field (from flow to.target)
+		templatePath = c.config.Template
+	}
+	if templatePath == "" {
 		templatePath = data.Target
 	}
 	if templatePath == "" {
-		return nil, fmt.Errorf("pdf: template path is required (set 'template' in payload or 'target' in to block)")
+		return nil, fmt.Errorf("pdf: template path is required (set 'template' in connector config or payload)")
 	}
 
 	// Read template file

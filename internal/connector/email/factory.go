@@ -35,6 +35,7 @@ func (f *Factory) Create(ctx context.Context, config *connector.Config) (connect
 	cfg := &Config{
 		Name:     config.Name,
 		Driver:   driver,
+		Template: getString(props, "template", ""),
 		From:     getString(props, "from", ""),
 		FromName: getString(props, "from_name", ""),
 		ReplyTo:  getString(props, "reply_to", ""),
