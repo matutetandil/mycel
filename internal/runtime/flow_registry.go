@@ -967,6 +967,16 @@ func (h *FlowHandler) resultToConnectorResult(result interface{}) *connector.Res
 	switch v := result.(type) {
 	case []map[string]interface{}:
 		return &connector.Result{Rows: v}
+	case []interface{}:
+		// JSON-deserialized arrays (e.g., from cache) arrive as []interface{}.
+		// Convert each element that is a map to map[string]interface{}.
+		rows := make([]map[string]interface{}, 0, len(v))
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				rows = append(rows, m)
+			}
+		}
+		return &connector.Result{Rows: rows}
 	case map[string]interface{}:
 		// Check if it's a write result
 		if affected, ok := v["affected"]; ok {
@@ -977,11 +987,7 @@ func (h *FlowHandler) resultToConnectorResult(result interface{}) *connector.Res
 				res.Affected = int64(a)
 			}
 			if id, ok := v["id"]; ok {
-				if i, ok := id.(int64); ok {
-					res.LastID = i
-				} else if i, ok := id.(int); ok {
-					res.LastID = int64(i)
-				}
+				res.LastID = id
 			}
 			return res
 		}

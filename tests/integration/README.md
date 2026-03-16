@@ -90,7 +90,7 @@ Ports are auto-remapped if busy (e.g., `:3000` → `:3001`).
 | test-security.sh | HTTP, GraphQL, SOAP | REST + GraphQL + SOAP + File | 29 — Null bytes, control chars, bidi, XXE, path traversal, oversized, deep nesting |
 | test-fanout.sh | HTTP, AMQP | REST + RabbitMQ + PostgreSQL | 8 — Source fan-out: REST (2 flows, 1 endpoint) + MQ (2 consumers, 1 queue) |
 
-**27 test suites, 103 assertions**
+**33 test suites, 165 assertions**
 
 ## Mock Server
 

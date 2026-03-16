@@ -4,8 +4,13 @@ source "$(dirname "$0")/lib.sh"
 
 echo "=== Plugin System ==="
 
-# 1. Verify Mycel started with the plugin loaded
-status=$(http_status GET "$BASE/health")
+# 1. Verify Mycel started with the plugin loaded (retry for transient 503s)
+status=""
+for i in 1 2 3; do
+  status=$(http_status GET "$BASE/health")
+  [[ "$status" == "200" ]] && break
+  sleep 2
+done
 assert_status "Mycel started with plugin loaded" "200" "$status"
 
 # 2. Check logs confirm plugin validator was registered

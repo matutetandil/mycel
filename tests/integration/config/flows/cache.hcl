@@ -10,7 +10,7 @@ flow "cached_redis_get" {
   }
   cache {
     storage = "redis_cache"
-    key     = "'cached_users'"
+    key     = "cached_users"
     ttl     = "30s"
   }
   to {
@@ -27,7 +27,7 @@ flow "cached_memory_get" {
   }
   cache {
     storage = "memory_cache"
-    key     = "'cached_users_mem'"
+    key     = "cached_users_mem"
     ttl     = "30s"
   }
   to {

@@ -4,12 +4,20 @@ source "$(dirname "$0")/lib.sh"
 
 echo "=== Aspects ==="
 
-# Seed data
-http_body POST "$BASE/aspects/init" '{}' > /dev/null 2>&1
+# Seed data (retry in case SQLite is locked by parallel tests)
+for i in 1 2 3; do
+  init_status=$(http_status POST "$BASE/aspects/init" '{}')
+  [[ "$init_status" == "200" ]] && break
+  sleep 2
+done
 sleep 1
 
 # Add a second product for list tests
-http_body POST "$BASE/aspects/products" '{"name":"Gadget","price":25.00}' > /dev/null 2>&1
+for i in 1 2 3; do
+  prod_status=$(http_status POST "$BASE/aspects/products" '{"name":"Gadget","price":25.00}')
+  [[ "$prod_status" == "200" ]] && break
+  sleep 1
+done
 sleep 0.5
 
 # --- v1 deprecation headers ---

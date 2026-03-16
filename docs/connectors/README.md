@@ -42,6 +42,12 @@ For the general connector concept and how they fit into the Mycel model, see [Co
 | [FTP/SFTP](ftp.md) | `ftp` | Remote file transfer over FTP, FTPS, and SFTP |
 | [Cache](cache.md) | `cache` | In-memory (LRU) and Redis caching |
 
+## Document Generation
+
+| Connector | HCL `type` | Description |
+|-----------|------------|-------------|
+| [PDF](pdf.md) | `pdf` | Generate PDF documents from HTML templates (pure Go) |
+
 ## Notifications
 
 | Connector | HCL `type` | Description |

@@ -101,8 +101,18 @@ func (e *Executor) Execute(
 		execFn = e.wrapAround(ctx, aspect, enrichedInput, execFn)
 	}
 
+	// Strip aspect metadata before passing to the flow core — these fields
+	// are only for aspect expressions, not for the downstream connector.
+	flowInput := make(map[string]interface{}, len(enrichedInput))
+	for k, v := range enrichedInput {
+		if k == "_flow" || k == "_operation" || k == "_target" || k == "_timestamp" {
+			continue
+		}
+		flowInput[k] = v
+	}
+
 	// Execute the flow (with around wrappers)
-	result, flowErr := execFn(ctx, enrichedInput)
+	result, flowErr := execFn(ctx, flowInput)
 
 	// Execute after aspects (even if flow failed) — may enrich the result
 	result, afterErr := e.executeAfter(ctx, afterAspects, enrichedInput, result, flowErr)

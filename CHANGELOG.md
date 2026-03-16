@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.2] - 2026-03-16
+
+### Fixed
+- **Aspect metadata pollution**: `enrichInput()` injected `_flow`, `_operation`, `_target`, `_timestamp` into input maps which reached DB connectors as column names, causing SQL errors on all flows when aspects were loaded. Metadata is now stripped before passing to the flow core
+- **Cache hit type mismatch**: Cached results (from Redis or memory) deserialized as `[]interface{}` instead of `[]map[string]interface{}`, causing `resultToConnectorResult` to return empty results. Added `[]interface{}` handling with map conversion
+- **MongoDB ID preservation**: `resultToConnectorResult` only handled `int64` and `int` for LastID, losing MongoDB's string hex ObjectIDs. Now preserves original ID type
+- **Integration test: cache key format**: Cache flow HCL used CEL string literals (`'cached_users'`) for cache keys, but `buildCacheKey` doesn't evaluate CEL — resulting in keys with embedded quotes. Changed to plain strings
+- **Integration test: aspects SQLite contention**: Aspects test `POST /aspects/init` failed with `SQLITE_BUSY` when running in parallel with SQLite test. Added retry with backoff
+- **Integration test: plugin health flakiness**: Plugin test health check occasionally returned 503 during startup. Added retry loop
+- **PDF connector documentation**: Added `docs/connectors/pdf.md` with full reference (configuration, operations, HTML template syntax, complete invoice example)
+
 ## [1.14.1] - 2026-03-16
 
 ### Added
