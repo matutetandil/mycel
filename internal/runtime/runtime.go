@@ -1131,6 +1131,27 @@ func (r *Runtime) registerFlows() error {
 			}
 		}
 
+		// Validate connector-specific parameters if connectors implement validators.
+		// Validators may set defaults (e.g., operation = "*") in ConnectorParams.
+		if sv, ok := source.(connector.SourceValidator); ok {
+			if err := sv.ValidateSourceParams(cfg.From.ConnectorParams); err != nil {
+				return fmt.Errorf("flow %s: source %s: %w", cfg.Name, cfg.From.Connector, err)
+			}
+			// Sync defaults back to typed fields
+			if cfg.From.Operation == "" {
+				if op, ok := cfg.From.ConnectorParams["operation"].(string); ok {
+					cfg.From.Operation = op
+				}
+			}
+		}
+		if dest != nil {
+			if tv, ok := dest.(connector.TargetValidator); ok && cfg.To != nil {
+				if err := tv.ValidateTargetParams(cfg.To.ConnectorParams); err != nil {
+					return fmt.Errorf("flow %s: target %s: %w", cfg.Name, cfg.To.Connector, err)
+				}
+			}
+		}
+
 		// Register the flow
 		handler := &FlowHandler{
 			Config:             cfg,
