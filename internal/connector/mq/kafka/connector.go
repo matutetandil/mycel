@@ -45,6 +45,9 @@ type Connector struct {
 
 	// Filter rejection tracking for requeue dedup
 	requeueTracker *flow.RequeueTracker
+
+	// Debug throttling: single-message processing when debugger is connected
+	debugGate connector.DebugGate
 }
 
 // NewConnector creates a new Kafka connector.
@@ -206,6 +209,16 @@ func (c *Connector) RegisterHandler(pattern string, handler HandlerFunc) {
 		c.logger.Info("fan-out: multiple flows registered", "topic", pattern)
 	} else {
 		c.handlers[pattern] = handler
+	}
+}
+
+// SetDebugMode enables or disables single-message debug throttling.
+func (c *Connector) SetDebugMode(enabled bool) {
+	c.debugGate.SetEnabled(enabled)
+	if enabled {
+		c.logger.Info("debug mode enabled: single-message processing", "name", c.name)
+	} else {
+		c.logger.Info("debug mode disabled: concurrent processing restored", "name", c.name)
 	}
 }
 

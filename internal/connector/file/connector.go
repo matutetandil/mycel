@@ -41,6 +41,9 @@ type Connector struct {
 	logger   *slog.Logger
 
 	mu sync.RWMutex
+
+	// Debug throttling: single-file processing when debugger is connected
+	debugGate connector.DebugGate
 }
 
 // New creates a new file connector.
@@ -102,6 +105,16 @@ func (c *Connector) Close(ctx context.Context) error {
 	}
 	c.started = false
 	return nil
+}
+
+// SetDebugMode enables or disables single-file debug throttling.
+func (c *Connector) SetDebugMode(enabled bool) {
+	c.debugGate.SetEnabled(enabled)
+	if enabled {
+		c.logger.Info("debug mode enabled: single-file processing", "name", c.name)
+	} else {
+		c.logger.Info("debug mode disabled: concurrent processing restored", "name", c.name)
+	}
 }
 
 // RegisterRoute registers a handler for a file watch pattern (e.g., "*.csv").

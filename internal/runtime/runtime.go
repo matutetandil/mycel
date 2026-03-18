@@ -486,6 +486,20 @@ func New(opts Options) (*Runtime, error) {
 	// Initialize debug server early so flow handlers can reference it
 	r.debugServer = debug.NewServer(r, opts.Logger)
 
+	// Wire debug throttling: when a debugger connects/disconnects,
+	// toggle single-message processing on all event-driven connectors
+	r.debugServer.OnClientChange = func(hasClients bool) {
+		for _, name := range r.connectors.List() {
+			conn, err := r.connectors.Get(name)
+			if err != nil {
+				continue
+			}
+			if throttler, ok := conn.(connector.DebugThrottler); ok {
+				throttler.SetDebugMode(hasClients)
+			}
+		}
+	}
+
 	return r, nil
 }
 

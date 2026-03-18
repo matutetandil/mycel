@@ -37,6 +37,9 @@ type Connector struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
+
+	// Debug throttling: single-message processing when debugger is connected
+	debugGate connector.DebugGate
 }
 
 // NewConnector creates a new Redis Pub/Sub connector.
@@ -270,8 +273,12 @@ func (c *Connector) handleMessage(msg *redis.Message) {
 		return
 	}
 
-	// Execute handler
-	if _, err := handler(c.ctx, input); err != nil {
+	// Debug throttling: wait for gate before processing
+	c.debugGate.Acquire()
+	_, err := handler(c.ctx, input)
+	c.debugGate.Release()
+
+	if err != nil {
 		c.logger.Error("handler error",
 			"channel", msg.Channel,
 			"error", err,
@@ -300,6 +307,16 @@ func (c *Connector) findHandler(channel, pattern string) HandlerFunc {
 	}
 
 	return nil
+}
+
+// SetDebugMode enables or disables single-message debug throttling.
+func (c *Connector) SetDebugMode(enabled bool) {
+	c.debugGate.SetEnabled(enabled)
+	if enabled {
+		c.logger.Info("debug mode enabled: single-message processing")
+	} else {
+		c.logger.Info("debug mode disabled: concurrent processing restored")
+	}
 }
 
 // Write publishes a message to a Redis Pub/Sub channel.

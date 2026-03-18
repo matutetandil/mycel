@@ -111,6 +111,9 @@ type Connector struct {
 	running  bool
 	ctx      context.Context
 	cancel   context.CancelFunc
+
+	// Debug throttling: single-message processing when debugger is connected
+	debugGate connector.DebugGate
 }
 
 // NewConnector creates a new MQTT connector.
@@ -354,6 +357,16 @@ func (c *Connector) RegisterRoute(operation string, handler func(ctx context.Con
 	c.logger.Debug("registered MQTT handler", "topic", operation)
 }
 
+// SetDebugMode enables or disables single-message debug throttling.
+func (c *Connector) SetDebugMode(enabled bool) {
+	c.debugGate.SetEnabled(enabled)
+	if enabled {
+		c.logger.Info("debug mode enabled: single-message processing", "name", c.name)
+	} else {
+		c.logger.Info("debug mode disabled: concurrent processing restored", "name", c.name)
+	}
+}
+
 // Start begins subscribing to topics (implements Starter interface).
 func (c *Connector) Start(ctx context.Context) error {
 	c.mu.Lock()
@@ -429,7 +442,11 @@ func (c *Connector) buildMessageHandler(topic string, handler HandlerFunc) pahom
 			ctx = context.Background()
 		}
 
+		// Debug throttling: wait for gate before processing
+		c.debugGate.Acquire()
 		_, err := handler(ctx, input)
+		c.debugGate.Release()
+
 		if err != nil {
 			c.logger.Error("MQTT handler error",
 				"topic", msg.Topic(),

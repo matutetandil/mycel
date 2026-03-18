@@ -122,12 +122,15 @@ func (c *Connector) scan(ctx context.Context) {
 
 		// Build input and dispatch
 		input := buildWatchInput(relPath, info, event, rows, readErr)
-		if _, err := handler(ctx, input); err != nil {
+		c.debugGate.Acquire()
+		_, handlerErr := handler(ctx, input)
+		c.debugGate.Release()
+		if handlerErr != nil {
 			c.logger.Error("file watch handler error",
 				"connector", c.name,
 				"path", relPath,
 				"event", event,
-				"error", err,
+				"error", handlerErr,
 			)
 		}
 

@@ -53,6 +53,9 @@ type Connector struct {
 	rooms    map[string]map[*Client]bool
 	handlers map[string]HandlerFunc
 	started  bool
+
+	// Debug throttling: single-message processing when debugger is connected
+	debugGate connector.DebugGate
 }
 
 // New creates a new WebSocket connector.
@@ -134,6 +137,16 @@ func (c *Connector) RegisterRoute(operation string, handler func(ctx context.Con
 		c.logger.Info("fan-out: multiple flows registered", "operation", operation)
 	} else {
 		c.handlers[operation] = handler
+	}
+}
+
+// SetDebugMode enables or disables single-message debug throttling.
+func (c *Connector) SetDebugMode(enabled bool) {
+	c.debugGate.SetEnabled(enabled)
+	if enabled {
+		c.logger.Info("debug mode enabled: single-message processing", "name", c.name)
+	} else {
+		c.logger.Info("debug mode disabled: concurrent processing restored", "name", c.name)
 	}
 }
 
@@ -337,7 +350,9 @@ func (c *Connector) handleClientMessage(client *Client, msg *Message) {
 			input["user_id"] = client.userID
 		}
 
+		c.debugGate.Acquire()
 		result, err := handler(context.Background(), input)
+		c.debugGate.Release()
 		if err != nil {
 			c.sendError(client, err.Error())
 			return
@@ -366,7 +381,9 @@ func (c *Connector) handleClientMessage(client *Client, msg *Message) {
 			input["room"] = msg.Room
 		}
 
+		c.debugGate.Acquire()
 		handler(context.Background(), input)
+		c.debugGate.Release()
 	}
 }
 

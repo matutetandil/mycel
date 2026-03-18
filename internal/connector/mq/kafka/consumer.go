@@ -130,7 +130,10 @@ func (c *Connector) consumeLoop(ctx context.Context, workerID int) {
 				continue
 			}
 
-			if err := c.handleMessage(ctx, msg); err != nil {
+			c.debugGate.Acquire()
+			err = c.handleMessage(ctx, msg)
+			c.debugGate.Release()
+			if err != nil {
 				c.logger.Error("failed to handle message",
 					"worker_id", workerID,
 					"topic", msg.Topic,

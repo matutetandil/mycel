@@ -407,6 +407,22 @@ Use `debug.stepInto` to step through rules one at a time, and `debug.evaluate` t
 
 **Zero-cost when idle**: When no Studio client is connected, the overhead is zero. When connected but no breakpoints set, only lightweight event streaming occurs. Breakpoints add pause/resume overhead only to flows that have them.
 
+### Automatic Debug Throttling
+
+When a debugger connects, all event-driven connectors automatically switch to **single-message processing**. This means:
+
+- **RabbitMQ**: AMQP prefetch is set to 1 (broker stops pushing extra messages)
+- **Kafka**: A semaphore serializes message consumption across workers
+- **Redis Pub/Sub**: Messages are gated one at a time
+- **MQTT**: All topic callbacks are serialized through a shared gate
+- **CDC**: Database change events are processed one at a time
+- **File watch**: File events are processed one at a time
+- **WebSocket**: Incoming client messages are serialized
+
+When the debugger disconnects, original concurrency settings are restored automatically. This ensures you can step through messages one by one without a flood of concurrent events interfering with your debugging session.
+
+No configuration is needed — throttling is enabled automatically via the `DebugThrottler` interface on each connector.
+
 **DAP coexistence**: Studio protocol and DAP are fully independent. Both implement `trace.BreakpointController` but use different transports (WebSocket vs TCP) and lifecycle models (long-lived vs one-shot).
 
 ---

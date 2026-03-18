@@ -23,6 +23,10 @@ type Server struct {
 	sessions map[string]*Session
 	nextID   atomic.Uint64
 
+	// OnClientChange is called when the number of connected clients changes
+	// from 0→1 (true) or 1→0 (false). Used to toggle debug throttling.
+	OnClientChange func(hasClients bool)
+
 	upgrader websocket.Upgrader
 }
 
@@ -99,7 +103,14 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.stream.Unsubscribe(sessionID)
 			s.mu.Lock()
 			delete(s.sessions, sessionID)
+			nowEmpty := len(s.sessions) == 0
 			s.mu.Unlock()
+
+			// Notify when last client disconnects (disable debug throttling)
+			if nowEmpty && s.OnClientChange != nil {
+				s.OnClientChange(false)
+			}
+
 			s.logger.Info("debug client disconnected", "session", sessionID)
 		}
 	}()
@@ -155,8 +166,14 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			session = NewSession(sessionID, params.ClientName)
 
 			s.mu.Lock()
+			wasEmpty := len(s.sessions) == 0
 			s.sessions[sessionID] = session
 			s.mu.Unlock()
+
+			// Notify when first client connects (enable debug throttling)
+			if wasEmpty && s.OnClientChange != nil {
+				s.OnClientChange(true)
+			}
 
 			eventCh = s.stream.Subscribe(sessionID)
 			startEventForwarding()

@@ -58,6 +58,9 @@ type Connector struct {
 	started  bool
 	ctx      context.Context
 	cancel   context.CancelFunc
+
+	// Debug throttling: single-message processing when debugger is connected
+	debugGate connector.DebugGate
 }
 
 // New creates a new CDC connector.
@@ -131,6 +134,16 @@ func normalizeOperation(op string) string {
 	return trigger + ":" + table
 }
 
+// SetDebugMode enables or disables single-message debug throttling.
+func (c *Connector) SetDebugMode(enabled bool) {
+	c.debugGate.SetEnabled(enabled)
+	if enabled {
+		c.logger.Info("debug mode enabled: single-event processing", "connector", c.name)
+	} else {
+		c.logger.Info("debug mode disabled: concurrent processing restored", "connector", c.name)
+	}
+}
+
 // Start begins listening for CDC events and dispatching them to handlers.
 func (c *Connector) Start(ctx context.Context) error {
 	c.mu.Lock()
@@ -201,7 +214,10 @@ func (c *Connector) dispatchEvent(event *Event) {
 
 	for _, key := range keys {
 		if handler, ok := handlers[key]; ok {
-			if _, err := handler(c.ctx, input); err != nil {
+			c.debugGate.Acquire()
+			_, err := handler(c.ctx, input)
+			c.debugGate.Release()
+			if err != nil {
 				c.logger.Error("CDC handler error",
 					"connector", c.name,
 					"operation", trigger+":"+table,

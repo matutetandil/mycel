@@ -93,7 +93,10 @@ func (c *Connector) consumeWorker(ctx context.Context, deliveries <-chan amqp.De
 				return
 			}
 
-			if err := c.handleDelivery(ctx, delivery); err != nil {
+			c.debugGate.Acquire()
+			err := c.handleDelivery(ctx, delivery)
+			c.debugGate.Release()
+			if err != nil {
 				c.logger.Error("failed to handle delivery",
 					"worker_id", workerID,
 					"error", err,

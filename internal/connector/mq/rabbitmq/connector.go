@@ -42,6 +42,9 @@ type Connector struct {
 
 	// Filter rejection tracking for requeue dedup
 	requeueTracker *flow.RequeueTracker
+
+	// Debug throttling: single-message processing when debugger is connected
+	debugGate connector.DebugGate
 }
 
 // NewConnector creates a new RabbitMQ connector.
@@ -591,6 +594,35 @@ func (c *Connector) setupDLQ(dlqConfig *DLQConfig) error {
 	)
 
 	return nil
+}
+
+// SetDebugMode enables or disables single-message debug throttling.
+// When enabled, only one message is processed at a time, and the AMQP
+// prefetch is set to 1 so the broker doesn't push extra messages.
+func (c *Connector) SetDebugMode(enabled bool) {
+	c.debugGate.SetEnabled(enabled)
+
+	c.mu.RLock()
+	ch := c.channel
+	cfg := c.config.Consumer
+	c.mu.RUnlock()
+
+	if ch == nil || ch.IsClosed() {
+		return
+	}
+
+	if enabled {
+		ch.Qos(1, 0, false)
+		c.logger.Info("debug mode enabled: prefetch=1, single-message processing", "name", c.name)
+	} else {
+		// Restore original prefetch
+		prefetch := 10
+		if cfg != nil && cfg.Prefetch > 0 {
+			prefetch = cfg.Prefetch
+		}
+		ch.Qos(prefetch, 0, false)
+		c.logger.Info("debug mode disabled: restored prefetch", "name", c.name, "prefetch", prefetch)
+	}
 }
 
 // QueueName returns the configured queue name.

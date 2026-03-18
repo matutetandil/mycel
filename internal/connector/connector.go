@@ -27,6 +27,13 @@ type Connector interface {
 	Health(ctx context.Context) error
 }
 
+// DebugThrottler is implemented by event-driven connectors that support
+// single-message debug throttling. When enabled, the connector processes
+// one message at a time, allowing the debugger to step through each message.
+type DebugThrottler interface {
+	SetDebugMode(enabled bool)
+}
+
 // DBAccessor is an optional interface for database connectors that expose
 // their underlying *sql.DB for direct access (e.g., workflow persistence).
 type DBAccessor interface {
