@@ -40,6 +40,22 @@ type DBAccessor interface {
 	DB() *sql.DB
 }
 
+// SourceValidator is implemented by connectors that validate flow "from" block parameters.
+// When implemented, the runtime calls ValidateSourceParams at startup for each flow
+// that uses this connector as a source. The connector decides what's required, optional,
+// and what defaults to apply.
+type SourceValidator interface {
+	ValidateSourceParams(params map[string]interface{}) error
+}
+
+// TargetValidator is implemented by connectors that validate flow "to"/"step" block parameters.
+// When implemented, the runtime calls ValidateTargetParams at startup for each flow
+// that uses this connector as a target. The connector decides what's required, optional,
+// and what defaults to apply.
+type TargetValidator interface {
+	ValidateTargetParams(params map[string]interface{}) error
+}
+
 // Reader interface for connectors that can read data.
 // Interface Segregation Principle - not all connectors need to write.
 type Reader interface {

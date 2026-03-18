@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/matutetandil/mycel/internal/flow"
@@ -251,11 +252,13 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 //	  filter    = "input.metadata.origin != 'internal'"
 //	}
 func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, error) {
-	// Use PartialContent to allow both filter as attribute and filter as block
+	// Structural attributes only — connector-specific params are captured dynamically.
+	// "operation" and "format" are kept in the known schema for backward compatibility
+	// but are also mirrored into ConnectorParams so connectors can validate them.
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "connector", Required: true},
-			{Name: "operation", Required: true},
+			{Name: "operation"},
 			{Name: "format"},
 			{Name: "filter"},
 		},
@@ -264,12 +267,14 @@ func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, e
 		},
 	}
 
-	content, _, diags := block.Body.PartialContent(schema)
+	content, remain, diags := block.Body.PartialContent(schema)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("from block content error: %s", diags.Error())
 	}
 
-	from := &flow.FromConfig{}
+	from := &flow.FromConfig{
+		ConnectorParams: make(map[string]interface{}),
+	}
 
 	if attr, ok := content.Attributes["format"]; ok {
 		val, diags := attr.Expr.Value(ctx)
@@ -293,7 +298,16 @@ func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, e
 			return nil, fmt.Errorf("from operation error: %s", diags.Error())
 		}
 		from.Operation = val.AsString()
+		from.ConnectorParams["operation"] = from.Operation
 	}
+
+	// Mirror format into ConnectorParams
+	if from.Format != "" {
+		from.ConnectorParams["format"] = from.Format
+	}
+
+	// Capture any additional connector-specific attributes from the remaining body.
+	extractDynamicAttrs(remain, ctx, from.ConnectorParams)
 
 	// Check for filter as string attribute (legacy syntax)
 	if attr, ok := content.Attributes["filter"]; ok {
@@ -414,32 +428,35 @@ func parseFilterBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FilterConfi
 //	  transform { ... }  // optional, per-destination transform
 //	}
 func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error) {
+	// Known attributes kept for backward compatibility — also mirrored into ConnectorParams.
+	// Flow-level concerns (when, parallel, transform) stay in the known schema.
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "connector", Required: true},
 			{Name: "target"},
-			{Name: "operation"}, // Operation type: INSERT_ONE, UPDATE_ONE, DELETE_ONE, etc.
+			{Name: "operation"},
 			{Name: "format"},
 			{Name: "filter"},
 			{Name: "query"},
 			{Name: "query_filter"},
 			{Name: "update"},
-			{Name: "params"},   // Parameters for operations like S3 COPY
-			{Name: "when"},     // Conditional write
-			{Name: "parallel"}, // Parallel execution (default true)
+			{Name: "params"},
+			{Name: "when"},
+			{Name: "parallel"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
-			{Type: "transform"}, // Per-destination transform
+			{Type: "transform"},
 		},
 	}
 
-	content, diags := block.Body.Content(schema)
+	content, remain, diags := block.Body.PartialContent(schema)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("to block content error: %s", diags.Error())
 	}
 
 	to := &flow.ToConfig{
-		Parallel: true, // Default to parallel execution
+		Parallel:        true,
+		ConnectorParams: make(map[string]interface{}),
 	}
 
 	if attr, ok := content.Attributes["format"]; ok {
@@ -466,7 +483,6 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		to.Target = val.AsString()
 	}
 
-	// Parse operation for write operations (INSERT_ONE, UPDATE_ONE, DELETE_ONE, etc.)
 	if attr, ok := content.Attributes["operation"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -475,7 +491,6 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		to.Operation = val.AsString()
 	}
 
-	// Parse params for operations like S3 COPY
 	if attr, ok := content.Attributes["params"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -500,7 +515,6 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		to.Query = val.AsString()
 	}
 
-	// Parse query_filter for NoSQL (MongoDB)
 	if attr, ok := content.Attributes["query_filter"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -509,7 +523,6 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		to.QueryFilter = ctyValueToMap(val)
 	}
 
-	// Parse update for NoSQL (MongoDB)
 	if attr, ok := content.Attributes["update"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -518,18 +531,15 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		to.Update = ctyValueToMap(val)
 	}
 
-	// Parse when (conditional write)
 	if attr, ok := content.Attributes["when"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			// Try to extract raw expression
 			to.When = extractExpressionText(attr.Expr)
 		} else {
 			to.When = val.AsString()
 		}
 	}
 
-	// Parse parallel (default true)
 	if attr, ok := content.Attributes["parallel"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -550,6 +560,35 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 			to.Transform = transformMappings
 		}
 	}
+
+	// Mirror known connector-specific attributes into ConnectorParams
+	if to.Target != "" {
+		to.ConnectorParams["target"] = to.Target
+	}
+	if to.Operation != "" {
+		to.ConnectorParams["operation"] = to.Operation
+	}
+	if to.Format != "" {
+		to.ConnectorParams["format"] = to.Format
+	}
+	if to.Filter != "" {
+		to.ConnectorParams["filter"] = to.Filter
+	}
+	if to.Query != "" {
+		to.ConnectorParams["query"] = to.Query
+	}
+	if to.QueryFilter != nil {
+		to.ConnectorParams["query_filter"] = to.QueryFilter
+	}
+	if to.Update != nil {
+		to.ConnectorParams["update"] = to.Update
+	}
+	if to.Params != nil {
+		to.ConnectorParams["params"] = to.Params
+	}
+
+	// Capture any additional connector-specific attributes not in the known schema
+	extractDynamicAttrs(remain, ctx, to.ConnectorParams)
 
 	if to.Connector == "" {
 		return nil, fmt.Errorf("to block must specify a connector")
@@ -581,6 +620,8 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		Body:   make(map[string]interface{}),
 	}
 
+	// Known attributes kept for backward compatibility.
+	// Flow-level concerns (when, timeout, on_error, default) stay in the known schema.
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "connector", Required: true},
@@ -597,12 +638,13 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		},
 	}
 
-	content, diags := block.Body.Content(schema)
+	content, remain, diags := block.Body.PartialContent(schema)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("step block content error: %s", diags.Error())
 	}
 
-	// Parse format
+	step.ConnectorParams = make(map[string]interface{})
+
 	if attr, ok := content.Attributes["format"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -611,7 +653,6 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		step.Format = val.AsString()
 	}
 
-	// Parse connector (required)
 	if attr, ok := content.Attributes["connector"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -620,7 +661,6 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		step.Connector = parseConnectorReference(val.AsString())
 	}
 
-	// Parse operation
 	if attr, ok := content.Attributes["operation"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -629,7 +669,6 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		step.Operation = val.AsString()
 	}
 
-	// Parse when (conditional execution)
 	if attr, ok := content.Attributes["when"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -638,7 +677,6 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		step.When = val.AsString()
 	}
 
-	// Parse query (for database connectors)
 	if attr, ok := content.Attributes["query"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -647,7 +685,6 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		step.Query = val.AsString()
 	}
 
-	// Parse target
 	if attr, ok := content.Attributes["target"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -656,7 +693,6 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		step.Target = val.AsString()
 	}
 
-	// Parse params (can be map or list)
 	if attr, ok := content.Attributes["params"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -665,7 +701,6 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		step.Params = ctyValueToMap(val)
 	}
 
-	// Parse body (for HTTP connectors)
 	if attr, ok := content.Attributes["body"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -674,7 +709,6 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		step.Body = ctyValueToMap(val)
 	}
 
-	// Parse timeout
 	if attr, ok := content.Attributes["timeout"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -683,7 +717,6 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		step.Timeout = val.AsString()
 	}
 
-	// Parse on_error
 	if attr, ok := content.Attributes["on_error"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -692,7 +725,6 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		step.OnError = val.AsString()
 	}
 
-	// Parse default value
 	if attr, ok := content.Attributes["default"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
@@ -700,6 +732,29 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		}
 		step.Default = ctyValueToInterface(val)
 	}
+
+	// Mirror known connector-specific attributes into ConnectorParams
+	if step.Operation != "" {
+		step.ConnectorParams["operation"] = step.Operation
+	}
+	if step.Format != "" {
+		step.ConnectorParams["format"] = step.Format
+	}
+	if step.Query != "" {
+		step.ConnectorParams["query"] = step.Query
+	}
+	if step.Target != "" {
+		step.ConnectorParams["target"] = step.Target
+	}
+	if step.Params != nil {
+		step.ConnectorParams["params"] = step.Params
+	}
+	if step.Body != nil {
+		step.ConnectorParams["body"] = step.Body
+	}
+
+	// Capture any additional connector-specific attributes
+	extractDynamicAttrs(remain, ctx, step.ConnectorParams)
 
 	return step, nil
 }
@@ -764,21 +819,22 @@ func parseEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.EnrichConfi
 	}
 
 	enrich := &flow.EnrichConfig{
-		Name:   block.Labels[0],
-		Params: make(map[string]string),
+		Name:            block.Labels[0],
+		Params:          make(map[string]string),
+		ConnectorParams: make(map[string]interface{}),
 	}
 
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "connector", Required: true},
-			{Name: "operation", Required: true},
+			{Name: "operation"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "params"},
 		},
 	}
 
-	content, diags := block.Body.Content(schema)
+	content, remain, diags := block.Body.PartialContent(schema)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("enrich block content error: %s", diags.Error())
 	}
@@ -811,6 +867,14 @@ func parseEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.EnrichConfi
 			enrich.Params = params
 		}
 	}
+
+	// Mirror known connector-specific attributes into ConnectorParams
+	if enrich.Operation != "" {
+		enrich.ConnectorParams["operation"] = enrich.Operation
+	}
+
+	// Capture any additional connector-specific attributes
+	extractDynamicAttrs(remain, ctx, enrich.ConnectorParams)
 
 	return enrich, nil
 }
@@ -1494,14 +1558,14 @@ func parseTransformEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfo
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "connector", Required: true},
-			{Name: "operation", Required: true},
+			{Name: "operation"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "params"},
 		},
 	}
 
-	content, diags := block.Body.Content(schema)
+	content, _, diags := block.Body.PartialContent(schema)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("enrich block content error: %s", diags.Error())
 	}
@@ -1536,6 +1600,31 @@ func parseTransformEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfo
 	}
 
 	return enrich, nil
+}
+
+// extractDynamicAttrs extracts unknown attributes from a remaining HCL body into a map.
+// Safely handles bodies that contain both attributes and blocks (JustAttributes would fail).
+// Used to capture connector-specific parameters that aren't in the known schema.
+func extractDynamicAttrs(body hcl.Body, ctx *hcl.EvalContext, dest map[string]interface{}) {
+	attrs, diags := body.JustAttributes()
+	if diags.HasErrors() {
+		// Body has blocks — extract via hclsyntax if possible
+		if syntaxBody, ok := body.(*hclsyntax.Body); ok {
+			for name, attr := range syntaxBody.Attributes {
+				val, valDiags := attr.Expr.Value(ctx)
+				if !valDiags.HasErrors() {
+					dest[name] = ctyValueToInterface(val)
+				}
+			}
+		}
+		return
+	}
+	for name, attr := range attrs {
+		val, valDiags := attr.Expr.Value(ctx)
+		if !valDiags.HasErrors() {
+			dest[name] = ctyValueToInterface(val)
+		}
+	}
 }
 
 // ctyValueToMap converts a cty.Value to map[string]interface{}.

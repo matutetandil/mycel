@@ -230,6 +230,10 @@ type StepConfig struct {
 
 	// Default is the default value to use if OnError is "default".
 	Default interface{}
+
+	// ConnectorParams holds all connector-specific parameters from the step block.
+	// The connector validates these at startup via TargetValidator.
+	ConnectorParams map[string]interface{}
 }
 
 // FromConfig defines the flow source.
@@ -251,6 +255,10 @@ type FromConfig struct {
 	// FilterConfig holds the extended filter configuration (block syntax).
 	// When set, takes precedence over Filter string.
 	FilterConfig *FilterConfig
+
+	// ConnectorParams holds all connector-specific parameters from the from block.
+	// The connector validates these at startup via SourceValidator.
+	ConnectorParams map[string]interface{}
 }
 
 // FilterCondition returns the active filter condition expression.
@@ -336,6 +344,10 @@ type ToConfig struct {
 	// Parallel indicates if this destination should be written in parallel with others.
 	// Default is true. Set to false for sequential writes.
 	Parallel bool
+
+	// ConnectorParams holds all connector-specific parameters from the to block.
+	// The connector validates these at startup via TargetValidator.
+	ConnectorParams map[string]interface{}
 }
 
 // ValidateConfig holds validation configuration.
@@ -375,6 +387,10 @@ type EnrichConfig struct {
 	// Params are the parameters to pass to the operation.
 	// Keys are parameter names, values are CEL expressions.
 	Params map[string]string
+
+	// ConnectorParams holds all connector-specific parameters from the enrich block.
+	// The connector validates these at startup via TargetValidator.
+	ConnectorParams map[string]interface{}
 }
 
 // RequireConfig holds authorization requirements.
