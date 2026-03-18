@@ -58,3 +58,6 @@ CLAUDE.local.md
 
 # Benchmark / load testing
 benchmark/
+
+# MkDocs build output
+site/

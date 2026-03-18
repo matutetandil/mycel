@@ -1,0 +1,120 @@
+site_name: Mycel
+site_description: Declarative microservices through configuration, not code.
+site_url: https://matutetandil.github.io/mycel
+repo_url: https://github.com/matutetandil/mycel
+repo_name: matutetandil/mycel
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Introduction: getting-started/introduction.md
+      - Installation: getting-started/installation.md
+      - Quick Start: getting-started/quick-start.md
+  - Core Concepts:
+      - Connectors: core-concepts/connectors.md
+      - Flows: core-concepts/flows.md
+      - Transforms: core-concepts/transforms.md
+      - Types: core-concepts/types.md
+      - Environments: core-concepts/environments.md
+  - Connectors:
+      - Overview: connectors/README.md
+      - REST: connectors/rest.md
+      - Database: connectors/database.md
+      - GraphQL: connectors/graphql.md
+      - gRPC: connectors/grpc.md
+      - SOAP: connectors/soap.md
+      - TCP: connectors/tcp.md
+      - WebSocket: connectors/websocket.md
+      - SSE: connectors/sse.md
+      - CDC: connectors/cdc.md
+      - Message Queues: connectors/message-queues.md
+      - MQTT: connectors/mqtt.md
+      - Cache: connectors/cache.md
+      - Elasticsearch: connectors/elasticsearch.md
+      - OAuth: connectors/oauth.md
+      - File System: connectors/filesystem.md
+      - S3: connectors/s3.md
+      - FTP / SFTP: connectors/ftp.md
+      - PDF: connectors/pdf.md
+      - Notifications: connectors/notifications.md
+      - Exec: connectors/exec.md
+      - Profiles: connectors/profile.md
+  - Guides:
+      - Authentication: guides/auth.md
+      - Caching: guides/caching.md
+      - Debugging: guides/debugging.md
+      - Error Handling: guides/error-handling.md
+      - Extending (Aspects): guides/extending.md
+      - Format System: guides/format-system.md
+      - Multi-Step Flows: guides/multi-step-flows.md
+      - Notifications: guides/notifications.md
+      - Observability: guides/observability.md
+      - Real-Time: guides/real-time.md
+      - Sagas: guides/sagas.md
+      - Security: guides/security.md
+      - Synchronization: guides/synchronization.md
+      - Batch Processing: guides/batch-processing.md
+      - Use Cases: guides/use-cases.md
+      - Troubleshooting: guides/troubleshooting.md
+  - Advanced:
+      - GraphQL Federation: advanced/federation.md
+      - Integration Patterns: advanced/integration-patterns.md
+      - Plugins: advanced/plugins.md
+      - WASM: advanced/wasm.md
+  - Deployment:
+      - Docker: deployment/docker.md
+      - Kubernetes: deployment/kubernetes.md
+      - Production: deployment/production.md
+  - Reference:
+      - CLI: reference/cli.md
+      - Configuration: reference/configuration.md
+      - CEL Functions: reference/cel-functions.md
+      - API Endpoints: reference/api-endpoints.md
+      - Source Properties: reference/source-properties.md
+      - Destination Properties: reference/destination-properties.md
+  - Architecture: architecture.md
+  - Studio Debug Protocol: STUDIO-DEBUG-PROTOCOL.md
