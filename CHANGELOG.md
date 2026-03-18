@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-03-18
+
+### Changed
+- **Connector Owns Config refactor**: Parser no longer hardcodes connector-specific attributes. Each connector now validates its own parameters via `SourceValidator` / `TargetValidator` interfaces. All connector-specific data flows through a `ConnectorParams` map and is accessed via getter methods (`GetOperation`, `GetTarget`, `GetQuery`, etc.)
+- **Parser simplification**: Parser only declares flow-level attributes (`connector`, `when`, `parallel`, `filter`, `timeout`, `on_error`, `default`). Connector-specific attributes (`operation`, `target`, `query`, `format`, `filter`, `params`, `body`, `query_filter`, `update`) are captured dynamically into `ConnectorParams` instead of typed struct fields
+- **Connector validation interfaces**: 14 connectors implement `SourceValidator` and/or `TargetValidator` interfaces to validate their own parameters at parse time. New or plugin connectors can accept any parameters without parser changes
+- **Removed typed fields from config structs**: `Operation`, `Target`, `Query`, `Filter`, `Format`, `Params`, `Body`, `QueryFilter`, `Update` removed from `FromConfig`, `ToConfig`, `StepConfig`, `EnrichConfig`. All access goes through `ConnectorParams` getters
+
 ## [1.14.4] - 2026-03-18
 
 ### Added
