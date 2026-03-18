@@ -102,6 +102,8 @@ to {
 | `when` | string | — | CEL condition: only write if this evaluates to true |
 | `parallel` | bool | `true` | Whether multi-to targets run in parallel |
 
+> **What does `target`, `operation`, `query`, and `params` mean for each connector?** See the [Destination Properties by Connector](../reference/destination-properties.md) reference.
+
 ### Conditional write
 
 Only write to the target if a condition is met:
