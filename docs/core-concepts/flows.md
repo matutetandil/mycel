@@ -40,6 +40,8 @@ from {
 | `format` | string | no | Input format: `json`, `xml`, `csv` (default: `json`) |
 | `filter` | string/block | no | CEL condition to skip non-matching events |
 
+> **What does `operation` mean for each connector, and what `input.*` variables are available?** See the [Source Properties by Connector](../reference/source-properties.md) reference.
+
 ### Filter (simple)
 
 Skip events that don't match a condition:
