@@ -147,11 +147,21 @@ type Runtime struct {
 	// Debug protocol server for Mycel Studio IDE integration
 	debugServer *debug.Server
 
+	// Debug suspend: event-driven connectors defer Start() until a debugger connects
+	debugSuspend       bool
+	suspendedStarters  []suspendedConnector
+
 	// shutdownTimeout is the maximum time to wait for graceful shutdown.
 	shutdownTimeout time.Duration
 
 	// mu protects runtime state during hot reload
 	mu sync.RWMutex
+}
+
+// suspendedConnector holds a connector whose Start() was deferred until a debugger connects.
+type suspendedConnector struct {
+	name    string
+	starter Starter
 }
 
 // Options configures the runtime behavior.
@@ -188,6 +198,11 @@ type Options struct {
 
 	// NoMockConnectors is a comma-separated list of connectors to exclude from mocking.
 	NoMockConnectors string
+
+	// DebugSuspend defers Start() on event-driven connectors until a debugger connects.
+	// Only event-driven connectors (MQ, CDC, File watch, WebSocket, MQTT) are suspended;
+	// request-response connectors (REST, gRPC, GraphQL, SOAP, TCP, SSE) start normally.
+	DebugSuspend bool
 }
 
 // New creates a new runtime with the given options.
@@ -480,6 +495,7 @@ func New(opts Options) (*Runtime, error) {
 		configDir:         opts.ConfigDir,
 		verboseFlow:       opts.VerboseFlow,
 		hotReloadEnabled:  opts.HotReload,
+		debugSuspend:      opts.DebugSuspend,
 		shutdownTimeout:   opts.ShutdownTimeout,
 	}
 
@@ -487,7 +503,8 @@ func New(opts Options) (*Runtime, error) {
 	r.debugServer = debug.NewServer(r, opts.Logger)
 
 	// Wire debug throttling: when a debugger connects/disconnects,
-	// toggle single-message processing on all event-driven connectors
+	// toggle single-message processing on all event-driven connectors.
+	// Also start suspended connectors on first debugger connection.
 	r.debugServer.OnClientChange = func(hasClients bool) {
 		for _, name := range r.connectors.List() {
 			conn, err := r.connectors.Get(name)
@@ -497,6 +514,20 @@ func New(opts Options) (*Runtime, error) {
 			if throttler, ok := conn.(connector.DebugThrottler); ok {
 				throttler.SetDebugMode(hasClients)
 			}
+		}
+
+		// Start suspended connectors when a debugger connects
+		if hasClients && len(r.suspendedStarters) > 0 {
+			for _, sc := range r.suspendedStarters {
+				r.logger.Info("debug suspend: starting connector (debugger connected)",
+					"connector", sc.name)
+				if err := sc.starter.Start(context.Background()); err != nil {
+					r.logger.Error("failed to start suspended connector",
+						"connector", sc.name, "error", err)
+				}
+			}
+			// Clear the list — connectors are now started
+			r.suspendedStarters = nil
 		}
 	}
 
@@ -1223,13 +1254,12 @@ func parseOperationString(op string) (method, path string) {
 	return "GET", op
 }
 
-// startServers starts all REST connector HTTP servers.
+// startServers starts all connector servers.
 func (r *Runtime) startServers(ctx context.Context) error {
-	// Find REST connectors and start their servers
 	for _, name := range r.connectors.List() {
 		conn, _ := r.connectors.Get(name)
 
-		// Check if this is a startable connector (REST)
+		// Check if this is a startable connector
 		if starter, ok := conn.(Starter); ok {
 			// Set health manager if connector supports it
 			if hr, ok := conn.(HealthRegistrar); ok {
@@ -1248,6 +1278,21 @@ func (r *Runtime) startServers(ctx context.Context) error {
 
 			// Register flow handlers for this connector
 			r.registerFlowHandlers(name, conn)
+
+			// Debug suspend: defer Start() for event-driven connectors until a debugger connects.
+			// Event-driven connectors implement DebugThrottler (MQ, CDC, File watch, WebSocket, MQTT).
+			// Request-response connectors (REST, gRPC, GraphQL, SOAP, TCP, SSE) start normally.
+			if r.debugSuspend {
+				if _, isEventDriven := conn.(connector.DebugThrottler); isEventDriven {
+					r.suspendedStarters = append(r.suspendedStarters, suspendedConnector{
+						name:    name,
+						starter: starter,
+					})
+					r.logger.Info("debug suspend: connector start deferred until debugger connects",
+						"connector", name)
+					continue
+				}
+			}
 
 			// Start the server
 			if err := starter.Start(ctx); err != nil {

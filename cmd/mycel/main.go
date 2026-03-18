@@ -223,7 +223,8 @@ var (
 	verbose     bool // deprecated, kept for backward compatibility
 	hotReload   bool
 
-	verboseFlow bool
+	verboseFlow  bool
+	debugSuspend bool
 
 	// Export flags
 	exportOutput  string
@@ -242,6 +243,7 @@ func init() {
 	// Start command flags
 	startCmd.Flags().BoolVar(&hotReload, "hot-reload", true, "Enable hot reload (auto-reload on config changes)")
 	startCmd.Flags().BoolVar(&verboseFlow, "verbose-flow", false, "Log all flow pipeline stages per request (debug)")
+	startCmd.Flags().BoolVar(&debugSuspend, "debug-suspend", false, "Defer event-driven connector start until debugger connects")
 
 	// Export command flags (OpenAPI)
 	exportOpenAPICmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file (default: stdout)")
@@ -292,13 +294,26 @@ func runStart(cmd *cobra.Command, args []string) error {
 		effectiveVerboseFlow = false
 	}
 
+	// Debug suspend: flag > env var, dev-only
+	effectiveDebugSuspend := debugSuspend
+	if !effectiveDebugSuspend {
+		if val := os.Getenv("MYCEL_DEBUG_SUSPEND"); strings.EqualFold(val, "true") || val == "1" {
+			effectiveDebugSuspend = true
+		}
+	}
+	if effectiveDebugSuspend && !isDevEnvironment(env) {
+		logger.Warn("--debug-suspend is only available in development mode, ignoring")
+		effectiveDebugSuspend = false
+	}
+
 	// Create runtime
 	rt, err := runtime.New(runtime.Options{
-		ConfigDir:   configDir,
-		Environment: env,
-		Logger:      logger,
-		HotReload:   hotReloadEnabled,
-		VerboseFlow: effectiveVerboseFlow,
+		ConfigDir:    configDir,
+		Environment:  env,
+		Logger:       logger,
+		HotReload:    hotReloadEnabled,
+		VerboseFlow:  effectiveVerboseFlow,
+		DebugSuspend: effectiveDebugSuspend,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create runtime: %w", err)

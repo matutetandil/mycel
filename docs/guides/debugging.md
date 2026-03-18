@@ -23,6 +23,8 @@ All debug features (breakpoints, DAP, verbose flow) are **development-only** —
   - [Methods](#methods)
   - [Events](#events)
   - [Per-CEL-Rule Debugging](#per-cel-rule-debugging)
+  - [Automatic Debug Throttling](#automatic-debug-throttling)
+  - [Start Suspended Mode](#start-suspended-mode)
 - [Verbose Flow Logging](#verbose-flow-logging)
 - [Log-Level Debugging](#log-level-debugging)
 - [Local vs Docker](#local-vs-docker)
@@ -425,6 +427,37 @@ No configuration is needed — throttling is enabled automatically via the `Debu
 
 **DAP coexistence**: Studio protocol and DAP are fully independent. Both implement `trace.BreakpointController` but use different transports (WebSocket vs TCP) and lifecycle models (long-lived vs one-shot).
 
+### Start Suspended Mode
+
+When debugging event-driven flows (message queues, CDC, etc.), there's a timing problem: if Mycel starts consuming before your debugger connects, messages may be processed before you can set breakpoints.
+
+**Start Suspended** solves this by deferring `Start()` on event-driven connectors until a debugger connects via `debug.attach`:
+
+```bash
+# Via CLI flag
+mycel start --debug-suspend
+
+# Via environment variable
+MYCEL_DEBUG_SUSPEND=true mycel start
+```
+
+**What gets suspended:**
+- RabbitMQ, Kafka, Redis Pub/Sub, MQTT — no messages consumed
+- CDC — no change events captured
+- File watch — no file events processed
+- WebSocket — no client connections accepted
+
+**What starts normally** (needed for health checks and admin API):
+- REST, gRPC, GraphQL, SOAP, TCP, SSE
+
+**Lifecycle:**
+1. Mycel starts — event-driven connectors are registered but not started
+2. You connect Mycel Studio (or any debug client) to `:9090/debug`
+3. On `debug.attach`, suspended connectors start with debug throttling pre-enabled
+4. Messages arrive one at a time, ready for breakpoint-by-breakpoint inspection
+
+> **Dev only.** Like all debug features, `--debug-suspend` is automatically disabled outside development mode with a warning log.
+
 ---
 
 ## Verbose Flow Logging
@@ -600,6 +633,10 @@ mycel start [flags]
 
 Flags:
   --verbose-flow      Log all flow pipeline stages per request (dev only)
+  --debug-suspend     Defer event-driven connector start until debugger connects (dev only)
+
+Environment Variables:
+  MYCEL_DEBUG_SUSPEND=true   Same as --debug-suspend
 
 Global Flags:
   -c, --config string   Configuration directory (default ".")

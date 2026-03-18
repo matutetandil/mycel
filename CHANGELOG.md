@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`DebugThrottler` interface** (`internal/connector/connector.go`): Optional interface for event-driven connectors — `SetDebugMode(enabled bool)`. Implemented by 7 connectors: RabbitMQ, Kafka, Redis Pub/Sub, MQTT, CDC, File watch, WebSocket
 - **`DebugGate`** (`internal/connector/debuggate.go`): Reusable token-based semaphore. `Acquire()` blocks when enabled, passes through when disabled. 4 unit tests
 - **Debug server `OnClientChange` callback** (`internal/debug/server.go`): Called when clients go from 0→1 (enable) or 1→0 (disable). Runtime wires this to toggle `SetDebugMode` on all connectors
+- **Start Suspended mode** (`--debug-suspend` / `MYCEL_DEBUG_SUSPEND=true`): Event-driven connectors defer `Start()` until a debugger connects via `debug.attach`. Prevents message consumption before breakpoints are set. REST/gRPC/GraphQL/SOAP/TCP/SSE start normally (needed for health checks). Dev-only, automatically disabled outside development mode
 - **Source properties reference** (`docs/reference/source-properties.md`): Complete reference of `from` block properties per connector type — operation format, `input.*` variables, and examples for all 13 source connector types
 
 ## [1.14.3] - 2026-03-16
