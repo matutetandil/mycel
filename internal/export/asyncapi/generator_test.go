@@ -32,23 +32,23 @@ func TestGenerator_Generate(t *testing.T) {
 			{
 				Name: "process_order",
 				From: &flow.FromConfig{
-					Connector: "rabbitmq",
-					Operation: "orders.created",
+					Connector:       "rabbitmq",
+					ConnectorParams: map[string]interface{}{"operation": "orders.created"},
 				},
 				To: &flow.ToConfig{
-					Connector: "db",
-					Target:    "orders",
+					Connector:       "db",
+					ConnectorParams: map[string]interface{}{"target": "orders"},
 				},
 			},
 			{
 				Name: "notify_shipment",
 				From: &flow.FromConfig{
-					Connector: "api",
-					Operation: "POST /shipments",
+					Connector:       "api",
+					ConnectorParams: map[string]interface{}{"operation": "POST /shipments"},
 				},
 				To: &flow.ToConfig{
-					Connector: "rabbitmq",
-					Target:    "shipments.ready",
+					Connector:       "rabbitmq",
+					ConnectorParams: map[string]interface{}{"target": "shipments.ready"},
 				},
 			},
 		},
@@ -160,12 +160,12 @@ func TestGenerator_KafkaServer(t *testing.T) {
 			{
 				Name: "consume_events",
 				From: &flow.FromConfig{
-					Connector: "kafka",
-					Operation: "events",
+					Connector:       "kafka",
+					ConnectorParams: map[string]interface{}{"operation": "events"},
 				},
 				To: &flow.ToConfig{
-					Connector: "db",
-					Target:    "events",
+					Connector:       "db",
+					ConnectorParams: map[string]interface{}{"target": "events"},
 				},
 			},
 		},

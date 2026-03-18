@@ -8,9 +8,9 @@ import (
 
 func TestStepOptimizer_AnalyzeDependencies(t *testing.T) {
 	steps := []*flow.StepConfig{
-		{Name: "orders", Connector: "db", Query: "SELECT * FROM orders WHERE user_id = ?"},
-		{Name: "reviews", Connector: "api", Operation: "GET /reviews"},
-		{Name: "inventory", Connector: "inventory_api", Operation: "GET /stock"},
+		{Name: "orders", Connector: "db", ConnectorParams: map[string]interface{}{"query": "SELECT * FROM orders WHERE user_id = ?"}},
+		{Name: "reviews", Connector: "api", ConnectorParams: map[string]interface{}{"operation": "GET /reviews"}},
+		{Name: "inventory", Connector: "inventory_api", ConnectorParams: map[string]interface{}{"operation": "GET /stock"}},
 	}
 
 	transformExprs := map[string]string{
@@ -79,9 +79,8 @@ func TestStepOptimizer_AnalyzeDependencies(t *testing.T) {
 func TestStepOptimizer_StepDependencies(t *testing.T) {
 	// Step B depends on Step A's result
 	steps := []*flow.StepConfig{
-		{Name: "user", Connector: "db", Query: "SELECT * FROM users WHERE id = ?"},
-		{Name: "user_orders", Connector: "db", Query: "SELECT * FROM orders WHERE user_id = ?",
-			Params: map[string]interface{}{"user_id": "step.user.id"}},
+		{Name: "user", Connector: "db", ConnectorParams: map[string]interface{}{"query": "SELECT * FROM users WHERE id = ?"}},
+		{Name: "user_orders", Connector: "db", ConnectorParams: map[string]interface{}{"query": "SELECT * FROM orders WHERE user_id = ?", "params": map[string]interface{}{"user_id": "step.user.id"}}},
 	}
 
 	transformExprs := map[string]string{
@@ -153,7 +152,7 @@ func TestStepOptimizer_MultipleFieldsUseStep(t *testing.T) {
 
 func TestOptimizeFlowSteps(t *testing.T) {
 	steps := []*flow.StepConfig{
-		{Name: "orders", Connector: "db", Query: "SELECT * FROM orders"},
+		{Name: "orders", Connector: "db", ConnectorParams: map[string]interface{}{"query": "SELECT * FROM orders"}},
 		{Name: "existing", Connector: "api", When: "input.withDetails == true"},
 	}
 

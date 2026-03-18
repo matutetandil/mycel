@@ -400,11 +400,11 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	for _, f := range config.Flows {
 		fromOp := ""
 		if f.From != nil {
-			fromOp = f.From.Operation
+			fromOp = f.From.GetOperation()
 		}
 		toTarget := ""
 		if f.To != nil {
-			toTarget = f.To.Target
+			toTarget = f.To.GetTarget()
 		} else if len(f.MultiTo) > 0 {
 			toTarget = fmt.Sprintf("%d destinations", len(f.MultiTo))
 		}

@@ -86,8 +86,8 @@ func newBatchHandler(reader *mockBatchReader, writer *mockBatchWriter, batch *fl
 		Config: &flow.Config{
 			Name: "test_batch",
 			From: &flow.FromConfig{
-				Connector: "api",
-				Operation: "POST /batch",
+				Connector:       "api",
+				ConnectorParams: map[string]interface{}{"operation": "POST /batch"},
 			},
 			To:    &flow.ToConfig{Connector: writer.Name()},
 			Batch: batch,
@@ -113,9 +113,8 @@ func TestBatchBasic(t *testing.T) {
 		ChunkSize: 10,
 		OnError:   "stop",
 		To: &flow.ToConfig{
-			Connector: "target_db",
-			Target:    "users",
-			Operation: "INSERT",
+			Connector:       "target_db",
+			ConnectorParams: map[string]interface{}{"target": "users", "operation": "INSERT"},
 		},
 	})
 
@@ -158,9 +157,8 @@ func TestBatchChunking(t *testing.T) {
 		ChunkSize: 10,
 		OnError:   "stop",
 		To: &flow.ToConfig{
-			Connector: "target_db",
-			Target:    "users",
-			Operation: "INSERT",
+			Connector:       "target_db",
+			ConnectorParams: map[string]interface{}{"target": "users", "operation": "INSERT"},
 		},
 	})
 
@@ -204,9 +202,8 @@ func TestBatchWithTransform(t *testing.T) {
 			},
 		},
 		To: &flow.ToConfig{
-			Connector: "target_db",
-			Target:    "users",
-			Operation: "INSERT",
+			Connector:       "target_db",
+			ConnectorParams: map[string]interface{}{"target": "users", "operation": "INSERT"},
 		},
 	})
 
@@ -253,9 +250,8 @@ func TestBatchOnErrorContinue(t *testing.T) {
 		ChunkSize: 100,
 		OnError:   "continue",
 		To: &flow.ToConfig{
-			Connector: "target_db",
-			Target:    "users",
-			Operation: "INSERT",
+			Connector:       "target_db",
+			ConnectorParams: map[string]interface{}{"target": "users", "operation": "INSERT"},
 		},
 	})
 
@@ -292,9 +288,8 @@ func TestBatchOnErrorStop(t *testing.T) {
 		ChunkSize: 100,
 		OnError:   "stop",
 		To: &flow.ToConfig{
-			Connector: "target_db",
-			Target:    "users",
-			Operation: "INSERT",
+			Connector:       "target_db",
+			ConnectorParams: map[string]interface{}{"target": "users", "operation": "INSERT"},
 		},
 	})
 
@@ -314,9 +309,8 @@ func TestBatchEmptySource(t *testing.T) {
 		ChunkSize: 100,
 		OnError:   "stop",
 		To: &flow.ToConfig{
-			Connector: "target_db",
-			Target:    "users",
-			Operation: "INSERT",
+			Connector:       "target_db",
+			ConnectorParams: map[string]interface{}{"target": "users", "operation": "INSERT"},
 		},
 	})
 
@@ -350,9 +344,8 @@ func TestBatchWithParams(t *testing.T) {
 		ChunkSize: 100,
 		OnError:   "stop",
 		To: &flow.ToConfig{
-			Connector: "target_db",
-			Target:    "users",
-			Operation: "INSERT",
+			Connector:       "target_db",
+			ConnectorParams: map[string]interface{}{"target": "users", "operation": "INSERT"},
 		},
 	})
 
@@ -384,9 +377,8 @@ func TestBatchResultStats(t *testing.T) {
 		ChunkSize: 15,
 		OnError:   "stop",
 		To: &flow.ToConfig{
-			Connector: "target_db",
-			Target:    "items",
-			Operation: "INSERT",
+			Connector:       "target_db",
+			ConnectorParams: map[string]interface{}{"target": "items", "operation": "INSERT"},
 		},
 	})
 
@@ -420,9 +412,8 @@ func TestBatchDefaultChunkSize(t *testing.T) {
 		ChunkSize: 0, // Should default to 100
 		OnError:   "stop",
 		To: &flow.ToConfig{
-			Connector: "target_db",
-			Target:    "users",
-			Operation: "INSERT",
+			Connector:       "target_db",
+			ConnectorParams: map[string]interface{}{"target": "users", "operation": "INSERT"},
 		},
 	})
 
@@ -440,16 +431,15 @@ func TestBatchSourceNotFound(t *testing.T) {
 	handler := &FlowHandler{
 		Config: &flow.Config{
 			Name: "test_batch",
-			From: &flow.FromConfig{Connector: "api", Operation: "POST /batch"},
+			From: &flow.FromConfig{Connector: "api", ConnectorParams: map[string]interface{}{"operation": "POST /batch"}},
 			To:   &flow.ToConfig{Connector: "target_db"},
 			Batch: &flow.BatchConfig{
 				Source:    "nonexistent",
 				ChunkSize: 100,
 				OnError:   "stop",
 				To: &flow.ToConfig{
-					Connector: "target_db",
-					Target:    "users",
-					Operation: "INSERT",
+					Connector:       "target_db",
+					ConnectorParams: map[string]interface{}{"target": "users", "operation": "INSERT"},
 				},
 			},
 		},
@@ -474,9 +464,8 @@ func TestBatchReadError(t *testing.T) {
 		ChunkSize: 100,
 		OnError:   "stop",
 		To: &flow.ToConfig{
-			Connector: "target_db",
-			Target:    "users",
-			Operation: "INSERT",
+			Connector:       "target_db",
+			ConnectorParams: map[string]interface{}{"target": "users", "operation": "INSERT"},
 		},
 	})
 
@@ -498,9 +487,8 @@ func TestBatchReadErrorContinue(t *testing.T) {
 		ChunkSize: 100,
 		OnError:   "continue",
 		To: &flow.ToConfig{
-			Connector: "target_db",
-			Target:    "users",
-			Operation: "INSERT",
+			Connector:       "target_db",
+			ConnectorParams: map[string]interface{}{"target": "users", "operation": "INSERT"},
 		},
 	})
 

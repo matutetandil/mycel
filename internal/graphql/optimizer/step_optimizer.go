@@ -125,7 +125,7 @@ func (o *StepOptimizer) resolveStepDependencies(neededSteps map[string]bool) {
 			}
 
 			// Check if this step's params or when condition references other steps
-			for _, val := range step.Params {
+			for _, val := range step.GetParams() {
 				if strVal, ok := val.(string); ok {
 					matches := stepPattern.FindAllStringSubmatch(strVal, -1)
 					for _, match := range matches {

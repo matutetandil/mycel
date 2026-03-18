@@ -34,12 +34,12 @@ func newMockInspector() *mockInspector {
 			"create_user": {
 				Name: "create_user",
 				From: &flow.FromConfig{
-					Connector: "api",
-					Operation: "POST /users",
+					Connector:       "api",
+					ConnectorParams: map[string]interface{}{"operation": "POST /users"},
 				},
 				To: &flow.ToConfig{
-					Connector: "postgres",
-					Operation: "users",
+					Connector:       "postgres",
+					ConnectorParams: map[string]interface{}{"operation": "users"},
 				},
 				Transform: &flow.TransformConfig{
 					Mappings: map[string]string{
@@ -51,12 +51,12 @@ func newMockInspector() *mockInspector {
 			"get_users": {
 				Name: "get_users",
 				From: &flow.FromConfig{
-					Connector: "api",
-					Operation: "GET /users",
+					Connector:       "api",
+					ConnectorParams: map[string]interface{}{"operation": "GET /users"},
 				},
 				To: &flow.ToConfig{
-					Connector: "postgres",
-					Operation: "users",
+					Connector:       "postgres",
+					ConnectorParams: map[string]interface{}{"operation": "users"},
 				},
 			},
 		},

@@ -1137,12 +1137,6 @@ func (r *Runtime) registerFlows() error {
 			if err := sv.ValidateSourceParams(cfg.From.ConnectorParams); err != nil {
 				return fmt.Errorf("flow %s: source %s: %w", cfg.Name, cfg.From.Connector, err)
 			}
-			// Sync defaults back to typed fields
-			if cfg.From.Operation == "" {
-				if op, ok := cfg.From.ConnectorParams["operation"].(string); ok {
-					cfg.From.Operation = op
-				}
-			}
 		}
 		if dest != nil {
 			if tv, ok := dest.(connector.TargetValidator); ok && cfg.To != nil {
@@ -1543,8 +1537,8 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 		if handler.Config.From.Connector == connectorName {
 			// Wrap handler with format context if flow declares a format
 			requestHandler := handler.HandleRequest
-			if handler.Config.From.Format != "" {
-				fromFormat := handler.Config.From.Format
+			if handler.Config.From.GetFormat() != "" {
+				fromFormat := handler.Config.From.GetFormat()
 				origHandler := requestHandler
 				requestHandler = func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
 					return origHandler(codec.WithFormat(ctx, fromFormat), input)
@@ -1740,7 +1734,7 @@ func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
 
 	// Extract from step params
 	for _, step := range cfg.Steps {
-		for _, value := range step.Params {
+		for _, value := range step.GetParams() {
 			extractInputArgs(value, args)
 		}
 	}

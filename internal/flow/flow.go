@@ -196,31 +196,10 @@ type StepConfig struct {
 	// Connector is the connector to call.
 	Connector string
 
-	// Operation is the operation to perform on the connector.
-	// Examples: "query", "GET /users", "POST /api/calculate"
-	Operation string
-
-	// Format overrides the connector's default format for this step (e.g., "xml", "json").
-	Format string
-
 	// When is a CEL expression that determines if this step should execute.
 	// If empty or evaluates to true, the step executes.
 	// Example: "input.include_prices == true"
 	When string
-
-	// Params are parameters to pass to the connector operation.
-	// Values can be CEL expressions referencing input.* or previous step.* results.
-	Params map[string]interface{}
-
-	// Query is an optional SQL query for database connectors.
-	Query string
-
-	// Body is the request body for HTTP connectors.
-	// Can be a map or a CEL expression.
-	Body map[string]interface{}
-
-	// Target is the target resource (table, collection, endpoint).
-	Target string
 
 	// Timeout is the maximum time to wait for this step (e.g., "30s").
 	Timeout string
@@ -231,51 +210,46 @@ type StepConfig struct {
 	// Default is the default value to use if OnError is "default".
 	Default interface{}
 
-	// ConnectorParams holds all connector-specific parameters from the step block.
-	// The connector validates these at startup via TargetValidator.
+	// ConnectorParams holds all connector-specific parameters.
+	// Populated by the parser from the HCL block attributes.
+	// Access via getter methods (GetOperation, GetTarget, etc.).
 	ConnectorParams map[string]interface{}
 }
 
-// GetOperation returns the operation from ConnectorParams or the typed field.
+// GetOperation returns the operation from ConnectorParams.
 func (s *StepConfig) GetOperation() string {
-	return getStringParam(s.ConnectorParams, "operation", s.Operation)
+	return getStringParam(s.ConnectorParams, "operation", "")
 }
 
-// GetFormat returns the format from ConnectorParams or the typed field.
+// GetFormat returns the format from ConnectorParams.
 func (s *StepConfig) GetFormat() string {
-	return getStringParam(s.ConnectorParams, "format", s.Format)
+	return getStringParam(s.ConnectorParams, "format", "")
 }
 
-// GetTarget returns the target from ConnectorParams or the typed field.
+// GetTarget returns the target from ConnectorParams.
 func (s *StepConfig) GetTarget() string {
-	return getStringParam(s.ConnectorParams, "target", s.Target)
+	return getStringParam(s.ConnectorParams, "target", "")
 }
 
-// GetQuery returns the query from ConnectorParams or the typed field.
+// GetQuery returns the query from ConnectorParams.
 func (s *StepConfig) GetQuery() string {
-	return getStringParam(s.ConnectorParams, "query", s.Query)
+	return getStringParam(s.ConnectorParams, "query", "")
 }
 
-// GetBody returns the body from ConnectorParams or the typed field.
+// GetBody returns the body from ConnectorParams.
 func (s *StepConfig) GetBody() map[string]interface{} {
-	return getMapParam(s.ConnectorParams, "body", s.Body)
+	return getMapParam(s.ConnectorParams, "body", nil)
 }
 
-// GetParams returns the params from ConnectorParams or the typed field.
+// GetParams returns the params from ConnectorParams.
 func (s *StepConfig) GetParams() map[string]interface{} {
-	return getMapParam(s.ConnectorParams, "params", s.Params)
+	return getMapParam(s.ConnectorParams, "params", nil)
 }
 
 // FromConfig defines the flow source.
 type FromConfig struct {
 	// Connector is the source connector name.
 	Connector string
-
-	// Operation is the trigger operation (e.g., "GET /users", "topic:orders").
-	Operation string
-
-	// Format overrides the connector's default format for incoming data (e.g., "xml", "json").
-	Format string
 
 	// Filter is a CEL expression to filter incoming requests/messages (legacy string syntax).
 	// If the expression evaluates to false, the request is skipped.
@@ -286,19 +260,20 @@ type FromConfig struct {
 	// When set, takes precedence over Filter string.
 	FilterConfig *FilterConfig
 
-	// ConnectorParams holds all connector-specific parameters from the from block.
-	// The connector validates these at startup via SourceValidator.
+	// ConnectorParams holds all connector-specific parameters.
+	// Populated by the parser from the HCL block attributes.
+	// Access via getter methods (GetOperation, GetFormat).
 	ConnectorParams map[string]interface{}
 }
 
-// GetOperation returns the operation from ConnectorParams or the typed field.
+// GetOperation returns the operation from ConnectorParams.
 func (f *FromConfig) GetOperation() string {
-	return getStringParam(f.ConnectorParams, "operation", f.Operation)
+	return getStringParam(f.ConnectorParams, "operation", "")
 }
 
-// GetFormat returns the format from ConnectorParams or the typed field.
+// GetFormat returns the format from ConnectorParams.
 func (f *FromConfig) GetFormat() string {
-	return getStringParam(f.ConnectorParams, "format", f.Format)
+	return getStringParam(f.ConnectorParams, "format", "")
 }
 
 // FilterCondition returns the active filter condition expression.
@@ -342,36 +317,6 @@ type ToConfig struct {
 	// Connector is the destination connector name.
 	Connector string
 
-	// Target is the destination target (e.g., table name, collection, endpoint).
-	Target string
-
-	// Operation is the type of write operation to perform.
-	// Examples: INSERT_ONE, UPDATE_ONE, DELETE_ONE, UPDATE_MANY, DELETE_MANY,
-	// WRITE (files/S3), READ, DELETE, LIST, PRESIGN, COPY
-	Operation string
-
-	// Format overrides the connector's default format for outgoing data (e.g., "xml", "json").
-	Format string
-
-	// Filter is an optional filter expression for the destination.
-	Filter string
-
-	// Query is an optional raw SQL query for SQL database connectors.
-	// Example: "SELECT * FROM users WHERE id = :id"
-	Query string
-
-	// QueryFilter is an optional query filter for NoSQL database connectors (MongoDB).
-	// Example: {"status": "active", "age": {"$gte": 18}}
-	QueryFilter map[string]interface{}
-
-	// Update is an optional update document for NoSQL UPDATE operations (MongoDB).
-	// Example: {"$set": {"status": "active"}, "$inc": {"count": 1}}
-	Update map[string]interface{}
-
-	// Params contains additional parameters for the operation.
-	// Example: S3 COPY operation uses {source: "...", dest: "..."}
-	Params map[string]interface{}
-
 	// When is a CEL expression that determines if this destination should be written to.
 	// If empty or evaluates to true, the write executes.
 	// Example: "output.total > 1000"
@@ -385,49 +330,50 @@ type ToConfig struct {
 	// Default is true. Set to false for sequential writes.
 	Parallel bool
 
-	// ConnectorParams holds all connector-specific parameters from the to block.
-	// The connector validates these at startup via TargetValidator.
+	// ConnectorParams holds all connector-specific parameters.
+	// Populated by the parser from the HCL block attributes.
+	// Access via getter methods (GetTarget, GetOperation, etc.).
 	ConnectorParams map[string]interface{}
 }
 
-// GetTarget returns the target from ConnectorParams or the typed field.
+// GetTarget returns the target from ConnectorParams.
 func (t *ToConfig) GetTarget() string {
-	return getStringParam(t.ConnectorParams, "target", t.Target)
+	return getStringParam(t.ConnectorParams, "target", "")
 }
 
-// GetOperation returns the operation from ConnectorParams or the typed field.
+// GetOperation returns the operation from ConnectorParams.
 func (t *ToConfig) GetOperation() string {
-	return getStringParam(t.ConnectorParams, "operation", t.Operation)
+	return getStringParam(t.ConnectorParams, "operation", "")
 }
 
-// GetFormat returns the format from ConnectorParams or the typed field.
+// GetFormat returns the format from ConnectorParams.
 func (t *ToConfig) GetFormat() string {
-	return getStringParam(t.ConnectorParams, "format", t.Format)
+	return getStringParam(t.ConnectorParams, "format", "")
 }
 
-// GetFilter returns the filter from ConnectorParams or the typed field.
+// GetFilter returns the filter from ConnectorParams.
 func (t *ToConfig) GetFilter() string {
-	return getStringParam(t.ConnectorParams, "filter", t.Filter)
+	return getStringParam(t.ConnectorParams, "filter", "")
 }
 
-// GetQuery returns the query from ConnectorParams or the typed field.
+// GetQuery returns the query from ConnectorParams.
 func (t *ToConfig) GetQuery() string {
-	return getStringParam(t.ConnectorParams, "query", t.Query)
+	return getStringParam(t.ConnectorParams, "query", "")
 }
 
-// GetQueryFilter returns the query_filter from ConnectorParams or the typed field.
+// GetQueryFilter returns the query_filter from ConnectorParams.
 func (t *ToConfig) GetQueryFilter() map[string]interface{} {
-	return getMapParam(t.ConnectorParams, "query_filter", t.QueryFilter)
+	return getMapParam(t.ConnectorParams, "query_filter", nil)
 }
 
-// GetUpdate returns the update from ConnectorParams or the typed field.
+// GetUpdate returns the update from ConnectorParams.
 func (t *ToConfig) GetUpdate() map[string]interface{} {
-	return getMapParam(t.ConnectorParams, "update", t.Update)
+	return getMapParam(t.ConnectorParams, "update", nil)
 }
 
-// GetParams returns the params from ConnectorParams or the typed field.
+// GetParams returns the params from ConnectorParams.
 func (t *ToConfig) GetParams() map[string]interface{} {
-	return getMapParam(t.ConnectorParams, "params", t.Params)
+	return getMapParam(t.ConnectorParams, "params", nil)
 }
 
 // ValidateConfig holds validation configuration.
@@ -461,40 +407,19 @@ type EnrichConfig struct {
 	// Connector is the connector to use for the lookup.
 	Connector string
 
-	// Operation is the operation to perform on the connector.
-	Operation string
-
 	// Params are the parameters to pass to the operation.
 	// Keys are parameter names, values are CEL expressions.
 	Params map[string]string
 
-	// ConnectorParams holds all connector-specific parameters from the enrich block.
-	// The connector validates these at startup via TargetValidator.
+	// ConnectorParams holds all connector-specific parameters.
+	// Populated by the parser from the HCL block attributes.
+	// Access via getter methods (GetOperation).
 	ConnectorParams map[string]interface{}
 }
 
-// GetOperation returns the operation from ConnectorParams or the typed field.
+// GetOperation returns the operation from ConnectorParams.
 func (e *EnrichConfig) GetOperation() string {
-	return getStringParam(e.ConnectorParams, "operation", e.Operation)
-}
-
-// GetParams returns the params from ConnectorParams or the typed field.
-func (e *EnrichConfig) GetParams() map[string]string {
-	if e.ConnectorParams != nil {
-		if v, ok := e.ConnectorParams["params"]; ok {
-			if m, ok := v.(map[string]interface{}); ok {
-				result := make(map[string]string, len(m))
-				for k, val := range m {
-					result[k] = fmt.Sprintf("%v", val)
-				}
-				return result
-			}
-			if m, ok := v.(map[string]string); ok {
-				return m
-			}
-		}
-	}
-	return e.Params
+	return getStringParam(e.ConnectorParams, "operation", "")
 }
 
 // RequireConfig holds authorization requirements.

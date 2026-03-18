@@ -30,34 +30,34 @@ func TestGenerator_Generate(t *testing.T) {
 			{
 				Name: "get_users",
 				From: &flow.FromConfig{
-					Connector: "api",
-					Operation: "GET /users",
+					Connector:       "api",
+					ConnectorParams: map[string]interface{}{"operation": "GET /users"},
 				},
 				To: &flow.ToConfig{
-					Connector: "db",
-					Target:    "users",
+					Connector:       "db",
+					ConnectorParams: map[string]interface{}{"target": "users"},
 				},
 			},
 			{
 				Name: "get_user",
 				From: &flow.FromConfig{
-					Connector: "api",
-					Operation: "GET /users/:id",
+					Connector:       "api",
+					ConnectorParams: map[string]interface{}{"operation": "GET /users/:id"},
 				},
 				To: &flow.ToConfig{
-					Connector: "db",
-					Target:    "users",
+					Connector:       "db",
+					ConnectorParams: map[string]interface{}{"target": "users"},
 				},
 			},
 			{
 				Name: "create_user",
 				From: &flow.FromConfig{
-					Connector: "api",
-					Operation: "POST /users",
+					Connector:       "api",
+					ConnectorParams: map[string]interface{}{"operation": "POST /users"},
 				},
 				To: &flow.ToConfig{
-					Connector: "db",
-					Target:    "users",
+					Connector:       "db",
+					ConnectorParams: map[string]interface{}{"target": "users"},
 				},
 			},
 		},

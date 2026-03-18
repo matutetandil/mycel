@@ -1975,7 +1975,7 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 
 	// Build data for write
 	data := &connector.Data{
-		Target:  destConfig.Target,
+		Target:  destConfig.GetTarget(),
 		Payload: payload,
 	}
 
@@ -1992,13 +1992,13 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 	}
 
 	// Set operation override if specified in config
-	if destConfig.Operation != "" {
-		data.Operation = destConfig.Operation
+	if destConfig.GetOperation() != "" {
+		data.Operation = destConfig.GetOperation()
 	}
 
 	// Set raw SQL if configured
-	if destConfig.Query != "" {
-		data.RawSQL = destConfig.Query
+	if destConfig.GetQuery() != "" {
+		data.RawSQL = destConfig.GetQuery()
 		// Pass all input as params for named parameter substitution
 		data.Filters = make(map[string]interface{})
 		for key, val := range input {
@@ -2007,13 +2007,13 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 	}
 
 	// Set query filter for NoSQL (MongoDB)
-	if len(destConfig.QueryFilter) > 0 {
-		data.Filters = destConfig.QueryFilter
+	if len(destConfig.GetQueryFilter()) > 0 {
+		data.Filters = destConfig.GetQueryFilter()
 	}
 
 	// Set update document for NoSQL
-	if len(destConfig.Update) > 0 {
-		data.Update = destConfig.Update
+	if len(destConfig.GetUpdate()) > 0 {
+		data.Update = destConfig.GetUpdate()
 	}
 
 	// Dry-run: record what would be written without executing
@@ -2506,8 +2506,8 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 
 		// Build params by evaluating CEL expressions
 		params := make(map[string]interface{})
-		if h.Transformer != nil && len(enrich.GetParams()) > 0 {
-			for key, expr := range enrich.GetParams() {
+		if h.Transformer != nil && len(enrich.Params) > 0 {
+			for key, expr := range enrich.Params {
 				// Evaluate the param expression using CEL
 				result, err := h.Transformer.EvaluateExpression(ctx, input, nil, expr)
 				if err != nil {
@@ -2517,7 +2517,7 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 			}
 		} else {
 			// Simple param copy without CEL evaluation
-			for key, val := range enrich.GetParams() {
+			for key, val := range enrich.Params {
 				params[key] = val
 			}
 		}
@@ -2629,10 +2629,10 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 			// Convert transform.EnrichConfig to flow.EnrichConfig
 			for _, e := range named.Enrichments {
 				allEnrichments = append(allEnrichments, &flow.EnrichConfig{
-					Name:      e.Name,
-					Connector: e.Connector,
-					Operation: e.Operation,
-					Params:    e.Params,
+					Name:            e.Name,
+					Connector:       e.Connector,
+					Params:          e.Params,
+					ConnectorParams: map[string]interface{}{"operation": e.Operation},
 				})
 			}
 		}

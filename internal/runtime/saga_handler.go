@@ -35,10 +35,10 @@ func (r *Runtime) registerSagas() error {
 		flowCfg := &flow.Config{
 			Name: cfg.Name,
 			From: &flow.FromConfig{
-				Connector:    cfg.From.Connector,
-				Operation:    cfg.From.Operation,
-				Filter:       cfg.From.Filter,
-				FilterConfig: filterConfig,
+				Connector:       cfg.From.Connector,
+				Filter:          cfg.From.Filter,
+				FilterConfig:    filterConfig,
+				ConnectorParams: map[string]interface{}{"operation": cfg.From.Operation},
 			},
 			// Minimal to config (saga handles its own output)
 			To: &flow.ToConfig{

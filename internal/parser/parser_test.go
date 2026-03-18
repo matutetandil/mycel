@@ -91,14 +91,14 @@ flow "get_users" {
 	if flow.From.Connector != "api" {
 		t.Errorf("expected from connector 'api', got '%s'", flow.From.Connector)
 	}
-	if flow.From.Operation != "GET /users" {
-		t.Errorf("expected from operation 'GET /users', got '%s'", flow.From.Operation)
+	if flow.From.GetOperation() != "GET /users" {
+		t.Errorf("expected from operation 'GET /users', got '%s'", flow.From.GetOperation())
 	}
 	if flow.To.Connector != "postgres" {
 		t.Errorf("expected to connector 'postgres', got '%s'", flow.To.Connector)
 	}
-	if flow.To.Target != "users" {
-		t.Errorf("expected to target 'users', got '%s'", flow.To.Target)
+	if flow.To.GetTarget() != "users" {
+		t.Errorf("expected to target 'users', got '%s'", flow.To.GetTarget())
 	}
 }
 
@@ -446,11 +446,11 @@ flow "create_order" {
 	if step1.Connector != "db" {
 		t.Errorf("expected connector 'db', got '%s'", step1.Connector)
 	}
-	if step1.Query != "SELECT * FROM users WHERE id = :user_id" {
-		t.Errorf("expected query, got '%s'", step1.Query)
+	if step1.GetQuery() != "SELECT * FROM users WHERE id = :user_id" {
+		t.Errorf("expected query, got '%s'", step1.GetQuery())
 	}
-	if step1.Params["user_id"] != "input.user_id" {
-		t.Errorf("expected param user_id='input.user_id', got '%v'", step1.Params["user_id"])
+	if step1.GetParams()["user_id"] != "input.user_id" {
+		t.Errorf("expected param user_id='input.user_id', got '%v'", step1.GetParams()["user_id"])
 	}
 
 	// Check step 2: get_prices (with conditional)
@@ -470,14 +470,14 @@ flow "create_order" {
 	if step3.Name != "calculate" {
 		t.Errorf("expected step name 'calculate', got '%s'", step3.Name)
 	}
-	if step3.Operation != "POST /calculate" {
-		t.Errorf("expected operation 'POST /calculate', got '%s'", step3.Operation)
+	if step3.GetOperation() != "POST /calculate" {
+		t.Errorf("expected operation 'POST /calculate', got '%s'", step3.GetOperation())
 	}
 	if step3.Timeout != "30s" {
 		t.Errorf("expected timeout '30s', got '%s'", step3.Timeout)
 	}
-	if step3.Body["items"] != "input.items" {
-		t.Errorf("expected body.items='input.items', got '%v'", step3.Body["items"])
+	if step3.GetBody()["items"] != "input.items" {
+		t.Errorf("expected body.items='input.items', got '%v'", step3.GetBody()["items"])
 	}
 
 	// Check transform references step results
@@ -722,8 +722,8 @@ flow "fan_out_order" {
 	if dest1.Connector != "orders_db" {
 		t.Errorf("expected first dest connector 'orders_db', got '%s'", dest1.Connector)
 	}
-	if dest1.Target != "orders" {
-		t.Errorf("expected first dest target 'orders', got '%s'", dest1.Target)
+	if dest1.GetTarget() != "orders" {
+		t.Errorf("expected first dest target 'orders', got '%s'", dest1.GetTarget())
 	}
 	if !dest1.Parallel {
 		t.Error("expected first dest parallel to be true (default)")
@@ -896,11 +896,11 @@ flow "order_updates" {
 	}
 
 	flow := config.Flows[0]
-	if flow.To.Operation != "Subscription.orderUpdated" {
-		t.Errorf("expected to.operation 'Subscription.orderUpdated', got '%s'", flow.To.Operation)
+	if flow.To.GetOperation() != "Subscription.orderUpdated" {
+		t.Errorf("expected to.operation 'Subscription.orderUpdated', got '%s'", flow.To.GetOperation())
 	}
-	if flow.To.Filter != "input.user_id == context.auth.user_id" {
-		t.Errorf("expected to.filter, got '%s'", flow.To.Filter)
+	if flow.To.GetFilter() != "input.user_id == context.auth.user_id" {
+		t.Errorf("expected to.filter, got '%s'", flow.To.GetFilter())
 	}
 }
 
