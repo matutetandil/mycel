@@ -230,8 +230,8 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 			slog.String("source", h.Config.From.Connector),
 			slog.Duration("duration", duration),
 		}
-		if h.Config.From.Operation != "" {
-			attrs = append(attrs, slog.String("operation", h.Config.From.Operation))
+		if h.Config.From.GetOperation() != "" {
+			attrs = append(attrs, slog.String("operation", h.Config.From.GetOperation()))
 		}
 		if err != nil {
 			attrs = append(attrs, slog.String("error", err.Error()))
@@ -893,7 +893,7 @@ func (h *FlowHandler) evaluateIdempotencyKey(ctx context.Context, input map[stri
 
 // handleRequestWithAspects wraps flow execution with aspect executor.
 func (h *FlowHandler) handleRequestWithAspects(ctx context.Context, input map[string]interface{}) (interface{}, error) {
-	operation := parseOperation(h.Config.From.Operation)
+	operation := parseOperation(h.Config.From.GetOperation())
 
 	// Create the flow function that the aspect executor will wrap
 	flowFn := func(ctx context.Context, flowInput map[string]interface{}) (*connector.Result, error) {
@@ -910,7 +910,7 @@ func (h *FlowHandler) handleRequestWithAspects(ctx context.Context, input map[st
 	result, err := h.AspectExecutor.Execute(
 		ctx,
 		h.Config.Name,
-		h.Config.From.Operation,
+		h.Config.From.GetOperation(),
 		h.toTarget(),
 		input,
 		flowFn,
@@ -1098,7 +1098,7 @@ func (h *FlowHandler) evaluateSyncKey(ctx context.Context, keyExpr string, input
 // executeFlowCoreInternal contains the actual flow logic.
 func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[string]interface{}) (interface{}, error) {
 	// Determine operation type from the flow config
-	operation := parseOperation(h.Config.From.Operation)
+	operation := parseOperation(h.Config.From.GetOperation())
 
 	// For event-driven sources (MQ consumers, CDC, file watchers), the operation
 	// string is a queue name, table name, or glob pattern — not "METHOD /path".
@@ -1109,8 +1109,8 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 
 	// For non-REST sources (gRPC, SOAP, etc.) where the from.operation doesn't
 	// contain an HTTP method, use to.Operation to determine the write intent.
-	if operation.Method == "GET" && h.Config.To != nil && h.Config.To.Operation != "" {
-		switch strings.ToUpper(h.Config.To.Operation) {
+	if operation.Method == "GET" && h.Config.To != nil && h.Config.To.GetOperation() != "" {
+		switch strings.ToUpper(h.Config.To.GetOperation()) {
 		case "INSERT":
 			operation.Method = "POST"
 		case "UPDATE":
@@ -1165,7 +1165,7 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	}
 
 	// Check if the destination is a subscription publish target
-	if h.Config.To != nil && isSubscriptionPublish(h.Config.To.Operation) {
+	if h.Config.To != nil && isSubscriptionPublish(h.Config.To.GetOperation()) {
 		return h.handleSubscriptionPublish(ctx, input)
 	}
 
@@ -1367,8 +1367,8 @@ func (h *FlowHandler) executeBatch(ctx context.Context, input map[string]interfa
 		// Write chunk to target
 		for _, row := range rows {
 			writeData := &connector.Data{
-				Target:    batch.To.Target,
-				Operation: batch.To.Operation,
+				Target:    batch.To.GetTarget(),
+				Operation: batch.To.GetOperation(),
 				Payload:   row,
 			}
 
@@ -1400,14 +1400,14 @@ func (h *FlowHandler) executeBatch(ctx context.Context, input map[string]interfa
 // handleRead handles GET requests.
 func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface{}, dest connector.Reader) (interface{}, error) {
 	query := connector.Query{
-		Target:    h.Config.To.Target,
+		Target:    h.Config.To.GetTarget(),
 		Operation: "SELECT",
 		Filters:   make(map[string]interface{}),
 	}
 
 	// Override operation if specified in to block config
-	if h.Config.To.Operation != "" {
-		query.Operation = h.Config.To.Operation
+	if h.Config.To.GetOperation() != "" {
+		query.Operation = h.Config.To.GetOperation()
 	}
 
 	// GraphQL Query Optimization: Extract requested fields from input
@@ -1422,8 +1422,8 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 	}
 
 	// Use raw SQL query if configured
-	if h.Config.To.Query != "" {
-		query.RawSQL = h.Config.To.Query
+	if h.Config.To.GetQuery() != "" {
+		query.RawSQL = h.Config.To.GetQuery()
 		// Pass all input as filters/params for named parameter substitution
 		for key, val := range input {
 			// Skip internal GraphQL optimization fields
@@ -1438,7 +1438,7 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 			optimizedSQL, _ := optimizer.OptimizeQueryWithFields(query.RawSQL, allFields)
 			query.RawSQL = optimizedSQL
 		}
-	} else if isGraphQLOperation(h.Config.From.Operation) {
+	} else if isGraphQLOperation(h.Config.From.GetOperation()) {
 		// For GraphQL, use all input arguments as filters
 		// This supports queries like Query.user(id: 1) -> filters by id
 		for key, val := range input {
@@ -1460,7 +1460,7 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 	} else {
 		// For REST, extract path parameters from operation and use as filters
 		// For operations like "GET /users/:id", extract :id as a filter
-		operation := parseOperation(h.Config.From.Operation)
+		operation := parseOperation(h.Config.From.GetOperation())
 		pathParams := extractPathParams(operation.Path)
 
 		for _, param := range pathParams {
@@ -1470,7 +1470,7 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 		}
 
 		// Also apply explicit filter if present
-		if h.Config.To.Filter != "" {
+		if h.Config.To.GetFilter() != "" {
 			// Parse filter expression and add to query
 			// For now, we'll handle simple ID-based filters
 			if id, ok := input["id"]; ok {
@@ -1479,7 +1479,7 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 		}
 	}
 
-	readResult, readErr := trace.RecordStage(ctx, trace.StageRead, h.Config.To.Target, query.Filters, func() (interface{}, error) {
+	readResult, readErr := trace.RecordStage(ctx, trace.StageRead, h.Config.To.GetTarget(), query.Filters, func() (interface{}, error) {
 		result, err := dest.Read(ctx, query)
 		if err != nil {
 			return nil, err
@@ -1559,7 +1559,7 @@ func (h *FlowHandler) handleSubscriptionPublish(ctx context.Context, input map[s
 	}
 
 	// Extract the subscription topic from the operation (e.g., "Subscription.orderUpdated" -> "orderUpdated")
-	topic := strings.TrimPrefix(h.Config.To.Operation, "Subscription.")
+	topic := strings.TrimPrefix(h.Config.To.GetOperation(), "Subscription.")
 
 	// Publish to the subscription topic via the destination connector
 	type publisher interface {
@@ -1594,19 +1594,19 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 	delete(payload, "headers")
 
 	data := &connector.Data{
-		Target:    h.Config.To.Target,
+		Target:    h.Config.To.GetTarget(),
 		Operation: "INSERT",
 		Payload:   payload,
 	}
 
 	// Override operation if specified in to block config
-	if h.Config.To.Operation != "" {
-		data.Operation = h.Config.To.Operation
+	if h.Config.To.GetOperation() != "" {
+		data.Operation = h.Config.To.GetOperation()
 	}
 
 	// Use raw SQL query if configured
-	if h.Config.To.Query != "" {
-		data.RawSQL = h.Config.To.Query
+	if h.Config.To.GetQuery() != "" {
+		data.RawSQL = h.Config.To.GetQuery()
 	}
 
 	// Dry-run: record what would be written without executing
@@ -1643,11 +1643,11 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 
 	// For GraphQL and gRPC operations, return the created object instead of {id, affected}
 	// This allows mutations like `createUser(input: {...}) { id email name }` to work
-	if (isGraphQLOperation(h.Config.From.Operation) || h.SourceType == "grpc") && result.LastID != 0 {
+	if (isGraphQLOperation(h.Config.From.GetOperation()) || h.SourceType == "grpc") && result.LastID != 0 {
 		// Try to read back the created record
 		if reader, ok := dest.(connector.Reader); ok {
 			query := connector.Query{
-				Target:    h.Config.To.Target,
+				Target:    h.Config.To.GetTarget(),
 				Operation: "SELECT",
 				Filters:   map[string]interface{}{"id": result.LastID},
 			}
@@ -1693,7 +1693,7 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 	delete(payload, "headers")
 
 	data := &connector.Data{
-		Target:    h.Config.To.Target,
+		Target:    h.Config.To.GetTarget(),
 		Operation: "UPDATE",
 		Payload:   payload,
 		Filters:   make(map[string]interface{}),
@@ -1705,8 +1705,8 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 	}
 
 	// Use raw SQL query if configured
-	if h.Config.To.Query != "" {
-		data.RawSQL = h.Config.To.Query
+	if h.Config.To.GetQuery() != "" {
+		data.RawSQL = h.Config.To.GetQuery()
 	}
 
 	// Dry-run: record what would be written without executing
@@ -1748,7 +1748,7 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 // handleDelete handles DELETE requests.
 func (h *FlowHandler) handleDelete(ctx context.Context, input map[string]interface{}, dest connector.Writer) (interface{}, error) {
 	data := &connector.Data{
-		Target:    h.Config.To.Target,
+		Target:    h.Config.To.GetTarget(),
 		Operation: "DELETE",
 		Filters:   make(map[string]interface{}),
 	}
@@ -1759,8 +1759,8 @@ func (h *FlowHandler) handleDelete(ctx context.Context, input map[string]interfa
 	}
 
 	// Use raw SQL query if configured
-	if h.Config.To.Query != "" {
-		data.RawSQL = h.Config.To.Query
+	if h.Config.To.GetQuery() != "" {
+		data.RawSQL = h.Config.To.GetQuery()
 		// Pass all input as params for named parameter substitution
 		for key, val := range input {
 			data.Filters[key] = val
@@ -1804,7 +1804,7 @@ func (h *FlowHandler) handleDelete(ctx context.Context, input map[string]interfa
 
 // handleSimpleRequest handles requests when dest only implements Reader or Writer.
 func (h *FlowHandler) handleSimpleRequest(ctx context.Context, input map[string]interface{}) (interface{}, error) {
-	operation := parseOperation(h.Config.From.Operation)
+	operation := parseOperation(h.Config.From.GetOperation())
 
 	if operation.Method == "GET" {
 		if reader, ok := h.Dest.(connector.Reader); ok {
@@ -2281,8 +2281,8 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 
 		// Build params by evaluating CEL expressions if needed
 		params := make(map[string]interface{})
-		if h.Transformer != nil && len(step.Params) > 0 {
-			for key, val := range step.Params {
+		if h.Transformer != nil && len(step.GetParams()) > 0 {
+			for key, val := range step.GetParams() {
 				// If value is a string that looks like an expression, evaluate it
 				if strVal, ok := val.(string); ok {
 					if strings.Contains(strVal, "input.") || strings.Contains(strVal, "step.") {
@@ -2297,7 +2297,7 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 				params[key] = val
 			}
 		} else {
-			for key, val := range step.Params {
+			for key, val := range step.GetParams() {
 				params[key] = val
 			}
 		}
@@ -2306,12 +2306,12 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 		var result interface{}
 
 		// Database query
-		if step.Query != "" {
+		if step.GetQuery() != "" {
 			if reader, ok := conn.(connector.Reader); ok {
 				query := connector.Query{
-					Target:    step.Target,
+					Target:    step.GetTarget(),
 					Operation: "SELECT",
-					RawSQL:    step.Query,
+					RawSQL:    step.GetQuery(),
 					Filters:   params,
 				}
 				readResult, err := reader.Read(ctx, query)
@@ -2337,15 +2337,15 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					result = readResult.Rows
 				}
 			}
-		} else if step.Operation != "" {
+		} else if step.GetOperation() != "" {
 			// HTTP/REST or other operation-based connector
 			if caller, ok := conn.(Caller); ok {
 				// For Caller interface (TCP, HTTP client, gRPC)
 				callParams := params
-				if len(step.Body) > 0 {
-					callParams = step.Body
+				if len(step.GetBody()) > 0 {
+					callParams = step.GetBody()
 				}
-				callResult, err := caller.Call(ctx, step.Operation, callParams)
+				callResult, err := caller.Call(ctx, step.GetOperation(), callParams)
 				if err != nil {
 					if step.OnError == "skip" {
 						if step.Default != nil {
@@ -2365,8 +2365,8 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 			} else if reader, ok := conn.(connector.Reader); ok {
 				// For Reader interface (database SELECT)
 				query := connector.Query{
-					Target:    step.Target,
-					Operation: step.Operation,
+					Target:    step.GetTarget(),
+					Operation: step.GetOperation(),
 					Filters:   params,
 				}
 				readResult, err := reader.Read(ctx, query)
@@ -2393,9 +2393,9 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 			} else if writer, ok := conn.(connector.Writer); ok {
 				// For Writer interface (INSERT, UPDATE, DELETE)
 				data := &connector.Data{
-					Target:    step.Target,
-					Operation: step.Operation,
-					Payload:   step.Body,
+					Target:    step.GetTarget(),
+					Operation: step.GetOperation(),
+					Payload:   step.GetBody(),
 					Filters:   params,
 				}
 				writeResult, err := writer.Write(ctx, data)
@@ -2423,11 +2423,11 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					}
 				}
 			}
-		} else if step.Target != "" {
+		} else if step.GetTarget() != "" {
 			// Simple target-based read
 			if reader, ok := conn.(connector.Reader); ok {
 				query := connector.Query{
-					Target:    step.Target,
+					Target:    step.GetTarget(),
 					Operation: "SELECT",
 					Filters:   params,
 				}
@@ -2506,8 +2506,8 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 
 		// Build params by evaluating CEL expressions
 		params := make(map[string]interface{})
-		if h.Transformer != nil && len(enrich.Params) > 0 {
-			for key, expr := range enrich.Params {
+		if h.Transformer != nil && len(enrich.GetParams()) > 0 {
+			for key, expr := range enrich.GetParams() {
 				// Evaluate the param expression using CEL
 				result, err := h.Transformer.EvaluateExpression(ctx, input, nil, expr)
 				if err != nil {
@@ -2517,7 +2517,7 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 			}
 		} else {
 			// Simple param copy without CEL evaluation
-			for key, val := range enrich.Params {
+			for key, val := range enrich.GetParams() {
 				params[key] = val
 			}
 		}
@@ -2528,7 +2528,7 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 		// Try as a Reader first
 		if reader, ok := conn.(connector.Reader); ok {
 			query := connector.Query{
-				Target:    enrich.Operation,
+				Target:    enrich.GetOperation(),
 				Operation: "SELECT",
 				Filters:   params,
 			}
@@ -2544,7 +2544,7 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 			}
 		} else if caller, ok := conn.(Caller); ok {
 			// Try as a Caller (for TCP, HTTP, etc.)
-			callResult, err := caller.Call(ctx, enrich.Operation, params)
+			callResult, err := caller.Call(ctx, enrich.GetOperation(), params)
 			if err != nil {
 				return nil, fmt.Errorf("enrich %s: call failed: %w", enrich.Name, err)
 			}
@@ -2878,7 +2878,7 @@ func (h *FlowHandler) executeStateTransition(ctx context.Context, input map[stri
 // toTarget returns the destination target string, or empty string for echo flows.
 func (h *FlowHandler) toTarget() string {
 	if h.Config.To != nil {
-		return h.Config.To.Target
+		return h.Config.To.GetTarget()
 	}
 	return ""
 }

@@ -1200,10 +1200,10 @@ func (r *Runtime) registerFlows() error {
 		}
 
 		// If the to operation is a subscription, register the subscription field on the dest connector
-		if cfg.To != nil && isSubscriptionTarget(cfg.To.Operation) {
+		if cfg.To != nil && isSubscriptionTarget(cfg.To.GetOperation()) {
 			if subReg, ok := dest.(SubscriptionRegistrar); ok {
-				fieldName := strings.TrimPrefix(cfg.To.Operation, "Subscription.")
-				filter := cfg.To.Filter
+				fieldName := strings.TrimPrefix(cfg.To.GetOperation(), "Subscription.")
+				filter := cfg.To.GetFilter()
 				if filter != "" {
 					subReg.RegisterSubscriptionWithFilter(fieldName, cfg.Returns, filter)
 				} else {
@@ -1213,12 +1213,12 @@ func (r *Runtime) registerFlows() error {
 		}
 
 		// Parse operation to get method and path
-		method, path := r.parseFlowOperation(cfg.From.Connector, cfg.From.Operation)
+		method, path := r.parseFlowOperation(cfg.From.Connector, cfg.From.GetOperation())
 		target := "(echo)"
 		if cfg.To != nil {
-			target = cfg.To.Connector + ":" + cfg.To.Target
-			if isSubscriptionTarget(cfg.To.Operation) {
-				target = cfg.To.Connector + ":" + cfg.To.Operation
+			target = cfg.To.Connector + ":" + cfg.To.GetTarget()
+			if isSubscriptionTarget(cfg.To.GetOperation()) {
+				target = cfg.To.Connector + ":" + cfg.To.GetOperation()
 			}
 		}
 		banner.PrintFlow(method, path, target)
@@ -1555,7 +1555,7 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 			if hasArgsSupport && handler.Config.Returns != "" {
 				args := inferArgsFromFlow(handler.Config)
 				routerWithArgs.RegisterRouteWithArgs(
-					handler.Config.From.Operation,
+					handler.Config.From.GetOperation(),
 					requestHandler,
 					handler.Config.Returns,
 					args,
@@ -1563,12 +1563,12 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 			} else if hasReturnTypeSupport && handler.Config.Returns != "" {
 				// Fallback to return type only registration
 				routerWithReturnType.RegisterRouteWithReturnType(
-					handler.Config.From.Operation,
+					handler.Config.From.GetOperation(),
 					requestHandler,
 					handler.Config.Returns,
 				)
 			} else {
-				router.RegisterRoute(handler.Config.From.Operation, requestHandler)
+				router.RegisterRoute(handler.Config.From.GetOperation(), requestHandler)
 			}
 		}
 	}
@@ -1750,7 +1750,7 @@ func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
 	// This generates typed input objects (e.g., returns = "user" → input: userInput)
 	// instead of generic JSON. Scalar types are excluded since they don't map
 	// to meaningful input objects.
-	if len(args) == 0 && cfg.Returns != "" && strings.HasPrefix(cfg.From.Operation, "Mutation.") {
+	if len(args) == 0 && cfg.Returns != "" && strings.HasPrefix(cfg.From.GetOperation(), "Mutation.") {
 		returnsType := strings.TrimSuffix(strings.TrimSuffix(cfg.Returns, "[]"), "!")
 		if !isScalarReturnType(returnsType) {
 			return []*ArgDef{{

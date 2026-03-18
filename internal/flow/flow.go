@@ -236,6 +236,36 @@ type StepConfig struct {
 	ConnectorParams map[string]interface{}
 }
 
+// GetOperation returns the operation from ConnectorParams or the typed field.
+func (s *StepConfig) GetOperation() string {
+	return getStringParam(s.ConnectorParams, "operation", s.Operation)
+}
+
+// GetFormat returns the format from ConnectorParams or the typed field.
+func (s *StepConfig) GetFormat() string {
+	return getStringParam(s.ConnectorParams, "format", s.Format)
+}
+
+// GetTarget returns the target from ConnectorParams or the typed field.
+func (s *StepConfig) GetTarget() string {
+	return getStringParam(s.ConnectorParams, "target", s.Target)
+}
+
+// GetQuery returns the query from ConnectorParams or the typed field.
+func (s *StepConfig) GetQuery() string {
+	return getStringParam(s.ConnectorParams, "query", s.Query)
+}
+
+// GetBody returns the body from ConnectorParams or the typed field.
+func (s *StepConfig) GetBody() map[string]interface{} {
+	return getMapParam(s.ConnectorParams, "body", s.Body)
+}
+
+// GetParams returns the params from ConnectorParams or the typed field.
+func (s *StepConfig) GetParams() map[string]interface{} {
+	return getMapParam(s.ConnectorParams, "params", s.Params)
+}
+
 // FromConfig defines the flow source.
 type FromConfig struct {
 	// Connector is the source connector name.
@@ -259,6 +289,16 @@ type FromConfig struct {
 	// ConnectorParams holds all connector-specific parameters from the from block.
 	// The connector validates these at startup via SourceValidator.
 	ConnectorParams map[string]interface{}
+}
+
+// GetOperation returns the operation from ConnectorParams or the typed field.
+func (f *FromConfig) GetOperation() string {
+	return getStringParam(f.ConnectorParams, "operation", f.Operation)
+}
+
+// GetFormat returns the format from ConnectorParams or the typed field.
+func (f *FromConfig) GetFormat() string {
+	return getStringParam(f.ConnectorParams, "format", f.Format)
 }
 
 // FilterCondition returns the active filter condition expression.
@@ -350,6 +390,46 @@ type ToConfig struct {
 	ConnectorParams map[string]interface{}
 }
 
+// GetTarget returns the target from ConnectorParams or the typed field.
+func (t *ToConfig) GetTarget() string {
+	return getStringParam(t.ConnectorParams, "target", t.Target)
+}
+
+// GetOperation returns the operation from ConnectorParams or the typed field.
+func (t *ToConfig) GetOperation() string {
+	return getStringParam(t.ConnectorParams, "operation", t.Operation)
+}
+
+// GetFormat returns the format from ConnectorParams or the typed field.
+func (t *ToConfig) GetFormat() string {
+	return getStringParam(t.ConnectorParams, "format", t.Format)
+}
+
+// GetFilter returns the filter from ConnectorParams or the typed field.
+func (t *ToConfig) GetFilter() string {
+	return getStringParam(t.ConnectorParams, "filter", t.Filter)
+}
+
+// GetQuery returns the query from ConnectorParams or the typed field.
+func (t *ToConfig) GetQuery() string {
+	return getStringParam(t.ConnectorParams, "query", t.Query)
+}
+
+// GetQueryFilter returns the query_filter from ConnectorParams or the typed field.
+func (t *ToConfig) GetQueryFilter() map[string]interface{} {
+	return getMapParam(t.ConnectorParams, "query_filter", t.QueryFilter)
+}
+
+// GetUpdate returns the update from ConnectorParams or the typed field.
+func (t *ToConfig) GetUpdate() map[string]interface{} {
+	return getMapParam(t.ConnectorParams, "update", t.Update)
+}
+
+// GetParams returns the params from ConnectorParams or the typed field.
+func (t *ToConfig) GetParams() map[string]interface{} {
+	return getMapParam(t.ConnectorParams, "params", t.Params)
+}
+
 // ValidateConfig holds validation configuration.
 type ValidateConfig struct {
 	// Input is the type name for input validation.
@@ -391,6 +471,30 @@ type EnrichConfig struct {
 	// ConnectorParams holds all connector-specific parameters from the enrich block.
 	// The connector validates these at startup via TargetValidator.
 	ConnectorParams map[string]interface{}
+}
+
+// GetOperation returns the operation from ConnectorParams or the typed field.
+func (e *EnrichConfig) GetOperation() string {
+	return getStringParam(e.ConnectorParams, "operation", e.Operation)
+}
+
+// GetParams returns the params from ConnectorParams or the typed field.
+func (e *EnrichConfig) GetParams() map[string]string {
+	if e.ConnectorParams != nil {
+		if v, ok := e.ConnectorParams["params"]; ok {
+			if m, ok := v.(map[string]interface{}); ok {
+				result := make(map[string]string, len(m))
+				for k, val := range m {
+					result[k] = fmt.Sprintf("%v", val)
+				}
+				return result
+			}
+			if m, ok := v.(map[string]string); ok {
+				return m
+			}
+		}
+	}
+	return e.Params
 }
 
 // RequireConfig holds authorization requirements.
@@ -791,4 +895,28 @@ func (c *Context) Set(key string, value interface{}) {
 func (c *Context) Get(key string) (interface{}, bool) {
 	v, ok := c.Values[key]
 	return v, ok
+}
+
+// getStringParam reads a string from ConnectorParams, falling back to the typed field.
+func getStringParam(params map[string]interface{}, key string, fallback string) string {
+	if params != nil {
+		if v, ok := params[key]; ok {
+			if s, ok := v.(string); ok {
+				return s
+			}
+		}
+	}
+	return fallback
+}
+
+// getMapParam reads a map from ConnectorParams, falling back to the typed field.
+func getMapParam(params map[string]interface{}, key string, fallback map[string]interface{}) map[string]interface{} {
+	if params != nil {
+		if v, ok := params[key]; ok {
+			if m, ok := v.(map[string]interface{}); ok {
+				return m
+			}
+		}
+	}
+	return fallback
 }

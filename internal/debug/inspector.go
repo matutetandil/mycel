@@ -28,14 +28,14 @@ func buildFlowInfo(cfg *flow.Config) *FlowInfo {
 	if cfg.From != nil {
 		info.From = &FlowEndpoint{
 			Connector: cfg.From.Connector,
-			Operation: cfg.From.Operation,
+			Operation: cfg.From.GetOperation(),
 		}
 	}
 
 	if cfg.To != nil {
 		info.To = &FlowEndpoint{
 			Connector: cfg.To.Connector,
-			Operation: cfg.To.Operation,
+			Operation: cfg.To.GetOperation(),
 		}
 	}
 

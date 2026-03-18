@@ -104,12 +104,12 @@ func (g *Generator) Generate() (*Spec, error) {
 // addFlowToSpec adds a flow as an OpenAPI path operation.
 func (g *Generator) addFlowToSpec(spec *Spec, f *flow.Config, tags map[string]bool) error {
 	// Only process REST flows
-	if f.From == nil || f.From.Operation == "" {
+	if f.From == nil || f.From.GetOperation() == "" {
 		return nil
 	}
 
 	// Parse operation (e.g., "GET /users/:id")
-	method, path, err := parseOperation(f.From.Operation)
+	method, path, err := parseOperation(f.From.GetOperation())
 	if err != nil {
 		return nil // Skip non-REST operations
 	}

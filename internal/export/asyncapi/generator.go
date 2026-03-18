@@ -122,14 +122,14 @@ func (g *Generator) addFlowToSpec(spec *Spec, f *flow.Config) error {
 	if fromConnector == "mq" {
 		channel := g.createSubscribeChannel(f)
 		// For MQ, the channel name is typically in the operation (e.g., "topic:orders")
-		channelName := f.From.Operation
+		channelName := f.From.GetOperation()
 		spec.Channels[channelName] = channel
 	}
 
 	// Flow publishes to MQ (publish)
 	if toConnector == "mq" {
 		// For MQ destinations, the channel name is in Target
-		channelName := f.To.Target
+		channelName := f.To.GetTarget()
 
 		// Merge with existing channel if it exists
 		if existing, ok := spec.Channels[channelName]; ok {
