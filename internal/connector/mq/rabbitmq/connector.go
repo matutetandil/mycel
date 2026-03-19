@@ -45,6 +45,10 @@ type Connector struct {
 
 	// Debug throttling: single-message processing when debugger is connected
 	debugGate connector.DebugGate
+
+	// Manual consume: when true, Start() sets up topology but does not
+	// start the consumer loop. Messages are fetched one at a time via ConsumeOne().
+	manualConsume bool
 }
 
 // NewConnector creates a new RabbitMQ connector.
@@ -349,6 +353,11 @@ func (c *Connector) Start(ctx context.Context) error {
 
 	// Start consumer if configured
 	if c.config.IsConsumer() {
+		// In manual consume mode, set up topology but don't start the consumer loop.
+		// Messages will be fetched one at a time via ConsumeOne().
+		if c.manualConsume {
+			return c.setupTopologyForManualConsume()
+		}
 		return c.startConsumer(c.ctx)
 	}
 
@@ -356,6 +365,100 @@ func (c *Connector) Start(ctx context.Context) error {
 	go c.monitorConnection()
 
 	return nil
+}
+
+// setupTopologyForManualConsume prepares the queue/exchange topology without
+// starting automatic consumption. Used in debug mode with manual consume.
+func (c *Connector) setupTopologyForManualConsume() error {
+	if err := c.setupTopology(); err != nil {
+		return fmt.Errorf("failed to setup topology: %w", err)
+	}
+
+	queueName := ""
+	if c.config.Queue != nil {
+		queueName = c.config.Queue.Name
+	}
+
+	// Set prefetch to 0 — we'll use Basic.Get, not Basic.Consume
+	c.channel.Qos(1, 0, false)
+
+	c.logger.Info("manual consume mode: topology ready, waiting for debug.consume",
+		"name", c.name,
+		"queue", queueName,
+	)
+
+	go c.monitorConnection()
+	return nil
+}
+
+// SetManualConsume enables or disables manual consume mode.
+// When true, Start() connects and sets up topology but does not begin consuming.
+func (c *Connector) SetManualConsume(enabled bool) {
+	c.manualConsume = enabled
+}
+
+// ConsumeOne fetches and processes a single message from the queue using Basic.Get.
+// Blocks until a message is available or context is cancelled.
+func (c *Connector) ConsumeOne(ctx context.Context) error {
+	c.mu.RLock()
+	ch := c.channel
+	c.mu.RUnlock()
+
+	if ch == nil || ch.IsClosed() {
+		return fmt.Errorf("channel is not available")
+	}
+
+	queueName := ""
+	if c.config.Queue != nil {
+		queueName = c.config.Queue.Name
+	}
+	if queueName == "" {
+		return fmt.Errorf("queue name is required")
+	}
+
+	// Poll with Basic.Get until a message arrives or context is cancelled.
+	// Basic.Get is non-blocking — if the queue is empty it returns ok=false.
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		delivery, ok, err := ch.Get(queueName, false)
+		if err != nil {
+			return fmt.Errorf("failed to get message: %w", err)
+		}
+
+		if !ok {
+			// No message available, wait briefly and retry
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+				continue
+			}
+		}
+
+		// Process the message through the normal handler pipeline
+		err = c.handleDelivery(ctx, delivery)
+		if err != nil {
+			c.logger.Error("failed to handle delivery in manual consume",
+				"error", err,
+				"routing_key", delivery.RoutingKey,
+			)
+		}
+		return nil
+	}
+}
+
+// SourceInfo returns the connector type and queue name for IDE display.
+func (c *Connector) SourceInfo() (string, string) {
+	queueName := ""
+	if c.config.Queue != nil {
+		queueName = c.config.Queue.Name
+	}
+	return "rabbitmq", queueName
 }
 
 // monitorConnection watches for connection errors and reconnects.

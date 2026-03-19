@@ -28,9 +28,21 @@ func NewStudioBreakpointController(session *Session, thread *DebugThread, stream
 
 // ShouldBreak returns true if execution should pause at the given stage.
 func (c *StudioBreakpointController) ShouldBreak(stage trace.Stage) bool {
+	// Transform stage breakpoints with RuleIndex >= 0 are handled by
+	// StudioTransformHook.BeforeRule, not here. Stage-level transform
+	// breakpoints (RuleIndex < 0) still trigger here.
 	specs := c.session.GetBreakpoints(c.thread.FlowName)
 	for _, spec := range specs {
-		if spec.Stage == stage && spec.RuleIndex < 0 {
+		if spec.Stage != stage {
+			continue
+		}
+		// Stage-level breakpoint (no specific rule)
+		if spec.RuleIndex < 0 {
+			return true
+		}
+		// For non-transform stages, ruleIndex has no meaning — treat any
+		// breakpoint on this stage as a stage-level breakpoint.
+		if stage != trace.StageTransform {
 			return true
 		}
 	}
@@ -73,7 +85,11 @@ func (c *StudioBreakpointController) Pause(stage trace.Stage, name string, data 
 func (c *StudioBreakpointController) evaluateConditions(stage trace.Stage, activation map[string]interface{}) bool {
 	specs := c.session.GetBreakpoints(c.thread.FlowName)
 	for _, spec := range specs {
-		if spec.Stage != stage || spec.RuleIndex >= 0 {
+		if spec.Stage != stage {
+			continue
+		}
+		// For transform stage, only consider stage-level breakpoints (RuleIndex < 0)
+		if stage == trace.StageTransform && spec.RuleIndex >= 0 {
 			continue
 		}
 		if spec.Condition == "" {

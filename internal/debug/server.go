@@ -1,6 +1,7 @@
 package debug
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +27,13 @@ type Server struct {
 	// OnClientChange is called when the number of connected clients changes
 	// from 0→1 (true) or 1→0 (false). Used to toggle debug throttling.
 	OnClientChange func(hasClients bool)
+
+	// OnReady is called when a client sends debug.ready after setting up
+	// breakpoints. This is when suspended connectors should start.
+	OnReady func()
+
+	// ready tracks whether a client has completed the setup handshake.
+	ready atomic.Bool
 
 	upgrader websocket.Upgrader
 }
@@ -78,6 +86,12 @@ func (s *Server) HasClients() bool {
 	return len(s.sessions) > 0
 }
 
+// IsReady returns true if a debug client has completed the setup handshake
+// (attached + set breakpoints + sent debug.ready).
+func (s *Server) IsReady() bool {
+	return s.ready.Load()
+}
+
 // RegisterHandlers mounts the debug WebSocket endpoint on the given mux.
 func (s *Server) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("/debug", s.handleWebSocket)
@@ -107,8 +121,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			s.mu.Unlock()
 
 			// Notify when last client disconnects (disable debug throttling)
-			if nowEmpty && s.OnClientChange != nil {
-				s.OnClientChange(false)
+			if nowEmpty {
+				s.ready.Store(false)
+				if s.OnClientChange != nil {
+					s.OnClientChange(false)
+				}
 			}
 
 			s.logger.Info("debug client disconnected", "session", sessionID)
@@ -208,6 +225,9 @@ func (s *Server) handleMethod(session *Session, req *Request) *Response {
 	case "debug.setBreakpoints":
 		return s.handleSetBreakpoints(session, req)
 
+	case "debug.ready":
+		return s.handleReady(session, req)
+
 	case "debug.continue":
 		return s.handleContinue(session, req)
 
@@ -225,6 +245,9 @@ func (s *Server) handleMethod(session *Session, req *Request) *Response {
 
 	case "debug.threads":
 		return s.handleThreads(session, req)
+
+	case "debug.consume":
+		return s.handleConsume(session, req)
 
 	case "inspect.flows":
 		return s.handleInspectFlows(req)
@@ -247,6 +270,44 @@ func (s *Server) handleMethod(session *Session, req *Request) *Response {
 }
 
 // --- Debug methods ---
+
+func (s *Server) handleReady(session *Session, req *Request) *Response {
+	s.ready.Store(true)
+	s.logger.Info("debug client ready", "session", session.ID)
+
+	if s.OnReady != nil {
+		s.OnReady()
+	}
+
+	// Return capabilities so Studio knows what debug operations are available
+	sources := s.inspector.ListEventSources()
+	return newResponse(req.ID, &ReadyResult{
+		OK:      true,
+		Sources: sources,
+	})
+}
+
+func (s *Server) handleConsume(session *Session, req *Request) *Response {
+	var params ConsumeParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return newErrorResponse(req.ID, CodeInvalidParams, err.Error())
+	}
+
+	if params.Connector == "" {
+		return newErrorResponse(req.ID, CodeInvalidParams, "connector name is required")
+	}
+
+	s.logger.Info("debug.consume: fetching one message", "connector", params.Connector)
+
+	// ConsumeOne blocks until a message is fetched and fully processed
+	// (including hitting breakpoints, transforms, etc.).
+	err := s.inspector.ConsumeOne(context.Background(), params.Connector)
+	if err != nil {
+		return newErrorResponse(req.ID, CodeInternalError, err.Error())
+	}
+
+	return newResponse(req.ID, map[string]bool{"ok": true})
+}
 
 func (s *Server) handleSetBreakpoints(session *Session, req *Request) *Response {
 	var params SetBreakpointsParams

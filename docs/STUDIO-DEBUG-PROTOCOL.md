@@ -10,6 +10,8 @@ Complete specification and implementation guide for the Mycel Studio Debug Proto
 - [Architecture](#architecture)
 - [Transport](#transport)
 - [Session Lifecycle](#session-lifecycle)
+  - [Setup Handshake](#setup-handshake)
+  - [Event-Driven Flow Debugging (Manual Consume)](#event-driven-flow-debugging-manual-consume)
 - [Protocol Reference](#protocol-reference)
   - [Methods (IDE → Runtime)](#methods-ide--runtime)
   - [Events (Runtime → IDE)](#events-runtime--ide)
@@ -24,6 +26,10 @@ Complete specification and implementation guide for the Mycel Studio Debug Proto
 - [Runtime Inspection](#runtime-inspection)
 - [Threading Model](#threading-model)
 - [Pipeline Stages](#pipeline-stages)
+- [Debug Throttling and Manual Consume](#debug-throttling-and-manual-consume)
+  - [Automatic Throttling (Push-Based)](#automatic-throttling-push-based)
+  - [Manual Consume (Queue-Based)](#manual-consume-queue-based)
+  - [Start Suspended Mode](#start-suspended-mode)
 - [Implementation Details](#implementation-details)
   - [Package Structure](#package-structure)
   - [Server Implementation](#server-implementation)
@@ -33,11 +39,14 @@ Complete specification and implementation guide for the Mycel Studio Debug Proto
   - [StudioTransformHook](#studiotransformhook)
   - [TransformHook Interface](#transformhook-interface)
   - [RuntimeInspector Interface](#runtimeinspector-interface)
+  - [DebugConsumer Interface](#debugconsumer-interface)
   - [Runtime Integration](#runtime-integration)
   - [Flow Handler Integration](#flow-handler-integration)
 - [Zero-Cost Design](#zero-cost-design)
 - [DAP Coexistence](#dap-coexistence)
 - [Complete Example Session](#complete-example-session)
+  - [REST Flow (Request-Response)](#rest-flow-request-response)
+  - [RabbitMQ Flow (Event-Driven with Manual Consume)](#rabbitmq-flow-event-driven-with-manual-consume)
 - [Error Codes](#error-codes)
 - [Testing](#testing)
 
@@ -143,21 +152,73 @@ The admin server always starts (even when a REST connector is present), so `:909
 1. Client connects via WebSocket to ws://host:9090/debug
 2. Client sends debug.attach → gets sessionId + flow list
 3. Client sends inspect.* methods to explore the runtime
-4. Client sends debug.setBreakpoints to configure breakpoints
-5. HTTP request arrives at Mycel → creates DebugThread
-6. Pipeline executes → events stream to client
-7. Pipeline hits breakpoint → event.stopped sent, thread pauses
-8. Client inspects variables, evaluates expressions
-9. Client sends debug.continue/next/stepInto → thread resumes
-10. Pipeline completes → event.flowEnd sent, thread cleaned up
-11. Client sends debug.detach or disconnects
+4. Client sends debug.setBreakpoints to configure breakpoints (repeat per flow)
+5. Client sends debug.ready → Mycel starts suspended connectors, returns source capabilities
+6. For event-driven flows: client sends debug.consume to pull one message at a time
+7. HTTP/MQ request arrives → creates DebugThread
+8. Pipeline executes → events stream to client
+9. Pipeline hits breakpoint → event.stopped sent, thread pauses
+10. Client inspects variables, evaluates expressions
+11. Client sends debug.continue/next/stepInto → thread resumes
+12. Pipeline completes → event.flowEnd sent, thread cleaned up
+13. Client sends debug.detach or disconnects
 ```
+
+### Setup Handshake
+
+Before any messages are consumed, the client **must** complete a setup handshake. This eliminates the race condition where messages arrive before breakpoints are configured.
+
+```
+Studio                           Mycel
+  │                                │
+  ├─── debug.attach ──────────────►│  Session created, debug throttling enabled
+  │◄── { sessionId, flows } ──────┤
+  │                                │
+  ├─── debug.setBreakpoints ──────►│  Breakpoints registered (repeat per flow)
+  │◄── { breakpoints } ───────────┤
+  │                                │
+  ├─── debug.ready ───────────────►│  Suspended connectors start (topology only)
+  │◄── { ok, sources } ───────────┤  Returns event source capabilities
+  │                                │
+```
+
+The `debug.ready` response tells the client what event-driven connectors are available and whether they support manual consume (see [debug.ready](#debugready)).
+
+### Event-Driven Flow Debugging (Manual Consume)
+
+For queue-based connectors (RabbitMQ, Kafka), messages are **not** consumed automatically. The client controls when each message is pulled:
+
+```
+Studio                           Mycel
+  │    (after handshake)           │
+  │                                │
+  ├─── debug.consume ─────────────►│  Pull ONE message from "rabbit" queue
+  │                                │  Message enters flow pipeline...
+  │◄── event.flowStart ───────────┤
+  │◄── event.stageExit ───────────┤  (sanitize, validate, etc.)
+  │◄── event.stopped ─────────────┤  Breakpoint hit!
+  │                                │
+  ├─── debug.variables ───────────►│  Inspect data
+  │◄── { input, output, ... } ────┤
+  │                                │
+  ├─── debug.continue ────────────►│  Resume
+  │◄── event.continued ───────────┤
+  │◄── event.flowEnd ─────────────┤  Message fully processed
+  │◄── { ok: true } ──────────────┤  debug.consume response returns
+  │                                │
+  ├─── debug.consume ─────────────►│  Pull next message (repeat)
+  │    ...                         │
+```
+
+This gives the IDE full control over message consumption, making event-driven flow debugging as manageable as REST debugging.
 
 ### Connection Cleanup
 
 When the WebSocket connection closes (normal or abnormal):
 - Event stream subscription is removed
 - Session is deleted from the server
+- `ready` state is reset (last client disconnects → `ready = false`)
+- Debug throttling is disabled on all connectors
 - Any active threads continue executing (breakpoints are no longer checked)
 
 ---
@@ -410,6 +471,99 @@ Lists all active debug threads (one per in-flight request being debugged).
   ]
 }
 ```
+
+---
+
+#### `debug.ready`
+
+Signals that the client has finished setting breakpoints and is ready to debug. This triggers Mycel to start suspended event-driven connectors (connect to brokers, set up topology). **Must be called after all `debug.setBreakpoints` calls.**
+
+**No params needed.**
+
+**Result:**
+```json
+{
+  "ok": true,
+  "sources": [
+    {
+      "connector": "rabbit",
+      "type": "rabbitmq",
+      "source": "orders.q",
+      "manualConsume": true
+    },
+    {
+      "connector": "kafka_events",
+      "type": "kafka",
+      "source": "events.orders,events.users",
+      "manualConsume": true
+    },
+    {
+      "connector": "mqtt_sensors",
+      "type": "mqtt",
+      "source": "sensors/#",
+      "manualConsume": false
+    }
+  ]
+}
+```
+
+**`sources` field** lists all event-driven connectors with their capabilities:
+
+| Field | Type | Description |
+|---|---|---|
+| `connector` | `string` | Connector name as defined in HCL |
+| `type` | `string` | Connector type: `rabbitmq`, `kafka`, `mqtt`, `redis-pubsub`, `cdc`, `file`, `websocket` |
+| `source` | `string` | Source identifier (queue name, topic list, MQTT pattern, etc.) |
+| `manualConsume` | `bool` | `true` if the connector supports `debug.consume`. `false` for push-based connectors |
+
+**`manualConsume: true`** (RabbitMQ, Kafka): No messages are consumed until the client sends `debug.consume`. The client has full control over when each message is pulled from the queue.
+
+**`manualConsume: false`** (MQTT, Redis Pub/Sub, CDC, File watch, WebSocket): Messages arrive in real time but are throttled to one at a time via automatic debug throttling. The client cannot control when messages arrive — they are pushed by the external system.
+
+If there are no event-driven connectors (e.g., only REST flows), `sources` will be an empty array.
+
+---
+
+#### `debug.consume`
+
+Fetches and processes exactly **one message** from a queue-based connector. The request **blocks** until the message is fully processed through the entire flow pipeline (including hitting breakpoints, transforms, writes, etc.).
+
+Only works for connectors with `manualConsume: true` in the `debug.ready` response.
+
+**Params:**
+```json
+{
+  "connector": "rabbit"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `connector` | `string` | The connector name to consume from (must match a `sources[].connector` value) |
+
+**Result (on success):**
+```json
+{ "ok": true }
+```
+
+**Error if connector doesn't support manual consume:**
+```json
+{ "code": -32603, "message": "connector \"mqtt_sensors\" does not support manual consume" }
+```
+
+**Error if connector not found:**
+```json
+{ "code": -32603, "message": "connector \"nonexistent\" not found" }
+```
+
+**How it works per connector type:**
+
+- **RabbitMQ**: Uses AMQP `Basic.Get` (pull one message). If the queue is empty, polls every 100ms until a message arrives or the connection is closed. After the message is processed through the flow pipeline, it is ACKed.
+- **Kafka**: Uses `FetchMessage()` to pull one message from the consumer group. After processing, the offset is committed via `CommitMessages()`.
+
+**Important**: `debug.consume` is a blocking call. While it's waiting for a message or processing one (including time spent paused at breakpoints), the WebSocket connection remains active and events (`event.stopped`, `event.stageExit`, etc.) continue flowing. The response only arrives after the message is fully processed.
+
+**Typical IDE integration**: Show a "Consume Next Message" button. When clicked, send `debug.consume`. The button is disabled while the call is pending. Events arriving during processing update the IDE's debug panels (variables, call stack, etc.). When the response arrives, re-enable the button.
 
 ---
 
@@ -731,6 +885,46 @@ Sent when a paused thread is resumed.
 }
 ```
 
+### ReadyResult
+
+```json
+{
+  "ok": true,
+  "sources": [
+    { "connector": "rabbit", "type": "rabbitmq", "source": "orders.q", "manualConsume": true },
+    { "connector": "mqtt", "type": "mqtt", "source": "sensors/#", "manualConsume": false }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `ok` | `bool` | Always `true` on success |
+| `sources` | `SourceCapability[]` | Event-driven connectors and their capabilities |
+
+### SourceCapability
+
+```json
+{ "connector": "rabbit", "type": "rabbitmq", "source": "orders.q", "manualConsume": true }
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `connector` | `string` | Connector name from HCL |
+| `type` | `string` | Connector type (`rabbitmq`, `kafka`, `mqtt`, `redis-pubsub`, `cdc`, `file`, `websocket`) |
+| `source` | `string` | Source identifier (queue name, topic, pattern) |
+| `manualConsume` | `bool` | Whether `debug.consume` is supported for this connector |
+
+### ConsumeParams
+
+```json
+{ "connector": "rabbit" }
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `connector` | `string` | Connector name to consume one message from |
+
 ### RuleInfo
 
 ```json
@@ -795,7 +989,7 @@ The condition is evaluated against the current activation (input, output, enrich
 ```
 Request arrives at FlowHandler.HandleRequest()
   │
-  ├── Check: DebugServer != nil && DebugServer.HasClients()
+  ├── Check: DebugServer != nil && DebugServer.HasClients() && !trace.IsTracing(ctx)
   │     └── No → skip all debug logic (zero cost)
   │
   ├── Get active session
@@ -806,9 +1000,9 @@ Request arrives at FlowHandler.HandleRequest()
   ├── Create StudioCollector (trace.Collector)
   ├── Create trace.Context with:
   │     ├── Collector = StudioCollector
-  │     └── Breakpoint = StudioBreakpointController (if breakpoints set)
+  │     └── Breakpoint = StudioBreakpointController (ALWAYS when debugger connected)
   │
-  ├── Create StudioTransformHook (if breakpoints set)
+  ├── Create StudioTransformHook (ALWAYS when debugger connected)
   ├── Attach hook to context via transform.WithTransformHook()
   │
   ├── BroadcastFlowStart
@@ -830,6 +1024,8 @@ Request arrives at FlowHandler.HandleRequest()
   ├── BroadcastFlowEnd
   └── Unregister thread
 ```
+
+**Note**: Controller and hook are always attached (not gated on `HasBreakpoints`). This ensures breakpoints work even if set after the first request arrives. The `ShouldBreak()` check is dynamic — it queries the session's current breakpoint list on every call.
 
 ---
 
@@ -1005,6 +1201,73 @@ Not all stages are present in every flow. Stages are skipped if not configured (
 
 ---
 
+## Debug Throttling and Manual Consume
+
+When debugging event-driven flows, Mycel provides two mechanisms to prevent message floods from interfering with debugging:
+
+### Automatic Throttling (Push-Based)
+
+For **push-based** connectors where messages arrive in real time and cannot be "pulled on demand":
+
+| Connector | Mechanism |
+|---|---|
+| Redis Pub/Sub | `DebugGate` serializes message processing |
+| MQTT | `DebugGate` serializes all topic callbacks |
+| CDC | `DebugGate` serializes database change events |
+| File watch | `DebugGate` serializes file events |
+| WebSocket | `DebugGate` serializes incoming client messages |
+
+Throttling is enabled automatically when a debug client connects (`debug.attach`) and disabled when it disconnects. Messages still arrive in real time, but only one is processed at a time.
+
+### Manual Consume (Queue-Based)
+
+For **queue-based** connectors where messages are persistent and can be pulled on demand:
+
+| Connector | Pull Mechanism |
+|---|---|
+| RabbitMQ | AMQP `Basic.Get` (one message at a time, polling if queue empty) |
+| Kafka | `FetchMessage()` + `CommitMessages()` (one message, manual offset commit) |
+
+When `debug.ready` is sent and these connectors are in suspend mode:
+1. Mycel connects to the broker and sets up topology (exchanges, queues, bindings)
+2. **No consumer loop is started** — no `Basic.Consume`, no consume goroutines
+3. Messages stay in the queue until the IDE sends `debug.consume`
+4. Each `debug.consume` pulls exactly one message and processes it through the full pipeline
+5. The message is ACKed/committed only after successful processing
+
+This gives the IDE complete control over message flow, making event-driven debugging as manageable as REST debugging.
+
+### Start Suspended Mode
+
+When Mycel starts with `--debug-suspend` (or `MYCEL_DEBUG_SUSPEND=true`), event-driven connectors are registered but **not started**. They wait for the full handshake:
+
+```
+1. mycel start --debug-suspend
+   → REST, gRPC, GraphQL, SOAP, TCP, SSE start normally
+   → RabbitMQ, Kafka, MQTT, CDC, File, WebSocket are deferred
+
+2. Studio sends debug.attach
+   → Debug throttling enabled on all event-driven connectors
+
+3. Studio sends debug.setBreakpoints (per flow)
+   → Breakpoints registered
+
+4. Studio sends debug.ready
+   → Queue-based connectors: SetManualConsume(true) + Start() → connect, topology only
+   → Push-based connectors: Start() with debug throttling pre-enabled
+   → Response includes sources[] with manualConsume flags
+
+5. Studio sends debug.consume (for queue-based)
+   → Pull one message → flow pipeline → breakpoints → ACK
+```
+
+If a **hot reload** occurs while a debugger is connected:
+- New connector instances get debug throttling re-applied
+- If `debug.ready` was already sent, suspended connectors start immediately with manual consume enabled
+- The debugger does not need to re-attach or re-send `debug.ready`
+
+---
+
 ## Implementation Details
 
 ### Package Structure
@@ -1017,7 +1280,7 @@ internal/debug/
 ├── controller.go   — StudioBreakpointController + StudioTransformHook
 ├── inspector.go    — RuntimeInspector interface, builder functions
 ├── stream.go       — EventStream fan-out, StudioCollector
-└── debug_test.go   — 29 tests
+└── debug_test.go   — 32 tests
 ```
 
 ### Server Implementation
@@ -1031,7 +1294,12 @@ type Server struct {
     mu        sync.Mutex           // protects sessions map
     sessions  map[string]*Session  // sessionID → Session
     nextID    atomic.Uint64        // session ID counter
+    ready     atomic.Bool          // true after debug.ready handshake
     upgrader  websocket.Upgrader   // gorilla/websocket
+
+    // Callbacks wired by Runtime
+    OnClientChange func(hasClients bool)  // 0→1 or 1→0 clients
+    OnReady        func()                  // debug.ready received
 }
 
 // Key methods:
@@ -1040,6 +1308,7 @@ Stream() *EventStream
 GetSession(id) (*Session, bool)
 ActiveSession() *Session              // returns first session (single-client shortcut)
 HasClients() bool
+IsReady() bool                        // true after debug.ready handshake
 RegisterHandlers(mux *http.ServeMux)  // mounts /debug
 handleWebSocket(w, r)                 // upgrade + read loop
 handleMethod(session, req) *Response  // dispatch to handlers
@@ -1131,7 +1400,9 @@ type StudioBreakpointController struct {
 
 func (c *StudioBreakpointController) ShouldBreak(stage trace.Stage) bool {
     // Check session breakpoints for this flow
-    // Only matches stage-level breakpoints (ruleIndex < 0)
+    // For non-transform stages: any breakpoint on this stage triggers (regardless of ruleIndex)
+    // For transform stage: only stage-level breakpoints (ruleIndex < 0) trigger here
+    //   (rule-level transform breakpoints are handled by StudioTransformHook.BeforeRule)
 }
 
 func (c *StudioBreakpointController) Pause(stage, name, data) bool {
@@ -1266,52 +1537,89 @@ type RuntimeInspector interface {
     ListTypes() []*validate.TypeSchema
     ListTransforms() []*transform.Config
     GetCELTransformer() *transform.CELTransformer
+
+    // Event-driven connector capabilities (for debug.ready response)
+    ListEventSources() []SourceCapability
+
+    // Manual consume: pull one message from a queue connector (for debug.consume)
+    ConsumeOne(ctx context.Context, connectorName string) error
 }
 ```
 
 Implemented by `Runtime` in `internal/runtime/runtime.go`:
 
 ```go
-func (r *Runtime) GetFlowConfig(name string) (*flow.Config, bool) {
-    handler, ok := r.flows.Get(name)
-    if !ok { return nil, false }
-    return handler.Config, true
-}
-
-func (r *Runtime) ListConnectors() []string {
-    return r.connectors.List()
-}
-
-func (r *Runtime) GetConnectorConfig(name string) (*connector.Config, bool) {
-    for _, cfg := range r.config.Connectors {
-        if cfg.Name == name { return cfg, true }
-    }
-    return nil, false
-}
-
-func (r *Runtime) ListTypes() []*validate.TypeSchema {
-    schemas := make([]*validate.TypeSchema, 0, len(r.types))
-    for _, schema := range r.types { schemas = append(schemas, schema) }
-    return schemas
-}
-
-func (r *Runtime) ListTransforms() []*transform.Config {
-    configs := make([]*transform.Config, 0, len(r.transforms))
-    for _, cfg := range r.transforms { configs = append(configs, cfg) }
-    return configs
-}
-
-func (r *Runtime) GetCELTransformer() *transform.CELTransformer {
-    // Return first flow handler's transformer, or create new one
-    for _, name := range r.flows.List() {
-        if handler, ok := r.flows.Get(name); ok && handler.Transformer != nil {
-            return handler.Transformer
+func (r *Runtime) ListEventSources() []debug.SourceCapability {
+    var sources []debug.SourceCapability
+    for _, name := range r.connectors.List() {
+        conn, err := r.connectors.Get(name)
+        if err != nil { continue }
+        // Only event-driven connectors (those implementing DebugThrottler)
+        if _, isEventDriven := conn.(connector.DebugThrottler); !isEventDriven {
+            continue
         }
+        cap := debug.SourceCapability{ Connector: name }
+        if dc, ok := conn.(connector.DebugConsumer); ok {
+            connType, source := dc.SourceInfo()
+            cap.Type = connType
+            cap.Source = source
+            cap.ManualConsume = true
+        } else {
+            cap.Type = conn.Type()
+        }
+        sources = append(sources, cap)
     }
-    t, _ := transform.NewCELTransformer()
-    return t
+    return sources
+}
+
+func (r *Runtime) ConsumeOne(ctx context.Context, connectorName string) error {
+    conn, err := r.connectors.Get(connectorName)
+    if err != nil {
+        return fmt.Errorf("connector %q not found: %w", connectorName, err)
+    }
+    dc, ok := conn.(connector.DebugConsumer)
+    if !ok {
+        return fmt.Errorf("connector %q does not support manual consume", connectorName)
+    }
+    return dc.ConsumeOne(ctx)
 }
 ```
+
+### DebugConsumer Interface
+
+In `internal/connector/connector.go`, queue-based connectors implement `DebugConsumer` for manual message consumption:
+
+```go
+// DebugConsumer is implemented by queue-based connectors (RabbitMQ, Kafka)
+// that support manual message consumption in debug mode.
+type DebugConsumer interface {
+    // SetManualConsume enables or disables manual consume mode.
+    // When true, Start() connects but does not start consuming.
+    SetManualConsume(enabled bool)
+
+    // ConsumeOne fetches and processes a single message from the queue.
+    // Blocks until a message is available or context is cancelled.
+    ConsumeOne(ctx context.Context) error
+
+    // SourceInfo returns the connector type and source identifier
+    // (e.g., queue name for RabbitMQ, topic for Kafka) for IDE display.
+    SourceInfo() (connectorType string, source string)
+}
+```
+
+**RabbitMQ implementation** (`internal/connector/mq/rabbitmq/connector.go`):
+- `SetManualConsume(true)` → sets internal flag
+- `Start()` with flag → calls `setupTopology()` only (no `channel.Consume()`, no worker goroutines)
+- `ConsumeOne(ctx)` → uses `channel.Get(queueName, false)` (AMQP `Basic.Get`), polls every 100ms if empty, processes through `handleDelivery()` which routes to the registered flow handler
+- `SourceInfo()` → returns `("rabbitmq", queueName)`
+
+**Kafka implementation** (`internal/connector/mq/kafka/connector.go`):
+- `SetManualConsume(true)` → sets internal flag
+- `Start()` with flag → calls `startReaderOnly()` which creates the `kafka.Reader` but starts no consume loops, `CommitInterval: 0` for manual commit
+- `ConsumeOne(ctx)` → uses `reader.FetchMessage(ctx)`, processes through `handleMessage()`, then `reader.CommitMessages(ctx, msg)`
+- `SourceInfo()` → returns `("kafka", topicList)`
+
+**Push-based connectors** (MQTT, Redis Pub/Sub, CDC, File, WebSocket) do **not** implement `DebugConsumer`. They only implement `DebugThrottler` for automatic single-message throttling.
 
 ### Runtime Integration
 
@@ -1320,6 +1628,32 @@ In `runtime.go` `New()`:
 ```go
 // Created early so flow handlers can reference it
 r.debugServer = debug.NewServer(r, opts.Logger)
+
+// Wire debug throttling: toggle single-message processing on all event-driven connectors
+r.debugServer.OnClientChange = func(hasClients bool) {
+    for _, name := range r.connectors.List() {
+        conn, err := r.connectors.Get(name)
+        if err != nil { continue }
+        if throttler, ok := conn.(connector.DebugThrottler); ok {
+            throttler.SetDebugMode(hasClients)
+        }
+    }
+}
+
+// Wire debug.ready handshake: start suspended connectors with manual consume
+r.debugServer.OnReady = func() {
+    if len(r.suspendedStarters) > 0 {
+        for _, sc := range r.suspendedStarters {
+            // Enable manual consume on queue-based connectors
+            conn, _ := r.connectors.Get(sc.name)
+            if dc, ok := conn.(connector.DebugConsumer); ok {
+                dc.SetManualConsume(true)
+            }
+            sc.starter.Start(context.Background())
+        }
+        r.suspendedStarters = nil
+    }
+}
 ```
 
 In `startAdminServer()`:
@@ -1335,6 +1669,14 @@ r.debugServer.RegisterHandlers(mux)  // ← mounts /debug
 ```
 
 The admin server always starts (port 9090 default), regardless of REST connector presence.
+
+**Server callbacks:**
+
+| Callback | Triggered By | Effect |
+|---|---|---|
+| `OnClientChange(true)` | First client sends `debug.attach` | Enables `DebugGate` on all 7 event-driven connectors, RabbitMQ sets prefetch=1 |
+| `OnClientChange(false)` | Last client disconnects | Disables `DebugGate`, restores original prefetch/concurrency |
+| `OnReady()` | Client sends `debug.ready` | Starts suspended connectors with `SetManualConsume(true)` for queue-based |
 
 ### Flow Handler Integration
 
@@ -1356,9 +1698,11 @@ handler := &FlowHandler{
 }
 ```
 
-In `HandleRequest()`, debug context is injected:
+In `HandleRequest()`, debug context is injected **before** verbose flow to ensure breakpoints work:
 
 ```go
+// Attach Studio debug context when a debug client is connected.
+// This takes priority over verbose flow to ensure breakpoints work.
 var debugThread *debug.DebugThread
 var debugCollector *debug.StudioCollector
 if h.DebugServer != nil && h.DebugServer.HasClients() && !trace.IsTracing(ctx) {
@@ -1376,19 +1720,24 @@ if h.DebugServer != nil && h.DebugServer.HasClients() && !trace.IsTracing(ctx) {
             Collector: debugCollector,
         }
 
-        if session.HasBreakpoints(h.Config.Name) {
-            tc.Breakpoint = debug.NewStudioBreakpointController(session, debugThread, stream, debugCollector)
-        }
-
+        // Always attach breakpoint controller when a debugger is connected.
+        // Breakpoints are checked dynamically per-request, so the controller
+        // must be present even if no breakpoints are set yet (they may be
+        // added between requests).
+        tc.Breakpoint = debug.NewStudioBreakpointController(session, debugThread, stream, debugCollector)
         ctx = trace.WithTrace(ctx, tc)
 
-        if session.HasBreakpoints(h.Config.Name) {
-            hook := debug.NewStudioTransformHook(session, debugThread, stream, debugCollector, h.Config.Name, trace.StageTransform)
-            ctx = transform.WithTransformHook(ctx, hook)
-        }
+        // Always attach transform hook for per-rule debugging.
+        hook := debug.NewStudioTransformHook(session, debugThread, stream, debugCollector, h.Config.Name, trace.StageTransform)
+        ctx = transform.WithTransformHook(ctx, hook)
 
         debugCollector.BroadcastFlowStart(input)
     }
+}
+
+// Verbose flow logging only if no debug active (debug takes priority)
+if h.VerboseFlow && !trace.IsTracing(ctx) && h.Logger != nil {
+    // ... verbose flow setup ...
 }
 
 // ... pipeline executes ...
@@ -1397,9 +1746,13 @@ defer func() {
     if debugCollector != nil {
         debugCollector.BroadcastFlowEnd(result, time.Since(start), err)
     }
-    // ... logging ...
 }()
 ```
+
+**Key design decisions:**
+- Breakpoint controller and transform hook are **always** injected when a debugger is connected, not only when breakpoints exist. This prevents the race condition where breakpoints are set after the flow handler was created.
+- Debug context injection happens **before** verbose flow. Since both use `trace.IsTracing(ctx)`, debug takes priority.
+- `debug.ready` + `debug.consume` eliminates the timing issue for event-driven connectors at the protocol level.
 
 ---
 
@@ -1440,7 +1793,9 @@ Both can be active simultaneously. They use the same `trace.Context.Breakpoint` 
 
 ## Complete Example Session
 
-### 1. Connect and Inspect
+### REST Flow (Request-Response)
+
+#### 1. Connect and Inspect
 
 ```json
 → {"jsonrpc":"2.0","id":1,"method":"debug.attach","params":{"clientName":"mycel-studio"}}
@@ -1450,20 +1805,29 @@ Both can be active simultaneously. They use the same `trace.Context.Breakpoint` 
 ← {"jsonrpc":"2.0","id":2,"result":[{"name":"create_user","from":{"connector":"api","operation":"POST /users"},"to":{"connector":"postgres","operation":"users"},"hasSteps":false,"stepCount":0,"transform":{"email":"lower(input.email)","name":"input.name"},"response":null,"validate":null,"hasCache":false,"hasRetry":false},{"name":"get_users","from":{"connector":"api","operation":"GET /users"},"to":{"connector":"postgres","operation":"users"},"hasSteps":false,"stepCount":0,"transform":null,"response":null,"validate":null,"hasCache":false,"hasRetry":false}]}
 ```
 
-### 2. Set Breakpoints
+#### 2. Signal Ready
 
 ```json
-→ {"jsonrpc":"2.0","id":3,"method":"debug.setBreakpoints","params":{"flow":"create_user","breakpoints":[{"stage":"transform","ruleIndex":-1},{"stage":"transform","ruleIndex":0}]}}
-← {"jsonrpc":"2.0","id":3,"result":{"breakpoints":[{"stage":"transform","ruleIndex":-1},{"stage":"transform","ruleIndex":0}]}}
+→ {"jsonrpc":"2.0","id":3,"method":"debug.ready"}
+← {"jsonrpc":"2.0","id":3,"result":{"ok":true,"sources":[{"connector":"api","type":"rest","source":"POST /users, GET /users","manualConsume":false}]}}
 ```
 
-### 3. Trigger a Request (external)
+> For REST flows, `manualConsume` is `false` — requests arrive externally and are processed immediately. The `sources` list tells the IDE what connectors are active and their capabilities.
+
+#### 3. Set Breakpoints
+
+```json
+→ {"jsonrpc":"2.0","id":4,"method":"debug.setBreakpoints","params":{"flow":"create_user","breakpoints":[{"stage":"transform","ruleIndex":-1},{"stage":"transform","ruleIndex":0}]}}
+← {"jsonrpc":"2.0","id":4,"result":{"breakpoints":[{"stage":"transform","ruleIndex":-1},{"stage":"transform","ruleIndex":0}]}}
+```
+
+#### 4. Trigger a Request (external)
 
 ```bash
 curl -X POST http://localhost:8080/users -d '{"email":"ALICE@EXAMPLE.COM","name":"Alice"}'
 ```
 
-### 4. Receive Events
+#### 5. Receive Events
 
 ```json
 ← {"jsonrpc":"2.0","method":"event.flowStart","params":{"threadId":"t1a2b3c4","flowName":"create_user","input":{"email":"ALICE@EXAMPLE.COM","name":"Alice"}}}
@@ -1471,34 +1835,34 @@ curl -X POST http://localhost:8080/users -d '{"email":"ALICE@EXAMPLE.COM","name"
 ← {"jsonrpc":"2.0","method":"event.stopped","params":{"threadId":"t1a2b3c4","flowName":"create_user","stage":"transform","reason":"breakpoint"}}
 ```
 
-### 5. Inspect Variables
+#### 6. Inspect Variables
 
 ```json
-→ {"jsonrpc":"2.0","id":4,"method":"debug.variables","params":{"threadId":"t1a2b3c4"}}
-← {"jsonrpc":"2.0","id":4,"result":{"input":{"email":"ALICE@EXAMPLE.COM","name":"Alice"},"output":{}}}
+→ {"jsonrpc":"2.0","id":5,"method":"debug.variables","params":{"threadId":"t1a2b3c4"}}
+← {"jsonrpc":"2.0","id":5,"result":{"input":{"email":"ALICE@EXAMPLE.COM","name":"Alice"},"output":{}}}
 ```
 
-### 6. Step Into Transform
+#### 7. Step Into Transform
 
 ```json
-→ {"jsonrpc":"2.0","id":5,"method":"debug.stepInto","params":{"threadId":"t1a2b3c4"}}
-← {"jsonrpc":"2.0","id":5,"result":{"ok":true}}
+→ {"jsonrpc":"2.0","id":6,"method":"debug.stepInto","params":{"threadId":"t1a2b3c4"}}
+← {"jsonrpc":"2.0","id":6,"result":{"ok":true}}
 ← {"jsonrpc":"2.0","method":"event.continued","params":{"threadId":"t1a2b3c4"}}
 ← {"jsonrpc":"2.0","method":"event.stopped","params":{"threadId":"t1a2b3c4","flowName":"create_user","stage":"transform","rule":{"index":0,"target":"email","expression":"lower(input.email)"},"reason":"stepInto"}}
 ```
 
-### 7. Evaluate Expression
+#### 8. Evaluate Expression
 
 ```json
-→ {"jsonrpc":"2.0","id":6,"method":"debug.evaluate","params":{"threadId":"t1a2b3c4","expression":"lower(input.email)"}}
-← {"jsonrpc":"2.0","id":6,"result":{"result":"alice@example.com","type":"string"}}
+→ {"jsonrpc":"2.0","id":7,"method":"debug.evaluate","params":{"threadId":"t1a2b3c4","expression":"lower(input.email)"}}
+← {"jsonrpc":"2.0","id":7,"result":{"result":"alice@example.com","type":"string"}}
 ```
 
-### 8. Continue
+#### 9. Continue
 
 ```json
-→ {"jsonrpc":"2.0","id":7,"method":"debug.continue","params":{"threadId":"t1a2b3c4"}}
-← {"jsonrpc":"2.0","id":7,"result":{"ok":true}}
+→ {"jsonrpc":"2.0","id":8,"method":"debug.continue","params":{"threadId":"t1a2b3c4"}}
+← {"jsonrpc":"2.0","id":8,"result":{"ok":true}}
 ← {"jsonrpc":"2.0","method":"event.continued","params":{"threadId":"t1a2b3c4"}}
 ← {"jsonrpc":"2.0","method":"event.ruleEval","params":{"threadId":"t1a2b3c4","flowName":"create_user","stage":"transform","ruleIndex":0,"target":"email","expression":"lower(input.email)","result":"alice@example.com"}}
 ← {"jsonrpc":"2.0","method":"event.ruleEval","params":{"threadId":"t1a2b3c4","flowName":"create_user","stage":"transform","ruleIndex":1,"target":"name","expression":"input.name","result":"Alice"}}
@@ -1507,12 +1871,101 @@ curl -X POST http://localhost:8080/users -d '{"email":"ALICE@EXAMPLE.COM","name"
 ← {"jsonrpc":"2.0","method":"event.flowEnd","params":{"threadId":"t1a2b3c4","flowName":"create_user","output":{"id":42,"email":"alice@example.com","name":"Alice"},"durationUs":6000}}
 ```
 
-### 9. Disconnect
+#### 10. Disconnect
+
+```json
+→ {"jsonrpc":"2.0","id":9,"method":"debug.detach"}
+← {"jsonrpc":"2.0","id":9,"result":{"ok":true}}
+```
+
+### RabbitMQ Flow (Event-Driven with Manual Consume)
+
+This example shows debugging an event-driven flow where messages come from a RabbitMQ queue. The IDE has **full control** over when each message is consumed.
+
+#### 1. Connect
+
+```json
+→ {"jsonrpc":"2.0","id":1,"method":"debug.attach","params":{"clientName":"mycel-studio"}}
+← {"jsonrpc":"2.0","id":1,"result":{"sessionId":"s1","flows":["process_order","notify_user"]}}
+```
+
+#### 2. Set Breakpoints
+
+```json
+→ {"jsonrpc":"2.0","id":2,"method":"debug.setBreakpoints","params":{"flow":"process_order","breakpoints":[{"stage":"transform"}]}}
+← {"jsonrpc":"2.0","id":2,"result":{"breakpoints":[{"stage":"transform","ruleIndex":-1}]}}
+```
+
+#### 3. Signal Ready (discovers manual consume capabilities)
+
+```json
+→ {"jsonrpc":"2.0","id":3,"method":"debug.ready"}
+← {"jsonrpc":"2.0","id":3,"result":{"ok":true,"sources":[
+  {"connector":"orders_queue","type":"rabbitmq","source":"orders","manualConsume":true},
+  {"connector":"api","type":"rest","source":"POST /users","manualConsume":false}
+]}}
+```
+
+> The response tells the IDE that `orders_queue` supports `manualConsume: true`. The IDE must call `debug.consume` to pull messages from this connector. REST connectors (`manualConsume: false`) process requests as they arrive — no consume call needed.
+
+#### 4. Consume a Message (IDE pulls one message)
+
+```json
+→ {"jsonrpc":"2.0","id":4,"method":"debug.consume","params":{"connector":"orders_queue"}}
+```
+
+> **This call blocks** until the message is fully processed through the pipeline (including any breakpoint pauses). While blocked, debug events stream normally.
+
+#### 5. Message Enters Pipeline — Events Stream
+
+```json
+← {"jsonrpc":"2.0","method":"event.flowStart","params":{"threadId":"t5x6y7z8","flowName":"process_order","input":{"orderId":"ORD-123","amount":99.99,"customer":"alice@example.com"}}}
+← {"jsonrpc":"2.0","method":"event.stageExit","params":{"threadId":"t5x6y7z8","flowName":"process_order","stage":"sanitize","output":{"orderId":"ORD-123","amount":99.99,"customer":"alice@example.com"},"durationUs":45}}
+← {"jsonrpc":"2.0","method":"event.stopped","params":{"threadId":"t5x6y7z8","flowName":"process_order","stage":"transform","reason":"breakpoint"}}
+```
+
+#### 6. Inspect Variables at Breakpoint
+
+```json
+→ {"jsonrpc":"2.0","id":5,"method":"debug.variables","params":{"threadId":"t5x6y7z8"}}
+← {"jsonrpc":"2.0","id":5,"result":{"input":{"orderId":"ORD-123","amount":99.99,"customer":"alice@example.com"},"output":{}}}
+```
+
+#### 7. Continue Execution
+
+```json
+→ {"jsonrpc":"2.0","id":6,"method":"debug.continue","params":{"threadId":"t5x6y7z8"}}
+← {"jsonrpc":"2.0","id":6,"result":{"ok":true}}
+← {"jsonrpc":"2.0","method":"event.continued","params":{"threadId":"t5x6y7z8"}}
+← {"jsonrpc":"2.0","method":"event.stageExit","params":{"threadId":"t5x6y7z8","flowName":"process_order","stage":"transform","output":{"orderId":"ORD-123","total":99.99,"email":"alice@example.com","status":"processing"},"durationUs":180}}
+← {"jsonrpc":"2.0","method":"event.stageExit","params":{"threadId":"t5x6y7z8","flowName":"process_order","stage":"write","output":{"id":1,"orderId":"ORD-123","status":"processing"},"durationUs":4200}}
+← {"jsonrpc":"2.0","method":"event.flowEnd","params":{"threadId":"t5x6y7z8","flowName":"process_order","output":{"id":1,"orderId":"ORD-123","status":"processing"},"durationUs":5100}}
+```
+
+#### 8. `debug.consume` Returns (message fully processed)
+
+```json
+← {"jsonrpc":"2.0","id":4,"result":{"ok":true}}
+```
+
+> The `debug.consume` response (id:4) arrives **after** the entire pipeline completes. The message is ACKed in the queue only after successful processing.
+
+#### 9. Consume Next Message (repeat as needed)
+
+```json
+→ {"jsonrpc":"2.0","id":7,"method":"debug.consume","params":{"connector":"orders_queue"}}
+← ... (events for next message) ...
+← {"jsonrpc":"2.0","id":7,"result":{"ok":true}}
+```
+
+#### 10. Disconnect
 
 ```json
 → {"jsonrpc":"2.0","id":8,"method":"debug.detach"}
 ← {"jsonrpc":"2.0","id":8,"result":{"ok":true}}
 ```
+
+> On detach, manual consume is disabled and connectors revert to automatic message consumption.
 
 ---
 
@@ -1534,7 +1987,7 @@ curl -X POST http://localhost:8080/users -d '{"email":"ALICE@EXAMPLE.COM","name"
 
 ## Testing
 
-The test suite (`internal/debug/debug_test.go`) contains **29 tests** covering:
+The test suite (`internal/debug/debug_test.go`) contains **32 tests** covering:
 
 | Test | What it verifies |
 |---|---|
@@ -1567,10 +2020,13 @@ The test suite (`internal/debug/debug_test.go`) contains **29 tests** covering:
 | `TestHasClients` | Client detection after attach |
 | `TestContinueThreadNotFound` | Error for nonexistent thread |
 | `TestEvaluateNotPaused` | Error for evaluate on non-paused thread |
+| `TestReadyReturnsCapabilities` | `debug.ready` returns source capabilities with manualConsume flags |
+| `TestConsumeNotFound` | Error when consuming from nonexistent connector |
+| `TestConsumeEmptyConnector` | Error when connector name is empty |
 
 Run with:
 ```bash
 go test ./internal/debug/ -v
 ```
 
-All 29 pass. The full test suite (`go test ./...`) also passes — 65 packages, zero regressions.
+All 32 pass. The full test suite (`go test ./...`) also passes — 65 packages, zero regressions.

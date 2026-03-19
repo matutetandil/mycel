@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.2] - 2026-03-19
+
+### Added
+- **Manual consume for event-driven debugging** (`debug.consume`): Queue-based connectors (RabbitMQ, Kafka) now support IDE-controlled message consumption. Instead of auto-consuming after `debug.ready`, the IDE calls `debug.consume` to pull one message at a time, giving full control over when messages enter the pipeline
+- **`DebugConsumer` interface** (`internal/connector/connector.go`): New interface for queue-based connectors — `SetManualConsume(enabled bool)`, `ConsumeOne(ctx) error`, `SourceInfo() (type, source)`. Implemented by RabbitMQ (`channel.Get` / Basic.Get) and Kafka (`reader.FetchMessage` + manual `CommitMessages`)
+- **`debug.ready` handshake with source capabilities**: `debug.ready` now returns `ReadyResult` with `sources[]` listing all active connectors, their type, source identifier, and `manualConsume` capability flag. The IDE uses this to know which connectors require `debug.consume` calls
+- **RabbitMQ manual consume**: Uses AMQP `Basic.Get` (pull-based) with 100ms polling loop instead of `Basic.Consume` (push-based). Topology (exchanges, queues, bindings) is set up without starting the consumer goroutine
+- **Kafka manual consume**: Uses `reader.FetchMessage` + explicit `reader.CommitMessages` with `CommitInterval: 0` for manual offset control. Reader is created without starting consume goroutines
+
+### Fixed
+- **`ShouldBreak` for non-transform stages**: Previously only checked `HasBreakpoints()` which was true only for rule-level breakpoints. Now correctly checks stage-level breakpoints for all pipeline stages (sanitize, validate, read, write, etc.)
+- **Always-inject debug instrumentation**: `BreakpointController` and `TransformHook` are now always attached when a debugger is connected, not gated on `HasBreakpoints()`. Prevents race condition where breakpoints set after request start were missed
+- **VerboseFlow ordering**: `VerboseFlow` log collector is now attached before `StudioCollector` in the trace context, ensuring proper event ordering
+
+### Changed
+- **Studio Debug Protocol docs** (`docs/STUDIO-DEBUG-PROTOCOL.md`): Complete rewrite of session lifecycle (handshake diagrams), new `debug.ready`/`debug.consume` method docs, new RabbitMQ manual consume example session, updated data types, runtime integration, and test references
+
 ## [1.15.1] - 2026-03-19
 
 ### Fixed

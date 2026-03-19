@@ -22,10 +22,11 @@ import (
 // --- Mock RuntimeInspector ---
 
 type mockInspector struct {
-	flows      map[string]*flow.Config
-	connectors map[string]*connector.Config
-	types      []*validate.TypeSchema
-	transforms []*transform.Config
+	flows        map[string]*flow.Config
+	connectors   map[string]*connector.Config
+	types        []*validate.TypeSchema
+	transforms   []*transform.Config
+	eventSources []SourceCapability
 }
 
 func newMockInspector() *mockInspector {
@@ -122,6 +123,14 @@ func (m *mockInspector) ListTransforms() []*transform.Config {
 func (m *mockInspector) GetCELTransformer() *transform.CELTransformer {
 	t, _ := transform.NewCELTransformer()
 	return t
+}
+
+func (m *mockInspector) ListEventSources() []SourceCapability {
+	return m.eventSources
+}
+
+func (m *mockInspector) ConsumeOne(ctx context.Context, connectorName string) error {
+	return fmt.Errorf("connector %q not found", connectorName)
 }
 
 // --- Test Helpers ---
@@ -1095,6 +1104,102 @@ func TestEvaluateNotPaused(t *testing.T) {
 
 	if resp.Error == nil {
 		t.Fatal("expected error for evaluate on non-paused thread")
+	}
+}
+
+func TestReadyReturnsCapabilities(t *testing.T) {
+	// Create mock with event sources
+	inspector := newMockInspector()
+	inspector.eventSources = []SourceCapability{
+		{Connector: "rabbit", Type: "rabbitmq", Source: "orders.q", ManualConsume: true},
+		{Connector: "mqtt", Type: "mqtt", Source: "sensors/#", ManualConsume: false},
+	}
+	srv := NewServer(inspector, nil)
+
+	mux := http.NewServeMux()
+	srv.RegisterHandlers(mux)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	conn := connectWS(t, ts)
+	defer conn.Close()
+
+	// Attach
+	sendRequest(t, conn, 1, "debug.attach", &AttachParams{ClientName: "test"})
+	readResponse(t, conn)
+
+	// Send debug.ready
+	sendRequest(t, conn, 2, "debug.ready", nil)
+	resp := readResponse(t, conn)
+
+	if resp.Error != nil {
+		t.Fatalf("ready failed: %s", resp.Error.Message)
+	}
+
+	b, _ := json.Marshal(resp.Result)
+	var result ReadyResult
+	json.Unmarshal(b, &result)
+
+	if !result.OK {
+		t.Error("expected OK=true")
+	}
+	if len(result.Sources) != 2 {
+		t.Fatalf("expected 2 sources, got %d", len(result.Sources))
+	}
+	if result.Sources[0].Connector != "rabbit" {
+		t.Errorf("expected rabbit, got %s", result.Sources[0].Connector)
+	}
+	if !result.Sources[0].ManualConsume {
+		t.Error("expected manualConsume=true for rabbit")
+	}
+	if result.Sources[1].ManualConsume {
+		t.Error("expected manualConsume=false for mqtt")
+	}
+}
+
+func TestConsumeNotFound(t *testing.T) {
+	_, ts := startTestServer(t)
+	defer ts.Close()
+
+	conn := connectWS(t, ts)
+	defer conn.Close()
+
+	// Attach
+	sendRequest(t, conn, 1, "debug.attach", &AttachParams{ClientName: "test"})
+	readResponse(t, conn)
+
+	// Send debug.consume for non-existent connector
+	sendRequest(t, conn, 2, "debug.consume", &ConsumeParams{Connector: "nonexistent"})
+	resp := readResponse(t, conn)
+
+	if resp.Error == nil {
+		t.Fatal("expected error for unknown connector")
+	}
+	if resp.Error.Code != CodeInternalError {
+		t.Errorf("expected internal error code, got %d", resp.Error.Code)
+	}
+}
+
+func TestConsumeEmptyConnector(t *testing.T) {
+	_, ts := startTestServer(t)
+	defer ts.Close()
+
+	conn := connectWS(t, ts)
+	defer conn.Close()
+
+	// Attach
+	sendRequest(t, conn, 1, "debug.attach", &AttachParams{ClientName: "test"})
+	readResponse(t, conn)
+
+	// Send debug.consume with empty connector
+	sendRequest(t, conn, 2, "debug.consume", &ConsumeParams{})
+	resp := readResponse(t, conn)
+
+	if resp.Error == nil {
+		t.Fatal("expected error for empty connector")
+	}
+	if resp.Error.Code != CodeInvalidParams {
+		t.Errorf("expected invalid params code, got %d", resp.Error.Code)
 	}
 }
 

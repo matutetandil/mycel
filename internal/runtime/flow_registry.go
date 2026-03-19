@@ -170,16 +170,8 @@ var FilteredResult = &struct{ Filtered bool }{Filtered: true}
 
 // HandleRequest processes an incoming request through the flow.
 func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interface{}) (result interface{}, err error) {
-	// Attach trace context for verbose flow logging (when no trace is already active)
-	if h.VerboseFlow && !trace.IsTracing(ctx) && h.Logger != nil {
-		tc := &trace.Context{
-			FlowName:  h.Config.Name,
-			Collector: trace.NewLogCollector(h.Logger),
-		}
-		ctx = trace.WithTrace(ctx, tc)
-	}
-
-	// Attach Studio debug context when a debug client is connected
+	// Attach Studio debug context when a debug client is connected.
+	// This takes priority over verbose flow to ensure breakpoints work.
 	var debugThread *debug.DebugThread
 	var debugCollector *debug.StudioCollector
 	if h.DebugServer != nil && h.DebugServer.HasClients() && !trace.IsTracing(ctx) {
@@ -197,21 +189,31 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 				Collector: debugCollector,
 			}
 
-			// Add breakpoint controller if breakpoints are set
-			if session.HasBreakpoints(h.Config.Name) {
-				tc.Breakpoint = debug.NewStudioBreakpointController(session, debugThread, stream, debugCollector)
-			}
+			// Always attach breakpoint controller when a debugger is connected.
+			// The controller checks session breakpoints dynamically on each
+			// ShouldBreak call, so breakpoints set after the request starts
+			// will still be honored.
+			tc.Breakpoint = debug.NewStudioBreakpointController(session, debugThread, stream, debugCollector)
 
 			ctx = trace.WithTrace(ctx, tc)
 
-			// Add transform hook for per-rule debugging
-			if session.HasBreakpoints(h.Config.Name) {
-				hook := debug.NewStudioTransformHook(session, debugThread, stream, debugCollector, h.Config.Name, trace.StageTransform)
-				ctx = transform.WithTransformHook(ctx, hook)
-			}
+			// Always attach transform hook for per-rule debugging.
+			// The hook checks session breakpoints dynamically per rule.
+			hook := debug.NewStudioTransformHook(session, debugThread, stream, debugCollector, h.Config.Name, trace.StageTransform)
+			ctx = transform.WithTransformHook(ctx, hook)
 
 			debugCollector.BroadcastFlowStart(input)
 		}
+	}
+
+	// Attach trace context for verbose flow logging (when no trace is already active)
+	// This runs after the debug block so that debug takes priority.
+	if h.VerboseFlow && !trace.IsTracing(ctx) && h.Logger != nil {
+		tc := &trace.Context{
+			FlowName:  h.Config.Name,
+			Collector: trace.NewLogCollector(h.Logger),
+		}
+		ctx = trace.WithTrace(ctx, tc)
 	}
 
 	start := time.Now()

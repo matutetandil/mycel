@@ -159,6 +159,25 @@ type ThreadInfo struct {
 	Paused   bool        `json:"paused"`
 }
 
+// ConsumeParams requests one message from a specific connector.
+type ConsumeParams struct {
+	Connector string `json:"connector"`
+}
+
+// ReadyResult is returned after a successful debug.ready handshake.
+type ReadyResult struct {
+	OK      bool              `json:"ok"`
+	Sources []SourceCapability `json:"sources,omitempty"`
+}
+
+// SourceCapability describes an event-driven connector's debug capabilities.
+type SourceCapability struct {
+	Connector     string `json:"connector"`
+	Type          string `json:"type"`
+	Source        string `json:"source"`
+	ManualConsume bool   `json:"manualConsume"`
+}
+
 // --- Inspect params ---
 
 // InspectFlowParams requests detailed flow configuration.

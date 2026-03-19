@@ -20,7 +20,9 @@ All debug features (breakpoints, DAP, verbose flow) are **development-only** —
   - [Supported DAP Commands](#supported-dap-commands)
 - [Studio Debug Protocol](#studio-debug-protocol)
   - [Connecting](#connecting)
+  - [Setup Handshake](#setup-handshake)
   - [Methods](#methods)
+  - [debug.consume](#debugconsume)
   - [Events](#events)
   - [Per-CEL-Rule Debugging](#per-cel-rule-debugging)
   - [Automatic Debug Throttling](#automatic-debug-throttling)
@@ -350,6 +352,62 @@ ws.send(JSON.stringify({
 // Response: { jsonrpc: "2.0", id: 1, result: { sessionId: "s1", flows: ["create_user", "get_users"] } }
 ```
 
+### Setup Handshake
+
+Before any messages are consumed, Studio must complete a setup handshake. This eliminates race conditions where messages arrive before breakpoints are configured.
+
+```
+Studio                           Mycel
+  │                                │
+  ├─── debug.attach ──────────────►│  Session created, debug throttling enabled
+  │◄── { sessionId, flows } ──────┤
+  │                                │
+  ├─── debug.setBreakpoints ──────►│  Breakpoints registered (repeat per flow)
+  │◄── { breakpoints } ───────────┤
+  │                                │
+  ├─── debug.ready ───────────────►│  Suspended connectors start (topology only)
+  │◄── { ok, sources } ───────────┤  Returns event source capabilities
+  │                                │
+  ├─── debug.consume ─────────────►│  Pull ONE message from queue (RabbitMQ/Kafka)
+  │    ... breakpoint hit ...      │
+  │◄── event.stopped ─────────────┤
+  │                                │
+  ├─── debug.continue ────────────►│  Resume paused thread
+  │◄── event.continued ───────────┤
+  │◄── { ok } ────────────────────┤  Message fully processed
+  │                                │
+  ├─── debug.consume ─────────────►│  Pull next message (repeat as needed)
+  │    ...                         │
+```
+
+**`debug.ready` response** includes event source capabilities:
+
+```json
+{
+  "jsonrpc": "2.0", "id": 3,
+  "result": {
+    "ok": true,
+    "sources": [
+      {
+        "connector": "rabbit",
+        "type": "rabbitmq",
+        "source": "orders.q",
+        "manualConsume": true
+      },
+      {
+        "connector": "mqtt_sensors",
+        "type": "mqtt",
+        "source": "sensors/#",
+        "manualConsume": false
+      }
+    ]
+  }
+}
+```
+
+- **`manualConsume: true`** — queue-based connectors (RabbitMQ, Kafka) that support `debug.consume`. No messages are consumed until Studio explicitly requests them.
+- **`manualConsume: false`** — push-based connectors (Redis Pub/Sub, MQTT, CDC, File, WebSocket) where messages arrive in real time. These use automatic debug throttling (one at a time) instead.
+
 ### Methods
 
 | Method | Purpose |
@@ -357,6 +415,8 @@ ws.send(JSON.stringify({
 | `debug.attach` | Connect debugger, get session + flow list |
 | `debug.detach` | Disconnect cleanly |
 | `debug.setBreakpoints` | Set breakpoints (stage + rule-level + conditional) |
+| `debug.ready` | Signal setup complete; returns event source capabilities |
+| `debug.consume` | Fetch one message from a queue connector (RabbitMQ/Kafka) |
 | `debug.continue` | Resume paused thread |
 | `debug.next` | Step to next pipeline stage |
 | `debug.stepInto` | Step per-CEL-rule within transform |
@@ -368,6 +428,26 @@ ws.send(JSON.stringify({
 | `inspect.connectors` | List connectors |
 | `inspect.types` | List type schemas |
 | `inspect.transforms` | List named transforms |
+
+### debug.consume
+
+For queue-based connectors (RabbitMQ, Kafka), `debug.consume` fetches and processes exactly **one message** from the queue. The request blocks until the message is fully processed (including hitting any breakpoints along the way).
+
+```json
+{
+  "jsonrpc": "2.0", "id": 10,
+  "method": "debug.consume",
+  "params": { "connector": "rabbit" }
+}
+```
+
+How it works per connector:
+- **RabbitMQ**: Uses AMQP `Basic.Get` (pull one message). If the queue is empty, polls until a message arrives or the request is cancelled.
+- **Kafka**: Uses `FetchMessage` to pull one message, then commits the offset after processing.
+
+This gives Studio full control over when messages are consumed, making it easy to debug event-driven flows step by step. The IDE can show a "Consume Next Message" button that triggers `debug.consume`.
+
+Push-based connectors (MQTT, Redis Pub/Sub, CDC, etc.) don't support `debug.consume` — they receive messages in real time via automatic debug throttling.
 
 ### Events
 
@@ -411,15 +491,15 @@ Use `debug.stepInto` to step through rules one at a time, and `debug.evaluate` t
 
 ### Automatic Debug Throttling
 
-When a debugger connects, all event-driven connectors automatically switch to **single-message processing**. This means:
+When a debugger connects, all event-driven connectors automatically switch to **single-message processing**. This applies to push-based connectors where messages arrive in real time:
 
-- **RabbitMQ**: AMQP prefetch is set to 1 (broker stops pushing extra messages)
-- **Kafka**: A semaphore serializes message consumption across workers
 - **Redis Pub/Sub**: Messages are gated one at a time
 - **MQTT**: All topic callbacks are serialized through a shared gate
 - **CDC**: Database change events are processed one at a time
 - **File watch**: File events are processed one at a time
 - **WebSocket**: Incoming client messages are serialized
+
+Queue-based connectors (**RabbitMQ**, **Kafka**) go further: in debug suspend mode, they don't consume at all until Studio sends `debug.consume` (see [Manual Consume](#debugconsume)).
 
 When the debugger disconnects, original concurrency settings are restored automatically. This ensures you can step through messages one by one without a flood of concurrent events interfering with your debugging session.
 
@@ -431,7 +511,7 @@ No configuration is needed — throttling is enabled automatically via the `Debu
 
 When debugging event-driven flows (message queues, CDC, etc.), there's a timing problem: if Mycel starts consuming before your debugger connects, messages may be processed before you can set breakpoints.
 
-**Start Suspended** solves this by deferring `Start()` on event-driven connectors until a debugger connects via `debug.attach`:
+**Start Suspended** solves this by deferring `Start()` on event-driven connectors until a debugger completes the setup handshake (`debug.ready`):
 
 ```bash
 # Via CLI flag
@@ -452,9 +532,11 @@ MYCEL_DEBUG_SUSPEND=true mycel start
 
 **Lifecycle:**
 1. Mycel starts — event-driven connectors are registered but not started
-2. You connect Mycel Studio (or any debug client) to `:9090/debug`
-3. On `debug.attach`, suspended connectors start with debug throttling pre-enabled
-4. Messages arrive one at a time, ready for breakpoint-by-breakpoint inspection
+2. Studio connects to `:9090/debug` and sends `debug.attach`
+3. Studio sets breakpoints with `debug.setBreakpoints`
+4. Studio sends `debug.ready` — suspended connectors connect to brokers and set up topology
+5. For queue-based connectors (RabbitMQ, Kafka): Studio sends `debug.consume` to pull one message at a time
+6. For push-based connectors (MQTT, CDC, etc.): messages arrive automatically, throttled to one at a time
 
 > **Dev only.** Like all debug features, `--debug-suspend` is automatically disabled outside development mode with a warning log.
 

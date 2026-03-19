@@ -34,6 +34,25 @@ type DebugThrottler interface {
 	SetDebugMode(enabled bool)
 }
 
+// DebugConsumer is implemented by queue-based connectors (RabbitMQ, Kafka)
+// that support manual message consumption in debug mode. When manual consume
+// is enabled, Start() connects to the broker and sets up topology but does
+// NOT begin automatic consumption. Messages are fetched one at a time via
+// ConsumeOne() when the IDE sends debug.consume.
+type DebugConsumer interface {
+	// SetManualConsume enables or disables manual consume mode.
+	// When true, Start() connects but does not start consuming.
+	SetManualConsume(enabled bool)
+
+	// ConsumeOne fetches and processes a single message from the queue.
+	// Blocks until a message is available or context is cancelled.
+	ConsumeOne(ctx context.Context) error
+
+	// SourceInfo returns the connector type and source identifier
+	// (e.g., queue name for RabbitMQ, topic for Kafka) for IDE display.
+	SourceInfo() (connectorType string, source string)
+}
+
 // DBAccessor is an optional interface for database connectors that expose
 // their underlying *sql.DB for direct access (e.g., workflow persistence).
 type DBAccessor interface {

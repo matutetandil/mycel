@@ -504,7 +504,6 @@ func New(opts Options) (*Runtime, error) {
 
 	// Wire debug throttling: when a debugger connects/disconnects,
 	// toggle single-message processing on all event-driven connectors.
-	// Also start suspended connectors on first debugger connection.
 	r.debugServer.OnClientChange = func(hasClients bool) {
 		for _, name := range r.connectors.List() {
 			conn, err := r.connectors.Get(name)
@@ -515,18 +514,29 @@ func New(opts Options) (*Runtime, error) {
 				throttler.SetDebugMode(hasClients)
 			}
 		}
+	}
 
-		// Start suspended connectors when a debugger connects
-		if hasClients && len(r.suspendedStarters) > 0 {
+	// Wire debug.ready handshake: start suspended connectors only after
+	// the IDE has finished setting breakpoints and sent debug.ready.
+	// This eliminates the race condition where messages arrive before
+	// breakpoints are configured.
+	r.debugServer.OnReady = func() {
+		if len(r.suspendedStarters) > 0 {
 			for _, sc := range r.suspendedStarters {
-				r.logger.Info("debug suspend: starting connector (debugger connected)",
+				// Enable manual consume on connectors that support it.
+				// This makes Start() set up topology without starting the consumer loop.
+				conn, _ := r.connectors.Get(sc.name)
+				if dc, ok := conn.(connector.DebugConsumer); ok {
+					dc.SetManualConsume(true)
+				}
+
+				r.logger.Info("debug ready: starting connector",
 					"connector", sc.name)
 				if err := sc.starter.Start(context.Background()); err != nil {
 					r.logger.Error("failed to start suspended connector",
 						"connector", sc.name, "error", err)
 				}
 			}
-			// Clear the list — connectors are now started
 			r.suspendedStarters = nil
 		}
 	}
@@ -892,6 +902,47 @@ func (r *Runtime) GetCELTransformer() *transform.CELTransformer {
 	// Fallback: create a fresh transformer
 	t, _ := transform.NewCELTransformer()
 	return t
+}
+
+// ListEventSources returns capabilities of event-driven connectors (debug.RuntimeInspector).
+func (r *Runtime) ListEventSources() []debug.SourceCapability {
+	var sources []debug.SourceCapability
+	for _, name := range r.connectors.List() {
+		conn, err := r.connectors.Get(name)
+		if err != nil {
+			continue
+		}
+		// Only event-driven connectors (those implementing DebugThrottler)
+		if _, isEventDriven := conn.(connector.DebugThrottler); !isEventDriven {
+			continue
+		}
+		cap := debug.SourceCapability{
+			Connector: name,
+		}
+		if dc, ok := conn.(connector.DebugConsumer); ok {
+			connType, source := dc.SourceInfo()
+			cap.Type = connType
+			cap.Source = source
+			cap.ManualConsume = true
+		} else {
+			cap.Type = conn.Type()
+		}
+		sources = append(sources, cap)
+	}
+	return sources
+}
+
+// ConsumeOne fetches a single message from the named connector (debug.RuntimeInspector).
+func (r *Runtime) ConsumeOne(ctx context.Context, connectorName string) error {
+	conn, err := r.connectors.Get(connectorName)
+	if err != nil {
+		return fmt.Errorf("connector %q not found: %w", connectorName, err)
+	}
+	dc, ok := conn.(connector.DebugConsumer)
+	if !ok {
+		return fmt.Errorf("connector %q does not support manual consume", connectorName)
+	}
+	return dc.ConsumeOne(ctx)
 }
 
 // GetDebugServer returns the debug protocol server for flow handler integration.
@@ -2252,22 +2303,9 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 	// and the new flows are registered with them. This provides zero-downtime reload.
 
 	// After hot reload, if a debugger is already connected, we need to:
-	// 1. Start any suspended connectors (they were re-deferred during startServers)
-	// 2. Re-apply debug mode to new connector instances
+	// 1. Re-apply debug throttling to new connector instances
+	// 2. Start suspended connectors only if the debugger already completed the ready handshake
 	if r.debugServer != nil && r.debugServer.HasClients() {
-		// Start suspended connectors immediately (debugger is already connected)
-		if len(r.suspendedStarters) > 0 {
-			for _, sc := range r.suspendedStarters {
-				r.logger.Info("hot reload: starting connector (debugger already connected)",
-					"connector", sc.name)
-				if err := sc.starter.Start(context.Background()); err != nil {
-					r.logger.Error("failed to start connector after hot reload",
-						"connector", sc.name, "error", err)
-				}
-			}
-			r.suspendedStarters = nil
-		}
-
 		// Re-apply debug throttling to new connector instances
 		for _, name := range r.connectors.List() {
 			conn, err := r.connectors.Get(name)
@@ -2277,6 +2315,25 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 			if throttler, ok := conn.(connector.DebugThrottler); ok {
 				throttler.SetDebugMode(true)
 			}
+		}
+
+		// Start suspended connectors only if the debugger already completed setup
+		if r.debugServer.IsReady() && len(r.suspendedStarters) > 0 {
+			for _, sc := range r.suspendedStarters {
+				// Enable manual consume on connectors that support it
+				conn, _ := r.connectors.Get(sc.name)
+				if dc, ok := conn.(connector.DebugConsumer); ok {
+					dc.SetManualConsume(true)
+				}
+
+				r.logger.Info("hot reload: starting connector (debugger ready)",
+					"connector", sc.name)
+				if err := sc.starter.Start(context.Background()); err != nil {
+					r.logger.Error("failed to start connector after hot reload",
+						"connector", sc.name, "error", err)
+				}
+			}
+			r.suspendedStarters = nil
 		}
 	}
 

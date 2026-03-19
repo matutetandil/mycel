@@ -1,6 +1,8 @@
 package debug
 
 import (
+	"context"
+
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/transform"
@@ -17,6 +19,14 @@ type RuntimeInspector interface {
 	ListTypes() []*validate.TypeSchema
 	ListTransforms() []*transform.Config
 	GetCELTransformer() *transform.CELTransformer
+
+	// ListEventSources returns capabilities of event-driven connectors
+	// (used by debug.ready to tell the IDE what sources support manual consume).
+	ListEventSources() []SourceCapability
+
+	// ConsumeOne fetches a single message from the named connector.
+	// Only works for connectors implementing connector.DebugConsumer.
+	ConsumeOne(ctx context.Context, connectorName string) error
 }
 
 // buildFlowInfo converts a flow config into an IDE-friendly representation.
