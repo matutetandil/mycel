@@ -55,7 +55,14 @@ func (c *Connector) Type() string { return "elasticsearch" }
 
 // Connect verifies connectivity to the Elasticsearch cluster.
 func (c *Connector) Connect(ctx context.Context) error {
-	return c.Health(ctx)
+	if err := c.Health(ctx); err != nil {
+		return err
+	}
+	c.logger.Info("elasticsearch connected",
+		"nodes", c.nodes,
+		"default_index", c.index,
+	)
+	return nil
 }
 
 // Close is a no-op for Elasticsearch (HTTP-based, no persistent connection).

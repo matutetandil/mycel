@@ -67,15 +67,32 @@ func (c *OutboundConnector) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Write sends a webhook
-func (c *OutboundConnector) Write(ctx context.Context, target string, data interface{}) (interface{}, error) {
+// WriteData implements connector.Writer for aspect/flow integration.
+func (c *OutboundConnector) WriteData(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	result, err := c.writeMessage(ctx, data.Target, data.Payload)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{
+		Rows:     []map[string]interface{}{{"result": result}},
+		Affected: 1,
+	}, nil
+}
+
+// Write implements connector.Writer interface.
+func (c *OutboundConnector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	return c.WriteData(ctx, data)
+}
+
+// writeMessage sends a webhook via the legacy simple interface.
+func (c *OutboundConnector) writeMessage(ctx context.Context, target string, data interface{}) (interface{}, error) {
 	req := c.buildRequest(target, data)
 	return c.Send(ctx, req)
 }
 
-// Call sends a webhook (alias for Write)
+// Call sends a webhook (alias for writeMessage)
 func (c *OutboundConnector) Call(ctx context.Context, method string, args interface{}) (interface{}, error) {
-	return c.Write(ctx, method, args)
+	return c.writeMessage(ctx, method, args)
 }
 
 // Send sends a webhook with full control
@@ -308,5 +325,8 @@ func (c *OutboundConnector) Close(ctx context.Context) error {
 	return nil
 }
 
-// Ensure OutboundConnector implements connector interface
-var _ connector.Connector = (*OutboundConnector)(nil)
+// Ensure OutboundConnector implements connector interfaces
+var (
+	_ connector.Connector = (*OutboundConnector)(nil)
+	_ connector.Writer    = (*OutboundConnector)(nil)
+)

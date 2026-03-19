@@ -224,6 +224,67 @@ func (e *Email) RenderTemplate(payload map[string]interface{}) error {
 	return nil
 }
 
+// emailFromData builds an Email from a connector.Data payload.
+func emailFromData(target string, payload interface{}) (*Email, error) {
+	email := &Email{}
+
+	switch p := payload.(type) {
+	case *Email:
+		return p, nil
+	case Email:
+		return &p, nil
+	case map[string]interface{}:
+		if to, ok := p["to"].(string); ok {
+			email.To = []Recipient{{Email: to}}
+		}
+		if to, ok := p["to"].([]interface{}); ok {
+			for _, t := range to {
+				if s, ok := t.(string); ok {
+					email.To = append(email.To, Recipient{Email: s})
+				}
+			}
+		}
+		if subject, ok := p["subject"].(string); ok {
+			email.Subject = subject
+		}
+		if text, ok := p["text"].(string); ok {
+			email.TextBody = text
+		}
+		if text, ok := p["text_body"].(string); ok {
+			email.TextBody = text
+		}
+		if html, ok := p["html_body"].(string); ok {
+			email.HTMLBody = html
+		}
+		if from, ok := p["from"].(string); ok {
+			email.From = from
+		}
+		if tmpl, ok := p["template"].(string); ok {
+			email.Template = tmpl
+		}
+		if tmplID, ok := p["template_id"].(string); ok {
+			email.TemplateID = tmplID
+		}
+		if tmplData, ok := p["template_data"].(map[string]interface{}); ok {
+			email.TemplateData = tmplData
+		}
+	case string:
+		email.TextBody = p
+		if target != "" {
+			email.To = []Recipient{{Email: target}}
+		}
+	default:
+		return nil, fmt.Errorf("unsupported data type for email message")
+	}
+
+	// Use target as recipient if not set
+	if len(email.To) == 0 && target != "" {
+		email.To = []Recipient{{Email: target}}
+	}
+
+	return email, nil
+}
+
 // DefaultSMTPConfig returns sensible SMTP defaults
 func DefaultSMTPConfig() *SMTPConfig {
 	return &SMTPConfig{

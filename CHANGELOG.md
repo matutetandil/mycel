@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.1] - 2026-03-19
+
+### Fixed
+- **Hot reload + debug suspend**: After hot reload with a debugger already connected, event-driven connectors (RabbitMQ, Kafka, etc.) were never started because `OnClientChange(true)` had already fired before the reload. Now `hotReloadSwitch()` checks `HasClients()` after recreating connectors and immediately starts suspended connectors and re-applies debug throttling
+- **All notification connectors now implement `connector.Writer`**: Slack, Discord, Email (SMTP/SendGrid/SES), SMS (Twilio/SNS), Push (FCM/APNs), and Webhook connectors now implement the `connector.Writer` interface, enabling them to be used from aspects (`action { connector.slack = "..." }`)
+
+### Improved
+- **Connector connection logs**: Added useful context to connection success logs across 7 connectors — RabbitMQ (queue name), Kafka (topics, consumer group), Elasticsearch (nodes, default index), FTP/SFTP (protocol, host, port, base path), CDC (tables), File watch (patterns)
+
 ## [1.15.0] - 2026-03-18
 
 ### Changed

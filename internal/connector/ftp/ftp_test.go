@@ -76,7 +76,7 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestConnectorNameAndType(t *testing.T) {
-	conn := New("my_ftp", DefaultConfig())
+	conn := New("my_ftp", DefaultConfig(), nil)
 
 	if conn.Name() != "my_ftp" {
 		t.Errorf("expected name 'my_ftp', got %q", conn.Name())
@@ -98,7 +98,7 @@ func TestProtocolDefaultPort(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.protocol, func(t *testing.T) {
 			cfg := &Config{Protocol: tt.protocol}
-			conn := New("test", cfg)
+			conn := New("test", cfg, nil)
 			if conn.config.Port != tt.expected {
 				t.Errorf("expected port %d for protocol %s, got %d", tt.expected, tt.protocol, conn.config.Port)
 			}
@@ -108,7 +108,7 @@ func TestProtocolDefaultPort(t *testing.T) {
 
 func TestProtocolExplicitPort(t *testing.T) {
 	cfg := &Config{Protocol: "ftp", Port: 2121}
-	conn := New("test", cfg)
+	conn := New("test", cfg, nil)
 	if conn.config.Port != 2121 {
 		t.Errorf("expected port 2121, got %d", conn.config.Port)
 	}
@@ -131,7 +131,7 @@ func TestResolvePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			conn := New("test", &Config{BasePath: tt.basePath})
+			conn := New("test", &Config{BasePath: tt.basePath}, nil)
 			result := conn.resolvePath(tt.target)
 			if result != tt.expected {
 				t.Errorf("expected %q, got %q", tt.expected, result)
@@ -152,7 +152,7 @@ func TestReadListOperation(t *testing.T) {
 		},
 	}
 
-	conn := New("test", &Config{BasePath: "/data"})
+	conn := New("test", &Config{BasePath: "/data"}, nil)
 	conn.client = mock
 
 	result, err := conn.Read(context.Background(), connector.Query{
@@ -183,7 +183,7 @@ func TestReadGetOperationJSON(t *testing.T) {
 		},
 	}
 
-	conn := New("test", &Config{})
+	conn := New("test", &Config{}, nil)
 	conn.client = mock
 
 	result, err := conn.Read(context.Background(), connector.Query{
@@ -208,7 +208,7 @@ func TestReadGetOperationCSV(t *testing.T) {
 		},
 	}
 
-	conn := New("test", &Config{})
+	conn := New("test", &Config{}, nil)
 	conn.client = mock
 
 	result, err := conn.Read(context.Background(), connector.Query{
@@ -232,7 +232,7 @@ func TestReadGetOperationText(t *testing.T) {
 		},
 	}
 
-	conn := New("test", &Config{})
+	conn := New("test", &Config{}, nil)
 	conn.client = mock
 
 	result, err := conn.Read(context.Background(), connector.Query{
@@ -264,7 +264,7 @@ func TestWriteUpload(t *testing.T) {
 		},
 	}
 
-	conn := New("test", &Config{BasePath: "/uploads"})
+	conn := New("test", &Config{BasePath: "/uploads"}, nil)
 	conn.client = mock
 
 	result, err := conn.Write(context.Background(), &connector.Data{
@@ -299,7 +299,7 @@ func TestWriteUploadPayloadAsJSON(t *testing.T) {
 		},
 	}
 
-	conn := New("test", &Config{})
+	conn := New("test", &Config{}, nil)
 	conn.client = mock
 
 	result, err := conn.Write(context.Background(), &connector.Data{
@@ -331,7 +331,7 @@ func TestWriteMkdir(t *testing.T) {
 		},
 	}
 
-	conn := New("test", &Config{BasePath: "/data"})
+	conn := New("test", &Config{BasePath: "/data"}, nil)
 	conn.client = mock
 
 	result, err := conn.Write(context.Background(), &connector.Data{
@@ -359,7 +359,7 @@ func TestWriteDelete(t *testing.T) {
 		},
 	}
 
-	conn := New("test", &Config{})
+	conn := New("test", &Config{}, nil)
 	conn.client = mock
 
 	result, err := conn.Write(context.Background(), &connector.Data{
@@ -378,7 +378,7 @@ func TestWriteDelete(t *testing.T) {
 }
 
 func TestHealthNotConnected(t *testing.T) {
-	conn := New("test", DefaultConfig())
+	conn := New("test", DefaultConfig(), nil)
 
 	err := conn.Health(context.Background())
 	if err == nil {
@@ -393,7 +393,7 @@ func TestHealthConnected(t *testing.T) {
 		},
 	}
 
-	conn := New("test", &Config{BasePath: "/data"})
+	conn := New("test", &Config{BasePath: "/data"}, nil)
 	conn.client = mock
 
 	err := conn.Health(context.Background())
@@ -403,7 +403,7 @@ func TestHealthConnected(t *testing.T) {
 }
 
 func TestReadNotConnected(t *testing.T) {
-	conn := New("test", DefaultConfig())
+	conn := New("test", DefaultConfig(), nil)
 
 	_, err := conn.Read(context.Background(), connector.Query{Target: "file.txt"})
 	if err == nil {
@@ -412,7 +412,7 @@ func TestReadNotConnected(t *testing.T) {
 }
 
 func TestWriteNotConnected(t *testing.T) {
-	conn := New("test", DefaultConfig())
+	conn := New("test", DefaultConfig(), nil)
 
 	_, err := conn.Write(context.Background(), &connector.Data{Target: "file.txt"})
 	if err == nil {
@@ -447,7 +447,7 @@ func TestGetFormat(t *testing.T) {
 }
 
 func TestFactorySupports(t *testing.T) {
-	factory := NewFactory()
+	factory := NewFactory(nil)
 
 	if !factory.Supports("ftp", "") {
 		t.Error("factory should support 'ftp' type")
@@ -464,7 +464,7 @@ func TestFactorySupports(t *testing.T) {
 }
 
 func TestFactoryMissingHost(t *testing.T) {
-	factory := NewFactory()
+	factory := NewFactory(nil)
 
 	_, err := factory.Create(context.Background(), &connector.Config{
 		Name: "test",
@@ -486,7 +486,7 @@ func TestReadErrorPropagation(t *testing.T) {
 		},
 	}
 
-	conn := New("test", &Config{})
+	conn := New("test", &Config{}, nil)
 	conn.client = mock
 
 	_, err := conn.Read(context.Background(), connector.Query{
@@ -505,7 +505,7 @@ func TestWriteErrorPropagation(t *testing.T) {
 		},
 	}
 
-	conn := New("test", &Config{})
+	conn := New("test", &Config{}, nil)
 	conn.client = mock
 
 	_, err := conn.Write(context.Background(), &connector.Data{

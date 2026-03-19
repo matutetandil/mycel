@@ -197,7 +197,7 @@ func TestConnector_Write_WithString(t *testing.T) {
 	}
 
 	conn := NewConnector("test", cfg)
-	result, err := conn.Write(context.Background(), "", "Hello")
+	result, err := conn.writeMessage(context.Background(), "", "Hello")
 
 	if err != nil {
 		t.Errorf("Write failed: %v", err)
@@ -230,7 +230,7 @@ func TestConnector_Write_WithMap(t *testing.T) {
 	data := map[string]interface{}{
 		"content": "Hello from map",
 	}
-	result, err := conn.Write(context.Background(), "", data)
+	result, err := conn.writeMessage(context.Background(), "", data)
 
 	if err != nil {
 		t.Errorf("Write failed: %v", err)
@@ -261,7 +261,7 @@ func TestConnector_Write_WithMessage(t *testing.T) {
 
 	conn := NewConnector("test", cfg)
 	msg := &Message{Content: "Hello Message"}
-	result, err := conn.Write(context.Background(), "", msg)
+	result, err := conn.writeMessage(context.Background(), "", msg)
 
 	if err != nil {
 		t.Errorf("Write failed: %v", err)
@@ -278,7 +278,7 @@ func TestConnector_Write_UnsupportedType(t *testing.T) {
 	}
 
 	conn := NewConnector("test", cfg)
-	_, err := conn.Write(context.Background(), "", 12345)
+	_, err := conn.writeMessage(context.Background(), "", 12345)
 
 	if err == nil {
 		t.Error("expected error for unsupported type")

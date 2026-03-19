@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2"
 	"github.com/aws/aws-sdk-go-v2/service/sesv2/types"
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 // SESConnector sends emails via AWS SES
@@ -232,6 +233,22 @@ func (c *SESConnector) buildInput(email *Email) (*sesv2.SendEmailInput, error) {
 	}
 
 	return input, nil
+}
+
+// Write implements connector.Writer interface.
+func (c *SESConnector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	email, err := emailFromData(data.Target, data.Payload)
+	if err != nil {
+		return nil, err
+	}
+	result, err := c.Send(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{
+		Rows:     []map[string]interface{}{{"result": result}},
+		Affected: 1,
+	}, nil
 }
 
 // Health checks SES

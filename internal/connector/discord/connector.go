@@ -313,8 +313,25 @@ func (c *Connector) sendViaAPI(ctx context.Context, msg *Message, channelID stri
 	return &SendResult{Success: true}, nil
 }
 
-// Write implements a simple interface for sending messages
-func (c *Connector) Write(ctx context.Context, target string, data interface{}) (interface{}, error) {
+// WriteData implements connector.Writer for aspect/flow integration.
+func (c *Connector) WriteData(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	result, err := c.writeMessage(ctx, data.Target, data.Payload)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{
+		Rows:     []map[string]interface{}{{"result": result}},
+		Affected: 1,
+	}, nil
+}
+
+// Write implements connector.Writer interface.
+func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	return c.WriteData(ctx, data)
+}
+
+// writeMessage sends a message via the legacy simple interface.
+func (c *Connector) writeMessage(ctx context.Context, target string, data interface{}) (interface{}, error) {
 	// If data is already a Message, use it
 	if msg, ok := data.(*Message); ok {
 		if c.config.BotToken != "" && target != "" {
@@ -382,8 +399,11 @@ func (c *Connector) Close(ctx context.Context) error {
 	return nil
 }
 
-// Ensure Connector implements connector interface
-var _ connector.Connector = (*Connector)(nil)
+// Ensure Connector implements connector interfaces
+var (
+	_ connector.Connector = (*Connector)(nil)
+	_ connector.Writer    = (*Connector)(nil)
+)
 
 // Factory creates Discord connectors
 type Factory struct{}

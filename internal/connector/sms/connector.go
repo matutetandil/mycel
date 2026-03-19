@@ -157,6 +157,22 @@ func (c *TwilioConnector) Send(ctx context.Context, msg *Message) (*SendResult, 
 	}, nil
 }
 
+// Write implements connector.Writer interface.
+func (c *TwilioConnector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	msg, err := smsFromData(data.Target, data.Payload)
+	if err != nil {
+		return nil, err
+	}
+	result, err := c.Send(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{
+		Rows:     []map[string]interface{}{{"result": result}},
+		Affected: 1,
+	}, nil
+}
+
 func (c *TwilioConnector) Health(ctx context.Context) error {
 	url := fmt.Sprintf("%s/2010-04-01/Accounts/%s.json",
 		c.config.Twilio.APIURL, c.config.Twilio.AccountSID)
@@ -252,6 +268,22 @@ func (c *SNSConnector) Send(ctx context.Context, msg *Message) (*SendResult, err
 	}, nil
 }
 
+// Write implements connector.Writer interface.
+func (c *SNSConnector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	msg, err := smsFromData(data.Target, data.Payload)
+	if err != nil {
+		return nil, err
+	}
+	result, err := c.Send(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{
+		Rows:     []map[string]interface{}{{"result": result}},
+		Affected: 1,
+	}, nil
+}
+
 func (c *SNSConnector) Health(ctx context.Context) error {
 	if c.client == nil {
 		return fmt.Errorf("not connected")
@@ -265,10 +297,47 @@ func (c *SNSConnector) Close(ctx context.Context) error {
 	return nil
 }
 
+// smsFromData builds a Message from a connector.Data payload.
+func smsFromData(target string, payload interface{}) (*Message, error) {
+	msg := &Message{}
+
+	switch p := payload.(type) {
+	case *Message:
+		return p, nil
+	case Message:
+		return &p, nil
+	case map[string]interface{}:
+		if to, ok := p["to"].(string); ok {
+			msg.To = to
+		}
+		if body, ok := p["body"].(string); ok {
+			msg.Body = body
+		}
+		if body, ok := p["text"].(string); ok && msg.Body == "" {
+			msg.Body = body
+		}
+		if from, ok := p["from"].(string); ok {
+			msg.From = from
+		}
+	case string:
+		msg.Body = p
+	default:
+		return nil, fmt.Errorf("unsupported data type for SMS message")
+	}
+
+	if msg.To == "" && target != "" {
+		msg.To = target
+	}
+
+	return msg, nil
+}
+
 // Ensure connectors implement interface
 var (
 	_ connector.Connector = (*TwilioConnector)(nil)
 	_ connector.Connector = (*SNSConnector)(nil)
+	_ connector.Writer    = (*TwilioConnector)(nil)
+	_ connector.Writer    = (*SNSConnector)(nil)
 )
 
 // Factory creates SMS connectors

@@ -10,7 +10,7 @@ import (
 
 // EmailConnector is the unified email connector interface
 type EmailConnector interface {
-	connector.Connector
+	connector.Writer
 	Send(ctx context.Context, email *Email) (*SendResult, error)
 }
 

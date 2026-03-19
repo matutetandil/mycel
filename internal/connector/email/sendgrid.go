@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 // SendGridConnector sends emails via SendGrid API
@@ -256,6 +258,22 @@ func (c *SendGridConnector) buildPayload(email *Email) map[string]interface{} {
 	}
 
 	return payload
+}
+
+// Write implements connector.Writer interface.
+func (c *SendGridConnector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	email, err := emailFromData(data.Target, data.Payload)
+	if err != nil {
+		return nil, err
+	}
+	result, err := c.Send(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{
+		Rows:     []map[string]interface{}{{"result": result}},
+		Affected: 1,
+	}, nil
 }
 
 // Health checks SendGrid API

@@ -135,12 +135,16 @@ func (c *Connector) connect() error {
 	c.closeChan = make(chan *amqp.Error, 1)
 	c.conn.NotifyClose(c.closeChan)
 
-	c.logger.Info("connected to RabbitMQ",
+	attrs := []any{
 		"name", c.name,
 		"host", c.config.Host,
 		"port", c.config.Port,
 		"vhost", c.config.Vhost,
-	)
+	}
+	if c.config.Queue != nil && c.config.Queue.Name != "" {
+		attrs = append(attrs, "queue", c.config.Queue.Name)
+	}
+	c.logger.Info("connected to RabbitMQ", attrs...)
 
 	return nil
 }

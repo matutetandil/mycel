@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"path"
@@ -88,12 +89,16 @@ type Connector struct {
 	name   string
 	config *Config
 	client remoteClient
+	logger *slog.Logger
 
 	mu sync.RWMutex
 }
 
 // New creates a new FTP/SFTP connector.
-func New(name string, config *Config) *Connector {
+func New(name string, config *Config, logger *slog.Logger) *Connector {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	if config.Protocol == "" {
 		config.Protocol = "ftp"
 	}
@@ -111,6 +116,7 @@ func New(name string, config *Config) *Connector {
 	return &Connector{
 		name:   name,
 		config: config,
+		logger: logger,
 	}
 }
 
@@ -147,6 +153,15 @@ func (c *Connector) Connect(ctx context.Context) error {
 	}
 
 	c.client = client
+
+	c.logger.Info("connected to FTP/SFTP server",
+		"name", c.name,
+		"protocol", c.config.Protocol,
+		"host", c.config.Host,
+		"port", c.config.Port,
+		"base_path", c.config.BasePath,
+	)
+
 	return nil
 }
 

@@ -108,11 +108,23 @@ func (c *Connector) Connect(ctx context.Context) error {
 		}
 	}
 
-	c.logger.Info("connected to Kafka",
+	attrs := []any{
 		"brokers", c.config.Brokers,
 		"is_consumer", c.config.IsConsumer(),
 		"is_producer", c.config.IsProducer(),
-	)
+	}
+	if c.config.Consumer != nil {
+		if len(c.config.Consumer.Topics) > 0 {
+			attrs = append(attrs, "topics", c.config.Consumer.Topics)
+		}
+		if c.config.Consumer.GroupID != "" {
+			attrs = append(attrs, "consumer_group", c.config.Consumer.GroupID)
+		}
+	}
+	if c.config.Producer != nil && c.config.Producer.Topic != "" {
+		attrs = append(attrs, "topic", c.config.Producer.Topic)
+	}
+	c.logger.Info("connected to Kafka", attrs...)
 
 	return nil
 }

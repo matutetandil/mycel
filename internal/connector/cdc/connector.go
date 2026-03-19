@@ -162,11 +162,26 @@ func (c *Connector) Start(ctx context.Context) error {
 		}
 	}()
 
+	c.mu.RLock()
+	tableSet := make(map[string]struct{})
+	for op := range c.handlers {
+		_, table := ParseOperation(op)
+		if table != "*" {
+			tableSet[table] = struct{}{}
+		}
+	}
+	c.mu.RUnlock()
+	tables := make([]string, 0, len(tableSet))
+	for t := range tableSet {
+		tables = append(tables, t)
+	}
+
 	c.logger.Info("CDC connector started",
 		"connector", c.name,
 		"driver", c.config.Driver,
 		"slot", c.config.SlotName,
 		"publication", c.config.Publication,
+		"tables", tables,
 	)
 
 	// Start dispatch loop in a goroutine

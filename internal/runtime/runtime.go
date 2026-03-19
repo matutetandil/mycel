@@ -604,7 +604,7 @@ func registerBuiltinFactories(registry *connector.Registry, logger *slog.Logger)
 	registry.RegisterFactory(connsoap.NewFactory(logger))
 
 	// FTP/SFTP connector for remote file transfer
-	registry.RegisterFactory(connftp.NewFactory())
+	registry.RegisterFactory(connftp.NewFactory(logger))
 
 	// PDF connector for generating PDF documents from templates
 	registry.RegisterFactory(connpdf.NewFactory())
@@ -2175,6 +2175,9 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 		return fmt.Errorf("failed to parse configuration: %w", err)
 	}
 
+	// Clear suspended starters from previous config (they will be re-populated if needed)
+	r.suspendedStarters = nil
+
 	// Close existing connectors gracefully
 	if err := r.connectors.CloseAll(ctx); err != nil {
 		r.logger.Warn("some connectors failed to close during reload", "error", err)
@@ -2247,6 +2250,35 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 
 	// Note: We don't restart HTTP servers here because they're already running
 	// and the new flows are registered with them. This provides zero-downtime reload.
+
+	// After hot reload, if a debugger is already connected, we need to:
+	// 1. Start any suspended connectors (they were re-deferred during startServers)
+	// 2. Re-apply debug mode to new connector instances
+	if r.debugServer != nil && r.debugServer.HasClients() {
+		// Start suspended connectors immediately (debugger is already connected)
+		if len(r.suspendedStarters) > 0 {
+			for _, sc := range r.suspendedStarters {
+				r.logger.Info("hot reload: starting connector (debugger already connected)",
+					"connector", sc.name)
+				if err := sc.starter.Start(context.Background()); err != nil {
+					r.logger.Error("failed to start connector after hot reload",
+						"connector", sc.name, "error", err)
+				}
+			}
+			r.suspendedStarters = nil
+		}
+
+		// Re-apply debug throttling to new connector instances
+		for _, name := range r.connectors.List() {
+			conn, err := r.connectors.Get(name)
+			if err != nil {
+				continue
+			}
+			if throttler, ok := conn.(connector.DebugThrottler); ok {
+				throttler.SetDebugMode(true)
+			}
+		}
+	}
 
 	return nil
 }

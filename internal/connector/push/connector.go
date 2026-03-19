@@ -314,6 +314,22 @@ func (c *FCMConnector) Send(ctx context.Context, msg *Message) (*SendResult, err
 	}, nil
 }
 
+// Write implements connector.Writer interface.
+func (c *FCMConnector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	msg, err := pushFromData(data.Target, data.Payload)
+	if err != nil {
+		return nil, err
+	}
+	result, err := c.Send(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{
+		Rows:     []map[string]interface{}{{"result": result}},
+		Affected: 1,
+	}, nil
+}
+
 func (c *FCMConnector) Health(ctx context.Context) error {
 	return nil // FCM doesn't have a health check endpoint
 }
@@ -440,6 +456,22 @@ func (c *APNsConnector) Send(ctx context.Context, msg *Message) (*SendResult, er
 	}, nil
 }
 
+// Write implements connector.Writer interface.
+func (c *APNsConnector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	msg, err := pushFromData(data.Target, data.Payload)
+	if err != nil {
+		return nil, err
+	}
+	result, err := c.Send(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{
+		Rows:     []map[string]interface{}{{"result": result}},
+		Affected: 1,
+	}, nil
+}
+
 func (c *APNsConnector) Health(ctx context.Context) error {
 	return nil // APNs doesn't have a health check endpoint
 }
@@ -449,10 +481,53 @@ func (c *APNsConnector) Close(ctx context.Context) error {
 	return nil
 }
 
+// pushFromData builds a Message from a connector.Data payload.
+func pushFromData(target string, payload interface{}) (*Message, error) {
+	msg := &Message{}
+
+	switch p := payload.(type) {
+	case *Message:
+		return p, nil
+	case Message:
+		return &p, nil
+	case map[string]interface{}:
+		if token, ok := p["token"].(string); ok {
+			msg.Token = token
+		}
+		if topic, ok := p["topic"].(string); ok {
+			msg.Topic = topic
+		}
+		if title, ok := p["title"].(string); ok {
+			msg.Title = title
+		}
+		if body, ok := p["body"].(string); ok {
+			msg.Body = body
+		}
+		if data, ok := p["data"].(map[string]string); ok {
+			msg.Data = data
+		}
+	case string:
+		msg.Body = p
+		if target != "" {
+			msg.Token = target
+		}
+	default:
+		return nil, fmt.Errorf("unsupported data type for push notification")
+	}
+
+	if msg.Token == "" && target != "" {
+		msg.Token = target
+	}
+
+	return msg, nil
+}
+
 // Ensure connectors implement interface
 var (
 	_ connector.Connector = (*FCMConnector)(nil)
 	_ connector.Connector = (*APNsConnector)(nil)
+	_ connector.Writer    = (*FCMConnector)(nil)
+	_ connector.Writer    = (*APNsConnector)(nil)
 )
 
 // Factory creates push notification connectors

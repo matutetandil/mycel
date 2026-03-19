@@ -207,7 +207,7 @@ func TestConnector_AppliesDefaults(t *testing.T) {
 	conn.Send(context.Background(), &Message{Text: "Hello"})
 }
 
-func TestConnector_Write_WithString(t *testing.T) {
+func TestConnector_WriteMessage_WithString(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var msg Message
 		json.NewDecoder(r.Body).Decode(&msg)
@@ -229,17 +229,17 @@ func TestConnector_Write_WithString(t *testing.T) {
 	}
 
 	conn := NewConnector("test", cfg)
-	result, err := conn.Write(context.Background(), "#general", "Hello")
+	result, err := conn.writeMessage(context.Background(), "#general", "Hello")
 
 	if err != nil {
-		t.Errorf("Write failed: %v", err)
+		t.Errorf("writeMessage failed: %v", err)
 	}
 	if result == nil {
 		t.Error("expected result")
 	}
 }
 
-func TestConnector_Write_WithMap(t *testing.T) {
+func TestConnector_WriteMessage_WithMap(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var msg Message
 		json.NewDecoder(r.Body).Decode(&msg)
@@ -261,17 +261,17 @@ func TestConnector_Write_WithMap(t *testing.T) {
 	data := map[string]interface{}{
 		"text": "Hello from map",
 	}
-	result, err := conn.Write(context.Background(), "#general", data)
+	result, err := conn.writeMessage(context.Background(), "#general", data)
 
 	if err != nil {
-		t.Errorf("Write failed: %v", err)
+		t.Errorf("writeMessage failed: %v", err)
 	}
 	if result == nil {
 		t.Error("expected result")
 	}
 }
 
-func TestConnector_Write_WithMessage(t *testing.T) {
+func TestConnector_WriteMessage_WithMessage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var msg Message
 		json.NewDecoder(r.Body).Decode(&msg)
@@ -291,27 +291,67 @@ func TestConnector_Write_WithMessage(t *testing.T) {
 
 	conn := NewConnector("test", cfg)
 	msg := &Message{Text: "Hello Message"}
-	result, err := conn.Write(context.Background(), "#general", msg)
+	result, err := conn.writeMessage(context.Background(), "#general", msg)
 
 	if err != nil {
-		t.Errorf("Write failed: %v", err)
+		t.Errorf("writeMessage failed: %v", err)
 	}
 	if result == nil {
 		t.Error("expected result")
 	}
 }
 
-func TestConnector_Write_UnsupportedType(t *testing.T) {
+func TestConnector_WriteMessage_UnsupportedType(t *testing.T) {
 	cfg := &Config{
 		Name:       "test",
 		WebhookURL: "https://hooks.slack.com/test",
 	}
 
 	conn := NewConnector("test", cfg)
-	_, err := conn.Write(context.Background(), "#general", 12345)
+	_, err := conn.writeMessage(context.Background(), "#general", 12345)
 
 	if err == nil {
 		t.Error("expected error for unsupported type")
+	}
+}
+
+func TestConnector_Write_ConnectorWriter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var msg Message
+		json.NewDecoder(r.Body).Decode(&msg)
+
+		if msg.Text != "Hello from Writer" {
+			t.Errorf("expected text 'Hello from Writer', got %s", msg.Text)
+		}
+
+		w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	cfg := &Config{
+		Name:       "test",
+		WebhookURL: server.URL,
+	}
+
+	conn := NewConnector("test", cfg)
+
+	// Verify it implements connector.Writer
+	var _ connector.Writer = conn
+
+	result, err := conn.Write(context.Background(), &connector.Data{
+		Target: "#general",
+		Payload: map[string]interface{}{
+			"text": "Hello from Writer",
+		},
+	})
+	if err != nil {
+		t.Errorf("Write failed: %v", err)
+	}
+	if result == nil {
+		t.Error("expected result")
+	}
+	if result.Affected != 1 {
+		t.Errorf("expected affected=1, got %d", result.Affected)
 	}
 }
 

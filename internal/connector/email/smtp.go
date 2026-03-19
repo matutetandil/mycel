@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/matutetandil/mycel/internal/connector"
 )
 
 // SMTPConnector sends emails via SMTP
@@ -380,6 +382,22 @@ func (c *SMTPConnector) returnConnection(conn *smtpConn) {
 	default:
 		conn.client.Close()
 	}
+}
+
+// Write implements connector.Writer interface.
+func (c *SMTPConnector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	email, err := emailFromData(data.Target, data.Payload)
+	if err != nil {
+		return nil, err
+	}
+	result, err := c.Send(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{
+		Rows:     []map[string]interface{}{{"result": result}},
+		Affected: 1,
+	}, nil
 }
 
 // Health checks if SMTP server is reachable

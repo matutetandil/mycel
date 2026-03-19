@@ -3,17 +3,23 @@ package ftp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/matutetandil/mycel/internal/connector"
 )
 
 // Factory creates FTP/SFTP connectors.
-type Factory struct{}
+type Factory struct {
+	logger *slog.Logger
+}
 
 // NewFactory creates a new FTP connector factory.
-func NewFactory() *Factory {
-	return &Factory{}
+func NewFactory(logger *slog.Logger) *Factory {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Factory{logger: logger}
 }
 
 // Type returns the connector type this factory handles.
@@ -60,7 +66,7 @@ func (f *Factory) Create(ctx context.Context, config *connector.Config) (connect
 		}
 	}
 
-	conn := New(config.Name, cfg)
+	conn := New(config.Name, cfg, f.logger)
 	if err := conn.Connect(ctx); err != nil {
 		return nil, err
 	}

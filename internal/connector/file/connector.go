@@ -157,11 +157,15 @@ func (c *Connector) Start(ctx context.Context) error {
 
 	go c.pollLoop(watchCtx)
 
+	patterns := make([]string, 0, len(c.handlers))
+	for p := range c.handlers {
+		patterns = append(patterns, p)
+	}
 	c.logger.Info("file watcher started",
 		"connector", c.name,
 		"path", c.config.BasePath,
 		"interval", c.config.WatchInterval,
-		"patterns", len(c.handlers),
+		"patterns", patterns,
 	)
 
 	return nil
