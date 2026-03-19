@@ -211,13 +211,16 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		resp := s.handleMethod(session, &req)
-		writeJSON(resp)
+		resp := s.handleMethod(session, &req, writeJSON)
+		if resp != nil {
+			writeJSON(resp)
+		}
 	}
 }
 
 // handleMethod dispatches a JSON-RPC method to the appropriate handler.
-func (s *Server) handleMethod(session *Session, req *Request) *Response {
+// writeJSON is passed for methods that need to respond asynchronously.
+func (s *Server) handleMethod(session *Session, req *Request, writeJSON func(v interface{}) error) *Response {
 	switch req.Method {
 	case "debug.detach":
 		return newResponse(req.ID, map[string]bool{"ok": true})
@@ -247,7 +250,11 @@ func (s *Server) handleMethod(session *Session, req *Request) *Response {
 		return s.handleThreads(session, req)
 
 	case "debug.consume":
-		return s.handleConsume(session, req)
+		// Dispatched asynchronously — ConsumeOne blocks until the message is
+		// fully processed (including breakpoints). The read loop must stay free
+		// to handle debug.continue, debug.variables, etc. during processing.
+		s.handleConsumeAsync(session, req, writeJSON)
+		return nil
 
 	case "inspect.flows":
 		return s.handleInspectFlows(req)
@@ -287,26 +294,31 @@ func (s *Server) handleReady(session *Session, req *Request) *Response {
 	})
 }
 
-func (s *Server) handleConsume(session *Session, req *Request) *Response {
+// handleConsumeAsync runs ConsumeOne in a separate goroutine so the WebSocket
+// read loop remains free to process other commands (debug.continue, etc.)
+// while the message travels through the pipeline.
+func (s *Server) handleConsumeAsync(session *Session, req *Request, writeJSON func(v interface{}) error) {
 	var params ConsumeParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		return newErrorResponse(req.ID, CodeInvalidParams, err.Error())
+		writeJSON(newErrorResponse(req.ID, CodeInvalidParams, err.Error()))
+		return
 	}
 
 	if params.Connector == "" {
-		return newErrorResponse(req.ID, CodeInvalidParams, "connector name is required")
+		writeJSON(newErrorResponse(req.ID, CodeInvalidParams, "connector name is required"))
+		return
 	}
 
 	s.logger.Info("debug.consume: fetching one message", "connector", params.Connector)
 
-	// ConsumeOne blocks until a message is fetched and fully processed
-	// (including hitting breakpoints, transforms, etc.).
-	err := s.inspector.ConsumeOne(context.Background(), params.Connector)
-	if err != nil {
-		return newErrorResponse(req.ID, CodeInternalError, err.Error())
-	}
-
-	return newResponse(req.ID, map[string]bool{"ok": true})
+	go func() {
+		err := s.inspector.ConsumeOne(context.Background(), params.Connector)
+		if err != nil {
+			writeJSON(newErrorResponse(req.ID, CodeInternalError, err.Error()))
+			return
+		}
+		writeJSON(newResponse(req.ID, map[string]bool{"ok": true}))
+	}()
 }
 
 func (s *Server) handleSetBreakpoints(session *Session, req *Request) *Response {
