@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.4] - 2026-03-19
+
+### Fixed
+- **RabbitMQ `ConsumeOne` not receiving messages**: Replaced `Basic.Get` (polling) with `Basic.Consume` (temporary consumer). `Basic.Get` silently failed to return messages on managed RabbitMQ providers (CloudAMQP). Now uses a short-lived consumer tag that receives one message and cancels, which is the standard push-based mechanism and works reliably across all RabbitMQ deployments
+
 ## [1.15.3] - 2026-03-19
 
 ### Fixed

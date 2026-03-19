@@ -397,8 +397,11 @@ func (c *Connector) SetManualConsume(enabled bool) {
 	c.manualConsume = enabled
 }
 
-// ConsumeOne fetches and processes a single message from the queue using Basic.Get.
-// Blocks until a message is available or context is cancelled.
+// ConsumeOne fetches and processes a single message from the queue.
+// Uses Basic.Consume with a temporary consumer tag, receives one message,
+// then cancels the consumer. More reliable than Basic.Get across managed
+// RabbitMQ providers (e.g. CloudAMQP).
+// Blocks until a message is available and fully processed, or context is cancelled.
 func (c *Connector) ConsumeOne(ctx context.Context) error {
 	c.mu.RLock()
 	ch := c.channel
@@ -416,29 +419,46 @@ func (c *Connector) ConsumeOne(ctx context.Context) error {
 		return fmt.Errorf("queue name is required")
 	}
 
-	// Poll with Basic.Get until a message arrives or context is cancelled.
-	// Basic.Get is non-blocking — if the queue is empty it returns ok=false.
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
+	// Use a unique consumer tag so we can cancel after one message
+	consumerTag := fmt.Sprintf("mycel-debug-%d", time.Now().UnixNano())
 
-		delivery, ok, err := ch.Get(queueName, false)
-		if err != nil {
-			return fmt.Errorf("failed to get message: %w", err)
-		}
+	c.logger.Debug("ConsumeOne: starting temporary consumer",
+		"queue", queueName,
+		"consumer_tag", consumerTag,
+	)
 
+	deliveries, err := ch.Consume(
+		queueName,
+		consumerTag,
+		false, // autoAck
+		false, // exclusive
+		false, // noLocal
+		false, // noWait
+		nil,   // args
+	)
+	if err != nil {
+		return fmt.Errorf("failed to start consumer: %w", err)
+	}
+
+	// Wait for exactly one message, then cancel the consumer
+	defer func() {
+		if cancelErr := ch.Cancel(consumerTag, false); cancelErr != nil {
+			c.logger.Debug("ConsumeOne: cancel consumer", "error", cancelErr)
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case delivery, ok := <-deliveries:
 		if !ok {
-			// No message available, wait briefly and retry
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(100 * time.Millisecond):
-				continue
-			}
+			return fmt.Errorf("delivery channel closed unexpectedly")
 		}
+
+		c.logger.Debug("ConsumeOne: message received",
+			"routing_key", delivery.RoutingKey,
+			"size", len(delivery.Body),
+		)
 
 		// Process the message through the normal handler pipeline
 		err = c.handleDelivery(ctx, delivery)
