@@ -361,7 +361,9 @@ func (c *Connector) Start(ctx context.Context) error {
 // AllowOne permits exactly one message through the debug gate.
 // Called when the IDE sends debug.consume.
 func (c *Connector) AllowOne() {
+	c.logger.Info("AllowOne called, gate enabled", "gate_enabled", c.debugGate.IsEnabled())
 	c.debugGate.Allow()
+	c.logger.Info("AllowOne: token placed in gate")
 }
 
 // SourceInfo returns the connector type and queue name for IDE display.

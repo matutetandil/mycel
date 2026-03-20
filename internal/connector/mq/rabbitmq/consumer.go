@@ -93,7 +93,16 @@ func (c *Connector) consumeWorker(ctx context.Context, deliveries <-chan amqp.De
 				return
 			}
 
+			c.logger.Info("worker received delivery, waiting for gate",
+				"worker_id", workerID,
+				"routing_key", delivery.RoutingKey,
+				"size", len(delivery.Body),
+			)
 			c.debugGate.Acquire()
+			c.logger.Info("worker passed gate, processing",
+				"worker_id", workerID,
+				"routing_key", delivery.RoutingKey,
+			)
 			err := c.handleDelivery(ctx, delivery)
 			c.debugGate.Release()
 			if err != nil {

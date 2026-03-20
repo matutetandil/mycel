@@ -37,6 +37,13 @@ func (g *DebugGate) SetEnabled(enabled bool) {
 	}
 }
 
+// IsEnabled returns true if the gate is active (non-nil channel).
+func (g *DebugGate) IsEnabled() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.gate != nil
+}
+
 // Allow puts one token in the gate, allowing exactly one message through.
 // Called by the debug server when the IDE sends debug.consume.
 func (g *DebugGate) Allow() {
