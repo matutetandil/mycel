@@ -21,11 +21,11 @@ type RuntimeInspector interface {
 	GetCELTransformer() *transform.CELTransformer
 
 	// ListEventSources returns capabilities of event-driven connectors
-	// (used by debug.ready to tell the IDE what sources support manual consume).
+	// (used by debug.ready to tell the IDE what sources support studio consume).
 	ListEventSources() []SourceCapability
 
-	// ConsumeOne fetches a single message from the named connector.
-	// Only works for connectors implementing connector.DebugConsumer.
+	// ConsumeOne allows one message through the debug gate of the named connector.
+	// The connector's normal consumer loop processes the message.
 	ConsumeOne(ctx context.Context, connectorName string) error
 }
 

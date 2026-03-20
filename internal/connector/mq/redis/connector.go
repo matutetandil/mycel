@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/redis/go-redis/v9"
@@ -317,6 +318,19 @@ func (c *Connector) SetDebugMode(enabled bool) {
 	} else {
 		c.logger.Info("debug mode disabled: concurrent processing restored")
 	}
+}
+
+// AllowOne permits exactly one message through the debug gate.
+func (c *Connector) AllowOne() {
+	c.debugGate.Allow()
+}
+
+// SourceInfo returns the connector type and channel info for IDE display.
+func (c *Connector) SourceInfo() (string, string) {
+	if c.config != nil && len(c.config.Channels) > 0 {
+		return "redis", strings.Join(c.config.Channels, ",")
+	}
+	return "redis", ""
 }
 
 // Write publishes a message to a Redis Pub/Sub channel.

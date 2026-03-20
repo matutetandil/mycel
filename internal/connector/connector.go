@@ -28,25 +28,15 @@ type Connector interface {
 }
 
 // DebugThrottler is implemented by event-driven connectors that support
-// single-message debug throttling. When enabled, the connector processes
-// one message at a time, allowing the debugger to step through each message.
+// studio-controlled message processing. When enabled, the connector's
+// DebugGate blocks all messages until the IDE sends debug.consume,
+// which calls AllowOne() to let exactly one message through.
 type DebugThrottler interface {
 	SetDebugMode(enabled bool)
-}
 
-// DebugConsumer is implemented by queue-based connectors (RabbitMQ, Kafka)
-// that support manual message consumption in debug mode. When manual consume
-// is enabled, Start() connects to the broker and sets up topology but does
-// NOT begin automatic consumption. Messages are fetched one at a time via
-// ConsumeOne() when the IDE sends debug.consume.
-type DebugConsumer interface {
-	// SetManualConsume enables or disables manual consume mode.
-	// When true, Start() connects but does not start consuming.
-	SetManualConsume(enabled bool)
-
-	// ConsumeOne fetches and processes a single message from the queue.
-	// Blocks until a message is available or context is cancelled.
-	ConsumeOne(ctx context.Context) error
+	// AllowOne permits exactly one message through the debug gate.
+	// Called when the IDE sends debug.consume.
+	AllowOne()
 
 	// SourceInfo returns the connector type and source identifier
 	// (e.g., queue name for RabbitMQ, topic for Kafka) for IDE display.

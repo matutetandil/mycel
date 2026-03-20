@@ -117,6 +117,16 @@ func (c *Connector) SetDebugMode(enabled bool) {
 	}
 }
 
+// AllowOne permits exactly one file event through the debug gate.
+func (c *Connector) AllowOne() {
+	c.debugGate.Allow()
+}
+
+// SourceInfo returns the connector type and source info for IDE display.
+func (c *Connector) SourceInfo() (string, string) {
+	return "file", c.name
+}
+
 // RegisterRoute registers a handler for a file watch pattern (e.g., "*.csv").
 func (c *Connector) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
 	c.mu.Lock()

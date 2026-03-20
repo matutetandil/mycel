@@ -43,12 +43,8 @@ type Connector struct {
 	// Filter rejection tracking for requeue dedup
 	requeueTracker *flow.RequeueTracker
 
-	// Debug throttling: single-message processing when debugger is connected
+	// Debug throttling: studio-controlled single-message processing
 	debugGate connector.DebugGate
-
-	// Manual consume: when true, Start() sets up topology but does not
-	// start the consumer loop. Messages are fetched one at a time via ConsumeOne().
-	manualConsume bool
 }
 
 // NewConnector creates a new RabbitMQ connector.
@@ -353,11 +349,6 @@ func (c *Connector) Start(ctx context.Context) error {
 
 	// Start consumer if configured
 	if c.config.IsConsumer() {
-		// In manual consume mode, set up topology but don't start the consumer loop.
-		// Messages will be fetched one at a time via ConsumeOne().
-		if c.manualConsume {
-			return c.setupTopologyForManualConsume()
-		}
 		return c.startConsumer(c.ctx)
 	}
 
@@ -367,109 +358,10 @@ func (c *Connector) Start(ctx context.Context) error {
 	return nil
 }
 
-// setupTopologyForManualConsume prepares the queue/exchange topology without
-// starting automatic consumption. Used in debug mode with manual consume.
-func (c *Connector) setupTopologyForManualConsume() error {
-	if err := c.setupTopology(); err != nil {
-		return fmt.Errorf("failed to setup topology: %w", err)
-	}
-
-	queueName := ""
-	if c.config.Queue != nil {
-		queueName = c.config.Queue.Name
-	}
-
-	// Set prefetch to 0 — we'll use Basic.Get, not Basic.Consume
-	c.channel.Qos(1, 0, false)
-
-	c.logger.Info("manual consume mode: topology ready, waiting for debug.consume",
-		"name", c.name,
-		"queue", queueName,
-	)
-
-	go c.monitorConnection()
-	return nil
-}
-
-// SetManualConsume enables or disables manual consume mode.
-// When true, Start() connects and sets up topology but does not begin consuming.
-func (c *Connector) SetManualConsume(enabled bool) {
-	c.manualConsume = enabled
-}
-
-// ConsumeOne fetches and processes a single message from the queue.
-// Uses Basic.Consume with a temporary consumer tag, receives one message,
-// then cancels the consumer. More reliable than Basic.Get across managed
-// RabbitMQ providers (e.g. CloudAMQP).
-// Blocks until a message is available and fully processed, or context is cancelled.
-func (c *Connector) ConsumeOne(ctx context.Context) error {
-	c.mu.RLock()
-	ch := c.channel
-	c.mu.RUnlock()
-
-	if ch == nil || ch.IsClosed() {
-		return fmt.Errorf("channel is not available")
-	}
-
-	queueName := ""
-	if c.config.Queue != nil {
-		queueName = c.config.Queue.Name
-	}
-	if queueName == "" {
-		return fmt.Errorf("queue name is required")
-	}
-
-	// Use a unique consumer tag so we can cancel after one message
-	consumerTag := fmt.Sprintf("mycel-debug-%d", time.Now().UnixNano())
-
-	c.logger.Debug("ConsumeOne: starting temporary consumer",
-		"queue", queueName,
-		"consumer_tag", consumerTag,
-	)
-
-	deliveries, err := ch.Consume(
-		queueName,
-		consumerTag,
-		false, // autoAck
-		false, // exclusive
-		false, // noLocal
-		false, // noWait
-		nil,   // args
-	)
-	if err != nil {
-		return fmt.Errorf("failed to start consumer: %w", err)
-	}
-
-	// Wait for exactly one message, then cancel the consumer
-	defer func() {
-		if cancelErr := ch.Cancel(consumerTag, false); cancelErr != nil {
-			c.logger.Debug("ConsumeOne: cancel consumer", "error", cancelErr)
-		}
-	}()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case delivery, ok := <-deliveries:
-		if !ok {
-			return fmt.Errorf("delivery channel closed unexpectedly")
-		}
-
-		c.logger.Debug("ConsumeOne: message received",
-			"routing_key", delivery.RoutingKey,
-			"size", len(delivery.Body),
-		)
-
-		// Process the message through the normal handler pipeline
-		err = c.handleDelivery(ctx, delivery)
-		if err != nil {
-			c.logger.Error("failed to handle delivery in manual consume",
-				"error", err,
-				"routing_key", delivery.RoutingKey,
-			)
-		}
-		return nil
-	}
+// AllowOne permits exactly one message through the debug gate.
+// Called when the IDE sends debug.consume.
+func (c *Connector) AllowOne() {
+	c.debugGate.Allow()
 }
 
 // SourceInfo returns the connector type and queue name for IDE display.

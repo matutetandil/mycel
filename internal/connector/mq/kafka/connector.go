@@ -50,8 +50,6 @@ type Connector struct {
 	// Debug throttling: single-message processing when debugger is connected
 	debugGate connector.DebugGate
 
-	// Manual consume: when true, Start() creates reader but doesn't start consume loop.
-	manualConsume bool
 }
 
 // NewConnector creates a new Kafka connector.
@@ -210,45 +208,13 @@ func (c *Connector) Start(ctx context.Context) error {
 
 	c.requeueTracker = flow.NewRequeueTracker(10 * time.Minute)
 
-	// In manual consume mode, create the reader but don't start consume loops.
-	if c.manualConsume {
-		return c.startReaderOnly(ctx)
-	}
 	return c.startConsumer(ctx)
 }
 
-// SetManualConsume enables or disables manual consume mode.
-func (c *Connector) SetManualConsume(enabled bool) {
-	c.manualConsume = enabled
-}
-
-// ConsumeOne fetches and processes a single message using FetchMessage.
-func (c *Connector) ConsumeOne(ctx context.Context) error {
-	if c.reader == nil {
-		return fmt.Errorf("kafka reader not initialized")
-	}
-
-	msg, err := c.reader.FetchMessage(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to fetch message: %w", err)
-	}
-
-	// Process through normal handler pipeline
-	if handleErr := c.handleMessage(ctx, msg); handleErr != nil {
-		c.logger.Error("failed to handle message in manual consume",
-			"topic", msg.Topic,
-			"partition", msg.Partition,
-			"offset", msg.Offset,
-			"error", handleErr,
-		)
-	}
-
-	// Commit the message offset
-	if err := c.reader.CommitMessages(ctx, msg); err != nil {
-		c.logger.Error("failed to commit message", "error", err)
-	}
-
-	return nil
+// AllowOne permits exactly one message through the debug gate.
+// Called when the IDE sends debug.consume.
+func (c *Connector) AllowOne() {
+	c.debugGate.Allow()
 }
 
 // SourceInfo returns the connector type and topic info for IDE display.

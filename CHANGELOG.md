@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.5] - 2026-03-20
+
+### Changed
+- **Studio-controlled debug gate**: Replaced manual consume (`ConsumeOne`/`SetManualConsume`/`setupTopologyForManualConsume`) with a simpler gate-based approach. The `DebugGate` now starts blocked when a debugger connects — the IDE sends `debug.consume` to allow exactly one message through. The connector's normal consumer loop handles processing, eliminating the need for temporary consumers or separate reader-only modes
+- **`DebugThrottler` interface expanded**: Now includes `AllowOne()` and `SourceInfo()` methods. All 7 event-driven connectors (RabbitMQ, Kafka, Redis Pub/Sub, MQTT, CDC, File watch, WebSocket) implement the full interface, making all of them controllable from the IDE via `debug.consume`
+- **`debug.consume` returns immediately**: No longer blocks waiting for a message. Puts one token in the gate and returns — the message is processed asynchronously by the consumer loop, with events flowing through the event stream
+
+### Removed
+- **`DebugConsumer` interface**: Replaced by expanded `DebugThrottler`. The separate `SetManualConsume`, `ConsumeOne`, and `SourceInfo` methods on `DebugConsumer` are no longer needed
+- **RabbitMQ `setupTopologyForManualConsume`**: Connector now always starts its normal consumer loop with `startConsumer`
+- **Kafka `startReaderOnly`**: Connector now always starts its normal consumer with `startConsumer`
+- **Goroutine in `handleConsumeAsync`**: Since `debug.consume` is now synchronous (just puts a token), the async dispatch was removed
+
 ## [1.15.4] - 2026-03-19
 
 ### Fixed

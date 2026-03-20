@@ -250,11 +250,7 @@ func (s *Server) handleMethod(session *Session, req *Request, writeJSON func(v i
 		return s.handleThreads(session, req)
 
 	case "debug.consume":
-		// Dispatched asynchronously — ConsumeOne blocks until the message is
-		// fully processed (including breakpoints). The read loop must stay free
-		// to handle debug.continue, debug.variables, etc. during processing.
-		s.handleConsumeAsync(session, req, writeJSON)
-		return nil
+		return s.handleConsume(session, req)
 
 	case "inspect.flows":
 		return s.handleInspectFlows(req)
@@ -294,31 +290,26 @@ func (s *Server) handleReady(session *Session, req *Request) *Response {
 	})
 }
 
-// handleConsumeAsync runs ConsumeOne in a separate goroutine so the WebSocket
-// read loop remains free to process other commands (debug.continue, etc.)
-// while the message travels through the pipeline.
-func (s *Server) handleConsumeAsync(session *Session, req *Request, writeJSON func(v interface{}) error) {
+// handleConsume allows one message through the debug gate of the named connector.
+// Returns immediately — the message is processed asynchronously by the connector's
+// normal consumer loop, and events (flowStart, stopped, etc.) arrive via the event stream.
+func (s *Server) handleConsume(session *Session, req *Request) *Response {
 	var params ConsumeParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		writeJSON(newErrorResponse(req.ID, CodeInvalidParams, err.Error()))
-		return
+		return newErrorResponse(req.ID, CodeInvalidParams, err.Error())
 	}
 
 	if params.Connector == "" {
-		writeJSON(newErrorResponse(req.ID, CodeInvalidParams, "connector name is required"))
-		return
+		return newErrorResponse(req.ID, CodeInvalidParams, "connector name is required")
 	}
 
-	s.logger.Info("debug.consume: fetching one message", "connector", params.Connector)
+	s.logger.Info("debug.consume: allowing one message", "connector", params.Connector)
 
-	go func() {
-		err := s.inspector.ConsumeOne(context.Background(), params.Connector)
-		if err != nil {
-			writeJSON(newErrorResponse(req.ID, CodeInternalError, err.Error()))
-			return
-		}
-		writeJSON(newResponse(req.ID, map[string]bool{"ok": true}))
-	}()
+	err := s.inspector.ConsumeOne(context.Background(), params.Connector)
+	if err != nil {
+		return newErrorResponse(req.ID, CodeInternalError, err.Error())
+	}
+	return newResponse(req.ID, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleSetBreakpoints(session *Session, req *Request) *Response {

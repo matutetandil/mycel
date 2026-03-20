@@ -523,13 +523,6 @@ func New(opts Options) (*Runtime, error) {
 	r.debugServer.OnReady = func() {
 		if len(r.suspendedStarters) > 0 {
 			for _, sc := range r.suspendedStarters {
-				// Enable manual consume on connectors that support it.
-				// This makes Start() set up topology without starting the consumer loop.
-				conn, _ := r.connectors.Get(sc.name)
-				if dc, ok := conn.(connector.DebugConsumer); ok {
-					dc.SetManualConsume(true)
-				}
-
 				r.logger.Info("debug ready: starting connector",
 					"connector", sc.name)
 				if err := sc.starter.Start(context.Background()); err != nil {
@@ -916,16 +909,13 @@ func (r *Runtime) ListEventSources() []debug.SourceCapability {
 		if _, isEventDriven := conn.(connector.DebugThrottler); !isEventDriven {
 			continue
 		}
+		dt := conn.(connector.DebugThrottler)
+		connType, source := dt.SourceInfo()
 		cap := debug.SourceCapability{
-			Connector: name,
-		}
-		if dc, ok := conn.(connector.DebugConsumer); ok {
-			connType, source := dc.SourceInfo()
-			cap.Type = connType
-			cap.Source = source
-			cap.ManualConsume = true
-		} else {
-			cap.Type = conn.Type()
+			Connector:     name,
+			Type:          connType,
+			Source:        source,
+			ManualConsume: true,
 		}
 		sources = append(sources, cap)
 	}
@@ -938,11 +928,12 @@ func (r *Runtime) ConsumeOne(ctx context.Context, connectorName string) error {
 	if err != nil {
 		return fmt.Errorf("connector %q not found: %w", connectorName, err)
 	}
-	dc, ok := conn.(connector.DebugConsumer)
+	dt, ok := conn.(connector.DebugThrottler)
 	if !ok {
-		return fmt.Errorf("connector %q does not support manual consume", connectorName)
+		return fmt.Errorf("connector %q does not support debug consume", connectorName)
 	}
-	return dc.ConsumeOne(ctx)
+	dt.AllowOne()
+	return nil
 }
 
 // GetDebugServer returns the debug protocol server for flow handler integration.
@@ -2320,12 +2311,6 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 		// Start suspended connectors only if the debugger already completed setup
 		if r.debugServer.IsReady() && len(r.suspendedStarters) > 0 {
 			for _, sc := range r.suspendedStarters {
-				// Enable manual consume on connectors that support it
-				conn, _ := r.connectors.Get(sc.name)
-				if dc, ok := conn.(connector.DebugConsumer); ok {
-					dc.SetManualConsume(true)
-				}
-
 				r.logger.Info("hot reload: starting connector (debugger ready)",
 					"connector", sc.name)
 				if err := sc.starter.Start(context.Background()); err != nil {

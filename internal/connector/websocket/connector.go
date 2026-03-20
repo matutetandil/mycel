@@ -150,6 +150,16 @@ func (c *Connector) SetDebugMode(enabled bool) {
 	}
 }
 
+// AllowOne permits exactly one message through the debug gate.
+func (c *Connector) AllowOne() {
+	c.debugGate.Allow()
+}
+
+// SourceInfo returns the connector type and source info for IDE display.
+func (c *Connector) SourceInfo() (string, string) {
+	return "websocket", c.name
+}
+
 // Start starts the WebSocket HTTP server.
 func (c *Connector) Start(ctx context.Context) error {
 	c.mu.Lock()

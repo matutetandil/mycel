@@ -3,8 +3,12 @@ package connector
 import "sync"
 
 // DebugGate is a reusable semaphore that enforces single-message processing
-// when a debugger is connected. When enabled, only one goroutine can hold the
-// gate at a time; others block until it is released.
+// when a Studio debugger is connected. The gate starts BLOCKED — no messages
+// pass through until the IDE explicitly calls Allow() via debug.consume.
+//
+// Flow: IDE sends debug.consume → Allow() puts one token → consumer worker
+// Acquire() succeeds → message is processed → Release() is a no-op →
+// gate blocks again until next Allow().
 //
 // Zero value is ready to use (gate disabled = no throttling).
 type DebugGate struct {
@@ -12,8 +16,9 @@ type DebugGate struct {
 	gate chan struct{}
 }
 
-// SetEnabled enables or disables single-message throttling.
-// When enabling, a buffered channel of size 1 is created with one pre-filled token.
+// SetEnabled enables or disables studio-controlled throttling.
+// When enabling, a buffered channel of size 1 is created WITHOUT a token —
+// the gate starts blocked. The IDE controls flow via Allow().
 // When disabling, the channel is set to nil, unblocking future Acquire calls.
 func (g *DebugGate) SetEnabled(enabled bool) {
 	g.mu.Lock()
@@ -21,9 +26,24 @@ func (g *DebugGate) SetEnabled(enabled bool) {
 
 	if enabled {
 		g.gate = make(chan struct{}, 1)
-		g.gate <- struct{}{} // pre-fill: first message can proceed immediately
+		// No pre-fill: gate starts blocked, IDE controls via Allow()
 	} else {
 		g.gate = nil
+	}
+}
+
+// Allow puts one token in the gate, allowing exactly one message through.
+// Called by the debug server when the IDE sends debug.consume.
+func (g *DebugGate) Allow() {
+	g.mu.Lock()
+	gate := g.gate
+	g.mu.Unlock()
+
+	if gate != nil {
+		select {
+		case gate <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -39,17 +59,10 @@ func (g *DebugGate) Acquire() {
 	}
 }
 
-// Release returns the token so the next message can proceed.
-// No-op if the gate is disabled.
+// Release is a no-op when the gate is enabled (studio mode).
+// The IDE controls the next message via Allow(). When the gate is disabled,
+// this is also a no-op since Acquire doesn't block.
 func (g *DebugGate) Release() {
-	g.mu.Lock()
-	gate := g.gate
-	g.mu.Unlock()
-
-	if gate != nil {
-		select {
-		case gate <- struct{}{}:
-		default:
-		}
-	}
+	// In studio mode, don't put the token back.
+	// The next message waits for the IDE to call Allow().
 }
