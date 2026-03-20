@@ -528,6 +528,13 @@ func New(opts Options) (*Runtime, error) {
 				if err := sc.starter.Start(context.Background()); err != nil {
 					r.logger.Error("failed to start suspended connector",
 						"connector", sc.name, "error", err)
+					continue
+				}
+				// Re-apply debug mode AFTER Start() so it takes effect on the
+				// newly created channel/consumer (prefetch=1 + gate enabled).
+				conn, _ := r.connectors.Get(sc.name)
+				if throttler, ok := conn.(connector.DebugThrottler); ok {
+					throttler.SetDebugMode(true)
 				}
 			}
 			r.suspendedStarters = nil
@@ -2316,6 +2323,13 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 				if err := sc.starter.Start(context.Background()); err != nil {
 					r.logger.Error("failed to start connector after hot reload",
 						"connector", sc.name, "error", err)
+					continue
+				}
+				// Re-apply debug mode AFTER Start() so it takes effect on the
+				// newly created channel/consumer (prefetch=1 + gate enabled).
+				conn, _ := r.connectors.Get(sc.name)
+				if throttler, ok := conn.(connector.DebugThrottler); ok {
+					throttler.SetDebugMode(true)
 				}
 			}
 			r.suspendedStarters = nil
