@@ -143,11 +143,15 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Start event forwarding once session exists
 	startEventForwarding := func() {
 		go func() {
+			s.logger.Info("event forwarding goroutine started")
 			for n := range eventCh {
+				s.logger.Info("event forwarding: sending event", "method", n.Method)
 				if err := writeJSON(n); err != nil {
+					s.logger.Error("event forwarding: write failed, goroutine exiting", "error", err)
 					return
 				}
 			}
+			s.logger.Info("event forwarding: channel closed, goroutine exiting")
 		}()
 	}
 
