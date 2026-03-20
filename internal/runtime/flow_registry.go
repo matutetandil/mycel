@@ -170,6 +170,13 @@ var FilteredResult = &struct{ Filtered bool }{Filtered: true}
 
 // HandleRequest processes an incoming request through the flow.
 func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interface{}) (result interface{}, err error) {
+	h.Logger.Info("HandleRequest entered",
+		"flow", h.Config.Name,
+		"hasDebugServer", h.DebugServer != nil,
+		"hasClients", h.DebugServer != nil && h.DebugServer.HasClients(),
+		"isTracing", trace.IsTracing(ctx),
+	)
+
 	// Attach Studio debug context when a debug client is connected.
 	// This takes priority over verbose flow to ensure breakpoints work.
 	var debugThread *debug.DebugThread
@@ -202,7 +209,15 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 			hook := debug.NewStudioTransformHook(session, debugThread, stream, debugCollector, h.Config.Name, trace.StageTransform)
 			ctx = transform.WithTransformHook(ctx, hook)
 
+			h.Logger.Info("debug injection complete, broadcasting flowStart",
+				"flow", h.Config.Name,
+				"threadID", threadID,
+				"hasStream", stream != nil,
+				"streamHasSubscribers", stream.HasSubscribers(),
+			)
 			debugCollector.BroadcastFlowStart(input)
+		} else {
+			h.Logger.Warn("ActiveSession returned nil despite HasClients=true")
 		}
 	}
 
