@@ -114,6 +114,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	var eventCh <-chan *Notification
 	defer func() {
 		if sessionID != "" {
+			// Resume all paused threads so blocked workers can continue.
+			// Without this, workers stay stuck in Pause() forever.
+			if session != nil {
+				session.ResumeAll()
+			}
+
 			s.stream.Unsubscribe(sessionID)
 			s.mu.Lock()
 			delete(s.sessions, sessionID)

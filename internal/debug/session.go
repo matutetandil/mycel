@@ -88,6 +88,18 @@ func (s *Session) UnregisterThread(id string) {
 	delete(s.threads, id)
 }
 
+// ResumeAll resumes all paused threads with an abort action.
+// Called when a debug client disconnects so workers don't stay stuck forever.
+func (s *Session) ResumeAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, t := range s.threads {
+		if t.IsPaused() {
+			t.Resume(actionContinue)
+		}
+	}
+}
+
 // GetThread returns a debug thread by ID.
 func (s *Session) GetThread(id string) (*DebugThread, bool) {
 	s.mu.Lock()

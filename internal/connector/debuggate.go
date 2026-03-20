@@ -12,8 +12,9 @@ import "sync"
 //
 // Zero value is ready to use (gate disabled = no throttling).
 type DebugGate struct {
-	mu   sync.Mutex
-	gate chan struct{}
+	mu     sync.Mutex
+	gate   chan struct{}
+	cancel chan struct{} // closed when gate is disabled to unblock Acquire()
 }
 
 // SetEnabled enables or disables studio-controlled throttling.
@@ -21,7 +22,7 @@ type DebugGate struct {
 // the gate starts blocked. The IDE controls flow via Allow().
 // Idempotent: calling SetEnabled(true) when already enabled keeps the
 // existing channel, avoiding orphaned goroutines blocked on the old one.
-// When disabling, the channel is set to nil, unblocking future Acquire calls.
+// When disabling, the cancel channel is closed to unblock any Acquire() callers.
 func (g *DebugGate) SetEnabled(enabled bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -29,11 +30,16 @@ func (g *DebugGate) SetEnabled(enabled bool) {
 	if enabled {
 		if g.gate == nil {
 			g.gate = make(chan struct{}, 1)
+			g.cancel = make(chan struct{})
 			// No pre-fill: gate starts blocked, IDE controls via Allow()
 		}
 		// Already enabled — keep the existing channel
 	} else {
+		if g.cancel != nil {
+			close(g.cancel) // unblock any goroutines waiting in Acquire()
+		}
 		g.gate = nil
+		g.cancel = nil
 	}
 }
 
@@ -59,15 +65,21 @@ func (g *DebugGate) Allow() {
 	}
 }
 
-// Acquire blocks until the gate token is available. Returns immediately if
-// the gate is disabled (nil). Call Release after processing the message.
+// Acquire blocks until a gate token is available or the gate is disabled.
+// Returns immediately if the gate is disabled (nil).
 func (g *DebugGate) Acquire() {
 	g.mu.Lock()
 	gate := g.gate
+	cancel := g.cancel
 	g.mu.Unlock()
 
 	if gate != nil {
-		<-gate
+		select {
+		case <-gate:
+			// Token received, proceed
+		case <-cancel:
+			// Gate disabled while waiting, proceed without token
+		}
 	}
 }
 
