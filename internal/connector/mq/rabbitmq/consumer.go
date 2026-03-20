@@ -103,15 +103,31 @@ func (c *Connector) consumeWorker(ctx context.Context, deliveries <-chan amqp.De
 				"worker_id", workerID,
 				"routing_key", delivery.RoutingKey,
 			)
-			err := c.handleDelivery(ctx, delivery)
-			c.debugGate.Release()
-			if err != nil {
-				c.logger.Error("failed to handle delivery",
-					"worker_id", workerID,
-					"error", err,
-					"routing_key", delivery.RoutingKey,
-				)
-			}
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						c.logger.Error("PANIC in handleDelivery",
+							"worker_id", workerID,
+							"panic", fmt.Sprintf("%v", r),
+							"routing_key", delivery.RoutingKey,
+						)
+					}
+				}()
+				err := c.handleDelivery(ctx, delivery)
+				c.debugGate.Release()
+				if err != nil {
+					c.logger.Error("failed to handle delivery",
+						"worker_id", workerID,
+						"error", err,
+						"routing_key", delivery.RoutingKey,
+					)
+				} else {
+					c.logger.Info("worker completed delivery",
+						"worker_id", workerID,
+						"routing_key", delivery.RoutingKey,
+					)
+				}
+			}()
 		}
 	}
 }
@@ -166,7 +182,14 @@ func (c *Connector) handleDelivery(ctx context.Context, delivery amqp.Delivery) 
 	// Find handler for this routing key
 	c.mu.RLock()
 	handler := c.findHandler(delivery.RoutingKey)
+	handlerCount := len(c.handlers)
 	c.mu.RUnlock()
+
+	c.logger.Info("handleDelivery: handler lookup",
+		"routing_key", delivery.RoutingKey,
+		"handler_found", handler != nil,
+		"registered_handlers", handlerCount,
+	)
 
 	if handler == nil {
 		c.logger.Warn("no handler for routing key",
