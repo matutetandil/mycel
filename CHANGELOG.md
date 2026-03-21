@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.0] - 2026-03-21
+
+### Added
+- **IDE intelligence engine** (`pkg/ide/`): Importable Go package for Mycel Studio providing real-time HCL intelligence. Permissive parser (tolerates incomplete files), project-wide index (connectors, flows, types, transforms, aspects), context-aware completions (blocks, attributes, values with project references), 3-layer diagnostics (syntax errors, schema validation, cross-reference checks), go-to-definition, and hover documentation. Thread-safe, no dependency on `internal/`. 14 tests
+
 ## [1.16.1] - 2026-03-21
 
 ### Added
