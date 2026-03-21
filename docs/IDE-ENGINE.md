@@ -1,0 +1,442 @@
+# Mycel IDE Intelligence Engine
+
+> **Package:** `github.com/matutetandil/mycel/pkg/ide`
+> **For:** Mycel Studio (Go + Wails) and any IDE integration
+> **Dependencies:** `hashicorp/hcl/v2`, `zclconf/go-cty` (no `internal/` imports)
+
+## What This Package Does
+
+`pkg/ide` is a standalone Go library that provides real-time HCL intelligence for Mycel configurations. It parses all `.hcl` files in a project directory, builds an in-memory index of all entities (connectors, flows, types, transforms, aspects, etc.), and answers IDE queries: completions, diagnostics, hover documentation, and go-to-definition.
+
+Studio imports this package directly — no separate LSP process, no subcommand, no JSON-RPC. Just Go function calls.
+
+## Quick Integration
+
+```go
+import "github.com/matutetandil/mycel/pkg/ide"
+
+// On project open
+engine := ide.NewEngine("/path/to/mycel-project")
+diags := engine.FullReindex() // parse all .hcl files
+// → show diags in Problems panel
+
+// On file edit (content = unsaved buffer)
+diags := engine.UpdateFile(path, content)
+// → update Problems panel for this file
+
+// On file delete
+diags := engine.RemoveFile(path)
+// → update Problems panel
+
+// When user triggers autocomplete (Ctrl+Space or typing)
+items := engine.Complete(path, line, col)
+// → show items in autocomplete dropdown
+
+// When user hovers over a token
+result := engine.Hover(path, line, col)
+// → show result.Content in tooltip
+
+// When user Ctrl+clicks or "Go to Definition"
+loc := engine.Definition(path, line, col)
+// → open loc.File at loc.Range.Start
+```
+
+## Public API
+
+### Engine
+
+```go
+type Engine struct { /* unexported fields */ }
+
+func NewEngine(rootDir string) *Engine
+```
+
+All methods are **thread-safe** (internal `sync.RWMutex`). Studio can call `UpdateFile` from a file watcher goroutine and `Complete` from the UI thread simultaneously.
+
+### Lifecycle Methods
+
+| Method | When to call | Returns |
+|--------|-------------|---------|
+| `FullReindex() []*Diagnostic` | On project open | All diagnostics across all files |
+| `UpdateFile(path string, content []byte) []*Diagnostic` | On file save or edit (pass unsaved buffer content) | Diagnostics for the updated file |
+| `RemoveFile(path string) []*Diagnostic` | On file delete | Cross-reference diagnostics affected by removal |
+
+### Query Methods
+
+| Method | When to call | Returns |
+|--------|-------------|---------|
+| `Complete(path string, line, col int) []CompletionItem` | User triggers autocomplete | Context-aware suggestions |
+| `Diagnose(path string) []*Diagnostic` | On demand for a single file | Parse + schema + cross-ref diagnostics |
+| `DiagnoseAll() []*Diagnostic` | On demand for entire project | All diagnostics |
+| `Hover(path string, line, col int) *HoverResult` | User hovers over a token | Documentation or entity info |
+| `Definition(path string, line, col int) *Location` | User Ctrl+clicks a reference | Source location of the referenced entity |
+
+### Inspection
+
+| Method | Purpose |
+|--------|---------|
+| `GetIndex() *ProjectIndex` | Access the project index for custom queries (testing, visualization) |
+
+## Data Types
+
+### Diagnostic
+
+```go
+type Diagnostic struct {
+    Severity Severity `json:"severity"` // SeverityError=1, SeverityWarning=2, SeverityInfo=3
+    Message  string   `json:"message"`
+    File     string   `json:"file"`
+    Range    Range    `json:"range"`
+}
+```
+
+**Three diagnostic layers:**
+
+1. **Parse errors** — HCL syntax errors (unclosed braces, invalid tokens). These come from `hashicorp/hcl/v2` directly.
+2. **Schema validation** — Unknown block types, missing required attributes, invalid enum values. Uses the static schema in `schema.go`.
+3. **Cross-reference validation** — Undefined connectors/types/transforms/flows, duplicate names. Uses the project-wide index.
+
+**Example messages:**
+- `"unknown block type 'flw'"` (typo in block type)
+- `"missing required attribute 'type' in connector block"` (forgot `type = "rest"`)
+- `"invalid value 'bad' for connector.type (valid: [rest, database, mq, ...])"` (invalid enum)
+- `"undefined connector 'nonexistent'"` (reference to missing connector)
+- `"duplicate flow name 'test' (also defined in other.hcl)"` (name collision)
+
+### CompletionItem
+
+```go
+type CompletionItem struct {
+    Label      string         `json:"label"`
+    Kind       CompletionKind `json:"kind"`       // CompletionBlock=1, CompletionAttribute=2, CompletionValue=3
+    Detail     string         `json:"detail"`
+    Doc        string         `json:"doc"`
+    InsertText string         `json:"insertText"` // What gets inserted (may include snippet template)
+}
+```
+
+### HoverResult
+
+```go
+type HoverResult struct {
+    Content string `json:"content"` // Markdown-like documentation text
+    Range   Range  `json:"range"`
+}
+```
+
+### Location (go-to-definition)
+
+```go
+type Location struct {
+    File  string `json:"file"`
+    Range Range  `json:"range"`
+}
+```
+
+### Position and Range
+
+```go
+type Position struct {
+    Line   int `json:"line"`   // 1-based
+    Col    int `json:"col"`    // 1-based
+    Offset int `json:"offset"` // 0-based byte offset
+}
+
+type Range struct {
+    Start Position `json:"start"`
+    End   Position `json:"end"`
+}
+```
+
+**Important:** Lines and columns are **1-based** (matching HCL and most editor conventions). Offsets are **0-based** byte offsets.
+
+## How Completions Work
+
+The engine detects the cursor context (what block the cursor is in, whether it's in an attribute name or value position) and returns context-appropriate suggestions.
+
+### Context Detection
+
+Given `(file, line, col)`, the engine:
+1. Walks the parsed block tree to find the deepest block containing the cursor
+2. Checks if the cursor is on an attribute (name or value position)
+3. Builds a "block path" like `["flow", "from"]` or `["connector"]`
+
+### Three Completion Modes
+
+**1. Root level** — Cursor is not inside any block:
+- Returns all 17 valid root block types: `connector`, `flow`, `type`, `transform`, `aspect`, `service`, `validator`, `saga`, `state_machine`, `functions`, `plugin`, `auth`, `security`, `mocks`, `cache`, `environment`
+- InsertText includes snippet: `flow "name" {\n  \n}`
+
+**2. Inside a block** — Cursor is inside a block body (not in a value):
+- Returns valid child blocks not yet present (except multi-allowed: `step`, `enrich`, `to`)
+- Returns valid attributes not yet defined
+- Required attributes marked with `(required)` in detail
+- InsertText: `connector = ""` (strings), `parallel = true` (bools)
+
+**3. Attribute value** — Cursor is after `=`:
+- **Enum values**: For attributes with a fixed set of valid values (e.g., `on_reject` → `"ack"`, `"reject"`, `"requeue"`)
+- **Project references**: For attributes that reference other entities:
+  - `connector = ` → names from `ProjectIndex.Connectors` (with type/driver detail)
+  - `validate { input = ` → names from `ProjectIndex.Types`
+  - `transform { use = ` → names from `ProjectIndex.Transforms`
+  - `aspect { action { flow = ` → names from `ProjectIndex.Flows`
+  - `cache = ` → names from `ProjectIndex.Caches`
+
+### Example
+
+User is editing `flows.hcl` with cursor at `|`:
+
+```hcl
+flow "get_users" {
+  from {
+    connector = "|"
+  }
+}
+```
+
+The engine returns:
+```json
+[
+  {"label": "api", "kind": 3, "detail": "rest", "insertText": "\"api\""},
+  {"label": "db", "kind": 3, "detail": "database/postgres", "insertText": "\"db\""}
+]
+```
+
+## How Go-to-Definition Works
+
+When the user Ctrl+clicks on a reference value (e.g., `connector = "api"`), the engine:
+
+1. Detects cursor is in an attribute value
+2. Looks up the attribute's schema to find its `RefKind`
+3. Resolves the reference against the project index
+4. Returns the `Location` of the target entity's block definition
+
+**Supported references:**
+
+| Attribute context | RefKind | Resolves to |
+|-------------------|---------|-------------|
+| `from/to/step { connector = "X" }` | `RefConnector` | `connector "X" { }` block |
+| `validate { input = "type.X" }` | `RefType` | `type "X" { }` block |
+| `transform { use = "X" }` | `RefTransform` | `transform "X" { }` block |
+| `aspect { action { flow = "X" } }` | `RefFlow` | `flow "X" { }` block |
+| `cache = "cache.X"` | `RefCache` | `cache "X" { }` block |
+
+## How Hover Works
+
+Three hover contexts:
+
+1. **On attribute name** (e.g., hovering on `on_reject`):
+   → Shows the attribute's documentation from the schema
+   → If the attribute has enum values, appends "Valid values: ack, reject, requeue"
+
+2. **On reference value** (e.g., hovering on `"api"` in `connector = "api"`):
+   → Shows the referenced entity's info: name, type, driver, source file
+
+3. **On block type keyword** (e.g., hovering on `accept`):
+   → Shows the block's documentation from the schema
+
+## Schema Registry
+
+The schema is a static Go data structure in `schema.go` that describes every valid block, attribute, and value in the Mycel HCL configuration language.
+
+### Block Types
+
+| Block | Labels | Doc |
+|-------|--------|-----|
+| `connector` | 1 | Bidirectional adapter for databases, APIs, queues, and other services |
+| `flow` | 1 | Data flow from source to destination |
+| `type` | 1 | Schema definition for input/output validation |
+| `transform` | 1 | Reusable named transformation (CEL expressions) |
+| `aspect` | 1 | Cross-cutting concern applied via flow name pattern matching (AOP) |
+| `service` | 0 | Global service configuration |
+| `validator` | 1 | Custom validation rule (regex, CEL, or WASM) |
+| `saga` | 1 | Distributed transaction with automatic compensation |
+| `state_machine` | 1 | Entity lifecycle with guards, actions, and final states |
+| `functions` | 1 | Custom CEL functions |
+| `plugin` | 1 | WASM plugin for extending Mycel |
+| `auth` | 0 | Authentication configuration |
+| `security` | 0 | Security and sanitization rules |
+| `mocks` | 0 | Mock data for testing |
+| `cache` | 1 | Named cache definition |
+| `environment` | 1 | Environment-specific variables |
+
+### Connector Types (24)
+
+`rest`, `database`, `mq`, `graphql`, `grpc`, `file`, `s3`, `cache`, `tcp`, `exec`, `soap`, `mqtt`, `ftp`, `cdc`, `websocket`, `sse`, `elasticsearch`, `oauth`, `email`, `slack`, `discord`, `sms`, `push`, `webhook`, `pdf`
+
+### Connector Drivers (12)
+
+`sqlite`, `postgres`, `mysql`, `mongodb`, `rabbitmq`, `kafka`, `redis`, `memory`, `json`, `msgpack`, `nestjs`
+
+### Flow Children (18 block types)
+
+`from`, `to`, `accept`, `step`, `transform`, `response`, `validate`, `enrich`, `lock`, `semaphore`, `coordinate`, `cache`, `require`, `after`, `error_handling`, `dedupe`, `idempotency`, `async`, `batch`, `state_transition`
+
+### Extending the Schema
+
+When adding a new block type or attribute to Mycel, update `schema.go`:
+
+1. Add the block to `rootSchema()` or as a child of an existing block
+2. Define attributes with `AttrSchema` (name, doc, type, required, enum values, ref kind)
+3. The engine will automatically provide completions, diagnostics, and hover docs
+
+Example — adding a new `websocket` attribute to the `from` block:
+```go
+// In fromSchema(), add to Attrs:
+{Name: "reconnect", Doc: "Auto-reconnect on disconnect", Type: AttrBool},
+```
+
+## Project Index
+
+The `ProjectIndex` is rebuilt incrementally. When a file is updated:
+
+1. The file is re-parsed (permissive parser, ~1ms)
+2. Its `FileIndex` replaces the old one
+3. All lookup tables are rebuilt from scratch (O(files × blocks), typically <1ms)
+
+The rebuild scans every block in every file and populates the entity maps (`Connectors`, `Flows`, `Types`, etc.) by checking `block.Type` and extracting `type` and `driver` attributes for connectors.
+
+### Entity Resolution
+
+```go
+// Get a connector by name
+entity := engine.GetIndex().Connectors["api"]
+// entity.Kind = "connector"
+// entity.Name = "api"
+// entity.ConnType = "rest"
+// entity.Driver = ""
+// entity.File = "connectors/rest.hcl"
+// entity.Range = {Start: {Line: 1, Col: 1}, End: {Line: 4, Col: 2}}
+```
+
+## Studio Integration Guide
+
+### Recommended Architecture
+
+```
+Mycel Studio (Wails app)
+├── Frontend (HTML/JS/CSS)
+│   ├── Editor component (Monaco or CodeMirror)
+│   │   ├── On edit → call Go binding: UpdateFile(path, content)
+│   │   ├── On Ctrl+Space → call Go binding: Complete(path, line, col)
+│   │   ├── On hover → call Go binding: Hover(path, line, col)
+│   │   └── On Ctrl+click → call Go binding: Definition(path, line, col)
+│   ├── Problems panel → render diagnostics
+│   └── File explorer → open/close files
+│
+├── Go Backend (Wails bindings)
+│   ├── engine *ide.Engine (singleton)
+│   ├── watcher (fsnotify) → on .hcl change: engine.UpdateFile()
+│   └── Wails-exposed methods:
+│       ├── OpenProject(dir string) → engine = ide.NewEngine(dir); engine.FullReindex()
+│       ├── GetCompletions(path, line, col) → engine.Complete(...)
+│       ├── GetHover(path, line, col) → engine.Hover(...)
+│       ├── GetDefinition(path, line, col) → engine.Definition(...)
+│       ├── GetDiagnostics(path) → engine.Diagnose(...)
+│       └── OnFileChanged(path, content) → engine.UpdateFile(...)
+│
+└── Debug Client (separate, WebSocket to :9090)
+    └── Breakpoints, step, inspect — NOT part of IDE engine
+```
+
+### File Watcher Pattern
+
+```go
+import (
+    "github.com/fsnotify/fsnotify"
+    "github.com/matutetandil/mycel/pkg/ide"
+)
+
+type App struct {
+    engine  *ide.Engine
+    watcher *fsnotify.Watcher
+}
+
+func (a *App) OpenProject(dir string) []*ide.Diagnostic {
+    a.engine = ide.NewEngine(dir)
+    diags := a.engine.FullReindex()
+
+    // Start watching for file changes
+    a.watcher, _ = fsnotify.NewWatcher()
+    go func() {
+        for event := range a.watcher.Events {
+            if !strings.HasSuffix(event.Name, ".hcl") {
+                continue
+            }
+            switch {
+            case event.Op&fsnotify.Write != 0:
+                content, _ := os.ReadFile(event.Name)
+                diags := a.engine.UpdateFile(event.Name, content)
+                // Emit diags to frontend via Wails event
+                runtime.EventsEmit(a.ctx, "diagnostics", event.Name, diags)
+            case event.Op&fsnotify.Remove != 0:
+                diags := a.engine.RemoveFile(event.Name)
+                runtime.EventsEmit(a.ctx, "diagnostics", event.Name, diags)
+            }
+        }
+    }()
+    a.watcher.Add(dir)
+    // Watch subdirectories too...
+
+    return diags
+}
+```
+
+### Unsaved Buffer Support
+
+The engine works with unsaved content. When the user is typing (before save), pass the buffer content directly:
+
+```go
+func (a *App) OnBufferChange(path string, content string) []*ide.Diagnostic {
+    return a.engine.UpdateFile(path, []byte(content))
+}
+```
+
+This re-parses the (possibly incomplete) content and returns diagnostics in real-time.
+
+## Parser Details
+
+### Permissive Mode
+
+Unlike the runtime parser (`internal/parser/`), the IDE parser:
+- **Never evaluates expressions** — `env("X")` is not resolved, CEL expressions are stored as raw strings
+- **Never fails on semantic errors** — unknown attributes are collected as diagnostics, not fatal errors
+- **Works with incomplete files** — a file with just `flow "test" {` (unclosed brace) still produces a partial block tree
+- **Does not need environment variables** — works offline without any runtime context
+
+### What Gets Extracted
+
+For each attribute, the parser extracts:
+- **Literal strings**: `type = "rest"` → `ValueRaw = "rest"`
+- **Literal numbers**: `port = 3000` → `ValueRaw = "3000"`
+- **Literal bools**: `auto_ack = false` → `ValueRaw = "false"`
+- **Simple templates**: `host = "localhost"` → `ValueRaw = "localhost"`
+- **Complex expressions**: `host = env("DB_HOST")` → `ValueRaw = ""` (not evaluated)
+
+This means the engine can resolve static references (`connector = "api"`) but not dynamic ones (`connector = env("CONNECTOR")`).
+
+## File Structure
+
+```
+pkg/ide/
+├── ide.go          # Engine: public API, thread-safe wrapper
+├── index.go        # ProjectIndex: data structures, lookup tables, rebuild
+├── parse.go        # Permissive HCL parser (hclsyntax direct access)
+├── schema.go       # Static schema registry (blocks, attrs, values, refs)
+├── complete.go     # Completion logic (root, block content, values)
+├── diagnose.go     # Diagnostics (parse, schema, cross-refs)
+├── position.go     # Types (Position, Range, Diagnostic, etc.), cursor context
+└── ide_test.go     # 14 tests covering all features
+```
+
+## Future Enhancements (Not Yet Implemented)
+
+These are planned but not in the current version:
+
+1. **CEL expression completions** — Inside `transform` blocks, suggest `input.*`, `output.*`, `step.<name>.*`, `enriched.<name>.*` variables and CEL functions (`uuid()`, `now()`, `lower()`, etc.)
+2. **Connector-type-aware attribute validation** — If `type = "database"`, require `driver`. If `driver = "rabbitmq"`, suggest RabbitMQ-specific attributes.
+3. **Operation string parsing** — For `"GET /users/:id"`, validate HTTP methods and suggest path patterns.
+4. **Rename support** — Rename a connector and update all references across the project.
+5. **Code actions** — Quick-fix for undefined connector: "Create connector 'X'".
+6. **Workspace symbols** — List all connectors/flows/types for Ctrl+P navigation.
+7. **Ordered transform rules** — Provide rule ordering metadata for breakpoint placement in Studio.
