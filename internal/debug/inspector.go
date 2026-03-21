@@ -49,6 +49,13 @@ func buildFlowInfo(cfg *flow.Config) *FlowInfo {
 		}
 	}
 
+	if cfg.Accept != nil {
+		info.Accept = &AcceptInfo{
+			When:     cfg.Accept.When,
+			OnReject: cfg.Accept.OnReject,
+		}
+	}
+
 	if cfg.Steps != nil {
 		info.HasSteps = true
 		info.StepCount = len(cfg.Steps)

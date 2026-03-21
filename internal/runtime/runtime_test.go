@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/matutetandil/mycel/internal/flow"
 	_ "modernc.org/sqlite"
 )
 
@@ -3192,4 +3193,61 @@ func findMigrationFilesForTest(dir string) ([]string, error) {
 
 	// Already sorted by ReadDir, but sort explicitly
 	return files, nil
+}
+
+func TestAcceptGate(t *testing.T) {
+	handler := &FlowHandler{
+		Config: &flow.Config{
+			Name: "test_accept",
+			Accept: &flow.AcceptConfig{
+				When:     "input.type == 'A1'",
+				OnReject: "requeue",
+			},
+		},
+	}
+
+	ctx := context.Background()
+
+	// Test: input matches accept condition
+	accepted, err := handler.evaluateAccept(ctx, map[string]interface{}{
+		"type": "A1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !accepted {
+		t.Error("expected input to be accepted")
+	}
+
+	// Test: input does not match accept condition
+	accepted, err = handler.evaluateAccept(ctx, map[string]interface{}{
+		"type": "B2",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if accepted {
+		t.Error("expected input to be rejected")
+	}
+}
+
+func TestAcceptGateNil(t *testing.T) {
+	handler := &FlowHandler{
+		Config: &flow.Config{
+			Name: "test_no_accept",
+		},
+	}
+
+	ctx := context.Background()
+
+	// No accept block — should always pass
+	accepted, err := handler.evaluateAccept(ctx, map[string]interface{}{
+		"type": "anything",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !accepted {
+		t.Error("expected input to be accepted when no accept block is configured")
+	}
 }

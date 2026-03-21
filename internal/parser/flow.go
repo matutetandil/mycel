@@ -48,6 +48,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			{Type: "dedupe"},            // Deduplication
 			{Type: "idempotency"},       // Idempotency keys
 			{Type: "async"},             // Async execution (202 + polling)
+		{Type: "accept"},           // Accept gate (business-level filter)
 		{Type: "batch"},            // Batch processing
 		{Type: "state_transition"}, // State machine transition
 		},
@@ -111,6 +112,13 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 				return nil, fmt.Errorf("to block error: %w", err)
 			}
 			toBlocks = append(toBlocks, to)
+
+		case "accept":
+			accept, err := parseAcceptBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("accept block error: %w", err)
+			}
+			config.Accept = accept
 
 		case "step":
 			step, err := parseStepBlock(nestedBlock, ctx)
@@ -382,6 +390,54 @@ func parseFilterBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FilterConfi
 
 	if cfg.Condition == "" {
 		return nil, fmt.Errorf("filter block must specify a condition")
+	}
+
+	return cfg, nil
+}
+
+// parseAcceptBlock parses an accept block from a flow.
+// Accept is a business-level gate that runs after filter but before transform.
+func parseAcceptBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.AcceptConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "when", Required: true},
+			{Name: "on_reject"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("accept block content error: %s", diags.Error())
+	}
+
+	cfg := &flow.AcceptConfig{
+		OnReject: "ack",
+	}
+
+	if attr, ok := content.Attributes["when"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("accept when error: %s", diags.Error())
+		}
+		cfg.When = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["on_reject"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("accept on_reject error: %s", diags.Error())
+		}
+		policy := val.AsString()
+		switch policy {
+		case "ack", "reject", "requeue":
+			cfg.OnReject = policy
+		default:
+			return nil, fmt.Errorf("invalid accept on_reject value %q: must be ack, reject, or requeue", policy)
+		}
+	}
+
+	if cfg.When == "" {
+		return nil, fmt.Errorf("accept block must specify a when expression")
 	}
 
 	return cfg, nil

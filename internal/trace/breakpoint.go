@@ -153,6 +153,8 @@ func ParseBreakStages(stages string) []Stage {
 			result = append(result, StageSanitize)
 		case "filter":
 			result = append(result, StageFilter)
+		case "accept":
+			result = append(result, StageAccept)
 		case "dedupe":
 			result = append(result, StageDedupe)
 		case "validate", "validate_input":

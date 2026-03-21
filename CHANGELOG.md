@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.0] - 2026-03-21
+
+### Added
+- **Accept block**: New `accept` block in flows — a business-level gate that runs after `filter` but before `transform`. While `filter` determines if a message belongs to this flow (structural match), `accept` determines if this flow should process it (business logic). Supports `on_reject` policy (`ack`/`reject`/`requeue`), enabling multi-consumer patterns where multiple flows listen to the same queue and each flow can requeue messages that aren't for them. New `StageAccept` trace stage for breakpoints and debugging. Pipeline order: `from → filter → accept → dedupe → validate → transform → to`
+- **`accept` in debug protocol**: `inspect.flow` now returns `AcceptInfo` (when expression and on_reject policy). Studio debug protocol recognizes `accept` as a valid breakpoint stage
+
 ## [1.15.12] - 2026-03-20
 
 ### Fixed

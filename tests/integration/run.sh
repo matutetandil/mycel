@@ -142,6 +142,7 @@ else
     scripts/test-notifications.sh
     scripts/test-exec.sh
     scripts/test-filter.sh
+    scripts/test-accept.sh
     scripts/test-mqtt.sh
     scripts/test-redis-pubsub.sh
     scripts/test-ftp.sh

@@ -1466,3 +1466,122 @@ plugin {
 		})
 	}
 }
+
+func TestParseFlowWithAccept(t *testing.T) {
+	hcl := `
+flow "process_orders" {
+  from {
+    connector = "rabbit"
+    operation = "orders"
+    filter    = "input.type == 'order'"
+  }
+
+  accept {
+    when      = "input.region == 'us-east'"
+    on_reject = "requeue"
+  }
+
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(config.Flows) != 1 {
+		t.Fatalf("expected 1 flow, got %d", len(config.Flows))
+	}
+
+	flow := config.Flows[0]
+	if flow.Accept == nil {
+		t.Fatal("expected Accept to be set")
+	}
+	if flow.Accept.When != "input.region == 'us-east'" {
+		t.Errorf("expected accept when expression, got '%s'", flow.Accept.When)
+	}
+	if flow.Accept.OnReject != "requeue" {
+		t.Errorf("expected on_reject 'requeue', got '%s'", flow.Accept.OnReject)
+	}
+}
+
+func TestParseFlowWithAcceptDefaultOnReject(t *testing.T) {
+	hcl := `
+flow "process_events" {
+  from {
+    connector = "kafka"
+    operation = "events"
+  }
+
+  accept {
+    when = "input.payload.type == 'A1'"
+  }
+
+  to {
+    connector = "db"
+    target    = "events"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	config, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	flow := config.Flows[0]
+	if flow.Accept == nil {
+		t.Fatal("expected Accept to be set")
+	}
+	if flow.Accept.OnReject != "ack" {
+		t.Errorf("expected default on_reject 'ack', got '%s'", flow.Accept.OnReject)
+	}
+}
+
+func TestParseFlowWithAcceptInvalidOnReject(t *testing.T) {
+	hcl := `
+flow "bad_flow" {
+  from {
+    connector = "rabbit"
+    operation = "events"
+  }
+
+  accept {
+    when      = "input.type == 'X'"
+    on_reject = "invalid"
+  }
+
+  to {
+    connector = "db"
+    target    = "events"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	_, err := parser.ParseFile(context.Background(), tmpFile)
+	if err == nil {
+		t.Fatal("expected error for invalid on_reject value")
+	}
+}

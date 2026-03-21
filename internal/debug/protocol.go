@@ -190,6 +190,7 @@ type FlowInfo struct {
 	Name       string            `json:"name"`
 	From       *FlowEndpoint     `json:"from,omitempty"`
 	To         *FlowEndpoint     `json:"to,omitempty"`
+	Accept     *AcceptInfo       `json:"accept,omitempty"`
 	HasSteps   bool              `json:"hasSteps"`
 	StepCount  int               `json:"stepCount"`
 	Transform  map[string]string `json:"transform,omitempty"`
@@ -197,6 +198,12 @@ type FlowInfo struct {
 	Validate   *ValidateInfo     `json:"validate,omitempty"`
 	HasCache   bool              `json:"hasCache"`
 	HasRetry   bool              `json:"hasRetry"`
+}
+
+// AcceptInfo describes the accept gate configuration.
+type AcceptInfo struct {
+	When     string `json:"when"`
+	OnReject string `json:"onReject"`
 }
 
 // FlowEndpoint describes a flow source or destination.

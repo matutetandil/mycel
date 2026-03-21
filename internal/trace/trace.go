@@ -24,6 +24,7 @@ const (
 	StageInput       Stage = "input"
 	StageSanitize    Stage = "sanitize"
 	StageFilter      Stage = "filter"
+	StageAccept      Stage = "accept"
 	StageDedupe      Stage = "dedupe"
 	StageValidateIn  Stage = "validate_input"
 	StageEnrich      Stage = "enrich"

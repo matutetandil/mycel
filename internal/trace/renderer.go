@@ -98,6 +98,8 @@ func (r *Renderer) stageLabel(event Event) string {
 		return "SANITIZE"
 	case StageFilter:
 		return "FILTER"
+	case StageAccept:
+		return "ACCEPT"
 	case StageDedupe:
 		return "DEDUPE"
 	case StageValidateIn:

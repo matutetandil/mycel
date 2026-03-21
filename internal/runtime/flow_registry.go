@@ -304,6 +304,25 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		}
 	}
 
+	// Check accept gate (after filter, before dedupe)
+	// Unlike filter (which determines if a message belongs to this flow),
+	// accept determines if this flow should process the message (business logic).
+	if h.Config.Accept != nil {
+		shouldAccept, err := h.evaluateAccept(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("accept evaluation error: %w", err)
+		}
+		if !shouldAccept {
+			trace.RecordSimple(ctx, trace.StageAccept, "", nil, "rejected by accept gate")
+
+			return &flow.FilteredResultWithPolicy{
+				Filtered: true,
+				Policy:   h.Config.Accept.OnReject,
+			}, nil
+		}
+		trace.RecordSimple(ctx, trace.StageAccept, "", nil, "accepted")
+	}
+
 	// Check for duplicate messages (deduplication)
 	if h.Config.Dedupe != nil {
 		isDuplicate, err := h.checkDedupe(ctx, input)
@@ -592,6 +611,30 @@ func (h *FlowHandler) evaluateFilter(ctx context.Context, input map[string]inter
 	}
 
 	return h.Transformer.EvaluateCondition(ctx, data, condition)
+}
+
+// evaluateAccept evaluates the accept gate CEL expression.
+// Returns true if the request should be processed, false if rejected.
+func (h *FlowHandler) evaluateAccept(ctx context.Context, input map[string]interface{}) (bool, error) {
+	if h.Config.Accept == nil || h.Config.Accept.When == "" {
+		return true, nil
+	}
+
+	// Initialize transformer if needed
+	if h.Transformer == nil {
+		var err error
+		celOptions := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
+		h.Transformer, err = transform.NewCELTransformerWithOptions(celOptions...)
+		if err != nil {
+			return false, fmt.Errorf("failed to create CEL transformer: %w", err)
+		}
+	}
+
+	data := map[string]interface{}{
+		"input": input,
+	}
+
+	return h.Transformer.EvaluateCondition(ctx, data, h.Config.Accept.When)
 }
 
 // evaluateIDField evaluates the id_field CEL expression to extract a message ID.

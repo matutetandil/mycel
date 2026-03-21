@@ -94,6 +94,13 @@ CREATE TABLE fanout_mq_results (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE accept_results (
+    id SERIAL PRIMARY KEY,
+    action TEXT,
+    region TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Enable logical replication for CDC
 ALTER SYSTEM SET wal_level = logical;
 SELECT pg_reload_conf();

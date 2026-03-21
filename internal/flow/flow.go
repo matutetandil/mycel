@@ -91,6 +91,12 @@ type Config struct {
 	// From defines the source of the flow.
 	From *FromConfig
 
+	// Accept defines a business-level gate that runs after filter but before transform.
+	// Unlike filter (which determines if a message belongs to this flow),
+	// accept determines if this flow should process the message.
+	// When the condition is false, on_reject controls the disposition (ack/reject/requeue).
+	Accept *AcceptConfig
+
 	// To defines the destination of the flow (single destination).
 	To *ToConfig
 
@@ -283,6 +289,18 @@ func (f *FromConfig) FilterCondition() string {
 		return f.FilterConfig.Condition
 	}
 	return f.Filter
+}
+
+// AcceptConfig holds the accept gate configuration.
+// Accept runs after filter but before transform, for business-level decisions.
+// Example: "this message is my type, but is it specifically for me?"
+type AcceptConfig struct {
+	// When is the CEL expression to evaluate. Must return true to proceed.
+	When string
+
+	// OnReject defines what to do with messages that don't pass the accept gate.
+	// Values: "ack" (default), "reject", "requeue"
+	OnReject string
 }
 
 // FilterConfig holds extended filter configuration with rejection policy.

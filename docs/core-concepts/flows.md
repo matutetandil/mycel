@@ -77,6 +77,77 @@ from {
 - `reject` — send to the dead-letter queue
 - `requeue` — put back in the queue (up to `max_requeue` times)
 
+## The `accept` Block
+
+`accept` is a business-level gate that runs **after** `filter` but **before** `transform`. While `filter` determines whether a message belongs to this flow (structural match), `accept` determines whether this flow should actually process it (business decision).
+
+This is useful when multiple flows consume from the same queue: a message passes the filter for several flows, but only one should process it. The others can requeue it.
+
+```hcl
+accept {
+  when      = "input.payload.type == 'A1'"
+  on_reject = "requeue"
+}
+```
+
+### `accept` attributes
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `when` | string | — | **Required.** CEL expression that must return `true` to proceed |
+| `on_reject` | string | `"ack"` | What to do when condition is false: `"ack"`, `"reject"`, `"requeue"` |
+
+`on_reject` options (same as filter):
+- `ack` (default) — acknowledge and discard the message
+- `reject` — send to the dead-letter queue
+- `requeue` — put back in the queue for another consumer
+
+### Example: Multiple flows, one queue
+
+```hcl
+# Flow A: only processes type A1
+flow "handle_type_a1" {
+  from {
+    connector = "rabbit"
+    operation = "events"
+    filter    = "has(input.metadata) && input.metadata.operation == 'upsert'"
+    on_reject = "ack"
+  }
+
+  accept {
+    when      = "input.payload.type == 'A1'"
+    on_reject = "requeue"  # Not for me — put it back
+  }
+
+  transform { ... }
+  to { connector = "db", target = "type_a1_table" }
+}
+
+# Flow B: only processes type B2
+flow "handle_type_b2" {
+  from {
+    connector = "rabbit"
+    operation = "events"
+    filter    = "has(input.metadata) && input.metadata.operation == 'upsert'"
+    on_reject = "ack"
+  }
+
+  accept {
+    when      = "input.payload.type == 'B2'"
+    on_reject = "requeue"
+  }
+
+  transform { ... }
+  to { connector = "db", target = "type_b2_table" }
+}
+```
+
+### Pipeline position
+
+```
+from → filter → accept → dedupe → validate → enrich/steps → transform → to
+```
+
 ## The `to` Block
 
 `to` defines where the flow writes its output.

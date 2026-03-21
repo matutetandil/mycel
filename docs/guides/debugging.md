@@ -706,7 +706,7 @@ Flags:
   --dry-run           Simulate write operations without executing them
   --breakpoints       Pause at every pipeline stage for interactive debugging (dev only)
   --break-at string   Pause at specific stages (dev only, comma-separated)
-                      Valid stages: input, sanitize, filter, dedupe, validate,
+                      Valid stages: input, sanitize, filter, accept, dedupe, validate,
                       transform, step, read, write
   --dap int           Start DAP server on this port for IDE debugging (dev only)
   --list              List all available flows

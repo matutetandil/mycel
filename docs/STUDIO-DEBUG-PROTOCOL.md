@@ -1178,6 +1178,7 @@ These are the `trace.Stage` constants that can be used in breakpoints:
 | `input` | `StageInput` | Raw request data received |
 | `sanitize` | `StageSanitize` | Input sanitization (XSS, injection prevention) |
 | `filter` | `StageFilter` | `from.filter` CEL condition evaluation |
+| `accept` | `StageAccept` | `accept` gate — business-level condition |
 | `dedupe` | `StageDedupe` | Deduplication check |
 | `validate_input` | `StageValidateIn` | Input type validation |
 | `enrich` | `StageEnrich` | Data enrichment from external sources |
@@ -1194,7 +1195,7 @@ These are the `trace.Stage` constants that can be used in breakpoints:
 A typical flow executes stages in this order:
 
 ```
-input → sanitize → filter → dedupe → validate_input → enrich → transform → step(s) → validate_output → write/read → response
+input → sanitize → filter → accept → dedupe → validate_input → enrich → transform → step(s) → validate_output → write/read → response
 ```
 
 Not all stages are present in every flow. Stages are skipped if not configured (e.g., no `validate` block → skip `validate_input`).
