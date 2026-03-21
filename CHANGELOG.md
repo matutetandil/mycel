@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.1] - 2026-03-21
+
+### Added
+- **Accept block in error handling guide**: New "Message Rejection" section in `docs/guides/error-handling.md` documenting `filter` and `accept` `on_reject` policies, with examples, comparison table, and requeue loop warning
+
 ## [1.16.0] - 2026-03-21
 
 ### Added

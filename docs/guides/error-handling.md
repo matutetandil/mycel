@@ -440,6 +440,42 @@ connector "rabbit" {
 
 **Flow-level fallback vs. RabbitMQ DLQ:** Use both. The RabbitMQ DLQ catches failures at the message layer (consumer crashes, unhandled errors). The flow-level fallback catches failures at the application layer (business logic errors, connector timeouts) after retries.
 
+## Message Rejection (filter and accept)
+
+Before a flow processes a message, two gates can reject it: `filter` (structural match) and `accept` (business logic). Both support `on_reject` to control what happens with rejected messages in MQ connectors.
+
+```hcl
+flow "process_order" {
+  from {
+    connector = "rabbit"
+    operation = "orders"
+
+    filter {
+      condition = "has(input.metadata) && input.metadata.type == 'order'"
+      on_reject = "ack"      # Not my message type — discard
+    }
+  }
+
+  accept {
+    when      = "input.region == 'us-east'"
+    on_reject = "requeue"    # My type, but not my region — put it back
+  }
+
+  transform { ... }
+  to { ... }
+}
+```
+
+| `on_reject` value | Behavior | Use case |
+|-------------------|----------|----------|
+| `ack` (default) | Acknowledge and discard | Message is irrelevant to any consumer |
+| `reject` | NACK — routed to DLQ if configured | Message is malformed or invalid |
+| `requeue` | NACK + requeue — back in the queue | Another consumer should handle it |
+
+**filter vs. accept:** Use `filter` for structural validation ("is this message shaped correctly for me?"). Use `accept` for business decisions ("this message is valid, but should I process it?"). See [flows documentation](../core-concepts/flows.md#the-accept-block) for details.
+
+**Requeue loops:** If using `on_reject = "requeue"` on `accept`, make sure at least one consumer will eventually accept the message. Otherwise it will bounce indefinitely. Use RabbitMQ TTL or `x-delivery-count` limits at the queue level as a safety net.
+
 ## Connector Profiles
 
 Profiles provide automatic failover between multiple backends for the same connector.
@@ -616,6 +652,7 @@ flow "magento_create_product" {
 | Occasional failures? | `error_handling { retry { ... } }` with exponential backoff |
 | Custom error format? | `error_handling { error_response { status, body } }` |
 | Message processing fails? | RabbitMQ DLQ + flow-level fallback |
+| Message not for this consumer? | `accept { on_reject = "requeue" }` |
 | Database unreachable? | Connector profiles (automatic failover) |
 | Too many requests? | Rate limiting (aspect) |
 | Log all errors centrally? | On-error aspect with `when = "on_error"` |
