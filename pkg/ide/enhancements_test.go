@@ -423,11 +423,123 @@ flow "create_user" {
 		t.Fatalf("expected 4 rules (3 transform + 1 response), got %d", len(rules))
 	}
 
-	if rules[0].Target != "id" || rules[0].Stage != "transform" {
-		t.Errorf("rule 0: expected target=id stage=transform, got target=%s stage=%s", rules[0].Target, rules[0].Stage)
+	// Check that all transform rules are present (order may vary due to HCL map iteration)
+	transformTargets := make(map[string]bool)
+	for _, r := range rules {
+		if r.Stage == "transform" {
+			transformTargets[r.Target] = true
+		}
 	}
-	if rules[3].Target != "result" || rules[3].Stage != "response" {
-		t.Errorf("rule 3: expected target=result stage=response, got target=%s stage=%s", rules[3].Target, rules[3].Stage)
+	for _, expected := range []string{"id", "email", "name"} {
+		if !transformTargets[expected] {
+			t.Errorf("expected transform rule for %q", expected)
+		}
+	}
+
+	// Response rule should be last
+	lastRule := rules[len(rules)-1]
+	if lastRule.Target != "result" || lastRule.Stage != "response" {
+		t.Errorf("last rule: expected target=result stage=response, got target=%s stage=%s", lastRule.Target, lastRule.Stage)
+	}
+}
+
+func TestFlowBreakpoints(t *testing.T) {
+	e := NewEngine("")
+	e.index.updateFile(parseHCL("flows.hcl", []byte(`
+flow "process_order" {
+  from {
+    connector = "rabbit"
+    operation = "orders"
+    filter    = "input.type == 'order'"
+  }
+  accept {
+    when      = "input.region == 'us'"
+    on_reject = "requeue"
+  }
+  transform {
+    id    = "uuid()"
+    email = "lower(input.email)"
+    name  = "input.name"
+  }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+`)))
+
+	bps := e.FlowBreakpoints("process_order")
+
+	// Expected: input, filter, accept, transform (stage), transform:id, transform:email, transform:name, write
+	if len(bps) < 8 {
+		t.Fatalf("expected at least 8 breakpoint locations, got %d", len(bps))
+	}
+
+	// All should be in flows.hcl
+	for _, bp := range bps {
+		if bp.File != "flows.hcl" {
+			t.Errorf("expected file=flows.hcl, got %s", bp.File)
+		}
+		if bp.Flow != "process_order" {
+			t.Errorf("expected flow=process_order, got %s", bp.Flow)
+		}
+		if bp.Line < 1 {
+			t.Errorf("expected line >= 1, got %d for %s", bp.Line, bp.Label)
+		}
+	}
+
+	// Verify stages present
+	stages := make(map[string]bool)
+	for _, bp := range bps {
+		stages[bp.Stage] = true
+	}
+
+	for _, expected := range []string{"input", "filter", "accept", "transform", "write"} {
+		if !stages[expected] {
+			t.Errorf("expected stage %q in breakpoint locations", expected)
+		}
+	}
+
+	// Verify per-rule breakpoints have correct ruleIndex
+	ruleCount := 0
+	for _, bp := range bps {
+		if bp.Stage == "transform" && bp.RuleIndex >= 0 {
+			ruleCount++
+		}
+	}
+	if ruleCount != 3 {
+		t.Errorf("expected 3 per-rule transform breakpoints, got %d", ruleCount)
+	}
+}
+
+func TestAllBreakpoints(t *testing.T) {
+	e := NewEngine("")
+	e.index.updateFile(parseHCL("flows.hcl", []byte(`
+flow "flow_a" {
+  from { connector = "api" }
+  to { connector = "db" }
+}
+flow "flow_b" {
+  from { connector = "api" }
+  transform { x = "input.x" }
+  to { connector = "db" }
+}
+`)))
+
+	allBps := e.AllBreakpoints()
+	bps := allBps["flows.hcl"]
+
+	if len(bps) == 0 {
+		t.Fatal("expected breakpoints in flows.hcl")
+	}
+
+	// Both flows should have breakpoints
+	flows := make(map[string]bool)
+	for _, bp := range bps {
+		flows[bp.Flow] = true
+	}
+	if !flows["flow_a"] || !flows["flow_b"] {
+		t.Errorf("expected breakpoints for both flows, got flows: %v", flows)
 	}
 }
 
