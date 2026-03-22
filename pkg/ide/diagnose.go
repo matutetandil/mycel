@@ -12,7 +12,40 @@ func diagnoseFile(fi *FileIndex) []*Diagnostic {
 	// Layer 2: Schema validation
 	diags = append(diags, validateBlocks(fi.Path, fi.Blocks, rootSchema())...)
 
+	// Layer 2.5: Connector-type-specific validation + operation validation
+	for _, b := range fi.Blocks {
+		if b.Type == "connector" {
+			diags = append(diags, validateConnectorType(fi.Path, b)...)
+		}
+		if b.Type == "flow" {
+			diags = append(diags, validateFlowOperations(fi.Path, b)...)
+		}
+	}
+
 	return diags
+}
+
+// validateFlowOperations validates operation strings in from/to blocks.
+func validateFlowOperations(path string, flowBlock *Block) []*Diagnostic {
+	var diags []*Diagnostic
+	for _, child := range flowBlock.Children {
+		if child.Type == "from" || child.Type == "to" {
+			for _, attr := range child.Attrs {
+				if attr.Name == "operation" {
+					connType := resolveConnectorType(child)
+					diags = append(diags, validateOperation(path, attr, connType)...)
+				}
+			}
+		}
+	}
+	return diags
+}
+
+// resolveConnectorType returns the connector type for a from/to block if available.
+func resolveConnectorType(b *Block) string {
+	// Can't resolve without the index here — return empty to skip type-specific validation.
+	// The cross-ref phase handles this.
+	return ""
 }
 
 // diagnoseCrossRefs returns cross-reference diagnostics across the project.

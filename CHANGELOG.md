@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.1] - 2026-03-21
+
+### Added
+- **CEL completions**: Transform, response, filter, and accept value positions now suggest CEL variables (`input.*`, `step.<name>.*`, `enriched.<name>.*`, `output.*`, `error.*`) and 39 built-in CEL functions (`uuid`, `lower`, `now`, `has`, etc.)
+- **Connector-type-aware validation**: Diagnostics warn about missing required attributes per connector type (e.g., `database` requires `driver`, `rest` requires `port`)
+- **Connector-type-aware completions**: Inside a connector block, attribute suggestions adapt based on `type` value (e.g., `type = "database"` suggests `driver`, `host`, `database`)
+- **Operation string validation**: REST operations like `"GETX /users"` produce warnings for unknown HTTP methods and missing leading `/`
+- **Operation completions**: `operation = ""` suggests method+path templates based on connector type (REST: `GET /`, `POST /`; GraphQL: `Query.`, `Mutation.`; gRPC: service/method)
+- **Rename support**: `Engine.Rename()` finds definition and all references across the project, returns `RenameEdit` list
+- **Code actions**: Quick-fixes for undefined connectors ("Create connector X") and undefined types ("Create type X"), plus missing required attribute insertion
+- **Workspace symbols**: `Engine.Symbols()` returns all named entities for Ctrl+P navigation; `Engine.SymbolsForFile()` for document outline
+- **Transform rule ordering**: `Engine.TransformRules()` returns ordered rules with index, target, expression, stage, and position — enables per-rule breakpoint placement in Studio
+- **Flow stage discovery**: `Engine.FlowStages()` returns the pipeline stages present in a flow in execution order — enables Studio to show valid breakpoint locations
+
 ## [1.17.0] - 2026-03-21
 
 ### Added

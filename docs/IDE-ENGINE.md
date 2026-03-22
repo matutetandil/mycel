@@ -419,24 +419,87 @@ This means the engine can resolve static references (`connector = "api"`) but no
 
 ```
 pkg/ide/
-├── ide.go          # Engine: public API, thread-safe wrapper
-├── index.go        # ProjectIndex: data structures, lookup tables, rebuild
-├── parse.go        # Permissive HCL parser (hclsyntax direct access)
-├── schema.go       # Static schema registry (blocks, attrs, values, refs)
-├── complete.go     # Completion logic (root, block content, values)
-├── diagnose.go     # Diagnostics (parse, schema, cross-refs)
-├── position.go     # Types (Position, Range, Diagnostic, etc.), cursor context
-└── ide_test.go     # 14 tests covering all features
+├── ide.go               # Engine: public API, thread-safe wrapper
+├── index.go             # ProjectIndex: data structures, lookup tables, rebuild
+├── parse.go             # Permissive HCL parser (hclsyntax direct access)
+├── schema.go            # Static schema registry (blocks, attrs, values, refs)
+├── complete.go          # Completion logic (root, block content, values, CEL, operations)
+├── diagnose.go          # Diagnostics (parse, schema, cross-refs, connector-type, operations)
+├── position.go          # Types (Position, Range, Diagnostic, etc.), cursor context
+├── cel.go               # CEL functions/variables registry, CEL context detection
+├── connector_schema.go  # Connector-type-aware attribute schemas and validation
+├── operation.go         # Operation string validation and completion (REST, GraphQL, gRPC)
+├── rename.go            # Rename support (definition + all references)
+├── codeaction.go        # Quick-fix code actions (create connector/type, add attribute)
+├── symbols.go           # Workspace and file symbols for navigation
+├── transform_rules.go   # Ordered transform rules and flow stage discovery
+├── ide_test.go          # 14 core tests
+└── enhancements_test.go # 13 enhancement tests
 ```
 
-## Future Enhancements (Not Yet Implemented)
+## Additional APIs (v1.17.1+)
 
-These are planned but not in the current version:
+### Rename
 
-1. **CEL expression completions** — Inside `transform` blocks, suggest `input.*`, `output.*`, `step.<name>.*`, `enriched.<name>.*` variables and CEL functions (`uuid()`, `now()`, `lower()`, etc.)
-2. **Connector-type-aware attribute validation** — If `type = "database"`, require `driver`. If `driver = "rabbitmq"`, suggest RabbitMQ-specific attributes.
-3. **Operation string parsing** — For `"GET /users/:id"`, validate HTTP methods and suggest path patterns.
-4. **Rename support** — Rename a connector and update all references across the project.
-5. **Code actions** — Quick-fix for undefined connector: "Create connector 'X'".
-6. **Workspace symbols** — List all connectors/flows/types for Ctrl+P navigation.
-7. **Ordered transform rules** — Provide rule ordering metadata for breakpoint placement in Studio.
+```go
+func (e *Engine) Rename(path string, line, col int, newName string) []RenameEdit
+```
+
+Renames an entity (connector, flow, type, transform) and returns all edits needed across the project — both the definition and every reference. Works when cursor is on a block label or a reference value.
+
+### Code Actions
+
+```go
+func (e *Engine) CodeActions(path string, line, col int) []CodeAction
+```
+
+Returns quick-fix suggestions for the diagnostic at the cursor position:
+- **Create connector** — When referencing an undefined connector
+- **Create type** — When referencing an undefined type
+- **Add attribute** — When a required attribute is missing
+
+### Workspace Symbols
+
+```go
+func (e *Engine) Symbols() []Symbol              // All entities across the project
+func (e *Engine) SymbolsForFile(path string) []Symbol  // Entities in a specific file
+```
+
+Returns named entities for Ctrl+P workspace navigation and document outline. Each symbol has name, kind, detail (connector type/driver), file, and range.
+
+### Transform Rules
+
+```go
+func (e *Engine) TransformRules(flowName string) []TransformRule
+```
+
+Returns the ordered transform and response rules for a flow. Each rule has index, target field name, CEL expression, stage ("transform" or "response"), and source position. This enables per-rule breakpoint placement in Studio.
+
+### Flow Stages
+
+```go
+func (e *Engine) FlowStages(flowName string) []string
+```
+
+Returns the pipeline stages present in a flow in execution order (e.g., `["input", "sanitize", "filter", "accept", "transform", "write"]`). Only includes stages that are actually configured. Used for breakpoint placement and pipeline visualization.
+
+### CEL Completions
+
+Inside transform, response, filter, accept, and condition values, the engine automatically suggests:
+- **Variables**: `input`, `output` (response only), `step.<name>` (if flow has steps), `enriched.<name>` (if flow has enrichments), `error` (in on_error aspects)
+- **Functions**: 39 built-in CEL functions (`uuid()`, `now()`, `lower()`, `upper()`, `has()`, `len()`, `contains()`, `first()`, `last()`, `sum()`, `avg()`, etc.)
+
+### Connector-Type-Aware Intelligence
+
+When a connector has `type = "database"`, the engine:
+- **Completions**: Suggests `driver`, `host`, `port`, `database`, `user`, `password` (database-specific attrs)
+- **Diagnostics**: Warns if required type-specific attributes are missing (e.g., `driver` for database, `port` for rest)
+
+Supported for all 24 connector types.
+
+### Operation Completions
+
+When editing `operation = ""` in a from/to block, the engine suggests templates based on the referenced connector's type:
+- **REST**: `GET /`, `POST /`, `PUT /`, `PATCH /`, `DELETE /`
+- **GraphQL**: `Query.`, `Mutation.`, `Subscription.`
+- **gRPC**: `ServiceName/MethodName`

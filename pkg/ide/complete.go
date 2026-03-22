@@ -7,6 +7,29 @@ func complete(fi *FileIndex, idx *ProjectIndex, line, col int) []CompletionItem 
 	ctx := findCursorContext(fi, line, col)
 
 	if ctx.InValue {
+		// CEL context — offer variables and functions
+		if isCELContext(ctx.BlockPath, ctx.AttrName) {
+			flowBlock := findFlowBlock(fi, ctx.BlockPath)
+			items := celVariables(ctx.BlockPath, flowBlock)
+			items = append(items, celFunctions()...)
+			return items
+		}
+
+		// Operation completions based on connector type
+		if ctx.AttrName == "operation" && ctx.Block != nil {
+			connName := ctx.Block.GetAttr("connector")
+			if connName != "" {
+				idx.mu.RLock()
+				entity := idx.Connectors[connName]
+				idx.mu.RUnlock()
+				if entity != nil {
+					if ops := completeOperation(entity.ConnType); len(ops) > 0 {
+						return ops
+					}
+				}
+			}
+		}
+
 		return completeValue(ctx, idx)
 	}
 
@@ -15,8 +38,76 @@ func complete(fi *FileIndex, idx *ProjectIndex, line, col int) []CompletionItem 
 		return completeRootBlocks()
 	}
 
+	// Inside a connector block — offer type-specific attrs
+	if len(ctx.BlockPath) == 1 && ctx.BlockPath[0] == "connector" && ctx.Block != nil {
+		connType := ctx.Block.GetAttr("type")
+		if connType != "" {
+			typeAttrs := connectorTypeAttrs(connType)
+			if len(typeAttrs) > 0 {
+				return completeBlockContentWithExtra(ctx, idx, typeAttrs)
+			}
+		}
+	}
+
 	// Inside a block — offer child blocks and attributes
 	return completeBlockContent(ctx, idx)
+}
+
+// findFlowBlock finds the flow-level block from the file based on block path.
+func findFlowBlock(fi *FileIndex, blockPath []string) *Block {
+	if len(blockPath) == 0 {
+		return nil
+	}
+	if blockPath[0] != "flow" {
+		return nil
+	}
+	for _, b := range fi.Blocks {
+		if b.Type == "flow" {
+			return b
+		}
+	}
+	return nil
+}
+
+// completeBlockContentWithExtra adds connector-type-specific attrs to completions.
+func completeBlockContentWithExtra(ctx *CursorContext, idx *ProjectIndex, extra []AttrSchema) []CompletionItem {
+	items := completeBlockContent(ctx, idx)
+
+	existing := make(map[string]bool)
+	if ctx.Block != nil {
+		for _, a := range ctx.Block.Attrs {
+			existing[a.Name] = true
+		}
+	}
+	// Also skip items already in the base completions
+	for _, item := range items {
+		existing[item.Label] = true
+	}
+
+	for _, as := range extra {
+		if existing[as.Name] {
+			continue
+		}
+		detail := as.Doc
+		if as.Required {
+			detail = "(required) " + detail
+		}
+		insert := fmt.Sprintf("%s = ", as.Name)
+		if as.Type == AttrString {
+			insert = fmt.Sprintf("%s = \"\"", as.Name)
+		} else if as.Type == AttrBool {
+			insert = fmt.Sprintf("%s = true", as.Name)
+		}
+
+		items = append(items, CompletionItem{
+			Label:      as.Name,
+			Kind:       CompletionAttribute,
+			Detail:     detail,
+			InsertText: insert,
+		})
+	}
+
+	return items
 }
 
 // completeRootBlocks returns completions for root-level block types.
