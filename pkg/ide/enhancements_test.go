@@ -470,8 +470,11 @@ flow "process_order" {
 
 	bps := e.FlowBreakpoints("process_order")
 
-	// Expected: input, filter, accept, transform (stage), transform:id, transform:email, transform:name, write
+	// Expected: input, filter, accept, transform(stage), transform:0, transform:1, transform:2, write
 	if len(bps) < 8 {
+		for _, bp := range bps {
+			t.Logf("  Line %d: %s (rule:%d) %s", bp.Line, bp.Stage, bp.RuleIndex, bp.Label)
+		}
 		t.Fatalf("expected at least 8 breakpoint locations, got %d", len(bps))
 	}
 
@@ -488,19 +491,18 @@ flow "process_order" {
 		}
 	}
 
-	// Verify stages present
+	// Verify all stages present (including input)
 	stages := make(map[string]bool)
 	for _, bp := range bps {
 		stages[bp.Stage] = true
 	}
-
 	for _, expected := range []string{"input", "filter", "accept", "transform", "write"} {
 		if !stages[expected] {
 			t.Errorf("expected stage %q in breakpoint locations", expected)
 		}
 	}
 
-	// Verify per-rule breakpoints have correct ruleIndex
+	// Verify per-rule breakpoints
 	ruleCount := 0
 	for _, bp := range bps {
 		if bp.Stage == "transform" && bp.RuleIndex >= 0 {
@@ -509,6 +511,15 @@ flow "process_order" {
 	}
 	if ruleCount != 3 {
 		t.Errorf("expected 3 per-rule transform breakpoints, got %d", ruleCount)
+	}
+
+	// Accept breakpoint should be on the "when" expression line, not the block opening
+	for _, bp := range bps {
+		if bp.Stage == "accept" {
+			if !strings.Contains(bp.Label, "input.region") {
+				t.Errorf("accept breakpoint label should contain the when expression, got %q", bp.Label)
+			}
+		}
 	}
 }
 

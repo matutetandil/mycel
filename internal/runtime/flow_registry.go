@@ -279,13 +279,14 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 
 	// Check filter condition first (before any processing)
 	if h.Config.From != nil && h.Config.From.FilterCondition() != "" {
-		shouldProcess, err := h.evaluateFilter(ctx, input)
-		if err != nil {
-			return nil, fmt.Errorf("filter evaluation error: %w", err)
+		filterResult, filterErr := trace.RecordStage(ctx, trace.StageFilter, "", input, func() (interface{}, error) {
+			return h.evaluateFilter(ctx, input)
+		})
+		if filterErr != nil {
+			return nil, fmt.Errorf("filter evaluation error: %w", filterErr)
 		}
+		shouldProcess, _ := filterResult.(bool)
 		if !shouldProcess {
-			trace.RecordSimple(ctx, trace.StageFilter, "", nil, "filtered out")
-
 			// Return policy-aware result if FilterConfig is set
 			if h.Config.From.FilterConfig != nil {
 				result := &flow.FilteredResultWithPolicy{
@@ -308,27 +309,34 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 	// Unlike filter (which determines if a message belongs to this flow),
 	// accept determines if this flow should process the message (business logic).
 	if h.Config.Accept != nil {
-		shouldAccept, err := h.evaluateAccept(ctx, input)
-		if err != nil {
-			return nil, fmt.Errorf("accept evaluation error: %w", err)
+		acceptResult, acceptErr := trace.RecordStage(ctx, trace.StageAccept, "", input, func() (interface{}, error) {
+			return h.evaluateAccept(ctx, input)
+		})
+		if acceptErr != nil {
+			return nil, fmt.Errorf("accept evaluation error: %w", acceptErr)
 		}
+		shouldAccept, _ := acceptResult.(bool)
 		if !shouldAccept {
-			trace.RecordSimple(ctx, trace.StageAccept, "", nil, "rejected by accept gate")
-
 			return &flow.FilteredResultWithPolicy{
 				Filtered: true,
 				Policy:   h.Config.Accept.OnReject,
 			}, nil
 		}
-		trace.RecordSimple(ctx, trace.StageAccept, "", nil, "accepted")
 	}
 
 	// Check for duplicate messages (deduplication)
 	if h.Config.Dedupe != nil {
-		isDuplicate, err := h.checkDedupe(ctx, input)
-		if err != nil {
-			return nil, fmt.Errorf("dedupe check error: %w", err)
+		dedupeResult, dedupeErr := trace.RecordStage(ctx, trace.StageDedupe, "", input, func() (interface{}, error) {
+			isDup, err := h.checkDedupe(ctx, input)
+			if err != nil {
+				return nil, err
+			}
+			return isDup, nil
+		})
+		if dedupeErr != nil {
+			return nil, fmt.Errorf("dedupe check error: %w", dedupeErr)
 		}
+		isDuplicate, _ := dedupeResult.(bool)
 		if isDuplicate {
 			if h.Config.Dedupe.OnDuplicate == "fail" {
 				return nil, fmt.Errorf("duplicate message detected")
@@ -1686,12 +1694,13 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		}, nil
 	}
 
-	result, err := dest.Write(ctx, data)
-	if err != nil {
-		trace.RecordSimple(ctx, trace.StageWrite, data.Target, nil, fmt.Sprintf("error: %s", err.Error()))
-		return nil, err
+	writeResult, writeErr := trace.RecordStage(ctx, trace.StageWrite, data.Target, trace.Snapshot(data.Payload), func() (interface{}, error) {
+		return dest.Write(ctx, data)
+	})
+	if writeErr != nil {
+		return nil, writeErr
 	}
-	trace.RecordSimple(ctx, trace.StageWrite, data.Target, map[string]interface{}{"affected": result.Affected, "last_id": result.LastID}, fmt.Sprintf("%s → %s", data.Operation, data.Target))
+	result := writeResult.(*connector.Result)
 
 	// If raw SQL returned rows (e.g., INSERT ... RETURNING), return those
 	if len(result.Rows) > 0 {

@@ -209,7 +209,7 @@ func (e *Engine) FlowBreakpoints(flowName string) []BreakpointLocation {
 	var bps []BreakpointLocation
 	file := flowEntity.File
 
-	// input — the flow block itself
+	// input — always present, pauses before any processing
 	bps = append(bps, BreakpointLocation{
 		File:      file,
 		Line:      flowBlock.Range.Start.Line,
@@ -245,9 +245,14 @@ func (e *Engine) FlowBreakpoints(flowName string) []BreakpointLocation {
 			}
 
 		case "accept":
+			// Point to the "when" expression line, not the block opening
+			acceptLine := child.Range.Start.Line
+			if whenAttr := findAttr(child, "when"); whenAttr != nil {
+				acceptLine = whenAttr.Range.Start.Line
+			}
 			bps = append(bps, BreakpointLocation{
 				File:      file,
-				Line:      child.Range.Start.Line,
+				Line:      acceptLine,
 				Flow:      flowName,
 				Stage:     "accept",
 				RuleIndex: -1,
@@ -255,35 +260,61 @@ func (e *Engine) FlowBreakpoints(flowName string) []BreakpointLocation {
 			})
 
 		case "validate":
-			if child.HasAttr("input") {
+			if inputAttr := findAttr(child, "input"); inputAttr != nil {
 				bps = append(bps, BreakpointLocation{
 					File:      file,
-					Line:      child.Range.Start.Line,
+					Line:      inputAttr.Range.Start.Line,
 					Flow:      flowName,
 					Stage:     "validate_input",
 					RuleIndex: -1,
-					Label:     "validate input",
+					Label:     "validate input: " + inputAttr.ValueRaw,
 				})
 			}
-			if child.HasAttr("output") {
+			if outputAttr := findAttr(child, "output"); outputAttr != nil {
 				bps = append(bps, BreakpointLocation{
 					File:      file,
-					Line:      child.Range.Start.Line,
+					Line:      outputAttr.Range.Start.Line,
 					Flow:      flowName,
 					Stage:     "validate_output",
 					RuleIndex: -1,
-					Label:     "validate output",
+					Label:     "validate output: " + outputAttr.ValueRaw,
 				})
 			}
 
-		case "step":
+		case "dedupe":
+			// Point to the key expression
+			dedupeLine := child.Range.Start.Line
+			dedupeLabel := "dedupe"
+			if keyAttr := findAttr(child, "key"); keyAttr != nil {
+				dedupeLine = keyAttr.Range.Start.Line
+				dedupeLabel = "dedupe: " + keyAttr.ValueRaw
+			}
 			bps = append(bps, BreakpointLocation{
 				File:      file,
-				Line:      child.Range.Start.Line,
+				Line:      dedupeLine,
+				Flow:      flowName,
+				Stage:     "dedupe",
+				RuleIndex: -1,
+				Label:     dedupeLabel,
+			})
+
+		case "step":
+			stepLine := child.Range.Start.Line
+			stepLabel := "step: " + child.Name
+			if queryAttr := findAttr(child, "query"); queryAttr != nil {
+				stepLine = queryAttr.Range.Start.Line
+				stepLabel = "step " + child.Name + ": " + queryAttr.Name
+			} else if opAttr := findAttr(child, "operation"); opAttr != nil {
+				stepLine = opAttr.Range.Start.Line
+				stepLabel = "step " + child.Name + ": " + opAttr.ValueRaw
+			}
+			bps = append(bps, BreakpointLocation{
+				File:      file,
+				Line:      stepLine,
 				Flow:      flowName,
 				Stage:     "step",
 				RuleIndex: -1,
-				Label:     "step: " + child.Name,
+				Label:     stepLabel,
 			})
 
 		case "enrich":
@@ -328,17 +359,27 @@ func (e *Engine) FlowBreakpoints(flowName string) []BreakpointLocation {
 			}
 
 		case "to":
+			// Point to the most meaningful attribute: query > target > block opening
+			writeLine := child.Range.Start.Line
+			writeLabel := "write → " + child.GetAttr("connector")
+			if queryAttr := findAttr(child, "query"); queryAttr != nil {
+				writeLine = queryAttr.Range.Start.Line
+				writeLabel = "write: " + queryAttr.Name
+			} else if targetAttr := findAttr(child, "target"); targetAttr != nil {
+				writeLine = targetAttr.Range.Start.Line
+				writeLabel = "write → " + child.GetAttr("connector") + "." + targetAttr.ValueRaw
+			}
 			bps = append(bps, BreakpointLocation{
 				File:      file,
-				Line:      child.Range.Start.Line,
+				Line:      writeLine,
 				Flow:      flowName,
 				Stage:     "write",
 				RuleIndex: -1,
-				Label:     "write → " + child.GetAttr("connector"),
+				Label:     writeLabel,
 			})
 
 		case "response":
-			// Stage-level
+			// Stage-level breakpoint
 			bps = append(bps, BreakpointLocation{
 				File:      file,
 				Line:      child.Range.Start.Line,
@@ -347,7 +388,7 @@ func (e *Engine) FlowBreakpoints(flowName string) []BreakpointLocation {
 				RuleIndex: -1,
 				Label:     "response",
 			})
-			// Per-rule
+			// Per-rule breakpoints
 			ruleIdx := 0
 			for _, attr := range child.Attrs {
 				label := attr.Name
