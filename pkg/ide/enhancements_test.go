@@ -153,6 +153,43 @@ connector "db" {
 	}
 }
 
+func TestConnectorTypeValidationWithEnv(t *testing.T) {
+	fi := parseHCL("test.hcl", []byte(`
+connector "db" {
+  type     = "database"
+  driver   = "mysql"
+  host     = env("DB_HOST")
+  database = env("DB_NAME")
+  user     = env("DB_USER")
+  password = env("DB_PASSWORD")
+}
+`))
+
+	diags := diagnoseFile(fi)
+	for _, d := range diags {
+		if strings.Contains(d.Message, "requires attribute") {
+			t.Errorf("false positive: %s", d.Message)
+		}
+	}
+}
+
+func TestConnectorSlackWithEnv(t *testing.T) {
+	fi := parseHCL("test.hcl", []byte(`
+connector "slack" {
+  type    = "slack"
+  token   = env("SLACK_BOT_TOKEN")
+  channel = "#notifications"
+}
+`))
+
+	diags := diagnoseFile(fi)
+	for _, d := range diags {
+		if strings.Contains(d.Message, "requires attribute token") {
+			t.Errorf("false positive for slack token: %s", d.Message)
+		}
+	}
+}
+
 // --- Operation Validation ---
 
 func TestOperationValidation(t *testing.T) {

@@ -153,7 +153,7 @@ func validateConnectorType(path string, b *Block) []*Diagnostic {
 
 	var diags []*Diagnostic
 	for _, ta := range typeAttrs {
-		if ta.Required && b.GetAttr(ta.Name) == "" {
+		if ta.Required && !b.HasAttr(ta.Name) {
 			diags = append(diags, &Diagnostic{
 				Severity: SeverityWarning,
 				Message:  connType + " connector requires attribute " + ta.Name,

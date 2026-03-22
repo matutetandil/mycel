@@ -21,6 +21,16 @@ func (b *Block) GetAttr(name string) string {
 	return ""
 }
 
+// HasAttr returns true if the attribute exists in the block (even if its value is dynamic/unresolvable).
+func (b *Block) HasAttr(name string) bool {
+	for _, a := range b.Attrs {
+		if a.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // Attribute represents a parsed HCL attribute with position information.
 type Attribute struct {
 	Name     string `json:"name"`

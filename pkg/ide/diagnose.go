@@ -98,7 +98,7 @@ func validateBlocks(path string, blocks []*Block, schemas []BlockSchema) []*Diag
 
 		// Check required attributes
 		for _, as := range schema.Attrs {
-			if as.Required && b.GetAttr(as.Name) == "" {
+			if as.Required && !b.HasAttr(as.Name) {
 				// Only flag missing required attrs if the block has a body (not empty)
 				if len(b.Attrs) > 0 || len(b.Children) > 0 {
 					diags = append(diags, &Diagnostic{
