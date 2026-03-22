@@ -320,8 +320,11 @@ Mycel Studio (Wails app)
 │   │   ├── On edit → call Go binding: UpdateFile(path, content)
 │   │   ├── On Ctrl+Space → call Go binding: Complete(path, line, col)
 │   │   ├── On hover → call Go binding: Hover(path, line, col)
-│   │   └── On Ctrl+click → call Go binding: Definition(path, line, col)
+│   │   ├── On Ctrl+click → call Go binding: Definition(path, line, col)
+│   │   ├── On F2 (rename) → call Go binding: Rename(path, line, col, newName)
+│   │   └── Gutter breakpoint dots → driven by GetBreakpoints(file)
 │   ├── Problems panel → render diagnostics
+│   ├── Symbols panel → Ctrl+P navigation via GetSymbols()
 │   └── File explorer → open/close files
 │
 ├── Go Backend (Wails bindings)
@@ -333,10 +336,16 @@ Mycel Studio (Wails app)
 │       ├── GetHover(path, line, col) → engine.Hover(...)
 │       ├── GetDefinition(path, line, col) → engine.Definition(...)
 │       ├── GetDiagnostics(path) → engine.Diagnose(...)
-│       └── OnFileChanged(path, content) → engine.UpdateFile(...)
+│       ├── OnFileChanged(path, content) → engine.UpdateFile(...)
+│       ├── GetSymbols() → engine.Symbols()
+│       ├── GetFileSymbols(path) → engine.SymbolsForFile(path)
+│       ├── Rename(path, line, col, newName) → engine.Rename(...)
+│       ├── GetCodeActions(path, line, col) → engine.CodeActions(...)
+│       ├── GetBreakpoints(file) → engine.AllBreakpoints()[file]
+│       └── GetFlowBreakpoints(flowName) → engine.FlowBreakpoints(flowName)
 │
 └── Debug Client (separate, WebSocket to :9090)
-    └── Breakpoints, step, inspect — NOT part of IDE engine
+    └── Runtime debugging — uses breakpoint locations from IDE engine
 ```
 
 ### File Watcher Pattern
@@ -394,6 +403,91 @@ func (a *App) OnBufferChange(path string, content string) []*ide.Diagnostic {
 
 This re-parses the (possibly incomplete) content and returns diagnostics in real-time.
 
+### Breakpoint Integration
+
+The IDE engine provides the exact lines where breakpoints can be set. Studio uses this to show gutter breakpoint indicators — the user can only click on lines that are valid breakpoint positions.
+
+```go
+// On project open or file change: get all breakpointable lines per file
+func (a *App) GetBreakpointLines(file string) []ide.BreakpointLocation {
+    allBps := a.engine.AllBreakpoints()
+    return allBps[file]
+}
+```
+
+Each `BreakpointLocation` contains:
+
+```go
+type BreakpointLocation struct {
+    File      string // Source file path
+    Line      int    // 1-based line number (for gutter dot placement)
+    Flow      string // Flow name (for debug.setBreakpoints)
+    Stage     string // Pipeline stage (input, filter, accept, transform, write, etc.)
+    RuleIndex int    // -1 for stage-level, 0+ for per-rule breakpoints
+    Label     string // Human-readable label for the UI tooltip
+}
+```
+
+**Example output** for a flow file:
+
+```
+Line  2: input                                                    (stage: input, ruleIndex: -1)
+Line  6: filter                                                   (stage: filter, ruleIndex: -1)
+Line  8: accept: input.region == 'us'                             (stage: accept, ruleIndex: -1)
+Line 12: transform                                                (stage: transform, ruleIndex: -1)
+Line 13: transform: id = uuid()                                   (stage: transform, ruleIndex: 0)
+Line 14: transform: email = lower(input.email)                    (stage: transform, ruleIndex: 1)
+Line 15: transform: name = input.name                             (stage: transform, ruleIndex: 2)
+Line 18: write → db                                               (stage: write, ruleIndex: -1)
+```
+
+**How Studio uses this:**
+
+1. **Gutter dots**: Show a faded breakpoint circle on lines returned by `AllBreakpoints()[file]`
+2. **Click to toggle**: When user clicks a gutter dot, toggle a breakpoint for that `{flow, stage, ruleIndex}`
+3. **Send to debug server**: When debugging, map the toggled breakpoints to `debug.setBreakpoints` calls using the `Flow`, `Stage`, and `RuleIndex` fields:
+
+```go
+// When user toggles a breakpoint on line 14 of flows.hcl:
+bp := breakpointLocations[14] // {Flow: "create_user", Stage: "transform", RuleIndex: 1}
+
+// Send to debug server via WebSocket:
+debug.setBreakpoints({
+    flow: bp.Flow,
+    breakpoints: [{stage: bp.Stage, ruleIndex: bp.RuleIndex}]
+})
+```
+
+**Coverage:** The engine returns breakpoint locations for all stages that exist in a flow:
+
+| Stage | When present | Location |
+|-------|-------------|----------|
+| `input` | Always | Flow block opening line |
+| `filter` | `from.filter` attr or `filter {}` block | Filter line |
+| `accept` | `accept {}` block | Accept block line |
+| `validate_input` | `validate { input = "..." }` | Validate block line |
+| `enrich` | `enrich "name" {}` block(s) | Each enrich block line |
+| `step` | `step "name" {}` block(s) | Each step block line |
+| `transform` (stage) | `transform {}` block | Transform block line |
+| `transform` (per-rule) | Each CEL mapping inside transform | Each attribute line |
+| `validate_output` | `validate { output = "..." }` | Validate block line |
+| `write` | `to {}` block(s) | Each to block line |
+| `response` (stage) | `response {}` block | Response block line |
+| `response` (per-rule) | Each CEL mapping inside response | Each attribute line |
+
+**Per-flow vs all-project:**
+
+```go
+// Get breakpoints for a specific flow
+bps := engine.FlowBreakpoints("create_user")
+
+// Get breakpoints for ALL flows, grouped by file
+allBps := engine.AllBreakpoints()
+for file, bps := range allBps {
+    fmt.Printf("%s: %d breakpoint locations\n", file, len(bps))
+}
+```
+
 ## Parser Details
 
 ### Permissive Mode
@@ -434,7 +528,7 @@ pkg/ide/
 ├── symbols.go           # Workspace and file symbols for navigation
 ├── transform_rules.go   # Ordered transform rules and flow stage discovery
 ├── ide_test.go          # 14 core tests
-└── enhancements_test.go # 13 enhancement tests
+└── enhancements_test.go # 17 enhancement tests (CEL, rename, symbols, breakpoints, etc.)
 ```
 
 ## Additional APIs (v1.17.1+)
@@ -482,6 +576,22 @@ func (e *Engine) FlowStages(flowName string) []string
 ```
 
 Returns the pipeline stages present in a flow in execution order (e.g., `["input", "sanitize", "filter", "accept", "transform", "write"]`). Only includes stages that are actually configured. Used for breakpoint placement and pipeline visualization.
+
+### Flow Breakpoints
+
+```go
+func (e *Engine) FlowBreakpoints(flowName string) []BreakpointLocation
+func (e *Engine) AllBreakpoints() map[string][]BreakpointLocation
+```
+
+`FlowBreakpoints` returns every valid breakpoint position for a single flow — with exact file, line, stage, ruleIndex, and human-readable label. `AllBreakpoints` does the same for every flow in the project, grouped by file path.
+
+Studio uses these to:
+1. Show gutter breakpoint dots on valid lines only
+2. Map user clicks to `{flow, stage, ruleIndex}` tuples for the debug protocol
+3. Display tooltips with the breakpoint label
+
+See [Breakpoint Integration](#breakpoint-integration) above for full usage details and examples.
 
 ### CEL Completions
 
