@@ -2,6 +2,7 @@ package ide
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -71,7 +72,9 @@ func parseBody(body *hclsyntax.Body) []*Block {
 	return blocks
 }
 
-// parseAttrs extracts attributes from an hclsyntax.Body.
+// parseAttrs extracts attributes from an hclsyntax.Body, sorted by source position.
+// HCL stores attributes in a map (unordered), so we sort by line number to preserve
+// the declaration order — critical for transform rule indexing and breakpoint placement.
 func parseAttrs(body *hclsyntax.Body) []*Attribute {
 	var attrs []*Attribute
 
@@ -84,6 +87,14 @@ func parseAttrs(body *hclsyntax.Body) []*Attribute {
 		}
 		attrs = append(attrs, attr)
 	}
+
+	// Sort by source position to preserve declaration order
+	sort.Slice(attrs, func(i, j int) bool {
+		if attrs[i].Range.Start.Line != attrs[j].Range.Start.Line {
+			return attrs[i].Range.Start.Line < attrs[j].Range.Start.Line
+		}
+		return attrs[i].Range.Start.Col < attrs[j].Range.Start.Col
+	})
 
 	return attrs
 }
