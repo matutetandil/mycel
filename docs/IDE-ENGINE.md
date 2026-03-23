@@ -53,18 +53,22 @@ diags := engine.FullReindex()
 
 ```go
 import (
-    "github.com/matutetandil/mycel/internal/runtime"
+    "github.com/matutetandil/mycel/pkg/connectors"
     "github.com/matutetandil/mycel/pkg/ide"
-    "github.com/matutetandil/mycel/pkg/schema"
 )
 
-// Registry with all 25+ connector schemas
-reg := schema.NewRegistryWith(runtime.RegisterBuiltinSchemas)
+// Registry with all 26 connector schemas — no internal/ imports needed
+reg := connectors.FullRegistry()
 engine := ide.NewEngine("/path/to/mycel-project", ide.WithRegistry(reg))
 diags := engine.FullReindex()
 ```
 
 With the registry, the engine knows every attribute of every connector type — pool settings for database, consumer/queue/exchange for RabbitMQ, TLS for gRPC, etc. Without it, connector child blocks use a static fallback.
+
+**All packages are in `pkg/`** — Studio can import them without `internal/` restrictions:
+- `pkg/ide` — IDE engine
+- `pkg/schema` — Core types and built-in block schemas
+- `pkg/connectors` — All 26 connector schemas + `FullRegistry()`
 
 ### Common API calls
 
@@ -626,10 +630,10 @@ pkg/ide/                             # IDE intelligence engine
 ├── ide_test.go                      # 14 core tests
 └── enhancements_test.go             # 21 enhancement tests
 
-internal/connector/*/schema.go       # Each connector's ConnectorSchemaProvider (25+ files)
-internal/connector/*/connector_schema.go  # (when schema.go was taken)
+pkg/connectors/connectors.go             # All 26 connector schemas + FullRegistry()
 
-internal/runtime/schema_registration.go  # RegisterBuiltinSchemas(), NewSchemaRegistry()
+internal/connector/*/schema.go           # Connector schemas (also in pkg/connectors for external access)
+internal/runtime/schema_registration.go  # Runtime-internal registration (uses internal/ imports)
 ```
 
 ## Additional APIs (v1.17.1+)
