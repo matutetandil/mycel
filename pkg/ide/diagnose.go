@@ -111,9 +111,39 @@ func validateBlocks(path string, blocks []*Block, schemas []BlockSchema) []*Diag
 			}
 		}
 
-		// Check attribute values against enums
+		// Build the full set of known attributes for this block
+		// (base schema + connector-type-specific if applicable)
+		knownAttrs := make(map[string]*AttrSchema)
+		for i := range schema.Attrs {
+			knownAttrs[schema.Attrs[i].Name] = &schema.Attrs[i]
+		}
+		if b.Type == "connector" {
+			connType := b.GetAttr("type")
+			for _, ta := range connectorTypeAttrs(connType) {
+				ta := ta
+				knownAttrs[ta.Name] = &ta
+			}
+		}
+
+		// Check for unknown attributes
+		// Skip open/dynamic blocks where any attribute name is valid
+		isDynamic := b.Type == "transform" || b.Type == "response" || schema.Open
+		if !isDynamic {
+			for _, attr := range b.Attrs {
+				if _, known := knownAttrs[attr.Name]; !known {
+					diags = append(diags, &Diagnostic{
+						Severity: SeverityError,
+						Message:  fmt.Sprintf("unknown attribute %q in %s block", attr.Name, b.Type),
+						File:     path,
+						Range:    attr.Range,
+					})
+				}
+			}
+		}
+
+		// Check attribute values against enums (including connector-type-specific)
 		for _, attr := range b.Attrs {
-			as := findAttrSchema(schema.Attrs, attr.Name)
+			as := knownAttrs[attr.Name]
 			if as != nil && len(as.Values) > 0 && attr.ValueRaw != "" {
 				if !contains(as.Values, attr.ValueRaw) {
 					diags = append(diags, &Diagnostic{
@@ -123,6 +153,16 @@ func validateBlocks(path string, blocks []*Block, schemas []BlockSchema) []*Diag
 						Range:    attr.ValRange,
 					})
 				}
+			}
+
+			// Check conditional required attributes
+			if as != nil && as.Required && !b.HasAttr(as.Name) {
+				diags = append(diags, &Diagnostic{
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("%s connector requires attribute %q", b.GetAttr("type"), as.Name),
+					File:     path,
+					Range:    b.Range,
+				})
 			}
 		}
 

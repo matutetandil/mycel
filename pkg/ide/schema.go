@@ -29,7 +29,8 @@ const (
 type BlockSchema struct {
 	Type     string
 	Doc      string
-	Labels   int // number of labels (0 or 1)
+	Labels   int  // number of labels (0 or 1)
+	Open     bool // if true, allows any attribute (connector params, step params, type fields)
 	Attrs    []AttrSchema
 	Children []BlockSchema
 }
@@ -143,6 +144,7 @@ func fromSchema() BlockSchema {
 	return BlockSchema{
 		Type: "from",
 		Doc:  "Source connector and operation for this flow",
+		Open: true, // accepts connector-specific params
 		Attrs: []AttrSchema{
 			{Name: "connector", Doc: "Source connector name", Type: AttrString, Required: true, Ref: RefConnector},
 			{Name: "operation", Doc: "Source operation (e.g., GET /users, queue name)", Type: AttrString},
@@ -165,6 +167,7 @@ func toSchema() BlockSchema {
 	return BlockSchema{
 		Type: "to",
 		Doc:  "Destination connector and target for this flow",
+		Open: true, // accepts connector-specific params (query_filter, update, body, params, etc.)
 		Attrs: []AttrSchema{
 			{Name: "connector", Doc: "Destination connector name", Type: AttrString, Required: true, Ref: RefConnector},
 			{Name: "target", Doc: "Target resource (table, topic, endpoint)", Type: AttrString},
@@ -194,6 +197,7 @@ func stepSchema() BlockSchema {
 		Type:   "step",
 		Doc:    "Intermediate connector call — results available as step.<name>.* in transform",
 		Labels: 1,
+		Open:   true, // accepts connector-specific params (query, target, body, params, etc.)
 		Attrs: []AttrSchema{
 			{Name: "connector", Doc: "Connector to call", Type: AttrString, Required: true, Ref: RefConnector},
 			{Name: "operation", Doc: "Operation to execute", Type: AttrString},
@@ -262,7 +266,17 @@ func aspectSchema() BlockSchema {
 			{Name: "priority", Doc: "Execution priority (lower = first)", Type: AttrNumber},
 		},
 		Children: []BlockSchema{
-			{Type: "action", Doc: "Aspect action to execute"},
+			{Type: "action", Doc: "Aspect action to execute", Attrs: []AttrSchema{
+				{Name: "connector", Doc: "Connector to call", Type: AttrString, Ref: RefConnector},
+				{Name: "flow", Doc: "Flow to invoke", Type: AttrString, Ref: RefFlow},
+			}, Children: []BlockSchema{
+				{Type: "transform", Doc: "Transform for the action payload"},
+			}},
+			{Type: "cache", Doc: "Cache configuration"},
+			{Type: "invalidate", Doc: "Cache invalidation"},
+			{Type: "rate_limit", Doc: "Rate limiting"},
+			{Type: "circuit_breaker", Doc: "Circuit breaker"},
+			{Type: "response", Doc: "Response modification (headers, fields)"},
 		},
 	}
 }
@@ -272,6 +286,7 @@ func typeSchema() BlockSchema {
 		Type:   "type",
 		Doc:    "Schema definition for input/output validation",
 		Labels: 1,
+		Open:   true, // fields are user-defined (email = string { format = "email" })
 	}
 }
 

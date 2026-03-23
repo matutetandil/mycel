@@ -90,18 +90,36 @@ type Diagnostic struct {
 }
 ```
 
-**Three diagnostic layers:**
+**Four diagnostic layers:**
 
 1. **Parse errors** — HCL syntax errors (unclosed braces, invalid tokens). These come from `hashicorp/hcl/v2` directly.
-2. **Schema validation** — Unknown block types, missing required attributes, invalid enum values. Uses the static schema in `schema.go`.
-3. **Cross-reference validation** — Undefined connectors/types/transforms/flows, duplicate names. Uses the project-wide index.
+2. **Schema validation** — Unknown block types, missing required attributes, invalid enum values, **unknown attributes** (typos), and connector-type-specific required attributes. Uses the static schema in `schema.go` merged with `connectorTypeAttrs()`.
+3. **Cross-reference validation** — Undefined connectors/types/transforms/flows, duplicate names. Uses the project-wide index. Works across all block types including aspect `action { connector = "..." }` and `action { flow = "..." }`.
+4. **Operation validation** — REST operations like `"GETX /users"` produce warnings for unknown HTTP methods and missing leading `/`.
 
 **Example messages:**
 - `"unknown block type 'flw'"` (typo in block type)
+- `"unknown attribute 'on_regehgrhe' in accept block"` (typo in attribute name)
 - `"missing required attribute 'type' in connector block"` (forgot `type = "rest"`)
-- `"invalid value 'bad' for connector.type (valid: [rest, database, mq, ...])"` (invalid enum)
+- `"database connector requires attribute driver"` (connector-type-specific required attr)
+- `"invalid value 'banana' for accept.on_reject (valid: [ack reject requeue])"` (invalid enum)
 - `"undefined connector 'nonexistent'"` (reference to missing connector)
 - `"duplicate flow name 'test' (also defined in other.hcl)"` (name collision)
+- `"unknown HTTP method 'GETX'"` (invalid REST operation)
+
+**Open vs strict blocks:**
+
+Some blocks have a fixed set of valid attributes (strict) while others accept any attribute (open):
+
+| Block | Mode | Why |
+|-------|------|-----|
+| `connector` | Strict (base + type-specific) | Known attrs per connector type |
+| `accept`, `validate`, `dedupe`, `service` | Strict | Fixed schema |
+| `transform`, `response` | Open (dynamic) | Attributes are CEL field mappings |
+| `type` | Open (dynamic) | Attributes are user-defined schema fields |
+| `from`, `to`, `step` | Open | Accept connector-specific params beyond base attrs |
+
+Strict blocks flag unknown attributes as errors. Open blocks allow any attribute name.
 
 ### CompletionItem
 
@@ -161,7 +179,7 @@ Given `(file, line, col)`, the engine:
 2. Checks if the cursor is on an attribute (name or value position)
 3. Builds a "block path" like `["flow", "from"]` or `["connector"]`
 
-### Three Completion Modes
+### Five Completion Modes
 
 **1. Root level** — Cursor is not inside any block:
 - Returns all 17 valid root block types: `connector`, `flow`, `type`, `transform`, `aspect`, `service`, `validator`, `saga`, `state_machine`, `functions`, `plugin`, `auth`, `security`, `mocks`, `cache`, `environment`
@@ -172,8 +190,9 @@ Given `(file, line, col)`, the engine:
 - Returns valid attributes not yet defined
 - Required attributes marked with `(required)` in detail
 - InsertText: `connector = ""` (strings), `parallel = true` (bools)
+- **Connector-type-aware**: Inside a `connector` block with `type = "database"`, suggests database-specific attrs (`driver`, `host`, `database`, `user`, `password`) in addition to base attrs
 
-**3. Attribute value** — Cursor is after `=`:
+**3. Attribute value (enum/reference)** — Cursor is after `=`:
 - **Enum values**: For attributes with a fixed set of valid values (e.g., `on_reject` → `"ack"`, `"reject"`, `"requeue"`)
 - **Project references**: For attributes that reference other entities:
   - `connector = ` → names from `ProjectIndex.Connectors` (with type/driver detail)
@@ -181,6 +200,16 @@ Given `(file, line, col)`, the engine:
   - `transform { use = ` → names from `ProjectIndex.Transforms`
   - `aspect { action { flow = ` → names from `ProjectIndex.Flows`
   - `cache = ` → names from `ProjectIndex.Caches`
+
+**4. CEL expression value** — Cursor is after `=` in a transform, response, filter, accept when, or condition attribute:
+- **Variables**: `input`, `output` (response only), `step.<name>` (if flow has steps), `enriched.<name>` (if flow has enrichments), `error` (in on_error aspects)
+- **Functions**: 39 built-in CEL functions (`uuid()`, `now()`, `lower()`, `upper()`, `has()`, `len()`, `contains()`, `first()`, `last()`, `sum()`, `avg()`, etc.)
+
+**5. Operation value** — Cursor is after `=` on an `operation` attribute:
+- Suggests templates based on the referenced connector's type:
+  - **REST**: `GET /`, `POST /`, `PUT /`, `PATCH /`, `DELETE /`
+  - **GraphQL**: `Query.`, `Mutation.`, `Subscription.`
+  - **gRPC**: `ServiceName/MethodName`
 
 ### Example
 
@@ -431,15 +460,19 @@ type BreakpointLocation struct {
 **Example output** for a flow file:
 
 ```
-Line  2: input                                                    (stage: input, ruleIndex: -1)
+Line  3: input                                                    (stage: input, ruleIndex: -1)
 Line  6: filter                                                   (stage: filter, ruleIndex: -1)
-Line  8: accept: input.region == 'us'                             (stage: accept, ruleIndex: -1)
-Line 12: transform                                                (stage: transform, ruleIndex: -1)
-Line 13: transform: id = uuid()                                   (stage: transform, ruleIndex: 0)
-Line 14: transform: email = lower(input.email)                    (stage: transform, ruleIndex: 1)
-Line 15: transform: name = input.name                             (stage: transform, ruleIndex: 2)
-Line 18: write → db                                               (stage: write, ruleIndex: -1)
+Line 10: accept: input.body.payload.type == 'A1'                  (stage: accept, ruleIndex: -1)
+Line 14: transform                                                (stage: transform, ruleIndex: -1)
+Line 15: transform: number = input.body.payload.associateNumber   (stage: transform, ruleIndex: 0)
+Line 16: transform: name = input.body.payload.name                (stage: transform, ruleIndex: 1)
+Line 17: transform: emails = input.body.payload.emails.join(',')  (stage: transform, ruleIndex: 2)
+Line 23: write: query                                             (stage: write, ruleIndex: -1)
 ```
+
+**Key design principle:** Breakpoints are placed on the **logic line** (the expression, query, or key), not on block openings. This matches what a developer expects — you break where the action happens, like in any programming language debugger.
+
+**All breakpoints pause BEFORE execution** — the runtime uses `RecordStage` (wraps the function call) for every stage, so the debugger always pauses before the expression is evaluated or the operation is executed.
 
 **How Studio uses this:**
 
@@ -448,8 +481,8 @@ Line 18: write → db                                               (stage: writ
 3. **Send to debug server**: When debugging, map the toggled breakpoints to `debug.setBreakpoints` calls using the `Flow`, `Stage`, and `RuleIndex` fields:
 
 ```go
-// When user toggles a breakpoint on line 14 of flows.hcl:
-bp := breakpointLocations[14] // {Flow: "create_user", Stage: "transform", RuleIndex: 1}
+// When user toggles a breakpoint on line 15 of flows.hcl:
+bp := breakpointLocations[15] // {Flow: "upsert_sales_conultant", Stage: "transform", RuleIndex: 0}
 
 // Send to debug server via WebSocket:
 debug.setBreakpoints({
@@ -458,21 +491,22 @@ debug.setBreakpoints({
 })
 ```
 
-**Coverage:** The engine returns breakpoint locations for all stages that exist in a flow:
+**Coverage:** The engine returns breakpoint locations for all stages that exist in a flow. Each breakpoint points to the most meaningful line (the logic, not the block opening):
 
-| Stage | When present | Location |
+| Stage | When present | Location (logic line) |
 |-------|-------------|----------|
 | `input` | Always | Flow block opening line |
-| `filter` | `from.filter` attr or `filter {}` block | Filter line |
-| `accept` | `accept {}` block | Accept block line |
-| `validate_input` | `validate { input = "..." }` | Validate block line |
+| `filter` | `from.filter` attr or `filter {}` block | The `filter` expression line |
+| `accept` | `accept {}` block | The `when` expression line |
+| `dedupe` | `dedupe {}` block | The `key` expression line |
+| `validate_input` | `validate { input = "..." }` | The `input` attribute line |
 | `enrich` | `enrich "name" {}` block(s) | Each enrich block line |
-| `step` | `step "name" {}` block(s) | Each step block line |
-| `transform` (stage) | `transform {}` block | Transform block line |
+| `step` | `step "name" {}` block(s) | The `query` or `operation` line |
+| `transform` (stage) | `transform {}` block | Transform block opening line |
 | `transform` (per-rule) | Each CEL mapping inside transform | Each attribute line |
-| `validate_output` | `validate { output = "..." }` | Validate block line |
-| `write` | `to {}` block(s) | Each to block line |
-| `response` (stage) | `response {}` block | Response block line |
+| `validate_output` | `validate { output = "..." }` | The `output` attribute line |
+| `write` | `to {}` block(s) | The `query` or `target` line |
+| `response` (stage) | `response {}` block | Response block opening line |
 | `response` (per-rule) | Each CEL mapping inside response | Each attribute line |
 
 **Per-flow vs all-project:**
@@ -528,7 +562,7 @@ pkg/ide/
 ├── symbols.go           # Workspace and file symbols for navigation
 ├── transform_rules.go   # Ordered transform rules and flow stage discovery
 ├── ide_test.go          # 14 core tests
-└── enhancements_test.go # 17 enhancement tests (CEL, rename, symbols, breakpoints, etc.)
+└── enhancements_test.go # 21 enhancement tests (CEL, rename, symbols, breakpoints, unknown attrs, etc.)
 ```
 
 ## Additional APIs (v1.17.1+)

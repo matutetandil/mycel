@@ -443,6 +443,92 @@ flow "create_user" {
 	}
 }
 
+func TestUnknownAttribute(t *testing.T) {
+	fi := parseHCL("test.hcl", []byte(`
+flow "test" {
+  from { connector = "api" }
+  accept {
+    when         = "true"
+    on_regehgrhe = "ack"
+  }
+  to { connector = "db" }
+}
+`))
+	diags := diagnoseFile(fi)
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, `unknown attribute "on_regehgrhe"`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected diagnostic for unknown attribute 'on_regehgrhe'")
+	}
+}
+
+func TestUnknownAttributeInConnector(t *testing.T) {
+	fi := parseHCL("test.hcl", []byte(`
+connector "db" {
+  type   = "database"
+  driver = "postgres"
+  databse = "mydb"
+}
+`))
+	diags := diagnoseFile(fi)
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, `unknown attribute "databse"`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected diagnostic for typo 'databse' in connector")
+	}
+}
+
+func TestDynamicBlocksAllowAnyAttr(t *testing.T) {
+	fi := parseHCL("test.hcl", []byte(`
+flow "test" {
+  from { connector = "api" }
+  transform {
+    any_field_name = "input.whatever"
+    another_one    = "uuid()"
+  }
+  to { connector = "db" }
+}
+`))
+	diags := diagnoseFile(fi)
+	for _, d := range diags {
+		if strings.Contains(d.Message, "unknown attribute") && strings.Contains(d.Message, "transform") {
+			t.Errorf("transform block should allow any attribute, got: %s", d.Message)
+		}
+	}
+}
+
+func TestAspectActionConnectorRef(t *testing.T) {
+	idx := newProjectIndex()
+	idx.updateFile(parseHCL("aspect.hcl", []byte(`
+aspect "notifier" {
+  on   = ["create_*"]
+  when = "after"
+  action {
+    connector = "nonexistent"
+  }
+}
+`)))
+
+	diags := diagnoseCrossRefs(idx)
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, `undefined connector "nonexistent"`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected undefined connector diagnostic for aspect action")
+	}
+}
+
 func TestFlowBreakpoints(t *testing.T) {
 	e := NewEngine("")
 	e.index.updateFile(parseHCL("flows.hcl", []byte(`
