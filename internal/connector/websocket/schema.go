@@ -21,7 +21,7 @@ func (ConnectorSchemaDef) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{
-			{Name: "operation", Doc: "WebSocket event to handle", Type: schema.TypeString},
+			{Name: "operation", Doc: "WebSocket event to handle", Type: schema.TypeString, Default: "*"},
 		},
 	}
 }

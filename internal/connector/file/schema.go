@@ -27,7 +27,7 @@ func (ConnectorSchemaDef) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{
-			{Name: "operation", Doc: "File operation (read, list, watch)", Type: schema.TypeString},
+			{Name: "operation", Doc: "File operation (read, list, watch)", Type: schema.TypeString, Default: "*"},
 		},
 	}
 }

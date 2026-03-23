@@ -5,7 +5,7 @@ import "github.com/matutetandil/mycel/pkg/schema"
 var mqSourceSchema = &schema.Block{
 	Open: true,
 	Attrs: []schema.Attr{
-		{Name: "operation", Doc: "Queue/topic name to consume from", Type: schema.TypeString},
+		{Name: "operation", Doc: "Queue/topic name to consume from", Type: schema.TypeString, Default: "*"},
 	},
 }
 

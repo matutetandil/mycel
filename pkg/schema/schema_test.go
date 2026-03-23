@@ -191,6 +191,47 @@ func TestBlockHelpers(t *testing.T) {
 	}
 }
 
+func TestValidateParams(t *testing.T) {
+	block := &Block{
+		Attrs: []Attr{
+			{Name: "operation", Type: TypeString, Required: true, Doc: "Operation name"},
+			{Name: "format", Type: TypeString},
+		},
+	}
+
+	// Missing required attr without default → error
+	params := map[string]interface{}{"format": "json"}
+	err := ValidateParams(block, params)
+	if err == nil {
+		t.Error("expected error for missing required 'operation'")
+	}
+
+	// With required attr present → no error
+	params = map[string]interface{}{"operation": "GET /users"}
+	err = ValidateParams(block, params)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateParamsWithDefault(t *testing.T) {
+	block := &Block{
+		Attrs: []Attr{
+			{Name: "operation", Type: TypeString, Required: false, Default: "*", Doc: "Operation"},
+		},
+	}
+
+	// Missing attr with default → default applied, no error
+	params := map[string]interface{}{}
+	err := ValidateParams(block, params)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if params["operation"] != "*" {
+		t.Errorf("expected default '*' applied, got %v", params["operation"])
+	}
+}
+
 // mockProvider implements ConnectorSchemaProvider for testing.
 type mockProvider struct {
 	connSchema Block

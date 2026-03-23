@@ -24,7 +24,7 @@ func (ConnectorSchemaDef) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{
-			{Name: "operation", Doc: "Table or event filter", Type: schema.TypeString},
+			{Name: "operation", Doc: "Table or event filter", Type: schema.TypeString, Default: "*"},
 		},
 	}
 }
