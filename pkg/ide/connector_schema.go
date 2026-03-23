@@ -1,11 +1,41 @@
 package ide
 
-// Connector-type-aware attribute schemas.
-// Returns required and recommended attributes for each connector type and driver.
+import "github.com/matutetandil/mycel/pkg/schema"
 
-// connectorTypeAttrs returns additional attributes required or recommended
-// for a specific connector type value.
+// connectorTypeAttrsFromRegistry returns connector-type-specific attributes
+// from the registry. Returns nil if not found.
+func connectorTypeAttrsFromRegistry(reg *schema.Registry, connType, driver string) []AttrSchema {
+	if reg == nil {
+		return nil
+	}
+	p := reg.Lookup(connType, driver)
+	if p == nil {
+		return nil
+	}
+	return p.ConnectorSchema().Attrs
+}
+
+// connectorTypeChildrenFromRegistry returns connector-type-specific child blocks
+// from the registry. Returns nil if not found.
+func connectorTypeChildrenFromRegistry(reg *schema.Registry, connType, driver string) []BlockSchema {
+	if reg == nil {
+		return nil
+	}
+	p := reg.Lookup(connType, driver)
+	if p == nil {
+		return nil
+	}
+	return p.ConnectorSchema().Children
+}
+
+// connectorTypeAttrs returns additional attributes for a specific connector type.
+// Uses the registry if available, otherwise falls back to static defaults.
 func connectorTypeAttrs(connType string) []AttrSchema {
+	return connectorTypeAttrsStatic(connType)
+}
+
+// connectorTypeAttrsStatic is the static fallback for when no registry is available.
+func connectorTypeAttrsStatic(connType string) []AttrSchema {
 	switch connType {
 	case "database":
 		return []AttrSchema{
@@ -49,104 +79,39 @@ func connectorTypeAttrs(connType string) []AttrSchema {
 			{Name: "host", Doc: "Redis host", Type: AttrString},
 			{Name: "port", Doc: "Redis port", Type: AttrNumber},
 		}
-	case "tcp":
-		return []AttrSchema{
-			{Name: "driver", Doc: "TCP protocol", Type: AttrString, Values: []string{"json", "msgpack", "nestjs"}},
-			{Name: "host", Doc: "TCP host", Type: AttrString},
-			{Name: "port", Doc: "TCP port", Type: AttrNumber, Required: true},
-		}
-	case "file":
-		return []AttrSchema{
-			{Name: "path", Doc: "File system path", Type: AttrString, Required: true},
-		}
-	case "s3":
-		return []AttrSchema{
-			{Name: "bucket", Doc: "S3 bucket name", Type: AttrString, Required: true},
-			{Name: "region", Doc: "AWS region", Type: AttrString},
-			{Name: "endpoint", Doc: "S3-compatible endpoint (MinIO)", Type: AttrString},
-		}
-	case "soap":
-		return []AttrSchema{
-			{Name: "port", Doc: "SOAP server port", Type: AttrNumber},
-			{Name: "base_url", Doc: "SOAP client endpoint URL", Type: AttrString},
-			{Name: "wsdl", Doc: "WSDL file path", Type: AttrString},
-		}
-	case "mqtt":
-		return []AttrSchema{
-			{Name: "host", Doc: "MQTT broker host", Type: AttrString, Required: true},
-			{Name: "port", Doc: "MQTT broker port", Type: AttrNumber},
-			{Name: "client_id", Doc: "MQTT client identifier", Type: AttrString},
-		}
-	case "ftp":
-		return []AttrSchema{
-			{Name: "driver", Doc: "FTP protocol", Type: AttrString, Values: []string{"ftp", "sftp"}},
-			{Name: "host", Doc: "FTP/SFTP host", Type: AttrString, Required: true},
-			{Name: "port", Doc: "FTP/SFTP port", Type: AttrNumber},
-			{Name: "user", Doc: "Username", Type: AttrString},
-			{Name: "password", Doc: "Password", Type: AttrString},
-		}
-	case "elasticsearch":
-		return []AttrSchema{
-			{Name: "url", Doc: "Elasticsearch URL", Type: AttrString, Required: true},
-			{Name: "index", Doc: "Default index name", Type: AttrString},
-		}
-	case "oauth":
-		return []AttrSchema{
-			{Name: "driver", Doc: "OAuth provider", Type: AttrString, Required: true, Values: []string{"google", "github", "apple", "oidc"}},
-			{Name: "client_id", Doc: "OAuth client ID", Type: AttrString, Required: true},
-			{Name: "client_secret", Doc: "OAuth client secret", Type: AttrString, Required: true},
-		}
-	case "email":
-		return []AttrSchema{
-			{Name: "driver", Doc: "Email provider", Type: AttrString, Values: []string{"smtp", "sendgrid", "ses"}},
-			{Name: "host", Doc: "SMTP host", Type: AttrString},
-			{Name: "from", Doc: "Sender email address", Type: AttrString, Required: true},
-		}
 	case "slack":
 		return []AttrSchema{
 			{Name: "token", Doc: "Slack bot OAuth token", Type: AttrString, Required: true},
 			{Name: "channel", Doc: "Default Slack channel", Type: AttrString},
 		}
-	case "discord":
-		return []AttrSchema{
-			{Name: "token", Doc: "Discord bot token", Type: AttrString, Required: true},
-			{Name: "channel", Doc: "Default Discord channel ID", Type: AttrString},
-		}
 	case "pdf":
 		return []AttrSchema{
 			{Name: "template", Doc: "HTML template file path", Type: AttrString, Required: true},
 		}
-	case "cdc":
+	case "elasticsearch":
 		return []AttrSchema{
-			{Name: "host", Doc: "PostgreSQL host for CDC", Type: AttrString, Required: true},
-			{Name: "port", Doc: "PostgreSQL port", Type: AttrNumber},
-			{Name: "database", Doc: "Database name", Type: AttrString, Required: true},
-			{Name: "user", Doc: "Replication user", Type: AttrString, Required: true},
-			{Name: "password", Doc: "Replication password", Type: AttrString},
-			{Name: "slot", Doc: "Replication slot name", Type: AttrString},
-		}
-	case "websocket":
-		return []AttrSchema{
-			{Name: "port", Doc: "WebSocket server port", Type: AttrNumber},
-			{Name: "path", Doc: "WebSocket endpoint path", Type: AttrString},
-		}
-	case "sse":
-		return []AttrSchema{
-			{Name: "port", Doc: "SSE server port", Type: AttrNumber},
-			{Name: "path", Doc: "SSE endpoint path", Type: AttrString},
+			{Name: "url", Doc: "Elasticsearch URL", Type: AttrString, Required: true},
 		}
 	}
 	return nil
 }
 
 // validateConnectorType returns diagnostics for connector-type-specific requirements.
-func validateConnectorType(path string, b *Block) []*Diagnostic {
+func validateConnectorType(path string, b *Block, reg *schema.Registry) []*Diagnostic {
 	connType := b.GetAttr("type")
 	if connType == "" {
 		return nil
 	}
 
-	typeAttrs := connectorTypeAttrs(connType)
+	driver := b.GetAttr("driver")
+
+	// Try registry first
+	typeAttrs := connectorTypeAttrsFromRegistry(reg, connType, driver)
+	if typeAttrs == nil {
+		// Fall back to static
+		typeAttrs = connectorTypeAttrsStatic(connType)
+	}
+
 	if len(typeAttrs) == 0 {
 		return nil
 	}

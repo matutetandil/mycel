@@ -128,7 +128,7 @@ flw "bad" {
   from { connector = "x" }
 }
 `))
-	diags := diagnoseFile(fi)
+	diags := diagnoseFile(fi, nil)
 	found := false
 	for _, d := range diags {
 		if d.Severity == SeverityError && strings.Contains(d.Message, "unknown block type") {
@@ -146,7 +146,7 @@ connector "api" {
   type = "invalid_type"
 }
 `))
-	diags := diagnoseFile(fi)
+	diags := diagnoseFile(fi, nil)
 	found := false
 	for _, d := range diags {
 		if d.Severity == SeverityError && strings.Contains(d.Message, "invalid value") {

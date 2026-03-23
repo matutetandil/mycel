@@ -5,23 +5,47 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/matutetandil/mycel/pkg/schema"
 )
 
 // Engine is the IDE intelligence engine. It indexes a Mycel project directory
 // and answers queries for completions, diagnostics, hover, and go-to-definition.
 // All methods are thread-safe.
 type Engine struct {
-	rootDir string
-	index   *ProjectIndex
-	mu      sync.RWMutex
+	rootDir  string
+	index    *ProjectIndex
+	registry *schema.Registry
+	mu       sync.RWMutex
+}
+
+// Option configures the engine.
+type Option func(*Engine)
+
+// WithRegistry sets a schema registry for connector-type-aware intelligence.
+// When set, the engine uses connector-specific schemas from the registry
+// instead of the static defaults.
+func WithRegistry(reg *schema.Registry) Option {
+	return func(e *Engine) {
+		e.registry = reg
+	}
 }
 
 // NewEngine creates an IDE engine for the given project directory.
-func NewEngine(rootDir string) *Engine {
-	return &Engine{
+func NewEngine(rootDir string, opts ...Option) *Engine {
+	e := &Engine{
 		rootDir: rootDir,
 		index:   newProjectIndex(),
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
+}
+
+// Registry returns the engine's schema registry, or nil if none set.
+func (e *Engine) Registry() *schema.Registry {
+	return e.registry
 }
 
 // FullReindex scans the project directory and indexes all HCL files.
@@ -88,7 +112,7 @@ func (e *Engine) Diagnose(path string) []*Diagnostic {
 		return nil
 	}
 
-	diags := diagnoseFile(fi)
+	diags := diagnoseFile(fi, e.registry)
 	diags = append(diags, diagnoseCrossRefs(e.index)...)
 	return diags
 }
@@ -100,7 +124,7 @@ func (e *Engine) DiagnoseAll() []*Diagnostic {
 
 	var diags []*Diagnostic
 	for _, fi := range e.index.Files {
-		diags = append(diags, diagnoseFile(fi)...)
+		diags = append(diags, diagnoseFile(fi, e.registry)...)
 	}
 
 	// Cross-reference diagnostics (must release read lock first)

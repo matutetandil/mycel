@@ -115,7 +115,7 @@ connector "db" {
 }
 `))
 
-	diags := diagnoseFile(fi)
+	diags := diagnoseFile(fi, nil)
 	found := false
 	for _, d := range diags {
 		if strings.Contains(d.Message, "database connector requires attribute driver") {
@@ -165,7 +165,7 @@ connector "db" {
 }
 `))
 
-	diags := diagnoseFile(fi)
+	diags := diagnoseFile(fi, nil)
 	for _, d := range diags {
 		if strings.Contains(d.Message, "requires attribute") {
 			t.Errorf("false positive: %s", d.Message)
@@ -182,7 +182,7 @@ connector "slack" {
 }
 `))
 
-	diags := diagnoseFile(fi)
+	diags := diagnoseFile(fi, nil)
 	for _, d := range diags {
 		if strings.Contains(d.Message, "requires attribute token") {
 			t.Errorf("false positive for slack token: %s", d.Message)
@@ -206,7 +206,7 @@ flow "test" {
 }
 `))
 
-	diags := diagnoseFile(fi)
+	diags := diagnoseFile(fi, nil)
 	found := false
 	for _, d := range diags {
 		if strings.Contains(d.Message, "unknown HTTP method") {
@@ -454,7 +454,7 @@ flow "test" {
   to { connector = "db" }
 }
 `))
-	diags := diagnoseFile(fi)
+	diags := diagnoseFile(fi, nil)
 	found := false
 	for _, d := range diags {
 		if strings.Contains(d.Message, `unknown attribute "on_regehgrhe"`) {
@@ -474,7 +474,7 @@ connector "db" {
   databse = "mydb"
 }
 `))
-	diags := diagnoseFile(fi)
+	diags := diagnoseFile(fi, nil)
 	found := false
 	for _, d := range diags {
 		if strings.Contains(d.Message, `unknown attribute "databse"`) {
@@ -497,7 +497,7 @@ flow "test" {
   to { connector = "db" }
 }
 `))
-	diags := diagnoseFile(fi)
+	diags := diagnoseFile(fi, nil)
 	for _, d := range diags {
 		if strings.Contains(d.Message, "unknown attribute") && strings.Contains(d.Message, "transform") {
 			t.Errorf("transform block should allow any attribute, got: %s", d.Message)

@@ -1,9 +1,13 @@
 package ide
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/matutetandil/mycel/pkg/schema"
+)
 
 // diagnoseFile returns diagnostics for a single file (parse errors + schema validation).
-func diagnoseFile(fi *FileIndex) []*Diagnostic {
+func diagnoseFile(fi *FileIndex, reg *schema.Registry) []*Diagnostic {
 	var diags []*Diagnostic
 
 	// Layer 1: HCL parse errors
@@ -15,7 +19,7 @@ func diagnoseFile(fi *FileIndex) []*Diagnostic {
 	// Layer 2.5: Connector-type-specific validation + operation validation
 	for _, b := range fi.Blocks {
 		if b.Type == "connector" {
-			diags = append(diags, validateConnectorType(fi.Path, b)...)
+			diags = append(diags, validateConnectorType(fi.Path, b, reg)...)
 		}
 		if b.Type == "flow" {
 			diags = append(diags, validateFlowOperations(fi.Path, b)...)
