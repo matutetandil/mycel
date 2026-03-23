@@ -36,11 +36,11 @@ func TestCacheManager_IsCached(t *testing.T) {
 	// Create cache entry with plugin.hcl
 	dir := c.PluginDir("github.com/acme/plugin", v)
 	os.MkdirAll(dir, 0755)
-	os.WriteFile(filepath.Join(dir, "plugin.hcl"), []byte("plugin {}"), 0644)
+	os.WriteFile(filepath.Join(dir, "plugin.mycel"), []byte("plugin {}"), 0644)
 
 	// Now cached
 	if !c.IsCached("github.com/acme/plugin", v) {
-		t.Error("expected cached after creating plugin.hcl")
+		t.Error("expected cached after creating plugin.mycel")
 	}
 }
 
@@ -83,7 +83,7 @@ func TestCacheManager_List_WithPlugins(t *testing.T) {
 	v := Version{Major: 2, Minor: 1, Patch: 0}
 	dir := c.PluginDir("github.com/acme/sap", v)
 	os.MkdirAll(dir, 0755)
-	os.WriteFile(filepath.Join(dir, "plugin.hcl"), []byte(`plugin { name = "sap" version = "2.1.0" }`), 0644)
+	os.WriteFile(filepath.Join(dir, "plugin.mycel"), []byte(`plugin { name = "sap" version = "2.1.0" }`), 0644)
 
 	plugins, err := c.List()
 	if err != nil {
@@ -105,7 +105,7 @@ func TestCacheManager_Remove(t *testing.T) {
 	// Create cached entry
 	dir := c.PluginDir("github.com/acme/plugin", v)
 	os.MkdirAll(dir, 0755)
-	os.WriteFile(filepath.Join(dir, "plugin.hcl"), []byte("plugin {}"), 0644)
+	os.WriteFile(filepath.Join(dir, "plugin.mycel"), []byte("plugin {}"), 0644)
 
 	// Remove it
 	if err := c.Remove("github.com/acme/plugin", v); err != nil {
@@ -135,7 +135,7 @@ func TestCacheManager_CopyPlugin(t *testing.T) {
 	// Create a "local plugin" directory
 	localPlugin := filepath.Join(tmp, "my-local-plugin")
 	os.MkdirAll(localPlugin, 0755)
-	os.WriteFile(filepath.Join(localPlugin, "plugin.hcl"), []byte("plugin {}"), 0644)
+	os.WriteFile(filepath.Join(localPlugin, "plugin.mycel"), []byte("plugin {}"), 0644)
 	os.WriteFile(filepath.Join(localPlugin, "connector.wasm"), []byte("fake-wasm"), 0644)
 
 	// Create a .git dir that should be skipped
@@ -149,7 +149,7 @@ func TestCacheManager_CopyPlugin(t *testing.T) {
 	}
 
 	// Verify files were copied
-	if _, err := os.Stat(filepath.Join(dest, "plugin.hcl")); err != nil {
+	if _, err := os.Stat(filepath.Join(dest, "plugin.mycel")); err != nil {
 		t.Error("plugin.hcl not copied")
 	}
 	if _, err := os.Stat(filepath.Join(dest, "connector.wasm")); err != nil {

@@ -273,6 +273,11 @@ func newEvalContext() *hcl.EvalContext {
 	}
 }
 
+// isMycelFile returns true if the filename has the .mycel extension.
+func isMycelFile(name string) bool {
+	return strings.HasSuffix(name, ".mycel")
+}
+
 // isPluginManifest returns true if the file is a plugin manifest (parsed by the
 // plugin loader, not the main parser). A manifest has a top-level `plugin` block
 // WITHOUT a label and a `provides` block — unlike config declarations which use
@@ -315,7 +320,7 @@ func isPluginManifest(path string) bool {
 func (p *HCLParser) Parse(ctx context.Context, configDir string) (*Configuration, error) {
 	config := NewConfiguration()
 
-	// Walk directory and find all .hcl files
+	// Walk directory and find all .mycel files
 	err := filepath.Walk(configDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -326,8 +331,8 @@ func (p *HCLParser) Parse(ctx context.Context, configDir string) (*Configuration
 			return filepath.SkipDir
 		}
 
-		// Skip non-HCL files
-		if info.IsDir() || !strings.HasSuffix(info.Name(), ".hcl") {
+		// Skip non-Mycel files
+		if info.IsDir() || !isMycelFile(info.Name()) {
 			return nil
 		}
 

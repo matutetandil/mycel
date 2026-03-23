@@ -27,7 +27,7 @@ flow "test" {
   }
 }
 `)
-	fi := parseHCL("test.hcl", src)
+	fi := parseHCL("test.mycel", src)
 	idx := newProjectIndex()
 	idx.updateFile(fi)
 
@@ -65,7 +65,7 @@ flow "test" {
   }
 }
 `)
-	fi := parseHCL("test.hcl", src)
+	fi := parseHCL("test.mycel", src)
 	idx := newProjectIndex()
 	idx.updateFile(fi)
 
@@ -109,7 +109,7 @@ func TestIsCELContext(t *testing.T) {
 // --- Connector Type Validation ---
 
 func TestConnectorTypeValidation(t *testing.T) {
-	fi := parseHCL("test.hcl", []byte(`
+	fi := parseHCL("test.mycel", []byte(`
 connector "db" {
   type = "database"
 }
@@ -134,7 +134,7 @@ connector "db" {
 
 }
 `)
-	fi := parseHCL("test.hcl", src)
+	fi := parseHCL("test.mycel", src)
 	idx := newProjectIndex()
 	idx.updateFile(fi)
 
@@ -154,7 +154,7 @@ connector "db" {
 }
 
 func TestConnectorTypeValidationWithEnv(t *testing.T) {
-	fi := parseHCL("test.hcl", []byte(`
+	fi := parseHCL("test.mycel", []byte(`
 connector "db" {
   type     = "database"
   driver   = "mysql"
@@ -174,7 +174,7 @@ connector "db" {
 }
 
 func TestConnectorSlackWithEnv(t *testing.T) {
-	fi := parseHCL("test.hcl", []byte(`
+	fi := parseHCL("test.mycel", []byte(`
 connector "slack" {
   type    = "slack"
   token   = env("SLACK_BOT_TOKEN")
@@ -193,7 +193,7 @@ connector "slack" {
 // --- Operation Validation ---
 
 func TestOperationValidation(t *testing.T) {
-	fi := parseHCL("test.hcl", []byte(`
+	fi := parseHCL("test.mycel", []byte(`
 flow "test" {
   from {
     connector = "api"
@@ -220,7 +220,7 @@ flow "test" {
 
 func TestOperationCompletionsREST(t *testing.T) {
 	idx := newProjectIndex()
-	idx.updateFile(parseHCL("conn.hcl", []byte(`
+	idx.updateFile(parseHCL("conn.mycel", []byte(`
 connector "api" {
   type = "rest"
   port = 3000
@@ -235,7 +235,7 @@ flow "test" {
   }
 }
 `)
-	fi := parseHCL("test.hcl", src)
+	fi := parseHCL("test.mycel", src)
 	idx.updateFile(fi)
 
 	items := complete(fi, idx, 5, 18)
@@ -257,13 +257,13 @@ flow "test" {
 
 func TestRenameConnector(t *testing.T) {
 	e := NewEngine("")
-	e.index.updateFile(parseHCL("connectors.hcl", []byte(`
+	e.index.updateFile(parseHCL("connectors.mycel", []byte(`
 connector "old_api" {
   type = "rest"
   port = 3000
 }
 `)))
-	e.index.updateFile(parseHCL("flows.hcl", []byte(`
+	e.index.updateFile(parseHCL("flows.mycel", []byte(`
 flow "test" {
   from {
     connector = "old_api"
@@ -277,7 +277,7 @@ flow "test" {
 `)))
 
 	// Rename from the reference in flows.hcl
-	edits := e.Rename("flows.hcl", 4, 18, "new_api")
+	edits := e.Rename("flows.mycel", 4, 18, "new_api")
 
 	if len(edits) < 2 {
 		t.Fatalf("expected at least 2 rename edits (definition + references), got %d", len(edits))
@@ -292,10 +292,10 @@ flow "test" {
 		}
 	}
 
-	if files["connectors.hcl"] < 1 {
+	if files["connectors.mycel"] < 1 {
 		t.Error("expected at least 1 edit in connectors.hcl (definition)")
 	}
-	if files["flows.hcl"] < 2 {
+	if files["flows.mycel"] < 2 {
 		t.Error("expected at least 2 edits in flows.hcl (from + to references)")
 	}
 }
@@ -304,7 +304,7 @@ flow "test" {
 
 func TestCodeActionCreateConnector(t *testing.T) {
 	e := NewEngine("")
-	e.index.updateFile(parseHCL("flows.hcl", []byte(`
+	e.index.updateFile(parseHCL("flows.mycel", []byte(`
 flow "test" {
   from {
     connector = "missing_api"
@@ -317,7 +317,7 @@ flow "test" {
 }
 `)))
 
-	actions := e.CodeActions("flows.hcl", 4, 18)
+	actions := e.CodeActions("flows.mycel", 4, 18)
 
 	found := false
 	for _, a := range actions {
@@ -337,7 +337,7 @@ flow "test" {
 
 func TestWorkspaceSymbols(t *testing.T) {
 	e := NewEngine("")
-	e.index.updateFile(parseHCL("connectors.hcl", []byte(`
+	e.index.updateFile(parseHCL("connectors.mycel", []byte(`
 connector "api" {
   type = "rest"
   port = 3000
@@ -347,7 +347,7 @@ connector "db" {
   driver = "postgres"
 }
 `)))
-	e.index.updateFile(parseHCL("flows.hcl", []byte(`
+	e.index.updateFile(parseHCL("flows.mycel", []byte(`
 flow "get_users" {
   from { connector = "api" }
   to { connector = "db" }
@@ -376,7 +376,7 @@ flow "create_user" {
 
 func TestFileSymbols(t *testing.T) {
 	e := NewEngine("")
-	e.index.updateFile(parseHCL("flows.hcl", []byte(`
+	e.index.updateFile(parseHCL("flows.mycel", []byte(`
 flow "get_users" {
   from { connector = "api" }
   to { connector = "db" }
@@ -387,7 +387,7 @@ flow "create_user" {
 }
 `)))
 
-	symbols := e.SymbolsForFile("flows.hcl")
+	symbols := e.SymbolsForFile("flows.mycel")
 	if len(symbols) != 2 {
 		t.Errorf("expected 2 file symbols, got %d", len(symbols))
 	}
@@ -397,7 +397,7 @@ flow "create_user" {
 
 func TestTransformRules(t *testing.T) {
 	e := NewEngine("")
-	e.index.updateFile(parseHCL("flows.hcl", []byte(`
+	e.index.updateFile(parseHCL("flows.mycel", []byte(`
 flow "create_user" {
   from {
     connector = "api"
@@ -444,7 +444,7 @@ flow "create_user" {
 }
 
 func TestUnknownAttribute(t *testing.T) {
-	fi := parseHCL("test.hcl", []byte(`
+	fi := parseHCL("test.mycel", []byte(`
 flow "test" {
   from { connector = "api" }
   accept {
@@ -467,7 +467,7 @@ flow "test" {
 }
 
 func TestUnknownAttributeInConnector(t *testing.T) {
-	fi := parseHCL("test.hcl", []byte(`
+	fi := parseHCL("test.mycel", []byte(`
 connector "db" {
   type   = "database"
   driver = "postgres"
@@ -487,7 +487,7 @@ connector "db" {
 }
 
 func TestDynamicBlocksAllowAnyAttr(t *testing.T) {
-	fi := parseHCL("test.hcl", []byte(`
+	fi := parseHCL("test.mycel", []byte(`
 flow "test" {
   from { connector = "api" }
   transform {
@@ -507,7 +507,7 @@ flow "test" {
 
 func TestAspectActionConnectorRef(t *testing.T) {
 	idx := newProjectIndex()
-	idx.updateFile(parseHCL("aspect.hcl", []byte(`
+	idx.updateFile(parseHCL("aspect.mycel", []byte(`
 aspect "notifier" {
   on   = ["create_*"]
   when = "after"
@@ -531,7 +531,7 @@ aspect "notifier" {
 
 func TestFlowBreakpoints(t *testing.T) {
 	e := NewEngine("")
-	e.index.updateFile(parseHCL("flows.hcl", []byte(`
+	e.index.updateFile(parseHCL("flows.mycel", []byte(`
 flow "process_order" {
   from {
     connector = "rabbit"
@@ -566,7 +566,7 @@ flow "process_order" {
 
 	// All should be in flows.hcl
 	for _, bp := range bps {
-		if bp.File != "flows.hcl" {
+		if bp.File != "flows.mycel" {
 			t.Errorf("expected file=flows.hcl, got %s", bp.File)
 		}
 		if bp.Flow != "process_order" {
@@ -611,7 +611,7 @@ flow "process_order" {
 
 func TestAllBreakpoints(t *testing.T) {
 	e := NewEngine("")
-	e.index.updateFile(parseHCL("flows.hcl", []byte(`
+	e.index.updateFile(parseHCL("flows.mycel", []byte(`
 flow "flow_a" {
   from { connector = "api" }
   to { connector = "db" }
@@ -624,10 +624,10 @@ flow "flow_b" {
 `)))
 
 	allBps := e.AllBreakpoints()
-	bps := allBps["flows.hcl"]
+	bps := allBps["flows.mycel"]
 
 	if len(bps) == 0 {
-		t.Fatal("expected breakpoints in flows.hcl")
+		t.Fatal("expected breakpoints in flows.mycel")
 	}
 
 	// Both flows should have breakpoints
@@ -642,7 +642,7 @@ flow "flow_b" {
 
 func TestFlowStages(t *testing.T) {
 	e := NewEngine("")
-	e.index.updateFile(parseHCL("flows.hcl", []byte(`
+	e.index.updateFile(parseHCL("flows.mycel", []byte(`
 flow "complex" {
   from {
     connector = "rabbit"

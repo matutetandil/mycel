@@ -19,7 +19,7 @@ func TestWatcher_Basic(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Create initial config file
-	configFile := filepath.Join(tmpDir, "config.hcl")
+	configFile := filepath.Join(tmpDir, "config.mycel")
 	if err := os.WriteFile(configFile, []byte("# initial"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestWatcher_Basic(t *testing.T) {
 		&Config{
 			Enabled:    true,
 			Paths:      []string{tmpDir},
-			Extensions: []string{".hcl"},
+			Extensions: []string{".mycel"},
 			Debounce:   50 * time.Millisecond,
 		},
 		nil,
@@ -75,7 +75,7 @@ func TestWatcher_Debounce(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	configFile := filepath.Join(tmpDir, "config.hcl")
+	configFile := filepath.Join(tmpDir, "config.mycel")
 	if err := os.WriteFile(configFile, []byte("# initial"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestWatcher_Debounce(t *testing.T) {
 		&Config{
 			Enabled:    true,
 			Paths:      []string{tmpDir},
-			Extensions: []string{".hcl"},
+			Extensions: []string{".mycel"},
 			Debounce:   100 * time.Millisecond,
 		},
 		nil,
@@ -135,7 +135,7 @@ func TestWatcher_ExtensionFilter(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	// Create files with different extensions
-	hclFile := filepath.Join(tmpDir, "config.hcl")
+	hclFile := filepath.Join(tmpDir, "config.mycel")
 	txtFile := filepath.Join(tmpDir, "readme.txt")
 	if err := os.WriteFile(hclFile, []byte("# initial"), 0644); err != nil {
 		t.Fatal(err)
@@ -150,7 +150,7 @@ func TestWatcher_ExtensionFilter(t *testing.T) {
 		&Config{
 			Enabled:    true,
 			Paths:      []string{tmpDir},
-			Extensions: []string{".hcl"},
+			Extensions: []string{".mycel"},
 			Debounce:   50 * time.Millisecond,
 		},
 		nil,
@@ -204,7 +204,7 @@ func TestWatcher_ValidationFailure(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	configFile := filepath.Join(tmpDir, "config.hcl")
+	configFile := filepath.Join(tmpDir, "config.mycel")
 	if err := os.WriteFile(configFile, []byte("# initial"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestWatcher_ValidationFailure(t *testing.T) {
 		&Config{
 			Enabled:    true,
 			Paths:      []string{tmpDir},
-			Extensions: []string{".hcl"},
+			Extensions: []string{".mycel"},
 			Debounce:   50 * time.Millisecond,
 		},
 		nil,

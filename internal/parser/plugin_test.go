@@ -29,7 +29,7 @@ plugin "stripe" {
 }
 `
 
-	testFile := filepath.Join(tmpDir, "plugins.hcl")
+	testFile := filepath.Join(tmpDir, "plugins.mycel")
 	if err := os.WriteFile(testFile, []byte(hclContent), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
@@ -82,7 +82,7 @@ plugin "invalid" {
 }
 `
 
-	testFile := filepath.Join(tmpDir, "plugins.hcl")
+	testFile := filepath.Join(tmpDir, "plugins.mycel")
 	if err := os.WriteFile(testFile, []byte(hclContent), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}

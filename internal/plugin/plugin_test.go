@@ -91,7 +91,7 @@ func TestResolvePluginPath_LocalWithCopy(t *testing.T) {
 	// Create a local plugin with files
 	pluginDir := filepath.Join(tmp, "my-plugin")
 	os.MkdirAll(pluginDir, 0755)
-	os.WriteFile(filepath.Join(pluginDir, "plugin.hcl"), []byte("plugin {}"), 0644)
+	os.WriteFile(filepath.Join(pluginDir, "plugin.mycel"), []byte("plugin {}"), 0644)
 	os.WriteFile(filepath.Join(pluginDir, "conn.wasm"), []byte("wasm"), 0644)
 
 	loader := NewLoader(tmp)
@@ -115,7 +115,7 @@ func TestResolvePluginPath_LocalWithCopy(t *testing.T) {
 	if copiedPath == pluginDir {
 		t.Error("expected copied path to differ from original")
 	}
-	if _, err := os.Stat(filepath.Join(copiedPath, "plugin.hcl")); err != nil {
+	if _, err := os.Stat(filepath.Join(copiedPath, "plugin.mycel")); err != nil {
 		t.Error("plugin.hcl not found in copied location")
 	}
 	if _, err := os.Stat(filepath.Join(copiedPath, "conn.wasm")); err != nil {
@@ -409,7 +409,7 @@ provides {
   }
 }
 `
-	os.WriteFile(filepath.Join(tmp, "plugin.hcl"), []byte(manifest), 0644)
+	os.WriteFile(filepath.Join(tmp, "plugin.mycel"), []byte(manifest), 0644)
 
 	loader := NewLoader(tmp)
 	parsed, err := loader.parseManifest(tmp)
@@ -489,7 +489,7 @@ provides {
   }
 }
 `
-	os.WriteFile(filepath.Join(tmp, "plugin.hcl"), []byte(manifest), 0644)
+	os.WriteFile(filepath.Join(tmp, "plugin.mycel"), []byte(manifest), 0644)
 
 	loader := NewLoader(tmp)
 	parsed, err := loader.parseManifest(tmp)

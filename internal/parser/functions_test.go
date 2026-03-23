@@ -28,7 +28,7 @@ functions "geo" {
 	defer os.RemoveAll(tmpDir)
 
 	// Write test file
-	testFile := filepath.Join(tmpDir, "functions.hcl")
+	testFile := filepath.Join(tmpDir, "functions.mycel")
 	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
@@ -88,7 +88,7 @@ functions "test" {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	testFile := filepath.Join(tmpDir, "functions.hcl")
+	testFile := filepath.Join(tmpDir, "functions.mycel")
 	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
@@ -112,7 +112,7 @@ functions "test" {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	testFile := filepath.Join(tmpDir, "functions.hcl")
+	testFile := filepath.Join(tmpDir, "functions.mycel")
 	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
@@ -137,7 +137,7 @@ functions {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	testFile := filepath.Join(tmpDir, "functions.hcl")
+	testFile := filepath.Join(tmpDir, "functions.mycel")
 	if err := os.WriteFile(testFile, []byte(content), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}

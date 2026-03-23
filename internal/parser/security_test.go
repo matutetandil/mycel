@@ -31,7 +31,7 @@ security {
   }
 }
 `
-	path := filepath.Join(dir, "security.hcl")
+	path := filepath.Join(dir, "security.mycel")
 	if err := os.WriteFile(path, []byte(hclContent), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestParseSecurityDefaults(t *testing.T) {
 security {
 }
 `
-	path := filepath.Join(dir, "security.hcl")
+	path := filepath.Join(dir, "security.mycel")
 	if err := os.WriteFile(path, []byte(hclContent), 0644); err != nil {
 		t.Fatal(err)
 	}

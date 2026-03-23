@@ -23,7 +23,7 @@ type Config struct {
 	// Paths are the directories to watch for changes.
 	Paths []string
 
-	// Extensions are file extensions to watch (default: .hcl).
+	// Extensions are file extensions to watch (default: .mycel).
 	Extensions []string
 
 	// Debounce is the debounce duration to prevent rapid reloads.
@@ -38,7 +38,7 @@ func DefaultConfig(configPath string) *Config {
 	return &Config{
 		Enabled:    true,
 		Paths:      []string{configPath},
-		Extensions: []string{".hcl"},
+		Extensions: []string{".mycel"},
 		Debounce:   500 * time.Millisecond,
 	}
 }

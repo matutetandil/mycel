@@ -290,7 +290,7 @@ func createTestConfig(t *testing.T, tmpDir, dbPath string, port int) {
 	os.MkdirAll(filepath.Join(tmpDir, "types"), 0755)
 
 	// Main config
-	writeFile(t, filepath.Join(tmpDir, "config.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "config.mycel"), fmt.Sprintf(`
 service {
   name    = "test-service"
   version = "1.0.0"
@@ -298,7 +298,7 @@ service {
 `))
 
 	// REST connector
-	writeFile(t, filepath.Join(tmpDir, "connectors", "api.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "connectors", "api.mycel"), fmt.Sprintf(`
 connector "api" {
   type = "rest"
   port = %d
@@ -306,7 +306,7 @@ connector "api" {
 `, port))
 
 	// SQLite connector
-	writeFile(t, filepath.Join(tmpDir, "connectors", "database.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "connectors", "database.mycel"), fmt.Sprintf(`
 connector "sqlite" {
   type     = "database"
   driver   = "sqlite"
@@ -315,7 +315,7 @@ connector "sqlite" {
 `, dbPath))
 
 	// Flows with transforms
-	writeFile(t, filepath.Join(tmpDir, "flows", "users.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "flows", "users.mycel"), `
 flow "get_users" {
   from {
     connector = "api"
@@ -384,21 +384,21 @@ func createTestConfigWithValidation(t *testing.T, tmpDir, dbPath string, port in
 	os.MkdirAll(filepath.Join(tmpDir, "flows"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "types"), 0755)
 
-	writeFile(t, filepath.Join(tmpDir, "config.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "config.mycel"), `
 service {
   name    = "validation-test"
   version = "1.0.0"
 }
 `)
 
-	writeFile(t, filepath.Join(tmpDir, "connectors", "api.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "connectors", "api.mycel"), fmt.Sprintf(`
 connector "api" {
   type = "rest"
   port = %d
 }
 `, port))
 
-	writeFile(t, filepath.Join(tmpDir, "connectors", "database.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "connectors", "database.mycel"), fmt.Sprintf(`
 connector "sqlite" {
   type     = "database"
   driver   = "sqlite"
@@ -408,7 +408,7 @@ connector "sqlite" {
 
 	// Type with constraints - using function call syntax for constraints
 	// string({ format = "email" }) is how HCL parses string { format = "email" }
-	writeFile(t, filepath.Join(tmpDir, "types", "user.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "types", "user.mycel"), `
 type "validated_user" {
   email = string({ format = "email" })
   name  = string({ min_length = 1 })
@@ -416,7 +416,7 @@ type "validated_user" {
 `)
 
 	// Flow with validation
-	writeFile(t, filepath.Join(tmpDir, "flows", "users.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "flows", "users.mycel"), `
 flow "create_validated_user" {
   from {
     connector = "api"
@@ -618,14 +618,14 @@ func createGraphQLDynamicConfig(t *testing.T, tmpDir, dbPath string, port int) {
 	os.MkdirAll(filepath.Join(tmpDir, "connectors"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "flows"), 0755)
 
-	writeFile(t, filepath.Join(tmpDir, "config.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "config.mycel"), `
 service {
   name    = "graphql-dynamic-test"
   version = "1.0.0"
 }
 `)
 
-	writeFile(t, filepath.Join(tmpDir, "connectors", "graphql.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "connectors", "graphql.mycel"), fmt.Sprintf(`
 connector "gql" {
   type   = "graphql"
   driver = "server"
@@ -635,7 +635,7 @@ connector "gql" {
 }
 `, port))
 
-	writeFile(t, filepath.Join(tmpDir, "connectors", "database.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "connectors", "database.mycel"), fmt.Sprintf(`
 connector "sqlite" {
   type     = "database"
   driver   = "sqlite"
@@ -643,7 +643,7 @@ connector "sqlite" {
 }
 `, dbPath))
 
-	writeFile(t, filepath.Join(tmpDir, "flows", "graphql.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "flows", "graphql.mycel"), `
 flow "get_users" {
   from {
     connector = "gql"
@@ -1149,7 +1149,7 @@ func createGraphQLSchemaFirstFullConfig(t *testing.T, tmpDir, dbPath string, por
 	os.MkdirAll(filepath.Join(tmpDir, "flows"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "schema"), 0755)
 
-	writeFile(t, filepath.Join(tmpDir, "config.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "config.mycel"), `
 service {
   name    = "graphql-sdl-crud-test"
   version = "1.0.0"
@@ -1192,7 +1192,7 @@ type Mutation {
 `)
 
 	schemaPath := filepath.Join(tmpDir, "schema", "schema.graphql")
-	writeFile(t, filepath.Join(tmpDir, "connectors", "graphql.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "connectors", "graphql.mycel"), fmt.Sprintf(`
 connector "gql" {
   type   = "graphql"
   driver = "server"
@@ -1205,7 +1205,7 @@ connector "gql" {
 }
 `, port, schemaPath))
 
-	writeFile(t, filepath.Join(tmpDir, "connectors", "database.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "connectors", "database.mycel"), fmt.Sprintf(`
 connector "sqlite" {
   type     = "database"
   driver   = "sqlite"
@@ -1214,7 +1214,7 @@ connector "sqlite" {
 `, dbPath))
 
 	// Complete flows for CRUD
-	writeFile(t, filepath.Join(tmpDir, "flows", "graphql.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "flows", "graphql.mycel"), `
 # READ: Get all users
 flow "get_users" {
   from {
@@ -1721,7 +1721,7 @@ func createGraphQLHCLFirstFullConfig(t *testing.T, tmpDir, dbPath string, port i
 	os.MkdirAll(filepath.Join(tmpDir, "flows"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "types"), 0755)
 
-	writeFile(t, filepath.Join(tmpDir, "config.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "config.mycel"), `
 service {
   name    = "graphql-hcl-crud-test"
   version = "1.0.0"
@@ -1729,7 +1729,7 @@ service {
 `)
 
 	// HCL Type definitions
-	writeFile(t, filepath.Join(tmpDir, "types", "user.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "types", "user.mycel"), `
 type "User" {
   id         = id
   email      = string({ format = "email" })
@@ -1749,7 +1749,7 @@ type "UpdateUserInput" {
 }
 `)
 
-	writeFile(t, filepath.Join(tmpDir, "connectors", "graphql.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "connectors", "graphql.mycel"), fmt.Sprintf(`
 connector "gql" {
   type   = "graphql"
   driver = "server"
@@ -1762,7 +1762,7 @@ connector "gql" {
 }
 `, port))
 
-	writeFile(t, filepath.Join(tmpDir, "connectors", "database.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "connectors", "database.mycel"), fmt.Sprintf(`
 connector "sqlite" {
   type     = "database"
   driver   = "sqlite"
@@ -1771,7 +1771,7 @@ connector "sqlite" {
 `, dbPath))
 
 	// Flows with 'returns' attribute
-	writeFile(t, filepath.Join(tmpDir, "flows", "graphql.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "flows", "graphql.mycel"), `
 # READ: Get all users
 flow "get_users" {
   from {
@@ -2025,21 +2025,21 @@ func createRawSQLTestConfig(t *testing.T, tmpDir, dbPath string, port int) {
 	os.MkdirAll(filepath.Join(tmpDir, "connectors"), 0755)
 	os.MkdirAll(filepath.Join(tmpDir, "flows"), 0755)
 
-	writeFile(t, filepath.Join(tmpDir, "config.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "config.mycel"), `
 service {
   name    = "rawsql-test"
   version = "1.0.0"
 }
 `)
 
-	writeFile(t, filepath.Join(tmpDir, "connectors", "api.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "connectors", "api.mycel"), fmt.Sprintf(`
 connector "api" {
   type = "rest"
   port = %d
 }
 `, port))
 
-	writeFile(t, filepath.Join(tmpDir, "connectors", "database.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "connectors", "database.mycel"), fmt.Sprintf(`
 connector "sqlite" {
   type     = "database"
   driver   = "sqlite"
@@ -2048,7 +2048,7 @@ connector "sqlite" {
 `, dbPath))
 
 	// Flows with raw SQL queries
-	writeFile(t, filepath.Join(tmpDir, "flows", "orders.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "flows", "orders.mycel"), `
 # GET order with JOIN - using raw SQL
 flow "get_order_with_user" {
   from {
@@ -2144,7 +2144,7 @@ func TestIntegration_Aspects(t *testing.T) {
 	port := 3980
 
 	// Create config files
-	writeFile(t, filepath.Join(tmpDir, "config.hcl"), fmt.Sprintf(`
+	writeFile(t, filepath.Join(tmpDir, "config.mycel"), fmt.Sprintf(`
 service {
   name    = "aspect-test"
   version = "1.0.0"
@@ -2164,7 +2164,7 @@ connector "db" {
 
 	// Create flows in the flows/products directory for pattern matching
 	// Each flow in its own file so aspects can match by file name
-	writeFile(t, filepath.Join(flowsDir, "get_products.hcl"), `
+	writeFile(t, filepath.Join(flowsDir, "get_products.mycel"), `
 flow "get_products" {
   from {
     connector = "api"
@@ -2177,7 +2177,7 @@ flow "get_products" {
 }
 `)
 
-	writeFile(t, filepath.Join(flowsDir, "create_product.hcl"), `
+	writeFile(t, filepath.Join(flowsDir, "create_product.mycel"), `
 flow "create_product" {
   from {
     connector = "api"
@@ -2195,7 +2195,7 @@ flow "create_product" {
 `)
 
 	// Create aspects file
-	writeFile(t, filepath.Join(tmpDir, "aspects.hcl"), `
+	writeFile(t, filepath.Join(tmpDir, "aspects.mycel"), `
 # After aspect - logs all create operations (matches by flow name)
 aspect "audit_creates" {
   on   = ["create_*"]
@@ -2314,7 +2314,7 @@ service {
   admin_port = 19090
 }
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "config.hcl"), []byte(configHCL), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.mycel"), []byte(configHCL), 0644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
 
@@ -2400,7 +2400,7 @@ service {
   version = "1.0.0"
 }
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "config.hcl"), []byte(configHCL), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.mycel"), []byte(configHCL), 0644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
 
@@ -2490,7 +2490,7 @@ flow "create_user_idempotent" {
 }
 `, port, dbPath)
 
-	writeFile(t, filepath.Join(tmpDir, "config.hcl"), configHCL)
+	writeFile(t, filepath.Join(tmpDir, "config.mycel"), configHCL)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -2594,7 +2594,7 @@ flow "create_user_async" {
 }
 `, port, dbPath)
 
-	writeFile(t, filepath.Join(tmpDir, "config.hcl"), configHCL)
+	writeFile(t, filepath.Join(tmpDir, "config.mycel"), configHCL)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -2710,7 +2710,7 @@ flow "health_check" {
 }
 `, port)
 
-	writeFile(t, filepath.Join(tmpDir, "config.hcl"), configHCL)
+	writeFile(t, filepath.Join(tmpDir, "config.mycel"), configHCL)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -2794,7 +2794,7 @@ flow "upload_file" {
 }
 `, port)
 
-	writeFile(t, filepath.Join(tmpDir, "config.hcl"), configHCL)
+	writeFile(t, filepath.Join(tmpDir, "config.mycel"), configHCL)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -2917,7 +2917,7 @@ flow "echo_headers" {
 }
 `, port, dbPath)
 
-	writeFile(t, filepath.Join(tmpDir, "config.hcl"), configHCL)
+	writeFile(t, filepath.Join(tmpDir, "config.mycel"), configHCL)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -3054,7 +3054,7 @@ flow "not_implemented" {
 }
 `, port, dbPath)
 
-	writeFile(t, filepath.Join(tmpDir, "config.hcl"), configHCL)
+	writeFile(t, filepath.Join(tmpDir, "config.mycel"), configHCL)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

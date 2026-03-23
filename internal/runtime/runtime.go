@@ -2157,7 +2157,7 @@ func (r *Runtime) initHotReload(ctx context.Context) error {
 		&hotreload.Config{
 			Enabled:    true,
 			Paths:      []string{r.configDir},
-			Extensions: []string{".hcl"},
+			Extensions: []string{".mycel"},
 			Debounce:   500 * time.Millisecond,
 		},
 		r.logger,

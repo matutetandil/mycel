@@ -33,7 +33,7 @@ func (c *CacheManager) PluginDir(source string, version Version) string {
 // IsCached returns true if the plugin version is already cached.
 func (c *CacheManager) IsCached(source string, version Version) bool {
 	dir := c.PluginDir(source, version)
-	manifest := filepath.Join(dir, "plugin.hcl")
+	manifest := filepath.Join(dir, "plugin.mycel")
 	_, err := os.Stat(manifest)
 	return err == nil
 }
@@ -65,8 +65,8 @@ func (c *CacheManager) List() ([]CachedPlugin, error) {
 			return err
 		}
 
-		// Look for plugin.hcl files
-		if info.Name() != "plugin.hcl" {
+		// Look for plugin.mycel files
+		if info.Name() != "plugin.mycel" {
 			return nil
 		}
 

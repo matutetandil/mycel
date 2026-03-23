@@ -24,7 +24,7 @@ connector "postgres" {
 `
 	// Write temp file
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "connector.hcl")
+	tmpFile := filepath.Join(tmpDir, "connector.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -69,7 +69,7 @@ flow "get_users" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -111,7 +111,7 @@ type "user" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "type.hcl")
+	tmpFile := filepath.Join(tmpDir, "type.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -155,7 +155,7 @@ connector "db" {
   driver = "sqlite"
 }
 `
-	if err := os.WriteFile(filepath.Join(connDir, "db.hcl"), []byte(connHCL), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(connDir, "db.mycel"), []byte(connHCL), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -172,7 +172,7 @@ flow "test" {
   }
 }
 `
-	if err := os.WriteFile(filepath.Join(flowDir, "test.hcl"), []byte(flowHCL), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(flowDir, "test.mycel"), []byte(flowHCL), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -201,7 +201,7 @@ connector "db" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "db.hcl")
+	tmpFile := filepath.Join(tmpDir, "db.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ flow "process_orders" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -289,7 +289,7 @@ flow "process_sales" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -347,7 +347,7 @@ flow "process_events" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -413,7 +413,7 @@ flow "create_order" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -519,7 +519,7 @@ flow "process_orders" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -602,7 +602,7 @@ flow "create_order" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -688,7 +688,7 @@ flow "fan_out_order" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -782,7 +782,7 @@ flow "process_order" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -835,7 +835,7 @@ flow "resolve_product" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -880,7 +880,7 @@ flow "order_updates" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -960,7 +960,7 @@ saga "create_order" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "saga.hcl")
+	tmpFile := filepath.Join(tmpDir, "saga.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -1053,7 +1053,7 @@ saga "order_fulfillment" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "saga.hcl")
+	tmpFile := filepath.Join(tmpDir, "saga.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -1118,7 +1118,7 @@ service {
   }
 }
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "config.hcl"), []byte(configHCL), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.mycel"), []byte(configHCL), 0644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
 
@@ -1187,7 +1187,7 @@ state_machine "order_status" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "machine.hcl")
+	tmpFile := filepath.Join(tmpDir, "machine.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -1278,7 +1278,7 @@ flow "update_order_status" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -1328,7 +1328,7 @@ service {
   admin_port = 8081
 }
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "config.hcl"), []byte(configHCL), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.mycel"), []byte(configHCL), 0644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
 
@@ -1365,7 +1365,7 @@ plugin "my-plugin" {
   source = "./my-plugin"
 }
 `
-	if err := os.WriteFile(filepath.Join(tmpDir, "config.hcl"), []byte(mainCfg), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.mycel"), []byte(mainCfg), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1385,7 +1385,7 @@ provides {
   }
 }
 `
-	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.hcl"), []byte(manifest), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.mycel"), []byte(manifest), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1455,7 +1455,7 @@ plugin {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpFile := filepath.Join(t.TempDir(), "test.hcl")
+			tmpFile := filepath.Join(t.TempDir(), "test.mycel")
 			if err := os.WriteFile(tmpFile, []byte(tt.content), 0644); err != nil {
 				t.Fatal(err)
 			}
@@ -1488,7 +1488,7 @@ flow "process_orders" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -1534,7 +1534,7 @@ flow "process_events" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
@@ -1574,7 +1574,7 @@ flow "bad_flow" {
 }
 `
 	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "flow.hcl")
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
 	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}

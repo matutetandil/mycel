@@ -298,14 +298,14 @@ func (l *Loader) updateLockEntry(decl *PluginDeclaration, version Version) {
 	})
 }
 
-// parseManifest parses the plugin.hcl manifest file.
+// parseManifest parses the plugin.mycel manifest file.
 func (l *Loader) parseManifest(pluginPath string) (*PluginManifest, error) {
-	manifestPath := filepath.Join(pluginPath, "plugin.hcl")
+	manifestPath := filepath.Join(pluginPath, "plugin.mycel")
 
 	parser := hclparse.NewParser()
 	file, diags := parser.ParseHCLFile(manifestPath)
 	if diags.HasErrors() {
-		return nil, fmt.Errorf("failed to parse plugin.hcl: %s", diags.Error())
+		return nil, fmt.Errorf("failed to parse plugin.mycel: %s", diags.Error())
 	}
 
 	ctx := &hcl.EvalContext{

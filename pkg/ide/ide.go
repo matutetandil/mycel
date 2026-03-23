@@ -68,7 +68,7 @@ func (e *Engine) FullReindex() []*Diagnostic {
 			}
 			return nil
 		}
-		if strings.HasSuffix(path, ".hcl") {
+		if strings.HasSuffix(path, ".mycel") {
 			files = append(files, path)
 		}
 		return nil

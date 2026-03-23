@@ -30,7 +30,7 @@ flow "get_users" {
   }
 }
 `)
-	fi := parseHCL("test.hcl", src)
+	fi := parseHCL("test.mycel", src)
 	if len(fi.ParseDiags) > 0 {
 		t.Fatalf("unexpected parse errors: %v", fi.ParseDiags)
 	}
@@ -67,7 +67,7 @@ connector "broken" {
   port =
 }
 `)
-	fi := parseHCL("broken.hcl", src)
+	fi := parseHCL("broken.mycel", src)
 	if len(fi.ParseDiags) == 0 {
 		t.Fatal("expected parse errors for invalid HCL")
 	}
@@ -76,7 +76,7 @@ connector "broken" {
 func TestProjectIndex(t *testing.T) {
 	idx := newProjectIndex()
 
-	fi1 := parseHCL("connectors.hcl", []byte(`
+	fi1 := parseHCL("connectors.mycel", []byte(`
 connector "api" {
   type = "rest"
   port = 3000
@@ -86,7 +86,7 @@ connector "db" {
   driver = "postgres"
 }
 `))
-	fi2 := parseHCL("flows.hcl", []byte(`
+	fi2 := parseHCL("flows.mycel", []byte(`
 flow "get_users" {
   from {
     connector = "api"
@@ -116,14 +116,14 @@ flow "get_users" {
 	}
 
 	// Remove file
-	idx.removeFile("connectors.hcl")
+	idx.removeFile("connectors.mycel")
 	if len(idx.Connectors) != 0 {
 		t.Errorf("expected 0 connectors after removal, got %d", len(idx.Connectors))
 	}
 }
 
 func TestDiagnoseUnknownBlock(t *testing.T) {
-	fi := parseHCL("test.hcl", []byte(`
+	fi := parseHCL("test.mycel", []byte(`
 flw "bad" {
   from { connector = "x" }
 }
@@ -141,7 +141,7 @@ flw "bad" {
 }
 
 func TestDiagnoseInvalidValue(t *testing.T) {
-	fi := parseHCL("test.hcl", []byte(`
+	fi := parseHCL("test.mycel", []byte(`
 connector "api" {
   type = "invalid_type"
 }
@@ -160,7 +160,7 @@ connector "api" {
 
 func TestDiagnoseCrossRefUndefinedConnector(t *testing.T) {
 	idx := newProjectIndex()
-	fi := parseHCL("flows.hcl", []byte(`
+	fi := parseHCL("flows.mycel", []byte(`
 flow "get_users" {
   from {
     connector = "nonexistent"
@@ -187,7 +187,7 @@ flow "get_users" {
 }
 
 func TestCompleteRootLevel(t *testing.T) {
-	fi := parseHCL("test.hcl", []byte(``))
+	fi := parseHCL("test.mycel", []byte(``))
 	idx := newProjectIndex()
 	idx.updateFile(fi)
 
@@ -209,7 +209,7 @@ flow "test" {
 
 }
 `)
-	fi := parseHCL("test.hcl", src)
+	fi := parseHCL("test.mycel", src)
 	idx := newProjectIndex()
 	idx.updateFile(fi)
 
@@ -230,7 +230,7 @@ flow "test" {
 
 func TestCompleteConnectorRef(t *testing.T) {
 	idx := newProjectIndex()
-	idx.updateFile(parseHCL("connectors.hcl", []byte(`
+	idx.updateFile(parseHCL("connectors.mycel", []byte(`
 connector "api" {
   type = "rest"
   port = 3000
@@ -248,7 +248,7 @@ flow "test" {
   }
 }
 `)
-	fi := parseHCL("flows.hcl", src)
+	fi := parseHCL("flows.mycel", src)
 	idx.updateFile(fi)
 
 	// Cursor inside connector = "" — line 4, after the =
@@ -275,7 +275,7 @@ flow "test" {
   }
 }
 `)
-	fi := parseHCL("test.hcl", src)
+	fi := parseHCL("test.mycel", src)
 	idx := newProjectIndex()
 	idx.updateFile(fi)
 
@@ -303,7 +303,7 @@ flow "test" {
   }
 }
 `)
-	fi := parseHCL("test.hcl", src)
+	fi := parseHCL("test.mycel", src)
 	idx := newProjectIndex()
 	idx.updateFile(fi)
 
@@ -325,13 +325,13 @@ flow "test" {
 
 func TestDefinitionConnectorRef(t *testing.T) {
 	e := NewEngine("")
-	e.index.updateFile(parseHCL("connectors.hcl", []byte(`
+	e.index.updateFile(parseHCL("connectors.mycel", []byte(`
 connector "api" {
   type = "rest"
   port = 3000
 }
 `)))
-	e.index.updateFile(parseHCL("flows.hcl", []byte(`
+	e.index.updateFile(parseHCL("flows.mycel", []byte(`
 flow "test" {
   from {
     connector = "api"
@@ -344,18 +344,18 @@ flow "test" {
 }
 `)))
 
-	loc := e.Definition("flows.hcl", 4, 18)
+	loc := e.Definition("flows.mycel", 4, 18)
 	if loc == nil {
 		t.Fatal("expected definition location for connector ref")
 	}
-	if loc.File != "connectors.hcl" {
+	if loc.File != "connectors.mycel" {
 		t.Errorf("expected file=connectors.hcl, got %s", loc.File)
 	}
 }
 
 func TestHoverBlockType(t *testing.T) {
 	e := NewEngine("")
-	e.index.updateFile(parseHCL("test.hcl", []byte(`
+	e.index.updateFile(parseHCL("test.mycel", []byte(`
 flow "test" {
   accept {
     when = "input.x == true"
@@ -363,7 +363,7 @@ flow "test" {
 }
 `)))
 
-	result := e.Hover("test.hcl", 3, 5)
+	result := e.Hover("test.mycel", 3, 5)
 	if result == nil {
 		t.Fatal("expected hover result for accept block")
 	}
@@ -376,13 +376,13 @@ func TestEngineFullReindex(t *testing.T) {
 	// Create a temp directory with HCL files
 	dir := t.TempDir()
 
-	writeFile(t, dir, "connectors.hcl", `
+	writeFile(t, dir, "connectors.mycel", `
 connector "api" {
   type = "rest"
   port = 3000
 }
 `)
-	writeFile(t, dir, "flows.hcl", `
+	writeFile(t, dir, "flows.mycel", `
 flow "get_users" {
   from {
     connector = "api"
