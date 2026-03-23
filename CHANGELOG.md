@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.18.0] - 2026-03-23
+
+### BREAKING CHANGES
+- **File extension changed from `.hcl` to `.mycel`**: All configuration files must use the `.mycel` extension. The parser, IDE engine, hot reload, and plugin system only scan for `.mycel` files. Existing projects must rename their files (e.g., `config.hcl` → `config.mycel`). HCL syntax is unchanged — only the file extension is different.
 
 ### Added
 - **SchemaProvider architecture** (`pkg/schema/`): Single source of truth for all HCL block schemas. Core types (`Block`, `Attr`, `SchemaProvider`, `ConnectorSchemaProvider`), `Registry` for connector lookup by type+driver, `Merge` for composing schemas, `ValidateParams` for schema-driven validation with defaults
