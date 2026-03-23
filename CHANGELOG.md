@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **SchemaProvider architecture** (`pkg/schema/`): Single source of truth for all HCL block schemas. Core types (`Block`, `Attr`, `SchemaProvider`, `ConnectorSchemaProvider`), `Registry` for connector lookup by type+driver, `Merge` for composing schemas, `ValidateParams` for schema-driven validation with defaults
+- **Self-describing connectors**: All 25+ connector types implement `ConnectorSchemaProvider` with their full schema — attributes, child blocks (pool, consumer, queue, tls, etc.), source params, and target params. Each defined in a `schema.go` file within its package
+- **Schema Registry wiring**: Runtime creates a fully-populated `SchemaRegistry` with all connector schemas and passes it to the parser. `RegisterBuiltinSchemas` exported for Studio/CLI. `schema.NewRegistryWith(fn)` enables injection without circular imports
+- **IDE uses pkg/schema**: `pkg/ide/` types are now aliases for `pkg/schema/` types. `rootSchema()` delegates to `schema.BuiltinRootSchemas()`. Engine accepts `WithRegistry()` for connector-type-aware intelligence
+- **Unknown attribute detection**: Strict blocks (accept, validate, dedupe, service) flag unknown attributes as errors. Connector-type-specific attrs merged into the known set. Open blocks (transform, type, from, to, step) skip this check
+- **All breakpoints pause BEFORE execution**: Runtime filter, accept, dedupe, and write stages use `RecordStage` to pause before evaluation. Added trace for dedupe stage
+- **Breakpoint locations on logic lines**: Accept → `when` line, write → `query`/`target` line, step → `query`/`operation` line, validate → attribute line
+- **Accept block**: New `accept` block in flows for business-level message gating with `on_reject` policy
+
 ## [1.17.1] - 2026-03-21
 
 ### Added

@@ -10,11 +10,65 @@
 
 Studio imports this package directly — no separate LSP process, no subcommand, no JSON-RPC. Just Go function calls.
 
+## Schema Architecture
+
+The schema system has three layers:
+
+```
+pkg/schema/                     ← Canonical types and built-in block schemas
+    ↑              ↑
+    |              |
+internal/connector/*/schema.go  ← Each connector describes itself (ConnectorSchemaProvider)
+    ↑
+    |
+internal/runtime/               ← Registers all connectors into a schema.Registry
+    ↑
+    |
+pkg/ide/                        ← Consumes the registry for completions, diagnostics, etc.
+```
+
+**Single source of truth:** Each connector defines its own schema (attributes, child blocks, source/target params). The IDE engine and parser consume the same schemas. Adding a new connector = one `schema.go` file, one registration line.
+
+**`pkg/schema/`** contains:
+- `schema.go` — Core types: `Block`, `Attr`, `SchemaProvider`, `ConnectorSchemaProvider`
+- `builtins.go` — Schemas for all non-connector blocks (flow, aspect, service, etc.)
+- `registry.go` — `Registry` maps connector type+driver to schema providers
+- `validate.go` — `ValidateParams()` validates params with defaults
+- `defaults.go` — `DefaultRegistry()`, `NewRegistryWith(fn)`
+
 ## Quick Integration
+
+### Without connector schemas (basic, offline)
 
 ```go
 import "github.com/matutetandil/mycel/pkg/ide"
 
+// Uses built-in schemas only (flow, aspect, service blocks)
+// Connector child blocks (pool, consumer, etc.) use static fallback
+engine := ide.NewEngine("/path/to/mycel-project")
+diags := engine.FullReindex()
+```
+
+### With full connector schemas (recommended for Studio)
+
+```go
+import (
+    "github.com/matutetandil/mycel/internal/runtime"
+    "github.com/matutetandil/mycel/pkg/ide"
+    "github.com/matutetandil/mycel/pkg/schema"
+)
+
+// Registry with all 25+ connector schemas
+reg := schema.NewRegistryWith(runtime.RegisterBuiltinSchemas)
+engine := ide.NewEngine("/path/to/mycel-project", ide.WithRegistry(reg))
+diags := engine.FullReindex()
+```
+
+With the registry, the engine knows every attribute of every connector type — pool settings for database, consumer/queue/exchange for RabbitMQ, TLS for gRPC, etc. Without it, connector child blocks use a static fallback.
+
+### Common API calls
+
+```go
 // On project open
 engine := ide.NewEngine("/path/to/mycel-project")
 diags := engine.FullReindex() // parse all .hcl files
@@ -546,23 +600,36 @@ This means the engine can resolve static references (`connector = "api"`) but no
 ## File Structure
 
 ```
-pkg/ide/
-├── ide.go               # Engine: public API, thread-safe wrapper
-├── index.go             # ProjectIndex: data structures, lookup tables, rebuild
-├── parse.go             # Permissive HCL parser (hclsyntax direct access)
-├── schema.go            # Static schema registry (blocks, attrs, values, refs)
-├── complete.go          # Completion logic (root, block content, values, CEL, operations)
-├── diagnose.go          # Diagnostics (parse, schema, cross-refs, connector-type, operations)
-├── position.go          # Types (Position, Range, Diagnostic, etc.), cursor context
-├── cel.go               # CEL functions/variables registry, CEL context detection
-├── connector_schema.go  # Connector-type-aware attribute schemas and validation
-├── operation.go         # Operation string validation and completion (REST, GraphQL, gRPC)
-├── rename.go            # Rename support (definition + all references)
-├── codeaction.go        # Quick-fix code actions (create connector/type, add attribute)
-├── symbols.go           # Workspace and file symbols for navigation
-├── transform_rules.go   # Ordered transform rules and flow stage discovery
-├── ide_test.go          # 14 core tests
-└── enhancements_test.go # 21 enhancement tests (CEL, rename, symbols, breakpoints, unknown attrs, etc.)
+pkg/schema/                          # Canonical schema definitions (source of truth)
+├── schema.go                        # Core types: Block, Attr, SchemaProvider, ConnectorSchemaProvider
+├── builtins.go                      # Built-in block schemas (flow, aspect, service, etc.)
+├── registry.go                      # Registry: maps connector type+driver to schema providers
+├── validate.go                      # ValidateParams: schema-driven validation with defaults
+├── defaults.go                      # DefaultRegistry(), NewRegistryWith(fn)
+└── schema_test.go                   # 8 tests
+
+pkg/ide/                             # IDE intelligence engine
+├── ide.go                           # Engine: public API, WithRegistry option, thread-safe
+├── index.go                         # ProjectIndex: data structures, lookup tables, rebuild
+├── parse.go                         # Permissive HCL parser (sorted attrs by source position)
+├── schema.go                        # Type aliases delegating to pkg/schema
+├── complete.go                      # Completions: root, block, values, CEL, operations, connector-aware
+├── diagnose.go                      # Diagnostics: parse, schema, cross-refs, unknown attrs, operations
+├── position.go                      # Types (Position, Range, Diagnostic, etc.), cursor context
+├── cel.go                           # CEL functions/variables, context detection
+├── connector_schema.go              # Connector-type-aware validation (registry + static fallback)
+├── operation.go                     # Operation string validation and completion
+├── rename.go                        # Rename: definition + all references
+├── codeaction.go                    # Quick-fix code actions
+├── symbols.go                       # Workspace and file symbols
+├── transform_rules.go               # Transform rules, flow stages, breakpoint locations
+├── ide_test.go                      # 14 core tests
+└── enhancements_test.go             # 21 enhancement tests
+
+internal/connector/*/schema.go       # Each connector's ConnectorSchemaProvider (25+ files)
+internal/connector/*/connector_schema.go  # (when schema.go was taken)
+
+internal/runtime/schema_registration.go  # RegisterBuiltinSchemas(), NewSchemaRegistry()
 ```
 
 ## Additional APIs (v1.17.1+)
