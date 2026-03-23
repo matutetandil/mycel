@@ -25,6 +25,7 @@ import (
 	"github.com/matutetandil/mycel/internal/validate"
 	"github.com/matutetandil/mycel/internal/validator"
 	myhcl "github.com/matutetandil/mycel/pkg/hcl"
+	"github.com/matutetandil/mycel/pkg/schema"
 )
 
 // Parser parses HCL configuration files.
@@ -244,6 +245,7 @@ func (c *Configuration) ValidateUniqueNames() error {
 type HCLParser struct {
 	hclParser *hclparse.Parser
 	evalCtx   *hcl.EvalContext
+	registry  *schema.Registry
 }
 
 // NewHCLParser creates a new HCL parser.
@@ -251,6 +253,16 @@ func NewHCLParser() *HCLParser {
 	return &HCLParser{
 		hclParser: hclparse.NewParser(),
 		evalCtx:   newEvalContext(),
+	}
+}
+
+// NewHCLParserWithRegistry creates a new HCL parser with a schema registry.
+// The registry provides connector-specific schemas for validation.
+func NewHCLParserWithRegistry(reg *schema.Registry) *HCLParser {
+	return &HCLParser{
+		hclParser: hclparse.NewParser(),
+		evalCtx:   newEvalContext(),
+		registry:  reg,
 	}
 }
 

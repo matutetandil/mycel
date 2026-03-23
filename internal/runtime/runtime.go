@@ -217,8 +217,11 @@ func New(opts Options) (*Runtime, error) {
 		opts.ShutdownTimeout = 30 * time.Second
 	}
 
+	// Build schema registry with all connector schemas
+	schemaReg := NewSchemaRegistry()
+
 	// Parse configuration
-	p := parser.NewHCLParser()
+	p := parser.NewHCLParserWithRegistry(schemaReg)
 	config, err := p.Parse(context.Background(), opts.ConfigDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse configuration: %w", err)
