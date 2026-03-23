@@ -44,7 +44,7 @@ Health checks are always available at `/health`, `/health/live`, `/health/ready`
 ## Custom Admin Port
 
 ```hcl
-# config.hcl
+# config.mycel
 service {
   name       = "my-service"
   version    = "1.0.0"

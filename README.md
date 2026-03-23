@@ -26,19 +26,19 @@ Connector (source) ──→ Flow ──→ Connector (target)
 
 On top of this, you can add [transforms](docs/core-concepts/transforms.md) (reshape data), [types](docs/core-concepts/types.md) (validate schemas), [steps](docs/guides/multi-step-flows.md) (multi-step orchestration), [sagas](docs/guides/sagas.md) (distributed transactions), [auth](docs/guides/auth.md), [aspects](docs/guides/extending.md#aspects), [security](docs/guides/security.md), and [more](#features). But every feature ultimately serves the same pattern: data enters through a connector, optionally gets transformed, and exits through another connector.
 
-Every Mycel service automatically includes health checks (`/health`, `/health/live`, `/health/ready`), Prometheus metrics (`/metrics`), and hot reload — no configuration needed. Change an HCL file and the service reloads with zero downtime.
+Every Mycel service automatically includes health checks (`/health`, `/health/live`, `/health/ready`), Prometheus metrics (`/metrics`), and hot reload — no configuration needed. Change a `.mycel` file and the service reloads with zero downtime.
 
 That's the whole model. Everything else is configuration. Learn more in [Core Concepts](docs/core-concepts/connectors.md).
 
 ## Quick Start
 
-Create a directory with three HCL files — that's your entire microservice:
+Create a directory with three `.mycel` files — that's your entire microservice:
 
 ```bash
 mkdir my-api && cd my-api
 ```
 
-**`config.hcl`** — Name and version your service:
+**`config.mycel`** — Name and version your service:
 ```hcl
 service {
   name    = "users-api"
@@ -46,7 +46,7 @@ service {
 }
 ```
 
-**`connectors.hcl`** — Define what your service talks to:
+**`connectors.mycel`** — Define what your service talks to:
 ```hcl
 connector "api" {
   type = "rest"
@@ -60,7 +60,7 @@ connector "db" {
 }
 ```
 
-**`flows.hcl`** — Wire them together:
+**`flows.mycel`** — Wire them together:
 ```hcl
 flow "list_users" {
   from {

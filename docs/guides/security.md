@@ -10,8 +10,8 @@ Mycel applies a multi-layer security model to every request. The core sanitizati
 |-------|----------|------|--------------|
 | [Core Sanitization](#core-sanitization-pipeline) | `internal/sanitize/sanitize.go` | Before every flow | Thresholds only |
 | [Connector-Specific Rules](#connector-specific-protections) | `internal/sanitize/rules/` | Per connector type | No |
-| [WASM Sanitizers](#wasm-sanitizers) | `security/*.hcl` | After core sanitization | Yes |
-| [Type Validation](#request-processing-pipeline) | `validators/*.hcl` | After sanitization | Yes |
+| [WASM Sanitizers](#wasm-sanitizers) | `security/*.mycel` | After core sanitization | Yes |
+| [Type Validation](#request-processing-pipeline) | `validators/*.mycel` | After sanitization | Yes |
 
 ---
 
@@ -141,7 +141,7 @@ CEL injection is not a threat vector in Mycel by design. CEL expressions come ex
 
 The `security` block lets you adjust thresholds and register custom WASM sanitizers. It does not let you disable any core protection.
 
-Place security configuration in `security/*.hcl` within your config directory.
+Place security configuration in `security/*.mycel` within your config directory.
 
 ### Global Thresholds
 

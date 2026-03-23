@@ -16,7 +16,7 @@ mkdir my-first-service
 cd my-first-service
 ```
 
-### `config.hcl` — service identity
+### `config.mycel` — service identity
 
 ```hcl
 service {
@@ -25,7 +25,7 @@ service {
 }
 ```
 
-### `connectors.hcl` — data sources
+### `connectors.mycel` — data sources
 
 ```hcl
 connector "api" {
@@ -40,7 +40,7 @@ connector "db" {
 }
 ```
 
-### `flows.hcl` — data flows
+### `flows.mycel` — data flows
 
 ```hcl
 flow "list_items" {
@@ -145,7 +145,7 @@ You just created a REST API with a database backend without writing any code.
 
 ## Step 4: Add Data Transformation
 
-Add automatic UUIDs and timestamps. Update `flows.hcl`:
+Add automatic UUIDs and timestamps. Update `flows.mycel`:
 
 ```hcl
 flow "create_item" {
@@ -188,7 +188,7 @@ Response:
 
 ## Step 5: Add Input Validation
 
-Create `types.hcl`:
+Create `types.mycel`:
 
 ```hcl
 type "item_input" {

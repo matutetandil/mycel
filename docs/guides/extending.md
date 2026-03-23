@@ -202,7 +202,7 @@ Plugins are cached in `mycel_plugins/` (add to `.gitignore`). Reproducible build
 
 ### Plugin Manifest
 
-Plugin authors create a `plugin.hcl` file:
+Plugin authors create a `plugin.mycel` file:
 
 ```hcl
 plugin {

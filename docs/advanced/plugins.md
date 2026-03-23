@@ -71,9 +71,9 @@ Plugins are resolved and installed automatically when you run `mycel start`. If 
 
 ## Writing a Plugin
 
-Plugin authors create a directory with a `plugin.hcl` manifest and WASM binaries.
+Plugin authors create a directory with a `plugin.mycel` manifest and WASM binaries.
 
-### plugin.hcl Manifest
+### plugin.mycel Manifest
 
 ```hcl
 plugin {

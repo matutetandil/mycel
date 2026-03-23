@@ -6,7 +6,7 @@
 
 ## What This Package Does
 
-`pkg/ide` is a standalone Go library that provides real-time HCL intelligence for Mycel configurations. It parses all `.hcl` files in a project directory, builds an in-memory index of all entities (connectors, flows, types, transforms, aspects, etc.), and answers IDE queries: completions, diagnostics, hover documentation, and go-to-definition.
+`pkg/ide` is a standalone Go library that provides real-time HCL intelligence for Mycel configurations. It parses all `.mycel` files in a project directory, builds an in-memory index of all entities (connectors, flows, types, transforms, aspects, etc.), and answers IDE queries: completions, diagnostics, hover documentation, and go-to-definition.
 
 Studio imports this package directly — no separate LSP process, no subcommand, no JSON-RPC. Just Go function calls.
 
@@ -71,7 +71,7 @@ With the registry, the engine knows every attribute of every connector type — 
 ```go
 // On project open
 engine := ide.NewEngine("/path/to/mycel-project")
-diags := engine.FullReindex() // parse all .hcl files
+diags := engine.FullReindex() // parse all .mycel files
 // → show diags in Problems panel
 
 // On file edit (content = unsaved buffer)
@@ -158,7 +158,7 @@ type Diagnostic struct {
 - `"database connector requires attribute driver"` (connector-type-specific required attr)
 - `"invalid value 'banana' for accept.on_reject (valid: [ack reject requeue])"` (invalid enum)
 - `"undefined connector 'nonexistent'"` (reference to missing connector)
-- `"duplicate flow name 'test' (also defined in other.hcl)"` (name collision)
+- `"duplicate flow name 'test' (also defined in other.mycel)"` (name collision)
 - `"unknown HTTP method 'GETX'"` (invalid REST operation)
 
 **Open vs strict blocks:**
@@ -267,7 +267,7 @@ Given `(file, line, col)`, the engine:
 
 ### Example
 
-User is editing `flows.hcl` with cursor at `|`:
+User is editing `flows.mycel` with cursor at `|`:
 
 ```hcl
 flow "get_users" {
@@ -388,7 +388,7 @@ entity := engine.GetIndex().Connectors["api"]
 // entity.Name = "api"
 // entity.ConnType = "rest"
 // entity.Driver = ""
-// entity.File = "connectors/rest.hcl"
+// entity.File = "connectors/rest.mycel"
 // entity.Range = {Start: {Line: 1, Col: 1}, End: {Line: 4, Col: 2}}
 ```
 
@@ -412,7 +412,7 @@ Mycel Studio (Wails app)
 │
 ├── Go Backend (Wails bindings)
 │   ├── engine *ide.Engine (singleton)
-│   ├── watcher (fsnotify) → on .hcl change: engine.UpdateFile()
+│   ├── watcher (fsnotify) → on .mycel change: engine.UpdateFile()
 │   └── Wails-exposed methods:
 │       ├── OpenProject(dir string) → engine = ide.NewEngine(dir); engine.FullReindex()
 │       ├── GetCompletions(path, line, col) → engine.Complete(...)
@@ -452,7 +452,7 @@ func (a *App) OpenProject(dir string) []*ide.Diagnostic {
     a.watcher, _ = fsnotify.NewWatcher()
     go func() {
         for event := range a.watcher.Events {
-            if !strings.HasSuffix(event.Name, ".hcl") {
+            if !strings.HasSuffix(event.Name, ".mycel") {
                 continue
             }
             switch {
@@ -535,7 +535,7 @@ Line 23: write: query                                             (stage: write,
 3. **Send to debug server**: When debugging, map the toggled breakpoints to `debug.setBreakpoints` calls using the `Flow`, `Stage`, and `RuleIndex` fields:
 
 ```go
-// When user toggles a breakpoint on line 15 of flows.hcl:
+// When user toggles a breakpoint on line 15 of flows.mycel:
 bp := breakpointLocations[15] // {Flow: "upsert_sales_conultant", Stage: "transform", RuleIndex: 0}
 
 // Send to debug server via WebSocket:

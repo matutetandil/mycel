@@ -26,7 +26,7 @@ Complete HCL syntax reference for all Mycel block types. Every block is document
 All named blocks (connector, flow, type, transform, aspect, validator) must have **unique names within their type**. The parser validates this at startup and reports the file locations of any duplicates:
 
 ```
-Error: duplicate flow name "create_user": defined in flows/api.hcl and flows/users.hcl
+Error: duplicate flow name "create_user": defined in flows/api.mycel and flows/users.mycel
 ```
 
 Names can overlap across different types (e.g., a connector and a flow can both be named `"users"`), but two connectors cannot share the same name.
@@ -35,7 +35,7 @@ Names can overlap across different types (e.g., a connector and a flow can both 
 
 ## service
 
-Global service configuration. Place in `config.hcl`.
+Global service configuration. Place in `config.mycel`.
 
 ```hcl
 service {

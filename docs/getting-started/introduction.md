@@ -40,13 +40,13 @@ Every feature ultimately serves the same pattern: data enters through a connecto
 A REST API that reads from PostgreSQL:
 
 ```hcl
-# config.hcl
+# config.mycel
 service {
   name    = "users-api"
   version = "1.0.0"
 }
 
-# connectors.hcl
+# connectors.mycel
 connector "api" {
   type = "rest"
   port = 3000
@@ -61,7 +61,7 @@ connector "db" {
   password = env("DB_PASSWORD")
 }
 
-# flows.hcl
+# flows.mycel
 flow "get_users" {
   from {
     connector = "api"
@@ -111,7 +111,7 @@ A Mycel service is a directory of HCL files. Mycel scans all subdirectories recu
 
 ```
 my-service/
-├── config.hcl          # Service name, version, global settings
+├── config.mycel          # Service name, version, global settings
 ├── connectors/         # Database, API, queue connections
 ├── flows/              # Data flows (from → to)
 ├── transforms/         # Reusable transform blocks

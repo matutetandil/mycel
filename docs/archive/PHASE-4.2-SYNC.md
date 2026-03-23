@@ -1034,19 +1034,19 @@ coordinate {
 ```
 examples/sync/
 ├── README.md
-├── config.hcl
+├── config.mycel
 ├── connectors/
-│   ├── rabbitmq.hcl
-│   ├── postgres.hcl
-│   └── redis.hcl
+│   ├── rabbitmq.mycel
+│   ├── postgres.mycel
+│   └── redis.mycel
 ├── flows/
-│   ├── process_entity.hcl
-│   ├── call_external.hcl      # semaphore example
-│   └── daily_cleanup.hcl      # cron example
+│   ├── process_entity.mycel
+│   ├── call_external.mycel      # semaphore example
+│   └── daily_cleanup.mycel      # cron example
 └── docker-compose.yml
 ```
 
-### flows/process_entity.hcl
+### flows/process_entity.mycel
 
 ```hcl
 flow "process_entity" {
@@ -1089,7 +1089,7 @@ flow "process_entity" {
 }
 ```
 
-### flows/call_external.hcl
+### flows/call_external.mycel
 
 ```hcl
 flow "call_external" {
@@ -1107,7 +1107,7 @@ flow "call_external" {
 }
 ```
 
-### flows/daily_cleanup.hcl
+### flows/daily_cleanup.mycel
 
 ```hcl
 flow "daily_cleanup" {

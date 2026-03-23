@@ -28,7 +28,7 @@ Each pattern includes:
 ### Configuration
 
 ```hcl
-# config.hcl
+# config.mycel
 service {
   name    = "users-graphql-api"
   version = "1.0.0"
@@ -36,7 +36,7 @@ service {
 ```
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 
 # GraphQL Server
 connector "api" {
@@ -90,7 +90,7 @@ type Mutation {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 
 flow "get_users" {
   from {
@@ -171,7 +171,7 @@ open http://localhost:4000/playground
 ### Configuration
 
 ```hcl
-# config.hcl
+# config.mycel
 service {
   name    = "rest-to-graphql-gateway"
   version = "1.0.0"
@@ -179,7 +179,7 @@ service {
 ```
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 
 # REST Server (receives requests)
 connector "api" {
@@ -204,7 +204,7 @@ connector "products_api" {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 
 # GET /products -> GraphQL query
 flow "get_products" {
@@ -307,7 +307,7 @@ curl -X POST http://localhost:3000/products \
 ### Configuration
 
 ```hcl
-# config.hcl
+# config.mycel
 service {
   name    = "graphql-to-rest-gateway"
   version = "1.0.0"
@@ -315,7 +315,7 @@ service {
 ```
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 
 # GraphQL Server (receives requests)
 connector "api" {
@@ -366,7 +366,7 @@ type Mutation {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 
 # Query.users -> GET /users
 flow "get_users" {
@@ -472,7 +472,7 @@ curl -X POST http://localhost:4000/graphql \
 ### Configuration
 
 ```hcl
-# config.hcl
+# config.mycel
 service {
   name    = "order-processor"
   version = "1.0.0"
@@ -480,7 +480,7 @@ service {
 ```
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 
 # RabbitMQ Consumer
 connector "orders_queue" {
@@ -525,7 +525,7 @@ connector "db" {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 
 # Process all order events
 flow "process_order" {
@@ -594,7 +594,7 @@ rabbitmqadmin publish exchange=orders_exchange routing_key=order.created \
 ### Configuration
 
 ```hcl
-# config.hcl
+# config.mycel
 service {
   name    = "order-api"
   version = "1.0.0"
@@ -602,7 +602,7 @@ service {
 ```
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 
 # REST API
 connector "api" {
@@ -636,7 +636,7 @@ connector "db" {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 
 # POST /orders -> Publish to queue
 flow "create_order" {
@@ -719,7 +719,7 @@ open http://localhost:15672  # guest/guest
 ### Configuration
 
 ```hcl
-# config.hcl
+# config.mycel
 service {
   name    = "graphql-order-api"
   version = "1.0.0"
@@ -727,7 +727,7 @@ service {
 ```
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 
 # GraphQL Server
 connector "api" {
@@ -801,7 +801,7 @@ type Mutation {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 
 # Query orders from database
 flow "get_orders" {
@@ -898,7 +898,7 @@ open http://localhost:4000/playground
 ### Configuration
 
 ```hcl
-# config.hcl
+# config.mycel
 service {
   name    = "orders-api"
   version = "1.0.0"
@@ -906,7 +906,7 @@ service {
 ```
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 
 connector "api" {
   type = "rest"
@@ -921,7 +921,7 @@ connector "db" {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 
 # Simple JOIN: Get order with user info
 flow "get_order_with_user" {

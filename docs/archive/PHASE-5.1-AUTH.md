@@ -1096,13 +1096,13 @@ flow "get_my_orders" {
 ## Example: Complete Auth Microservice
 
 ```hcl
-# config.hcl
+# config.mycel
 service {
   name = "auth-service"
   port = 8080
 }
 
-# connectors/database.hcl
+# connectors/database.mycel
 connector "postgres" {
   type     = "database"
   driver   = "postgres"
@@ -1118,7 +1118,7 @@ connector "redis" {
   address = env("REDIS_URL")
 }
 
-# auth/config.hcl
+# auth/config.mycel
 auth {
   preset = "strict"
 

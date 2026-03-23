@@ -182,7 +182,7 @@ Custom functions that extend CEL, available in all transform expressions.
 ### 2.1 HCL Definition
 
 ```hcl
-# functions.hcl
+# functions.mycel
 functions "pricing" {
   wasm    = "./functions/pricing.wasm"
   exports = ["calculate_price", "apply_discount", "tax_for_country"]
@@ -293,7 +293,7 @@ Plugins provide custom connectors for systems not built into Mycel.
 ```
 plugins/
 └── salesforce/
-    ├── plugin.hcl       # Manifest
+    ├── plugin.mycel       # Manifest
     ├── connector.wasm   # Connector implementation
     └── README.md        # Documentation (optional)
 ```
@@ -301,7 +301,7 @@ plugins/
 ### 3.2 Plugin Manifest
 
 ```hcl
-# plugin.hcl
+# plugin.mycel
 plugin {
   name        = "salesforce"
   version     = "1.0.0"
@@ -334,7 +334,7 @@ provides {
 ### 3.3 Plugin Declaration (Declarative)
 
 ```hcl
-# plugins.hcl
+# plugins.mycel
 plugins {
   # Local plugin (already in filesystem)
   salesforce {
@@ -358,7 +358,7 @@ plugins {
 ### 3.4 Plugin Usage
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 connector "crm" {
   type = "salesforce"  # Plugin name
 
@@ -367,7 +367,7 @@ connector "crm" {
   client_secret = env("SF_SECRET")
 }
 
-# flows.hcl
+# flows.mycel
 flow "sync_leads" {
   from {
     connector = "api"
@@ -448,7 +448,7 @@ flow "sync_leads" {
 │                          │                                   │
 │                          ▼                                   │
 │               ┌─────────────────────┐                       │
-│               │  Parse plugins.hcl  │                       │
+│               │  Parse plugins.mycel  │                       │
 │               └──────────┬──────────┘                       │
 │                          │                                   │
 │         ┌────────────────┼────────────────┐                 │
@@ -462,7 +462,7 @@ flow "sync_leads" {
 │                          │                                   │
 │                          ▼                                   │
 │               ┌─────────────────────┐                       │
-│               │ Parse plugin.hcl    │                       │
+│               │ Parse plugin.mycel    │                       │
 │               │ Load WASM modules   │                       │
 │               │ Register connectors │                       │
 │               │ Register functions  │                       │
@@ -623,19 +623,19 @@ volumes:
 
 ```
 /etc/mycel/
-├── config.hcl           # Service configuration
-├── plugins.hcl          # Plugin declarations
+├── config.mycel           # Service configuration
+├── plugins.mycel          # Plugin declarations
 ├── validators/          # Validator definitions + WASM
-│   ├── validators.hcl   # Regex/CEL validators
+│   ├── validators.mycel   # Regex/CEL validators
 │   ├── cuit.wasm
 │   └── luhn.wasm
 ├── functions/           # WASM functions
-│   ├── functions.hcl    # Function declarations
+│   ├── functions.mycel    # Function declarations
 │   ├── pricing.wasm
 │   └── geo.wasm
 ├── plugins/             # Local plugins
 │   └── salesforce/
-│       ├── plugin.hcl
+│       ├── plugin.mycel
 │       └── connector.wasm
 ├── connectors/
 ├── flows/
@@ -679,8 +679,8 @@ volumes:
 - [x] Example functions in Rust
 
 ### Phase 5e: Plugins
-- [ ] Parser for `plugins.hcl`
-- [ ] Parser for `plugin.hcl` manifest
+- [ ] Parser for `plugins.mycel`
+- [ ] Parser for `plugin.mycel` manifest
 - [ ] Plugin loader (local)
 - [ ] Plugin loader (git)
 - [ ] WASM connector adapter

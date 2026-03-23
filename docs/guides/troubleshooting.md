@@ -37,7 +37,7 @@ lsof -i :3000
 # Kill it (replace PID with actual process ID)
 kill -9 <PID>
 
-# Or use a different port in service.hcl
+# Or use a different port in service.mycel
 service {
   port = 3001
 }
@@ -49,7 +49,7 @@ service {
 
 **Error:**
 ```
-ERROR  Failed to parse configuration: ./connectors.hcl:15,3-7: Invalid block...
+ERROR  Failed to parse configuration: ./connectors.mycel:15,3-7: Invalid block...
 ```
 
 **Cause:** Syntax error in your HCL file.
@@ -494,7 +494,7 @@ Ensure volume is mounted correctly:
 
 ```bash
 # Wrong - mounting file instead of directory
-docker run -v ./service.hcl:/etc/mycel ...
+docker run -v ./service.mycel:/etc/mycel ...
 
 # Correct - mount the directory
 docker run -v ./my-config:/etc/mycel ...
@@ -517,7 +517,7 @@ volumes:
 
 **Error:**
 ```
-ERROR  Failed to read config: open /etc/mycel/service.hcl: permission denied
+ERROR  Failed to read config: open /etc/mycel/service.mycel: permission denied
 ```
 
 **Cause:** Container runs as non-root but files have wrong permissions.

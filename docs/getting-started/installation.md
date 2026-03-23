@@ -12,7 +12,7 @@ docker run -v $(pwd):/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
 docker run -v $(pwd):/etc/mycel -p 3000:3000 mdenda/mycel
 ```
 
-Mount your configuration directory at `/etc/mycel`. Mycel scans it recursively for `.hcl` files.
+Mount your configuration directory at `/etc/mycel`. Mycel scans it recursively for `.mycel` files.
 
 ### Supported platforms
 

@@ -301,7 +301,7 @@ dap.adapters.mycel = function(callback, config)
   callback({ type = 'server', host = '127.0.0.1', port = config.port or 4711 })
 end
 
-dap.configurations.hcl = {
+dap.configurations.mycel = {
   {
     type = 'mycel',
     request = 'launch',

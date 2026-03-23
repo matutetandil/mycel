@@ -522,7 +522,7 @@ This is the safety net - even if optimizations fail, we never return more data t
 For users who want fine-grained control:
 
 ```hcl
-# config.hcl
+# config.mycel
 graphql {
   optimization {
     enabled = true  # Default: true

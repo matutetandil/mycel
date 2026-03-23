@@ -45,7 +45,7 @@ Each line assigns a CEL expression to an output field. Expressions have access t
 Define a transform once, reference it from multiple flows:
 
 ```hcl
-# transforms/user_transforms.hcl
+# transforms/user_transforms.mycel
 transform "normalize_user" {
   email      = "lower(trim(input.email))"
   name       = "trim(input.name)"

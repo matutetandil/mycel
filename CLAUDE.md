@@ -66,17 +66,17 @@ Mycel is a **runtime** that reads HCL configuration and exposes services:
 │           mycel (binary)                │
 │  ┌─────────────────────────────────┐    │
 │  │  Reads /etc/mycel or ./config   │    │
-│  │  • connectors/*.hcl             │    │
-│  │  • flows/*.hcl                  │    │
-│  │  • types/*.hcl                  │    │
-│  │  • transforms/*.hcl             │    │
-│  │  • validators/*.hcl             │    │
-│  │  • aspects/*.hcl                │    │
-│  │  • auth/config.hcl              │    │
+│  │  • connectors/*.mycel             │    │
+│  │  • flows/*.mycel                  │    │
+│  │  • types/*.mycel                  │    │
+│  │  • transforms/*.mycel             │    │
+│  │  • validators/*.mycel             │    │
+│  │  • aspects/*.mycel                │    │
+│  │  • auth/config.mycel              │    │
 │  │  • mocks/**/*.json              │    │
-│  │  • environments/*.hcl           │    │
+│  │  • environments/*.mycel           │    │
 │  │  • plugins/**/*                 │    │
-│  │  • config.hcl                   │    │
+│  │  • config.mycel                   │    │
 │  └─────────────────────────────────┘    │
 │                 ↓                       │
 │         Running Microservice            │
@@ -138,7 +138,7 @@ aspect "audit_log" {
 
 1. **Pure Go**: No CGO dependencies. All connectors must be pure Go.
 2. **HCL First**: All configuration is HCL. The binary is the same, configuration differs.
-3. **Recursive Scanning**: All directories are scanned recursively for .hcl files.
+3. **Recursive Scanning**: All directories are scanned recursively for .mycel files.
 4. **Hot Reload**: Configuration changes apply without restart.
 5. **Standard Protocols**: Always expose/consume standard protocols (REST, gRPC, etc).
 

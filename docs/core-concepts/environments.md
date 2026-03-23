@@ -119,19 +119,19 @@ MYCEL_LOG_LEVEL=debug
 
 ## Environment Overlays
 
-The `environments/` directory holds per-environment HCL files that override base configuration. When `MYCEL_ENV=staging` is set, Mycel loads `environments/staging.hcl` after loading all base files.
+The `environments/` directory holds per-environment HCL files that override base configuration. When `MYCEL_ENV=staging` is set, Mycel loads `environments/staging.mycel` after loading all base files.
 
 ```
 my-service/
-├── config.hcl          # Base configuration
-├── connectors.hcl      # Base connectors
+├── config.mycel          # Base configuration
+├── connectors.mycel      # Base connectors
 ├── environments/
-│   ├── dev.hcl         # Development overrides
-│   ├── staging.hcl     # Staging overrides
-│   └── prod.hcl        # Production overrides
+│   ├── dev.mycel         # Development overrides
+│   ├── staging.mycel     # Staging overrides
+│   └── prod.mycel        # Production overrides
 ```
 
-Example `environments/prod.hcl`:
+Example `environments/prod.mycel`:
 
 ```hcl
 # Override the database connector with production settings

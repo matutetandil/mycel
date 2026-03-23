@@ -525,23 +525,23 @@ internal/flow/flow.go
 
 ```
 examples/graphql-subscriptions/
-├── config.hcl
+├── config.mycel
 ├── connectors/
-│   ├── graphql.hcl
-│   └── rabbitmq.hcl
+│   ├── graphql.mycel
+│   └── rabbitmq.mycel
 ├── types/
-│   └── order.hcl
+│   └── order.mycel
 └── flows/
-    └── order_updates.hcl
+    └── order_updates.mycel
 
 examples/graphql-federation/
 ├── orders-service/
-│   ├── config.hcl
+│   ├── config.mycel
 │   ├── connectors/
 │   ├── types/
 │   └── flows/
 ├── products-service/
-│   ├── config.hcl
+│   ├── config.mycel
 │   ├── connectors/
 │   ├── types/
 │   └── flows/

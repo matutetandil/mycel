@@ -22,7 +22,7 @@ Mycel is a **runtime**, not a framework. The distinction matters.
 
 A framework gives you scaffolding and conventions but expects you to write code. A runtime interprets your configuration and runs the service itself. You never write code — you describe what you want, and the runtime handles the rest.
 
-The mental model is nginx or Apache: the binary is the same everywhere, the configuration is what changes. One team runs Mycel as a REST-to-PostgreSQL gateway. Another runs it as a Kafka consumer that feeds into Elasticsearch. Same binary, different `.hcl` files.
+The mental model is nginx or Apache: the binary is the same everywhere, the configuration is what changes. One team runs Mycel as a REST-to-PostgreSQL gateway. Another runs it as a Kafka consumer that feeds into Elasticsearch. Same binary, different `.mycel` files.
 
 This model shapes every other decision in the project. When evaluating a feature request, the first question is always: "Can this be expressed as configuration?" If yes, it belongs in Mycel. If it requires arbitrary code, that's what WASM plugins and external services are for.
 
@@ -125,25 +125,25 @@ The mental simplicity this creates is significant. Users learn one concept (conn
 
 ## Why Configuration Directory, Not a Single File
 
-Mycel scans a directory recursively for `.hcl` files. Every `.hcl` file it finds is part of the service configuration. File names and subdirectory structure are up to the user.
+Mycel scans a directory recursively for `.mycel` files. Every `.mycel` file it finds is part of the service configuration. File names and subdirectory structure are up to the user.
 
 This mirrors how real teams organize code. A team of four might have:
 
 ```
 connectors/
-  database.hcl
-  external-api.hcl
+  database.mycel
+  external-api.mycel
 flows/
   users/
-    create-user.hcl
-    get-user.hcl
+    create-user.mycel
+    get-user.mycel
   orders/
-    create-order.hcl
+    create-order.mycel
 auth/
-  config.hcl
+  config.mycel
 ```
 
-Or they might put everything in a single `config.hcl`. Both work. Mycel doesn't impose an opinion on organization because different teams have different conventions, and enforcing one structure would create friction without benefit.
+Or they might put everything in a single `config.mycel`. Both work. Mycel doesn't impose an opinion on organization because different teams have different conventions, and enforcing one structure would create friction without benefit.
 
 The recursive scan also enables composition patterns: common connectors can live in a shared directory, and service-specific flows live alongside them. Hot reload watches the entire directory tree, so changes to any file in any subdirectory take effect without a restart.
 

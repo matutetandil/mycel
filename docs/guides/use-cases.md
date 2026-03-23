@@ -29,7 +29,7 @@ Complete, copy-paste ready examples for things you'll want to do in almost every
 **Use case:** A POST endpoint creates a user in PostgreSQL, then sends a Slack message with the new user's name and ID.
 
 ```hcl
-# config.hcl
+# config.mycel
 service {
   name    = "user-service"
   version = "1.0.0"
@@ -37,7 +37,7 @@ service {
 ```
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 connector "api" {
   type = "rest"
   port = 3000
@@ -60,7 +60,7 @@ connector "slack" {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 flow "create_user" {
   from {
     connector = "api"
@@ -81,7 +81,7 @@ flow "create_user" {
 ```
 
 ```hcl
-# aspects.hcl
+# aspects.mycel
 aspect "notify_new_user" {
   when = "after"
   on   = ["create_user"]
@@ -112,7 +112,7 @@ The user is created in the database, and Slack receives: `New user created: Alic
 **Use case:** After a user is created via the API, send them a welcome email via SMTP.
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 connector "api" {
   type = "rest"
   port = 3000
@@ -140,7 +140,7 @@ connector "mailer" {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 flow "register_user" {
   from {
     connector = "api"
@@ -162,7 +162,7 @@ flow "register_user" {
 ```
 
 ```hcl
-# aspects.hcl
+# aspects.mycel
 aspect "welcome_email" {
   when = "after"
   on   = ["register_user"]
@@ -194,7 +194,7 @@ curl -X POST http://localhost:3000/register \
 **Use case:** Automatically log every create, update, and delete operation to an audit table with the flow name, user, and timestamp.
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 connector "api" {
   type = "rest"
   port = 3000
@@ -212,7 +212,7 @@ connector "db" {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 flow "create_product" {
   from {
     connector = "api"
@@ -262,7 +262,7 @@ flow "delete_product" {
 ```
 
 ```hcl
-# aspects.hcl
+# aspects.mycel
 aspect "audit_log" {
   when = "after"
   on   = ["create_*", "update_*", "delete_*"]
@@ -289,7 +289,7 @@ Every write operation across the entire service is logged automatically. Add new
 **Use case:** Cache GET responses in Redis. When a write happens, invalidate the relevant cache entries.
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 connector "api" {
   type = "rest"
   port = 3000
@@ -314,7 +314,7 @@ connector "cache" {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 flow "get_products" {
   from {
     connector = "api"
@@ -347,7 +347,7 @@ flow "create_product" {
 ```
 
 ```hcl
-# aspects.hcl
+# aspects.mycel
 aspect "cache_reads" {
   when = "around"
   on   = ["get_*"]
@@ -379,7 +379,7 @@ GET requests are served from cache for 5 minutes. Any write operation clears the
 **Use case:** After creating an order in the database, publish an event to RabbitMQ so other services can react (send confirmation, update inventory, etc.).
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 connector "api" {
   type = "rest"
   port = 3000
@@ -404,7 +404,7 @@ connector "rabbit" {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 flow "create_order" {
   from {
     connector = "api"
@@ -427,7 +427,7 @@ flow "create_order" {
 ```
 
 ```hcl
-# aspects.hcl
+# aspects.mycel
 aspect "publish_order_event" {
   when = "after"
   on   = ["create_order"]
@@ -454,7 +454,7 @@ The API returns the created order immediately. The event is published asynchrono
 **Use case:** Whenever any flow fails, send an alert to a Slack channel with the error details.
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 connector "api" {
   type = "rest"
   port = 3000
@@ -477,7 +477,7 @@ connector "slack_alerts" {
 ```
 
 ```hcl
-# aspects.hcl
+# aspects.mycel
 aspect "alert_server_errors" {
   when = "on_error"
   on   = ["*"]
@@ -519,7 +519,7 @@ Two aspects handle errors differently: 5xx errors go to Slack as critical alerts
 **Use case:** Validate request data before it reaches the database using type definitions.
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 connector "api" {
   type = "rest"
   port = 3000
@@ -537,7 +537,7 @@ connector "db" {
 ```
 
 ```hcl
-# types.hcl
+# types.mycel
 type "create_user_input" {
   name  = string { min_length = 2, max_length = 100 }
   email = string { format = "email" }
@@ -546,7 +546,7 @@ type "create_user_input" {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 flow "create_user" {
   from {
     connector = "api"
@@ -587,7 +587,7 @@ curl -X POST http://localhost:3000/users \
 **Use case:** A GET endpoint reads from the database, then enriches the response with data from an external API using a step block.
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 connector "api" {
   type = "rest"
   port = 3000
@@ -610,7 +610,7 @@ connector "weather_api" {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 flow "get_user_with_weather" {
   from {
     connector = "api"
@@ -656,7 +656,7 @@ Returns the user from the database plus live weather data for their city.
 **Use case:** Receive a webhook from Stripe, transform the payload, and forward it to your internal system and a Discord channel.
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 connector "api" {
   type = "rest"
   port = 3000
@@ -674,7 +674,7 @@ connector "discord" {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 flow "stripe_webhook" {
   from {
     connector = "api"
@@ -697,7 +697,7 @@ flow "stripe_webhook" {
 ```
 
 ```hcl
-# aspects.hcl
+# aspects.mycel
 aspect "notify_payments" {
   when = "after"
   on   = ["stripe_webhook"]
@@ -720,7 +720,7 @@ Stripe sends the webhook, Mycel transforms and forwards it to your internal API,
 **Use case:** A public API with rate limiting and custom error responses for rate-limited requests.
 
 ```hcl
-# config.hcl
+# config.mycel
 service {
   name    = "public-api"
   version = "1.0.0"
@@ -733,7 +733,7 @@ service {
 ```
 
 ```hcl
-# connectors.hcl
+# connectors.mycel
 connector "api" {
   type = "rest"
   port = 3000
@@ -751,7 +751,7 @@ connector "db" {
 ```
 
 ```hcl
-# flows.hcl
+# flows.mycel
 flow "search_products" {
   from {
     connector = "api"
@@ -787,7 +787,7 @@ The rate limit applies globally. Clients exceeding 10 req/s get a 429 response. 
 
 Chain flows together using aspects. An internal flow (no `from` block) handles welcome emails, triggered automatically after user creation.
 
-### connectors.hcl
+### connectors.mycel
 
 ```hcl
 connector "api" {
@@ -812,7 +812,7 @@ connector "mailer" {
 }
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 flow "create_user" {
@@ -840,7 +840,7 @@ flow "send_welcome_email" {
 }
 ```
 
-### aspects.hcl
+### aspects.mycel
 
 ```hcl
 aspect "welcome_email" {
@@ -870,7 +870,7 @@ aspect "welcome_email" {
 
 When an order fails, an `on_error` aspect invokes a recovery flow that logs the failure and enqueues a retry message for later processing.
 
-### connectors.hcl
+### connectors.mycel
 
 ```hcl
 connector "api" {
@@ -891,7 +891,7 @@ connector "rabbit" {
 }
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 flow "create_order" {
@@ -929,7 +929,7 @@ flow "handle_order_failure" {
 }
 ```
 
-### aspects.hcl
+### aspects.mycel
 
 ```hcl
 aspect "order_failure_recovery" {
@@ -960,7 +960,7 @@ aspect "order_failure_recovery" {
 
 A single internal flow decides where to notify (Slack, email, or SMS) based on the event severity passed by the aspect.
 
-### connectors.hcl
+### connectors.mycel
 
 ```hcl
 connector "api" {
@@ -997,7 +997,7 @@ connector "sms_service" {
 }
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 flow "create_order" {
@@ -1071,7 +1071,7 @@ flow "notify_sms" {
 }
 ```
 
-### aspects.hcl
+### aspects.mycel
 
 ```hcl
 # All write operations → Slack
@@ -1132,7 +1132,7 @@ aspect "sms_on_critical" {
 
 After any product change, an aspect invokes a sync flow that pushes the updated data to an external search index.
 
-### connectors.hcl
+### connectors.mycel
 
 ```hcl
 connector "api" {
@@ -1152,7 +1152,7 @@ connector "search" {
 }
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 flow "create_product" {
@@ -1207,7 +1207,7 @@ flow "remove_product_from_search" {
 }
 ```
 
-### aspects.hcl
+### aspects.mycel
 
 ```hcl
 # Sync to search index after create/update
@@ -1254,7 +1254,7 @@ aspect "remove_from_search" {
 
 Process messages from RabbitMQ and store them in PostgreSQL. One of the most common microservice patterns — zero code required.
 
-### connectors.hcl
+### connectors.mycel
 
 ```hcl
 connector "rabbit" {
@@ -1270,7 +1270,7 @@ connector "db" {
 }
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 # Consume order events and persist them
@@ -1322,7 +1322,7 @@ flow "process_payment" {
 
 Run flows on a schedule. Clean up old data, generate reports, or ping health endpoints — all via HCL configuration.
 
-### connectors.hcl
+### connectors.mycel
 
 ```hcl
 connector "db" {
@@ -1337,7 +1337,7 @@ connector "slack_alerts" {
 }
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 # Clean up expired sessions every hour
@@ -1402,7 +1402,7 @@ flow "health_ping" {
 
 Combine data from multiple sources into a single API response using multi-step flows. Perfect for Backend-for-Frontend patterns.
 
-### connectors.hcl
+### connectors.mycel
 
 ```hcl
 connector "api" {
@@ -1427,7 +1427,7 @@ connector "reviews_api" {
 }
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 flow "get_product_detail" {
@@ -1490,7 +1490,7 @@ flow "get_product_detail" {
 
 React to PostgreSQL changes in real-time using Change Data Capture. Automatically sync data to Elasticsearch and publish events to a message queue.
 
-### connectors.hcl
+### connectors.mycel
 
 ```hcl
 connector "pg_cdc" {
@@ -1517,7 +1517,7 @@ connector "rabbit" {
 }
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 # Sync new products to search index
@@ -1617,7 +1617,7 @@ flow "cdc_product_events" {
 
 Expose a full GraphQL API (queries + mutations) backed by a database — auto-generated schema from HCL types, no resolvers to write.
 
-### connectors.hcl
+### connectors.mycel
 
 ```hcl
 connector "api" {
@@ -1635,7 +1635,7 @@ connector "db" {
 }
 ```
 
-### types.hcl
+### types.mycel
 
 ```hcl
 type "User" {
@@ -1654,7 +1654,7 @@ type "Post" {
 }
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 # Query: fetch all users
@@ -1735,7 +1735,7 @@ flow "create_post" {
 
 Protect your service from cascading failures when external APIs go down. The circuit breaker aspect wraps flows and short-circuits requests when failures exceed the threshold.
 
-### connectors.hcl
+### connectors.mycel
 
 ```hcl
 connector "api" {
@@ -1762,7 +1762,7 @@ connector "db" {
 }
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 flow "charge_payment" {
@@ -1809,7 +1809,7 @@ flow "create_shipment" {
 }
 ```
 
-### aspects.hcl
+### aspects.mycel
 
 ```hcl
 # Payment API circuit breaker
@@ -1868,7 +1868,7 @@ aspect "circuit_alert" {
 
 Generate PDF documents (invoices, reports, receipts) from HTML templates. The PDF connector renders an HTML subset to PDF using pure Go — no external binaries required.
 
-### connectors.hcl
+### connectors.mycel
 
 ```hcl
 connector "api" {
@@ -1918,7 +1918,7 @@ connector "pdf" {
 <p style="font-size: 10px; color: #999999">Thank you for your business.</p>
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 # Fetch invoice data and generate PDF
@@ -1973,7 +1973,7 @@ flow "get_invoice_pdf" {
 
 Handle API versioning through separate flows per version. Use an `after` aspect with a `response` block to inject deprecation metadata into v1 responses automatically.
 
-### connectors.hcl
+### connectors.mycel
 
 ```hcl
 connector "api" {
@@ -1988,7 +1988,7 @@ connector "db" {
 }
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 # v1 — returns flat fields
@@ -2018,7 +2018,7 @@ flow "get_users_v2" {
 }
 ```
 
-### aspects.hcl
+### aspects.mycel
 
 ```hcl
 # Automatically inject deprecation headers and body metadata into all v1 responses
@@ -2266,7 +2266,7 @@ connector "redis_cache" {
 
 Isolate data per tenant using HTTP request headers. The `X-Tenant-ID` header is read in flow transforms and used to filter database queries, ensuring each tenant only sees their own data.
 
-### connectors.hcl
+### connectors.mycel
 
 ```hcl
 connector "api" {
@@ -2281,7 +2281,7 @@ connector "db" {
 }
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 # List products filtered by tenant

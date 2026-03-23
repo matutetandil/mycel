@@ -51,12 +51,12 @@ kind: ConfigMap
 metadata:
   name: my-api-config
 data:
-  config.hcl: |
+  config.mycel: |
     service {
       name    = "orders-api"
       version = "1.0.0"
     }
-  connectors.hcl: |
+  connectors.mycel: |
     connector "api" {
       type = "rest"
       port = 3000
@@ -69,7 +69,7 @@ data:
       user     = env("PG_USER")
       password = env("PG_PASSWORD")
     }
-  flows.hcl: |
+  flows.mycel: |
     flow "get_orders" {
       from {
         connector = "api"
