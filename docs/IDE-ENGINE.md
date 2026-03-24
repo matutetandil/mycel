@@ -429,7 +429,8 @@ Mycel Studio (Wails app)
 │       ├── Rename(path, line, col, newName) → engine.Rename(...)
 │       ├── GetCodeActions(path, line, col) → engine.CodeActions(...)
 │       ├── GetBreakpoints(file) → engine.AllBreakpoints()[file]
-│       └── GetFlowBreakpoints(flowName) → engine.FlowBreakpoints(flowName)
+│       ├── GetFlowBreakpoints(flowName) → engine.FlowBreakpoints(flowName)
+│       └── RemoveBlock(path, type, name) → engine.RemoveBlock(...)
 │
 └── Debug Client (separate, WebSocket to :9090)
     └── Runtime debugging — uses breakpoint locations from IDE engine
@@ -706,11 +707,18 @@ Inside transform, response, filter, accept, and condition values, the engine aut
 
 ### Connector-Type-Aware Intelligence
 
-When a connector has `type = "database"`, the engine:
-- **Completions**: Suggests `driver`, `host`, `port`, `database`, `user`, `password` (database-specific attrs)
-- **Diagnostics**: Warns if required type-specific attributes are missing (e.g., `driver` for database, `port` for rest)
+When the engine has a registry (`connectors.FullRegistry()`), completions inside connector blocks adapt based on the `type` and `driver` values. Both **attributes** and **child blocks** are suggested from the connector's schema.
 
-Supported for all 24 connector types.
+Example: inside a `type = "mq"` `driver = "rabbitmq"` connector, completions include:
+- **Attributes**: `url`, `port`, `username`, `password`, `vhost`, `heartbeat`, `connection_name`, ...
+- **Child blocks**: `tls {}`, `queue {}`, `exchange {}`, `consumer {}`, `publisher {}`
+
+Example: inside a `type = "slack"` connector, completions include:
+- `webhook_url`, `token`, `api_url`, `channel`, `username`, `icon_emoji`, `icon_url`, `timeout`
+
+All 26 connector types are fully covered via the schema registry. Without a registry, the engine falls back to a static subset.
+
+Diagnostics also use the registry — if a database connector is missing `driver`, or a rest connector is missing `port`, a warning is produced.
 
 ### Operation Completions
 
@@ -718,3 +726,19 @@ When editing `operation = ""` in a from/to block, the engine suggests templates 
 - **REST**: `GET /`, `POST /`, `PUT /`, `PATCH /`, `DELETE /`
 - **GraphQL**: `Query.`, `Mutation.`, `Subscription.`
 - **gRPC**: `ServiceName/MethodName`
+
+### RemoveBlock
+
+```go
+func (e *Engine) RemoveBlock(path, blockType, name string) *TextEdit
+```
+
+Returns a `TextEdit` that removes a named block from a file. Used when Studio's canvas deletes a component that shares a file with other blocks.
+
+```go
+// User deletes the "api" connector from connectors.mycel (which also has "db")
+edit := engine.RemoveBlock("connectors.mycel", "connector", "api")
+// edit.Range = lines 1-5, edit.NewText = "" → Studio removes those lines
+```
+
+The edit covers the block's full range including the trailing newline. Studio applies the edit to the file content and calls `engine.UpdateFile()` to refresh diagnostics.
