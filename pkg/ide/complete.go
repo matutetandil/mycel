@@ -1,9 +1,13 @@
 package ide
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/matutetandil/mycel/pkg/schema"
+)
 
 // complete returns completion items based on cursor context.
-func complete(fi *FileIndex, idx *ProjectIndex, line, col int) []CompletionItem {
+func complete(fi *FileIndex, idx *ProjectIndex, reg *schema.Registry, line, col int) []CompletionItem {
 	ctx := findCursorContext(fi, line, col)
 
 	if ctx.InValue {
@@ -38,13 +42,20 @@ func complete(fi *FileIndex, idx *ProjectIndex, line, col int) []CompletionItem 
 		return completeRootBlocks()
 	}
 
-	// Inside a connector block — offer type-specific attrs
+	// Inside a connector block — offer type-specific attrs and children from registry
 	if len(ctx.BlockPath) == 1 && ctx.BlockPath[0] == "connector" && ctx.Block != nil {
 		connType := ctx.Block.GetAttr("type")
+		driver := ctx.Block.GetAttr("driver")
 		if connType != "" {
-			typeAttrs := connectorTypeAttrs(connType)
-			if len(typeAttrs) > 0 {
-				return completeBlockContentWithExtra(ctx, idx, typeAttrs)
+			// Try registry first (has full schema including children)
+			extraAttrs := connectorTypeAttrsFromRegistry(reg, connType, driver)
+			extraChildren := connectorTypeChildrenFromRegistry(reg, connType, driver)
+			if extraAttrs == nil {
+				// Fall back to static
+				extraAttrs = connectorTypeAttrsStatic(connType)
+			}
+			if len(extraAttrs) > 0 || len(extraChildren) > 0 {
+				return completeBlockContentWithExtraAndChildren(ctx, idx, extraAttrs, extraChildren)
 			}
 		}
 	}
@@ -67,6 +78,64 @@ func findFlowBlock(fi *FileIndex, blockPath []string) *Block {
 		}
 	}
 	return nil
+}
+
+// completeBlockContentWithExtraAndChildren adds connector-type-specific attrs and children.
+func completeBlockContentWithExtraAndChildren(ctx *CursorContext, idx *ProjectIndex, extraAttrs []AttrSchema, extraChildren []BlockSchema) []CompletionItem {
+	items := completeBlockContent(ctx, idx)
+
+	existing := make(map[string]bool)
+	if ctx.Block != nil {
+		for _, a := range ctx.Block.Attrs {
+			existing[a.Name] = true
+		}
+	}
+	for _, item := range items {
+		existing[item.Label] = true
+	}
+
+	for _, as := range extraAttrs {
+		if existing[as.Name] {
+			continue
+		}
+		detail := as.Doc
+		if as.Required {
+			detail = "(required) " + detail
+		}
+		insert := fmt.Sprintf("%s = ", as.Name)
+		if as.Type == AttrString || as.Type == AttrDuration {
+			insert = fmt.Sprintf("%s = \"\"", as.Name)
+		} else if as.Type == AttrBool {
+			insert = fmt.Sprintf("%s = true", as.Name)
+		}
+		items = append(items, CompletionItem{
+			Label:      as.Name,
+			Kind:       CompletionAttribute,
+			Detail:     detail,
+			InsertText: insert,
+		})
+	}
+
+	existingBlocks := make(map[string]bool)
+	if ctx.Block != nil {
+		for _, c := range ctx.Block.Children {
+			existingBlocks[c.Type] = true
+		}
+	}
+	for _, cs := range extraChildren {
+		if existingBlocks[cs.Type] {
+			continue
+		}
+		insert := fmt.Sprintf("%s {\n  \n}", cs.Type)
+		items = append(items, CompletionItem{
+			Label:      cs.Type,
+			Kind:       CompletionBlock,
+			Detail:     cs.Doc,
+			InsertText: insert,
+		})
+	}
+
+	return items
 }
 
 // completeBlockContentWithExtra adds connector-type-specific attrs to completions.

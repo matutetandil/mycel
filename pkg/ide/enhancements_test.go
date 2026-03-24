@@ -32,7 +32,7 @@ flow "test" {
 	idx.updateFile(fi)
 
 	// Cursor in transform value (line 12: `    name = ""`, col 12 is on the value)
-	items := complete(fi, idx, 12, 12)
+	items := complete(fi, idx, nil, 12, 12)
 
 	labels := make(map[string]bool)
 	for _, item := range items {
@@ -69,7 +69,7 @@ flow "test" {
 	idx := newProjectIndex()
 	idx.updateFile(fi)
 
-	items := complete(fi, idx, 8, 14)
+	items := complete(fi, idx, nil, 8, 14)
 	labels := make(map[string]bool)
 	for _, item := range items {
 		labels[item.Label] = true
@@ -138,7 +138,7 @@ connector "db" {
 	idx := newProjectIndex()
 	idx.updateFile(fi)
 
-	items := complete(fi, idx, 4, 3)
+	items := complete(fi, idx, nil, 4, 3)
 
 	labels := make(map[string]bool)
 	for _, item := range items {
@@ -238,7 +238,7 @@ flow "test" {
 	fi := parseHCL("test.mycel", src)
 	idx.updateFile(fi)
 
-	items := complete(fi, idx, 5, 18)
+	items := complete(fi, idx, nil, 5, 18)
 
 	labels := make(map[string]bool)
 	for _, item := range items {

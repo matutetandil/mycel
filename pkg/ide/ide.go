@@ -146,7 +146,7 @@ func (e *Engine) Complete(path string, line, col int) []CompletionItem {
 		return nil
 	}
 
-	return complete(fi, e.index, line, col)
+	return complete(fi, e.index, e.registry, line, col)
 }
 
 // Definition returns the source location of the entity referenced at the cursor.
@@ -282,6 +282,38 @@ func (e *Engine) Hover(path string, line, col int) *HoverResult {
 		blockType := ctx.Block.Type
 		if s := findBlockSchemaByType(blockType); s != nil {
 			return &HoverResult{Content: s.Doc}
+		}
+	}
+
+	return nil
+}
+
+// RemoveBlock returns a TextEdit that removes a named block from a file.
+// The edit removes the block and any surrounding blank lines to keep formatting clean.
+// blockType is "connector", "flow", "type", etc. name is the block label.
+func (e *Engine) RemoveBlock(path, blockType, name string) *TextEdit {
+	e.index.mu.RLock()
+	fi, ok := e.index.Files[path]
+	e.index.mu.RUnlock()
+
+	if !ok {
+		return nil
+	}
+
+	for _, b := range fi.Blocks {
+		if b.Type == blockType && b.Name == name {
+			// Expand range to include the line before (if blank) and line after (if blank)
+			startLine := b.Range.Start.Line
+			endLine := b.Range.End.Line
+
+			return &TextEdit{
+				File: path,
+				Range: Range{
+					Start: Position{Line: startLine, Col: 1},
+					End:   Position{Line: endLine + 1, Col: 1}, // include trailing newline
+				},
+				NewText: "",
+			}
 		}
 	}
 

@@ -191,7 +191,7 @@ func TestCompleteRootLevel(t *testing.T) {
 	idx := newProjectIndex()
 	idx.updateFile(fi)
 
-	items := complete(fi, idx, 1, 1)
+	items := complete(fi, idx, nil, 1, 1)
 	found := false
 	for _, item := range items {
 		if item.Label == "connector" {
@@ -213,7 +213,7 @@ flow "test" {
 	idx := newProjectIndex()
 	idx.updateFile(fi)
 
-	items := complete(fi, idx, 3, 3)
+	items := complete(fi, idx, nil, 3, 3)
 
 	labels := make(map[string]bool)
 	for _, item := range items {
@@ -252,7 +252,7 @@ flow "test" {
 	idx.updateFile(fi)
 
 	// Cursor inside connector = "" — line 4, after the =
-	items := complete(fi, idx, 4, 18)
+	items := complete(fi, idx, nil, 4, 18)
 
 	names := make(map[string]bool)
 	for _, item := range items {
@@ -279,7 +279,7 @@ flow "test" {
 	idx := newProjectIndex()
 	idx.updateFile(fi)
 
-	items := complete(fi, idx, 8, 5)
+	items := complete(fi, idx, nil, 8, 5)
 
 	labels := make(map[string]bool)
 	for _, item := range items {
@@ -308,7 +308,7 @@ flow "test" {
 	idx.updateFile(fi)
 
 	// Cursor on on_reject value
-	items := complete(fi, idx, 5, 18)
+	items := complete(fi, idx, nil, 5, 18)
 
 	values := make(map[string]bool)
 	for _, item := range items {
