@@ -102,6 +102,27 @@ func (e *Engine) RemoveFile(path string) []*Diagnostic {
 	return diagnoseCrossRefs(e.index)
 }
 
+// RenameFile updates the index when a file is renamed/moved.
+// The content stays the same — only the path changes.
+// Returns diagnostics for the new path.
+func (e *Engine) RenameFile(oldPath, newPath string) []*Diagnostic {
+	e.index.mu.Lock()
+	fi, ok := e.index.Files[oldPath]
+	if ok {
+		delete(e.index.Files, oldPath)
+		fi.Path = newPath
+		// Update all entity file references
+		e.index.Files[newPath] = fi
+		e.index.rebuild()
+	}
+	e.index.mu.Unlock()
+
+	if !ok {
+		return nil
+	}
+	return e.Diagnose(newPath)
+}
+
 // Diagnose returns diagnostics for a single file (parse + schema + cross-refs).
 func (e *Engine) Diagnose(path string) []*Diagnostic {
 	e.index.mu.RLock()

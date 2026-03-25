@@ -431,6 +431,8 @@ Mycel Studio (Wails app)
 │       ├── GetBreakpoints(file) → engine.AllBreakpoints()[file]
 │       ├── GetFlowBreakpoints(flowName) → engine.FlowBreakpoints(flowName)
 │       ├── RemoveBlock(path, type, name) → engine.RemoveBlock(...)
+│       ├── RenameFile(old, new) → engine.RenameFile(...)
+│       ├── ExtractTransform(flow, name) → engine.ExtractTransform(...)
 │       └── GetHints(path) → engine.HintsForFile(path)
 │
 └── Debug Client (separate, WebSocket to :9090)
@@ -792,3 +794,48 @@ for _, h := range hints {
 ```
 
 The refactoring itself uses `RemoveBlock` to extract the block from the current file and writes it to `SuggestedFile`.
+
+### RenameFile
+
+```go
+func (e *Engine) RenameFile(oldPath, newPath string) []*Diagnostic
+```
+
+Updates the index when a file is renamed or moved. The file content stays the same — only the path changes in the index and all entity references. Returns diagnostics for the new path.
+
+```go
+// User renames connectors/old.mycel → connectors/api.mycel
+engine.RenameFile("connectors/old.mycel", "connectors/api.mycel")
+// Index is updated atomically — no need for RemoveFile + UpdateFile
+```
+
+### ExtractTransform
+
+```go
+func (e *Engine) ExtractTransform(flowName, transformName string) *ExtractTransformResult
+```
+
+Extracts an inline transform from a flow into a named reusable transform. Returns the edits needed for the refactoring, or nil if the flow has no inline transform or already uses `use = "..."`.
+
+```go
+type ExtractTransformResult struct {
+    Name          string   // Generated transform name
+    FlowEdit      TextEdit // Replaces inline transform with `transform { use = "name" }`
+    NewTransform  string   // Full text of the new named transform block
+    SuggestedFile string   // Recommended file path (e.g., transforms/name.mycel)
+}
+```
+
+**Usage:**
+
+```go
+result := engine.ExtractTransform("create_user", "normalize_user")
+// result.Name = "normalize_user"
+// result.FlowEdit → replaces the inline transform in the flow with: transform { use = "normalize_user" }
+// result.NewTransform → `transform "normalize_user" { id = "uuid()" ... }`
+// result.SuggestedFile → "transforms/normalize_user.mycel"
+
+// Studio applies the flow edit and writes the new transform file
+```
+
+If `transformName` is empty, it defaults to `"<flowName>_transform"` (e.g., `"create_user_transform"`).
