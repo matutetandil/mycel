@@ -65,7 +65,7 @@ func celFunctions() []CompletionItem {
 
 // celVariables returns completion items for variables available in a given context.
 // blockPath determines what variables are available (e.g., inside transform, accept, response).
-func celVariables(blockPath []string, flowBlock *Block) []CompletionItem {
+func celVariables(blockPath []string, flowBlock *Block, idx *ProjectIndex) []CompletionItem {
 	var items []CompletionItem
 
 	// input.* is always available
@@ -119,6 +119,44 @@ func celVariables(blockPath []string, flowBlock *Block) []CompletionItem {
 		}
 	}
 
+	// Transform field suggestions — available in to block (as :field) and response block (as output.field)
+	if flowBlock != nil && (lastBlock == "to" || lastBlock == "response") {
+		fields := collectTransformFields(flowBlock, idx)
+		for _, field := range fields {
+			if lastBlock == "to" {
+				items = append(items, CompletionItem{
+					Label:      ":" + field,
+					Kind:       CompletionValue,
+					Detail:     "Transform output field",
+					Doc:        fmt.Sprintf("Named param from transform field %q", field),
+					InsertText: ":" + field,
+				})
+			} else if lastBlock == "response" {
+				items = append(items, CompletionItem{
+					Label:      "output." + field,
+					Kind:       CompletionValue,
+					Detail:     "Transform output field",
+					Doc:        fmt.Sprintf("Output from transform field %q", field),
+					InsertText: "output." + field,
+				})
+			}
+		}
+	}
+
+	// Transform field suggestions within transform block itself (previous fields available)
+	if flowBlock != nil && lastBlock == "transform" {
+		fields := collectTransformFields(flowBlock, idx)
+		for _, field := range fields {
+			items = append(items, CompletionItem{
+				Label:      field,
+				Kind:       CompletionValue,
+				Detail:     "Previously defined transform field",
+				Doc:        fmt.Sprintf("Field %q defined earlier in this transform", field),
+				InsertText: field,
+			})
+		}
+	}
+
 	// error.* available in on_error aspects
 	if lastBlock == "action" && len(blockPath) >= 2 && blockPath[len(blockPath)-2] == "aspect" {
 		items = append(items, CompletionItem{
@@ -130,6 +168,44 @@ func celVariables(blockPath []string, flowBlock *Block) []CompletionItem {
 	}
 
 	return items
+}
+
+// collectTransformFields returns the field names produced by the flow's transform block.
+// If the transform uses `use = "name"`, resolves the named transform from the index.
+func collectTransformFields(flowBlock *Block, idx *ProjectIndex) []string {
+	var fields []string
+
+	for _, child := range flowBlock.Children {
+		if child.Type != "transform" {
+			continue
+		}
+
+		// Check if it references a named transform
+		useName := child.GetAttr("use")
+		if useName != "" && idx != nil {
+			// Resolve named transform from the project index
+			idx.mu.RLock()
+			for _, fi := range idx.Files {
+				for _, b := range fi.Blocks {
+					if b.Type == "transform" && b.Name == useName {
+						for _, attr := range b.Attrs {
+							fields = append(fields, attr.Name)
+						}
+					}
+				}
+			}
+			idx.mu.RUnlock()
+		}
+
+		// Inline mappings
+		for _, attr := range child.Attrs {
+			if attr.Name != "use" {
+				fields = append(fields, attr.Name)
+			}
+		}
+	}
+
+	return fields
 }
 
 // isCELContext returns true if the cursor is in a position where CEL completions are relevant.

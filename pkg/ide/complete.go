@@ -14,7 +14,7 @@ func complete(fi *FileIndex, idx *ProjectIndex, reg *schema.Registry, line, col 
 		// CEL context — offer variables and functions
 		if isCELContext(ctx.BlockPath, ctx.AttrName) {
 			flowBlock := findFlowBlock(fi, ctx.BlockPath)
-			items := celVariables(ctx.BlockPath, flowBlock)
+			items := celVariables(ctx.BlockPath, flowBlock, idx)
 			items = append(items, celFunctions()...)
 			return items
 		}
@@ -29,6 +29,61 @@ func complete(fi *FileIndex, idx *ProjectIndex, reg *schema.Registry, line, col 
 				if entity != nil {
 					if ops := completeOperation(entity.ConnType); len(ops) > 0 {
 						return ops
+					}
+				}
+			}
+		}
+
+		// Transform field suggestions in to.query and response blocks
+		if ctx.Block != nil {
+			flowBlock := findFlowBlock(fi, ctx.BlockPath)
+			if flowBlock != nil {
+				lastBlock := ""
+				if len(ctx.BlockPath) > 0 {
+					lastBlock = ctx.BlockPath[len(ctx.BlockPath)-1]
+				}
+
+				// In to block query attribute → suggest :fieldName params
+				if lastBlock == "to" && ctx.AttrName == "query" {
+					fields := collectTransformFields(flowBlock, idx)
+					if len(fields) > 0 {
+						var items []CompletionItem
+						for _, f := range fields {
+							items = append(items, CompletionItem{
+								Label:      ":" + f,
+								Kind:       CompletionValue,
+								Detail:     "Transform output field",
+								InsertText: ":" + f,
+							})
+						}
+						return items
+					}
+				}
+
+				// In response block → suggest output.fieldName
+				if lastBlock == "response" {
+					fields := collectTransformFields(flowBlock, idx)
+					if len(fields) > 0 {
+						var items []CompletionItem
+						items = append(items, CompletionItem{
+							Label:  "input",
+							Kind:   CompletionValue,
+							Detail: "Original input data",
+						})
+						items = append(items, CompletionItem{
+							Label:  "output",
+							Kind:   CompletionValue,
+							Detail: "Destination result",
+						})
+						for _, f := range fields {
+							items = append(items, CompletionItem{
+								Label:      "output." + f,
+								Kind:       CompletionValue,
+								Detail:     "Transform output field",
+								InsertText: "output." + f,
+							})
+						}
+						return items
 					}
 				}
 			}

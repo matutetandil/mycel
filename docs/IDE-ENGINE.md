@@ -695,6 +695,43 @@ func (e *Engine) Rename(path string, line, col int, newName string) []RenameEdit
 
 Renames the entity at the cursor position. Works when cursor is on a block label or a reference value. Uses the same underlying logic as `RenameEntity`.
 
+### RenameField
+
+```go
+func (e *Engine) RenameField(flowName, oldFieldName, newFieldName string) *RenameFieldResult
+```
+
+Renames a transform field within a flow and updates all references to it. This is a flow-scoped rename (not a global entity rename). Covers:
+
+- **Transform attribute name**: `email = "..."` → `user_email = "..."`
+- **Named params in SQL queries**: `:email` → `:user_email`
+- **Column names in SQL**: `(email, name)` → `(user_email, name)`
+- **Response block references**: `output.email` → `output.user_email`
+- **Cross-references in other transform rules**: if another rule uses the renamed field
+
+```go
+type RenameFieldResult struct {
+    FlowName          string     // Flow containing the field
+    OldName           string     // Current field name
+    NewName           string     // New field name
+    Edits             []TextEdit // All text edits to apply
+    AffectedLocations []string   // Human-readable list for confirmation dialog
+}
+```
+
+**Usage:**
+
+```go
+result := engine.RenameField("upsert_sales_conultant", "emails", "email_list")
+// result.Edits[0] → transform: emails → email_list (attribute name)
+// result.Edits[1] → to.query: :emails → :email_list, emails → email_list (SQL)
+// result.AffectedLocations = ["transform: emails = ...", "to.query: references :emails"]
+
+// Studio shows confirmation: "Rename 'emails' to 'email_list'? Affects 2 locations."
+```
+
+SQL identifier replacement is word-boundary-aware: renaming `email` won't affect `email_verified` or `user_email`.
+
 ### Code Actions
 
 ```go
@@ -752,6 +789,16 @@ See [Breakpoint Integration](#breakpoint-integration) above for full usage detai
 Inside transform, response, filter, accept, and condition values, the engine automatically suggests:
 - **Variables**: `input`, `output` (response only), `step.<name>` (if flow has steps), `enriched.<name>` (if flow has enrichments), `error` (in on_error aspects)
 - **Functions**: 39 built-in CEL functions (`uuid()`, `now()`, `lower()`, `upper()`, `has()`, `len()`, `contains()`, `first()`, `last()`, `sum()`, `avg()`, etc.)
+
+### Transform Field Completions
+
+The engine automatically suggests transform output fields in downstream blocks:
+
+- **In `to.query` values**: Suggests `:fieldName` named params based on the flow's transform fields
+- **In `response` block values**: Suggests `output.fieldName` based on transform fields
+- **Resolves named transforms**: If the transform uses `use = "normalize_user"`, the fields from the named transform are resolved and suggested
+
+Example: a transform with `email`, `name`, `id` fields → in `to.query` value, completions include `:email`, `:name`, `:id`.
 
 ### Connector-Type-Aware Intelligence
 

@@ -83,6 +83,118 @@ flow "test" {
 	}
 }
 
+func TestCELTransformFieldsInToBlock(t *testing.T) {
+	src := []byte(`
+flow "test" {
+  from {
+    connector = "api"
+    operation = "POST /users"
+  }
+  transform {
+    email = "lower(input.email)"
+    name  = "input.name"
+    id    = "uuid()"
+  }
+  to {
+    connector = "db"
+    target    = "users"
+    query     = ""
+  }
+}
+`)
+	fi := parseHCL("test.mycel", src)
+	idx := newProjectIndex()
+	idx.updateFile(fi)
+
+	// Cursor in to.query value (line 15: `    query     = ""`, col 19 is inside the value)
+	items := complete(fi, idx, nil, 15, 19)
+
+	labels := make(map[string]bool)
+	for _, item := range items {
+		labels[item.Label] = true
+	}
+
+	for _, expected := range []string{":email", ":name", ":id"} {
+		if !labels[expected] {
+			t.Errorf("expected %q in to block completions, got labels: %v", expected, labels)
+		}
+	}
+}
+
+func TestCELTransformFieldsInResponseBlock(t *testing.T) {
+	src := []byte(`
+flow "test" {
+  from { connector = "api" }
+  transform {
+    total = "input.price * input.qty"
+    tax   = "input.price * 0.21"
+  }
+  to { connector = "db" }
+  response {
+    result = ""
+  }
+}
+`)
+	fi := parseHCL("test.mycel", src)
+	idx := newProjectIndex()
+	idx.updateFile(fi)
+
+	// Cursor in response.result value (line 10: `    result = ""`, col 16 is inside value)
+	items := complete(fi, idx, nil, 10, 16)
+
+	labels := make(map[string]bool)
+	for _, item := range items {
+		labels[item.Label] = true
+	}
+
+	if !labels["output.total"] {
+		t.Errorf("expected 'output.total' in response completions, got: %v", labels)
+	}
+	if !labels["output.tax"] {
+		t.Errorf("expected 'output.tax' in response completions, got: %v", labels)
+	}
+}
+
+func TestCELNamedTransformFields(t *testing.T) {
+	idx := newProjectIndex()
+	idx.updateFile(parseHCL("transforms/normalize.mycel", []byte(`
+transform "normalize_user" {
+  email = "lower(input.email)"
+  name  = "trim(input.name)"
+}
+`)))
+
+	src := []byte(`
+flow "create_user" {
+  from { connector = "api" }
+  transform {
+    use = "normalize_user"
+  }
+  to {
+    connector = "db"
+    query     = ""
+  }
+}
+`)
+	fi := parseHCL("flows/create.mycel", src)
+	idx.updateFile(fi)
+
+	// Cursor in to.query value (line 9: `    query     = ""`, col 19 is inside value)
+	items := complete(fi, idx, nil, 9, 19)
+
+	labels := make(map[string]bool)
+	for _, item := range items {
+		labels[item.Label] = true
+	}
+
+	if !labels[":email"] {
+		t.Errorf("expected ':email' from named transform, got: %v", labels)
+	}
+	if !labels[":name"] {
+		t.Errorf("expected ':name' from named transform, got: %v", labels)
+	}
+}
+
 func TestIsCELContext(t *testing.T) {
 	tests := []struct {
 		path     []string
