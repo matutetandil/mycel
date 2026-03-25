@@ -408,7 +408,8 @@ Mycel Studio (Wails app)
 │   │   ├── On Ctrl+Space → call Go binding: Complete(path, line, col)
 │   │   ├── On hover → call Go binding: Hover(path, line, col)
 │   │   ├── On Ctrl+click → call Go binding: Definition(path, line, col)
-│   │   ├── On F2 (rename) → call Go binding: Rename(path, line, col, newName)
+│   │   ├── On F2 (rename) → call Go binding: RenameEntity(kind, old, new)
+│   │   ├── On delete → FindReferences(kind, name) → confirm dialog
 │   │   └── Gutter breakpoint dots → driven by GetBreakpoints(file)
 │   ├── Problems panel → render diagnostics
 │   ├── Symbols panel → Ctrl+P navigation via GetSymbols()
@@ -642,13 +643,57 @@ internal/runtime/schema_registration.go  # Runtime-internal registration (uses i
 
 ## Additional APIs (v1.17.1+)
 
-### Rename
+### FindReferences
+
+```go
+func (e *Engine) FindReferences(kind, name string) []Reference
+```
+
+Returns all locations where an entity is defined or referenced across the entire project. `kind` is `"connector"`, `"flow"`, `"type"`, `"transform"`, etc. Returns the definition + every attribute that references it.
+
+```go
+type Reference struct {
+    File      string // Source file
+    Line      int    // 1-based line number
+    Col       int    // 1-based column (of the value)
+    AttrName  string // Attribute name (e.g., "connector"), empty for definition
+    BlockType string // Containing block type (e.g., "from", "to", "action")
+    BlockName string // Containing block name (e.g., flow name)
+}
+```
+
+**Usage — Studio shows "used in X places" and highlights all references:**
+
+```go
+refs := engine.FindReferences("connector", "api")
+// refs[0] = {File: "connectors/api.mycel", Line: 2, BlockType: "connector", BlockName: "api"}  ← definition
+// refs[1] = {File: "flows/users.mycel", Line: 4, AttrName: "connector", BlockType: "from"}      ← reference
+// refs[2] = {File: "flows/users.mycel", Line: 14, AttrName: "connector", BlockType: "from"}     ← reference
+// refs[3] = {File: "aspects/log.mycel", Line: 6, AttrName: "connector", BlockType: "action"}    ← reference
+```
+
+**Studio confirmation dialog for rename/delete:** Before renaming or deleting a component, Studio calls `FindReferences` to show the user how many places reference it and asks for confirmation.
+
+### RenameEntity
+
+```go
+func (e *Engine) RenameEntity(kind, oldName, newName string) []RenameEdit
+```
+
+Renames an entity by kind and name (not by cursor position). Returns edits for the definition + all references. This is the preferred API for programmatic renames (e.g., from Studio's canvas or refactoring dialog).
+
+```go
+edits := engine.RenameEntity("connector", "old_api", "new_api")
+// edits covers: definition in connectors/api.mycel + all connector="old_api" references in flows/aspects
+```
+
+### Rename (by cursor position)
 
 ```go
 func (e *Engine) Rename(path string, line, col int, newName string) []RenameEdit
 ```
 
-Renames an entity (connector, flow, type, transform) and returns all edits needed across the project — both the definition and every reference. Works when cursor is on a block label or a reference value.
+Renames the entity at the cursor position. Works when cursor is on a block label or a reference value. Uses the same underlying logic as `RenameEntity`.
 
 ### Code Actions
 
