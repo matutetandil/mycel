@@ -430,7 +430,8 @@ Mycel Studio (Wails app)
 │       ├── GetCodeActions(path, line, col) → engine.CodeActions(...)
 │       ├── GetBreakpoints(file) → engine.AllBreakpoints()[file]
 │       ├── GetFlowBreakpoints(flowName) → engine.FlowBreakpoints(flowName)
-│       └── RemoveBlock(path, type, name) → engine.RemoveBlock(...)
+│       ├── RemoveBlock(path, type, name) → engine.RemoveBlock(...)
+│       └── GetHints(path) → engine.HintsForFile(path)
 │
 └── Debug Client (separate, WebSocket to :9090)
     └── Runtime debugging — uses breakpoint locations from IDE engine
@@ -742,3 +743,52 @@ edit := engine.RemoveBlock("connectors.mycel", "connector", "api")
 ```
 
 The edit covers the block's full range including the trailing newline. Studio applies the edit to the file content and calls `engine.UpdateFile()` to refresh diagnostics.
+
+### Organization Hints
+
+```go
+func (e *Engine) Hints() []Hint
+func (e *Engine) HintsForFile(path string) []Hint
+```
+
+Returns informational suggestions for project organization (SOLID-style file structure). Studio shows these as light bulb indicators — not errors, just suggestions.
+
+```go
+type Hint struct {
+    Kind          HintKind `json:"kind"`          // Type of hint
+    Message       string   `json:"message"`       // Human-readable suggestion
+    File          string   `json:"file"`          // Source file
+    Range         Range    `json:"range"`         // Block range
+    SuggestedFile string   `json:"suggestedFile"` // Recommended file path (for refactoring)
+    BlockType     string   `json:"blockType"`     // "connector", "flow", etc.
+    BlockName     string   `json:"blockName"`     // Block label
+}
+```
+
+**Four hint types:**
+
+| Kind | When | Example |
+|------|------|---------|
+| `HintMultipleBlocksInFile` (1) | File has >1 block of the same type | `connectors.mycel` has 3 connectors → suggest `api.mycel`, `db.mycel`, `rabbit.mycel` |
+| `HintFileNameMismatch` (2) | File name doesn't match the single block inside | `orders.mycel` contains `flow "save_customer"` → suggest `save_customer.mycel` |
+| `HintMixedTypesInFile` (3) | File has blocks of different types | File has a connector AND a flow → suggest separating |
+| `HintWrongDirectory` (4) | Block type doesn't match parent directory | `flows/database.mycel` contains a connector → suggest moving to `connectors/` |
+
+**Exclusions:**
+- `config.mycel` is always skipped (expected to have a single service block)
+- Generic file names (`flows.mycel`, `connectors.mycel`, `types.mycel`) don't trigger name mismatch hints
+- `SuggestedFile` is included when the hint involves moving or renaming
+
+**How Studio uses this:**
+
+```go
+// On file open or project load
+hints := engine.HintsForFile(path)
+for _, h := range hints {
+    // Show light bulb icon on h.Range.Start.Line
+    // Tooltip: h.Message
+    // Action: if h.SuggestedFile != "", offer "Move to <file>" refactoring
+}
+```
+
+The refactoring itself uses `RemoveBlock` to extract the block from the current file and writes it to `SuggestedFile`.
