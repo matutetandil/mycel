@@ -775,11 +775,19 @@ type Hint struct {
 | `HintFileNameMismatch` (2) | File name doesn't match the single block inside | `orders.mycel` contains `flow "save_customer"` → suggest `save_customer.mycel` |
 | `HintMixedTypesInFile` (3) | File has blocks of different types | File has a connector AND a flow → suggest separating |
 | `HintWrongDirectory` (4) | Block type doesn't match parent directory | `flows/database.mycel` contains a connector → suggest moving to `connectors/` |
+| `HintServiceNotInConfig` (5) | Service block not in config.mycel | `my-api.mycel` has `service {}` → suggest moving to `config.mycel` |
+| `HintNoDirectoryStructure` (6) | Project-level: no subdirectory organization | Connectors and flows all in root → suggest creating `connectors/`, `flows/` |
 
 **Exclusions:**
-- `config.mycel` is always skipped (expected to have a single service block)
-- Generic file names (`flows.mycel`, `connectors.mycel`, `types.mycel`) don't trigger name mismatch hints
+- Files where the name already matches the block name (e.g., `slack.mycel` with `connector "slack"`)
+- Blocks without labels (e.g., `service {}` has no name, so no name mismatch hint)
 - `SuggestedFile` is included when the hint involves moving or renaming
+
+**No file is exempt.** Even `config.mycel` gets hints if it contains mixed types (e.g., service + connector + flow all in one file).
+
+**Hint 5 (ServiceNotInConfig)** checks per-file: if a `service` block lives in any file other than `config.mycel`, suggest moving it there.
+
+**Hint 6 (NoDirectoryStructure)** is project-level: if the project has multiple block types (connectors, flows, etc.) all in the root directory without subdirectories like `connectors/`, `flows/`, `types/`, it suggests creating them. Only returned by `Engine.Hints()`, not `HintsForFile()`. Studio can show this as a one-time notification or banner.
 
 **How Studio uses this:**
 

@@ -18,6 +18,10 @@ const (
 	HintMixedTypesInFile HintKind = 3
 	// HintWrongDirectory — block type doesn't match the parent directory name.
 	HintWrongDirectory HintKind = 4
+	// HintServiceNotInConfig — service block is not in config.mycel.
+	HintServiceNotInConfig HintKind = 5
+	// HintNoDirectoryStructure — project has no subdirectory organization.
+	HintNoDirectoryStructure HintKind = 6
 )
 
 // Hint represents an organization suggestion for the user.
@@ -48,6 +52,9 @@ func (e *Engine) Hints() []Hint {
 		hints = append(hints, hintsForFile(fi)...)
 	}
 
+	// Project-level: check if blocks of different types are all in root (no subdirectories)
+	hints = append(hints, checkNoDirectoryStructure(e.index)...)
+
 	return hints
 }
 
@@ -72,12 +79,6 @@ func hintsForFile(fi *FileIndex) []Hint {
 
 	var hints []Hint
 
-	// Skip config.mycel — it's expected to have a single service block
-	baseName := filepath.Base(fi.Path)
-	if baseName == "config.mycel" {
-		return nil
-	}
-
 	// Rule 1: Multiple blocks of the same type → suggest splitting
 	hints = append(hints, checkMultipleBlocks(fi)...)
 
@@ -89,6 +90,9 @@ func hintsForFile(fi *FileIndex) []Hint {
 
 	// Rule 4: Block in wrong directory → suggest moving
 	hints = append(hints, checkWrongDirectory(fi)...)
+
+	// Rule 5: Service block not in config.mycel → suggest moving
+	hints = append(hints, checkServiceLocation(fi)...)
 
 	return hints
 }
@@ -148,13 +152,7 @@ func checkFileNameMismatch(fi *FileIndex) []Hint {
 
 	expectedName := toBaseName(b.Name)
 
-	// Allow plural forms as directory-style names (e.g., connectors.mycel for a single connector is fine)
 	if nameWithoutExt == expectedName {
-		return nil
-	}
-
-	// Don't flag generic names that are common conventions
-	if isGenericFileName(nameWithoutExt, b.Type) {
 		return nil
 	}
 
@@ -245,6 +243,84 @@ func checkWrongDirectory(fi *FileIndex) []Hint {
 	return hints
 }
 
+// checkNoDirectoryStructure detects projects where multiple block types
+// all live in the root directory without subdirectory organization.
+// Suggests creating connectors/, flows/, types/, etc.
+func checkNoDirectoryStructure(idx *ProjectIndex) []Hint {
+	// Collect unique block types and the directories they appear in
+	typesInRoot := make(map[string]bool)
+	hasSubdirs := false
+
+	for _, fi := range idx.Files {
+		dir := filepath.Dir(fi.Path)
+		parentDir := filepath.Base(dir)
+
+		// Check if any file is in a typed subdirectory
+		knownDirs := map[string]bool{
+			"connectors": true, "flows": true, "types": true,
+			"transforms": true, "aspects": true, "validators": true, "sagas": true,
+		}
+		if knownDirs[parentDir] {
+			hasSubdirs = true
+		}
+
+		// Check if we have non-service blocks in the root-level directory
+		for _, b := range fi.Blocks {
+			// If the file's parent is not a known subdir, it's "root-level"
+			if !knownDirs[parentDir] && b.Type != "service" {
+				typesInRoot[b.Type] = true
+			}
+		}
+	}
+
+	// Only hint if there's no directory structure AND multiple types in root
+	if hasSubdirs || len(typesInRoot) < 2 {
+		return nil
+	}
+
+	dirs := make([]string, 0)
+	for t := range typesInRoot {
+		d := typeToDir(t)
+		if d != "" {
+			dirs = append(dirs, d+"/")
+		}
+	}
+
+	if len(dirs) == 0 {
+		return nil
+	}
+
+	return []Hint{{
+		Kind:    HintNoDirectoryStructure,
+		Message: fmt.Sprintf("Project has no directory structure — consider organizing into %s", strings.Join(dirs, ", ")),
+	}}
+}
+
+// checkServiceLocation flags service blocks that are not in config.mycel.
+// The service block should live in config.mycel at the project root.
+func checkServiceLocation(fi *FileIndex) []Hint {
+	baseName := filepath.Base(fi.Path)
+
+	var hints []Hint
+	for _, b := range fi.Blocks {
+		if b.Type == "service" && baseName != "config.mycel" {
+			dir := filepath.Dir(fi.Path)
+			suggested := filepath.Join(dir, "config.mycel")
+
+			hints = append(hints, Hint{
+				Kind:          HintServiceNotInConfig,
+				Message:       fmt.Sprintf("service block should be in config.mycel, not %s", baseName),
+				File:          fi.Path,
+				Range:         b.Range,
+				SuggestedFile: suggested,
+				BlockType:     "service",
+			})
+		}
+	}
+
+	return hints
+}
+
 // toFileName converts a block name to a file name.
 // "save_customer" → "save_customer.mycel"
 // "my-api" → "my-api.mycel"
@@ -257,33 +333,6 @@ func toBaseName(name string) string {
 	// Replace spaces and special chars with underscores
 	name = strings.ReplaceAll(name, " ", "_")
 	return strings.ToLower(name)
-}
-
-// isGenericFileName returns true if the filename is a common generic name for the block type.
-// These are acceptable and shouldn't trigger a rename hint.
-func isGenericFileName(name, blockType string) bool {
-	// Singular and plural forms of the block type
-	generics := map[string][]string{
-		"connector": {"connector", "connectors", "conn", "database", "api", "mq", "rest"},
-		"flow":      {"flow", "flows"},
-		"type":      {"type", "types", "schema", "schemas"},
-		"transform": {"transform", "transforms"},
-		"aspect":    {"aspect", "aspects"},
-		"validator": {"validator", "validators"},
-		"saga":      {"saga", "sagas"},
-		"cache":     {"cache", "caches"},
-		"service":   {"service", "config"},
-	}
-
-	if allowed, ok := generics[blockType]; ok {
-		for _, g := range allowed {
-			if name == g {
-				return true
-			}
-		}
-	}
-
-	return false
 }
 
 // typeToDir maps a block type to its conventional directory name.
