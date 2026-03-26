@@ -82,6 +82,7 @@ func (c *StudioBreakpointController) Pause(stage trace.Stage, name string, data 
 }
 
 // evaluateConditions checks if any conditional breakpoints match.
+// Returns true if execution should pause (condition met or unconditional).
 func (c *StudioBreakpointController) evaluateConditions(stage trace.Stage, activation map[string]interface{}) bool {
 	specs := c.session.GetBreakpoints(c.thread.FlowName)
 	for _, spec := range specs {
@@ -93,13 +94,31 @@ func (c *StudioBreakpointController) evaluateConditions(stage trace.Stage, activ
 			continue
 		}
 		if spec.Condition == "" {
-			return true // unconditional breakpoint
+			return true // unconditional breakpoint — always pause
 		}
-		// Evaluate condition — if it fails, skip this breakpoint
-		// We need a transformer to evaluate; if not available, treat as unconditional
-		return true
+		// Evaluate the CEL condition against current data
+		result, err := evaluateCELCondition(spec.Condition, activation)
+		if err != nil {
+			// On error, pause anyway (safer than silently skipping)
+			return true
+		}
+		if result {
+			return true // condition met — pause
+		}
+		// Condition not met — don't pause for this breakpoint
+		return false
 	}
 	return true
+}
+
+// evaluateCELCondition evaluates a CEL expression against the given data.
+// Returns true if the condition is met.
+func evaluateCELCondition(condition string, data map[string]interface{}) (bool, error) {
+	transformer, err := transform.NewCELTransformer()
+	if err != nil {
+		return false, err
+	}
+	return transformer.EvaluateCondition(context.Background(), data, condition)
 }
 
 // buildActivation creates a CEL activation from pipeline stage data.

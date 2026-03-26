@@ -541,18 +541,25 @@ Line 23: write: query                                             (stage: write,
 
 1. **Gutter dots**: Show a faded breakpoint circle on lines returned by `AllBreakpoints()[file]`
 2. **Click to toggle**: When user clicks a gutter dot, toggle a breakpoint for that `{flow, stage, ruleIndex}`
-3. **Send to debug server**: When debugging, map the toggled breakpoints to `debug.setBreakpoints` calls using the `Flow`, `Stage`, and `RuleIndex` fields:
+3. **Right-click → Conditional breakpoint**: User enters a CEL expression. The breakpoint only pauses when the condition is true.
+4. **Send to debug server**: When debugging, map the toggled breakpoints to `debug.setBreakpoints` calls using the `Flow`, `Stage`, and `RuleIndex` fields:
 
 ```go
-// When user toggles a breakpoint on line 15 of flows.mycel:
+// Regular breakpoint on line 15:
 bp := breakpointLocations[15] // {Flow: "upsert_sales_conultant", Stage: "transform", RuleIndex: 0}
-
-// Send to debug server via WebSocket:
 debug.setBreakpoints({
     flow: bp.Flow,
     breakpoints: [{stage: bp.Stage, ruleIndex: bp.RuleIndex}]
 })
+
+// Conditional breakpoint — only pauses when input.region == "us-east":
+debug.setBreakpoints({
+    flow: bp.Flow,
+    breakpoints: [{stage: bp.Stage, ruleIndex: bp.RuleIndex, condition: "input.region == 'us-east'"}]
+})
 ```
+
+**Conditional breakpoints** use CEL expressions evaluated against the pipeline data at that stage. Available variables depend on the stage: `input` is always available, `output` in response stages, `step.<name>` after steps. If the condition errors, the breakpoint pauses anyway (fail-safe). If the condition is false, execution continues without pausing.
 
 **Coverage:** The engine returns breakpoint locations for all stages that exist in a flow. Each breakpoint points to the most meaningful line (the logic, not the block opening):
 
