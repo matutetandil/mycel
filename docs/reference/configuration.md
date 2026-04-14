@@ -828,11 +828,29 @@ semaphore {
 
 ```hcl
 coordinate {
-  storage = "connector.redis"    # Required
-  key     = "input.batch_id"     # Required
-  signal  = "batch_ready"        # Emit signal (producer)
-  wait    = "batch_ready"        # Wait for signal (consumer)
-  timeout = "60s"
+  storage              = "connector.redis"    # Required
+  timeout              = "60s"                # Default: 60s
+  on_timeout           = "fail"               # "fail", "retry", "skip", "pass"
+  max_retries          = 3                    # When on_timeout = "retry"
+  max_concurrent_waits = 10                   # 0 = unlimited
+
+  wait {
+    when = "size(step.check_parent) == 0"     # CEL: wait only if true
+    for  = "'parent_ready:' + input.parent_sku"  # Signal key to wait for
+  }
+
+  signal {
+    when = "true"                             # CEL: signal only if true
+    emit = "'parent_ready:' + input.sku"      # Signal key to emit
+    ttl  = "24h"                              # Optional: signal expiry
+  }
+
+  preflight {                                 # Optional: check before waiting
+    connector = "db"
+    query     = "SELECT id FROM products WHERE sku = ?"
+    params    = { sku = "input.parent_sku" }
+    if_exists = "pass"                        # "pass" = skip wait, "fail" = error
+  }
 }
 ```
 

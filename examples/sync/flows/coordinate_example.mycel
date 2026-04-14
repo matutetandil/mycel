@@ -1,5 +1,10 @@
 # Coordinate Example - Parent/Child Entity Processing
-# Ensures child entities wait for their parent to be processed first
+# Ensures child entities wait for their parent to be processed first.
+#
+# Uses signal/wait sub-blocks with CEL conditions:
+# - Parent entities emit a signal after being created
+# - Child entities wait for the parent signal before proceeding
+# - The `when` condition enables fast-path: skip waiting if not needed
 
 flow "process_entity" {
   from {
@@ -13,6 +18,19 @@ flow "process_entity" {
     on_timeout           = "retry"
     max_retries          = 3
     max_concurrent_waits = 10
+
+    # Child entities wait for their parent to be processed
+    wait {
+      when = "input.headers.type == 'child'"
+      for  = "'entity:' + input.headers.parent_id + ':ready'"
+    }
+
+    # Parent entities signal readiness after processing
+    signal {
+      when = "input.headers.type == 'parent'"
+      emit = "'entity:' + input.body.id + ':ready'"
+      ttl  = "5m"
+    }
   }
 
   transform {

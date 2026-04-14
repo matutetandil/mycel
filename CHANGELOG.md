@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **IDE unknown attribute false positives**: `validateBlocks()` now receives the schema registry and uses `connectorTypeAttrsWithRegistry()` to resolve connector-specific attributes. Previously it only used the static fallback, which lacked entries for most connector types (http, file, s3, tcp, exec, soap, etc.), causing valid attributes like `base_url`, `timeout`, `retry_count` to be flagged as unknown
+- **Coordinate documentation**: Fixed `synchronization.md`, `configuration.md`, `flows.md`, and `coordinate_example.mycel` to reflect the actual sub-block syntax (`wait {}`, `signal {}`, `preflight {}` with `when`/`for`/`emit` attributes). Documentation previously showed a flat attribute syntax (`signal = "name"`, `key = "..."`) that does not match the parser
 
 ## [1.18.9] - 2026-04-14
 

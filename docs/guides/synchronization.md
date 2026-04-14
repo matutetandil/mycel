@@ -140,65 +140,139 @@ flow "geocode_address" {
 
 ## Coordinate (Signal/Wait)
 
-Coordinate synchronizes dependent flows. One flow signals completion, another waits for that signal before proceeding.
+Coordinate synchronizes dependent flows. One flow signals completion, another waits for that signal before proceeding. Uses CEL expressions for conditional logic — both signal emission and wait behavior are controlled by `when` conditions evaluated at runtime.
 
 ```hcl
-# Producer: signals when data is ready
-flow "produce_batch" {
+# Producer: signals when a parent entity is ready
+flow "create_style" {
   from {
-    connector = "api"
-    operation = "POST /batches"
+    connector = "rabbit"
+    operation = "entities"
   }
+
   to {
     connector = "db"
-    target    = "batches"
+    target    = "styles"
   }
 
   coordinate {
     storage = "connector.redis"
-    signal  = "batch_ready"
-    key     = "input.batch_id"
+
+    signal {
+      when = "true"
+      emit = "'parent_ready:' + input.sku"
+      ttl  = "24h"
+    }
   }
 }
 
-# Consumer: waits for signal
-flow "process_batch" {
+# Consumer: waits for signal before proceeding
+flow "create_item" {
   from {
-    connector = "api"
-    operation = "POST /batches/:id/process"
+    connector = "rabbit"
+    operation = "entities"
+  }
+
+  # Check if parent already exists in DB
+  step "check_parent" {
+    connector = "db"
+    query     = "SELECT entity_id FROM products WHERE sku = ?"
+    params    = [input.parent_sku]
+    on_error  = "default"
+    default   = []
   }
 
   coordinate {
-    storage = "connector.redis"
-    wait    = "batch_ready"
-    key     = "input.params.id"
-    timeout = "60s"
-  }
+    storage    = "connector.redis"
+    timeout    = "5m"
+    on_timeout = "fail"
 
-  step "batch" {
-    connector = "db"
-    query     = "SELECT * FROM batches WHERE id = ?"
-    params    = [input.params.id]
+    # Only wait if parent doesn't exist yet (fast-path skip)
+    wait {
+      when = "size(step.check_parent) == 0"
+      for  = "'parent_ready:' + input.parent_sku"
+    }
   }
 
   to {
     connector = "db"
-    target    = "results"
+    target    = "items"
   }
 }
 ```
 
 ### Coordinate Attributes
 
+| Attribute | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `storage` | string | yes | — | Cache connector name |
+| `timeout` | duration | no | `"60s"` | Maximum time to wait for a signal |
+| `on_timeout` | string | no | `"fail"` | Behavior on timeout: `"fail"`, `"retry"`, `"skip"`, `"pass"` |
+| `max_retries` | int | no | `3` | Max retries when `on_timeout` is `"retry"` |
+| `max_concurrent_waits` | int | no | `0` (unlimited) | Limit simultaneous waiting processes |
+
+### wait sub-block
+
+Defines when and what to wait for. The `when` condition is evaluated per message — if false, the wait is skipped entirely (fast-path).
+
 | Attribute | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `storage` | string | yes | Cache connector name |
-| `key` | string | yes | CEL expression scoping the coordination |
-| `signal` | string | — | Name of the signal to emit (use in producer flow) |
-| `wait` | string | — | Name of the signal to wait for (use in consumer flow) |
-| `timeout` | string | — | Maximum wait time (only on wait side) |
+| `when` | string | yes | CEL expression — wait only if this evaluates to `true` |
+| `for` | string | yes | CEL expression for the signal key to wait for |
 
-A `coordinate` block must have either `signal` or `wait`, not both.
+### signal sub-block
+
+Defines when and what to signal. Emitted after the flow completes successfully.
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `when` | string | yes | CEL expression — signal only if this evaluates to `true` |
+| `emit` | string | yes | CEL expression for the signal key to emit |
+| `ttl` | duration | no | How long the signal remains valid |
+
+### preflight sub-block
+
+Defines a database check to run before waiting. If the check finds results, waiting is skipped. This is an alternative to using a `step` + `when` condition on the `wait` block.
+
+| Attribute | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `connector` | string | yes | Connector for the check query |
+| `query` | string | yes | SQL query or operation to execute |
+| `params` | map | no | Parameter map (CEL expressions) |
+| `if_exists` | string | no | `"pass"` (skip waiting) or `"fail"` (return error) |
+
+### Coordinate with Preflight
+
+Instead of using a separate `step` + conditional `wait`, you can use `preflight` for a self-contained check:
+
+```hcl
+coordinate {
+  storage    = "connector.redis"
+  timeout    = "5m"
+  on_timeout = "fail"
+
+  # Skip waiting if parent already exists in DB
+  preflight {
+    connector = "db"
+    query     = "SELECT entity_id FROM products WHERE sku = ?"
+    params    = { sku = "input.parent_sku" }
+    if_exists = "pass"
+  }
+
+  wait {
+    when = "true"
+    for  = "'parent_ready:' + input.parent_sku"
+  }
+
+  signal {
+    when = "true"
+    emit = "'parent_ready:' + input.sku"
+    ttl  = "24h"
+  }
+}
+```
+
+A `coordinate` block can have `wait`, `signal`, or both (for flows that both produce and consume entities).
 
 ## Combining Synchronization
 

@@ -759,7 +759,7 @@ flow "call_external_api" {
 ### Coordinate (signal/wait)
 
 ```hcl
-# Flow A signals
+# Flow A signals when data is ready
 flow "produce_data" {
   from {
     connector = "api"
@@ -772,12 +772,16 @@ flow "produce_data" {
 
   coordinate {
     storage = "connector.redis"
-    signal  = "data_ready"
-    key     = "input.batch_id"
+
+    signal {
+      when = "true"
+      emit = "'data_ready:' + input.batch_id"
+      ttl  = "1h"
+    }
   }
 }
 
-# Flow B waits
+# Flow B waits for the signal before proceeding
 flow "consume_data" {
   from {
     connector = "api"
@@ -785,10 +789,14 @@ flow "consume_data" {
   }
 
   coordinate {
-    storage = "connector.redis"
-    wait    = "data_ready"
-    key     = "input.batch_id"
-    timeout = "60s"
+    storage    = "connector.redis"
+    timeout    = "60s"
+    on_timeout = "fail"
+
+    wait {
+      when = "true"
+      for  = "'data_ready:' + input.batch_id"
+    }
   }
 
   to {
