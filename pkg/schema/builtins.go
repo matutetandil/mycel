@@ -71,7 +71,7 @@ func FromSchema() Block {
 			{Name: "operation", Doc: "Source operation (e.g., GET /users, queue name)", Type: TypeString},
 			{Name: "filter", Doc: "CEL expression to filter incoming messages", Type: TypeString},
 			{Name: "on_reject", Doc: "What to do with filtered messages", Type: TypeString, Values: []string{"ack", "reject", "requeue"}},
-			{Name: "format", Doc: "Input format", Type: TypeString, Values: []string{"json", "xml", "csv"}},
+			{Name: "format", Doc: "Input format", Type: TypeString, Values: []string{"json", "xml", "csv", "tsv"}},
 		},
 		Children: []Block{
 			FilterBlockSchema(),
@@ -104,7 +104,7 @@ func ToSchema() Block {
 			{Name: "when", Doc: "CEL condition for conditional write", Type: TypeString},
 			{Name: "parallel", Doc: "Write in parallel with other destinations", Type: TypeBool},
 			{Name: "query", Doc: "SQL query for database writes", Type: TypeString},
-			{Name: "format", Doc: "Output format", Type: TypeString, Values: []string{"json", "xml"}},
+			{Name: "format", Doc: "Output format", Type: TypeString, Values: []string{"json", "xml", "csv", "tsv"}},
 			{Name: "filter", Doc: "Per-user filter (WebSocket, SSE, subscriptions)", Type: TypeString},
 		},
 	}
@@ -549,9 +549,9 @@ func EnvironmentSchema() Block {
 // connectorTypes returns all known connector type values.
 func connectorTypes() []string {
 	return []string{
-		"rest", "database", "mq", "graphql", "grpc", "file", "s3",
+		"rest", "http", "database", "mq", "graphql", "grpc", "file", "s3",
 		"cache", "tcp", "exec", "soap", "mqtt", "ftp", "cdc",
-		"websocket", "sse", "elasticsearch", "oauth",
+		"websocket", "sse", "elasticsearch", "oauth", "profiled",
 		"email", "slack", "discord", "sms", "push", "webhook", "pdf",
 	}
 }

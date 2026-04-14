@@ -27,7 +27,7 @@ A flow needs only `from` and `to`. Everything else is optional.
 from {
   connector = "api"           # Required: connector name
   operation = "GET /users"    # Required: event type or endpoint
-  format    = "json"          # Optional: expected input format ("json", "xml", "csv")
+  format    = "json"          # Optional: expected input format ("json", "xml", "csv", "tsv")
 }
 ```
 

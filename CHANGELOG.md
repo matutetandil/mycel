@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.9] - 2026-04-14
+
+### Fixed
+- **Missing connector types in schema**: Added `http` and `profiled` to `connectorTypes()` in `pkg/schema/builtins.go` — IDE was flagging these valid types as unknown
+- **Missing format values in schema**: Added `tsv` to `from` block format values and `csv`/`tsv` to `to` block format values — IDE was rejecting valid format options supported by file/s3/ftp connectors
+- **Version string**: Updated hardcoded version in CLI from `1.15.12` to `1.18.9`
+
 ## [1.18.0] - 2026-03-23
 
 ### BREAKING CHANGES

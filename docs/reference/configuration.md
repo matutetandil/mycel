@@ -599,7 +599,7 @@ flow "NAME" {
 from {
   connector = "api"           # Required
   operation = "GET /users"    # Required
-  format    = "json"          # "json", "xml", "csv"
+  format    = "json"          # "json", "xml", "csv", "tsv"
 
   # Simple filter (string)
   filter = "input.status == 'active'"
@@ -621,7 +621,7 @@ to {
   connector    = "db"
   target       = "users"
   operation    = "INSERT"       # Override operation type
-  format       = "json"         # "json", "xml"
+  format       = "json"         # "json", "xml", "csv", "tsv"
   filter       = "input.user_id == context.params.userId"  # For subscriptions/WS/SSE
   query        = "SELECT * FROM users WHERE id = :id"      # Custom SQL
   query_filter = { status = "active" }                     # MongoDB filter
