@@ -14,7 +14,7 @@ func diagnoseFile(fi *FileIndex, reg *schema.Registry) []*Diagnostic {
 	diags = append(diags, fi.ParseDiags...)
 
 	// Layer 2: Schema validation
-	diags = append(diags, validateBlocks(fi.Path, fi.Blocks, rootSchema())...)
+	diags = append(diags, validateBlocks(fi.Path, fi.Blocks, rootSchema(), reg)...)
 
 	// Layer 2.5: Connector-type-specific validation + operation validation
 	for _, b := range fi.Blocks {
@@ -68,7 +68,7 @@ func diagnoseCrossRefs(idx *ProjectIndex) []*Diagnostic {
 }
 
 // validateBlocks checks blocks against their schema.
-func validateBlocks(path string, blocks []*Block, schemas []BlockSchema) []*Diagnostic {
+func validateBlocks(path string, blocks []*Block, schemas []BlockSchema, reg *schema.Registry) []*Diagnostic {
 	var diags []*Diagnostic
 
 	validTypes := make(map[string]bool)
@@ -123,7 +123,8 @@ func validateBlocks(path string, blocks []*Block, schemas []BlockSchema) []*Diag
 		}
 		if b.Type == "connector" {
 			connType := b.GetAttr("type")
-			for _, ta := range connectorTypeAttrs(connType) {
+			driver := b.GetAttr("driver")
+			for _, ta := range connectorTypeAttrsWithRegistry(reg, connType, driver) {
 				ta := ta
 				knownAttrs[ta.Name] = &ta
 			}
@@ -172,7 +173,7 @@ func validateBlocks(path string, blocks []*Block, schemas []BlockSchema) []*Diag
 
 		// Validate children recursively
 		if len(b.Children) > 0 && len(schema.Children) > 0 {
-			diags = append(diags, validateBlocks(path, b.Children, schema.Children)...)
+			diags = append(diags, validateBlocks(path, b.Children, schema.Children, reg)...)
 		}
 	}
 

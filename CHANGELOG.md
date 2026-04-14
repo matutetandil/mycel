@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.10] - 2026-04-14
+
+### Fixed
+- **IDE unknown attribute false positives**: `validateBlocks()` now receives the schema registry and uses `connectorTypeAttrsWithRegistry()` to resolve connector-specific attributes. Previously it only used the static fallback, which lacked entries for most connector types (http, file, s3, tcp, exec, soap, etc.), causing valid attributes like `base_url`, `timeout`, `retry_count` to be flagged as unknown
+
 ## [1.18.9] - 2026-04-14
 
 ### Fixed

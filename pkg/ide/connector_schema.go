@@ -28,9 +28,13 @@ func connectorTypeChildrenFromRegistry(reg *schema.Registry, connType, driver st
 	return p.ConnectorSchema().Children
 }
 
-// connectorTypeAttrs returns additional attributes for a specific connector type.
+// connectorTypeAttrsWithRegistry returns additional attributes for a specific connector type.
 // Uses the registry if available, otherwise falls back to static defaults.
-func connectorTypeAttrs(connType string) []AttrSchema {
+func connectorTypeAttrsWithRegistry(reg *schema.Registry, connType, driver string) []AttrSchema {
+	attrs := connectorTypeAttrsFromRegistry(reg, connType, driver)
+	if attrs != nil {
+		return attrs
+	}
 	return connectorTypeAttrsStatic(connType)
 }
 
