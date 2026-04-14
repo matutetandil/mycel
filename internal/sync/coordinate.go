@@ -44,9 +44,6 @@ type Coordinator interface {
 
 // CoordinateConfig holds configuration for coordinate block in a flow.
 type CoordinateConfig struct {
-	// Storage is the name of the connector to use for coordination.
-	Storage string `json:"storage"`
-
 	// Wait configuration (who waits)
 	Wait *WaitConfig `json:"wait,omitempty"`
 

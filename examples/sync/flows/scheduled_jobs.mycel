@@ -11,7 +11,10 @@ flow "daily_cleanup" {
 
   # Prevent concurrent runs with a lock
   lock {
-    storage = "redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'job:daily_cleanup'"
     timeout = "1h"
     wait    = false
@@ -44,7 +47,10 @@ flow "aggregate_stats" {
   }
 
   lock {
-    storage = "redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'job:hourly_stats'"
     timeout = "30m"
     wait    = false

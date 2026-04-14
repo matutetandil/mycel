@@ -39,6 +39,10 @@ connector "redis_cache" {
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `url` | string | — | Redis connection URL (`redis://host:port`) |
+| `host` | string | `"localhost"` | Redis host (alternative to `url`) |
+| `port` | int | `6379` | Redis port (used with `host`) |
+| `password` | string | — | Redis password |
+| `db` | int | `0` | Redis database number |
 | `prefix` | string | — | Prefix for all keys |
 | `default_ttl` | duration | — | Default time-to-live for entries |
 | `pool.max_connections` | int | `100` | Max pool size |

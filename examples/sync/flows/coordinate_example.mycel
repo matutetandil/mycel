@@ -13,7 +13,10 @@ flow "process_entity" {
   }
 
   coordinate {
-    storage              = "redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     timeout              = "60s"
     on_timeout           = "retry"
     max_retries          = 3

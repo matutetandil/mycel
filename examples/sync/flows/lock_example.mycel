@@ -10,7 +10,10 @@ flow "process_payment" {
   # Distributed lock by user_id
   # Only one payment per user can be processed at a time
   lock {
-    storage = "redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'user:' + input.body.user_id"
     timeout = "30s"
     wait    = true
@@ -38,7 +41,10 @@ flow "process_payment_rest" {
   }
 
   lock {
-    storage = "redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'user:' + string(input.data.user_id)"
     timeout = "30s"
     wait    = true

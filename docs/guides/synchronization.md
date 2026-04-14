@@ -1,6 +1,6 @@
 # Synchronization
 
-Mycel provides three distributed synchronization primitives for coordinating concurrent flow executions. All require a Redis (or compatible) cache connector as the backend.
+Mycel provides three distributed synchronization primitives for coordinating concurrent flow executions. Each primitive owns its own storage configuration via an inline `storage {}` block — no separate cache connector is needed.
 
 ## When to Use Synchronization
 
@@ -20,7 +20,10 @@ flow "process_payment" {
   }
 
   lock {
-    storage = "connector.redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'account:' + input.account_id"
     timeout = "30s"
     wait    = true
@@ -38,7 +41,7 @@ flow "process_payment" {
 
 | Attribute | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `storage` | string | yes | — | Cache connector name |
+| `storage` | block | yes | — | Inline storage config (`driver`, `url` or `host`/`port`) |
 | `key` | string | yes | — | CEL expression for the lock key (scopes the lock to a resource) |
 | `timeout` | string | no | `"30s"` | Maximum time to hold the lock |
 | `wait` | bool | no | `true` | Block until the lock is available |
@@ -56,7 +59,10 @@ flow "reserve_inventory" {
   }
 
   lock {
-    storage = "connector.redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'inventory:' + input.product_id"
     timeout = "10s"
   }
@@ -93,7 +99,10 @@ flow "call_ai_api" {
   }
 
   semaphore {
-    storage = "connector.redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'ai_api_quota'"
     limit   = 5        # Max 5 concurrent calls
     timeout = "10s"    # Wait up to 10s for a slot
@@ -110,7 +119,7 @@ flow "call_ai_api" {
 
 | Attribute | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `storage` | string | yes | — | Cache connector name |
+| `storage` | block | yes | — | Inline storage config (`driver`, `url` or `host`/`port`) |
 | `key` | string | yes | — | Semaphore name |
 | `limit` | int | yes | — | Maximum concurrent flows allowed |
 | `timeout` | string | no | `"30s"` | Maximum wait time for a slot |
@@ -125,7 +134,10 @@ flow "geocode_address" {
   }
 
   semaphore {
-    storage = "connector.redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'google_maps_quota'"
     limit   = 20        # Google Maps allows 50 QPS, leave buffer
     timeout = "5s"
@@ -156,7 +168,10 @@ flow "create_style" {
   }
 
   coordinate {
-    storage = "connector.redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
 
     signal {
       when = "true"
@@ -183,7 +198,10 @@ flow "create_item" {
   }
 
   coordinate {
-    storage    = "connector.redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     timeout    = "5m"
     on_timeout = "fail"
 
@@ -205,7 +223,7 @@ flow "create_item" {
 
 | Attribute | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `storage` | string | yes | — | Cache connector name |
+| `storage` | block | yes | — | Inline storage config (`driver`, `url` or `host`/`port`) |
 | `timeout` | duration | no | `"60s"` | Maximum time to wait for a signal |
 | `on_timeout` | string | no | `"fail"` | Behavior on timeout: `"fail"`, `"retry"`, `"skip"`, `"pass"` |
 | `max_retries` | int | no | `3` | Max retries when `on_timeout` is `"retry"` |
@@ -247,7 +265,10 @@ Instead of using a separate `step` + conditional `wait`, you can use `preflight`
 
 ```hcl
 coordinate {
-  storage    = "connector.redis"
+  storage {
+    driver = "redis"
+    url    = env("REDIS_URL", "redis://localhost:6379")
+  }
   timeout    = "5m"
   on_timeout = "fail"
 
@@ -295,14 +316,20 @@ flow "critical_payment" {
 
   # Then lock the account
   lock {
-    storage = "connector.redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'account:' + input.account_id"
     timeout = "30s"
   }
 
   # Limit concurrent external payment API calls
   semaphore {
-    storage = "connector.redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'payment_gateway'"
     limit   = 10
     timeout = "10s"
@@ -317,17 +344,36 @@ flow "critical_payment" {
 
 ## Setup Requirements
 
-All synchronization primitives require a Redis connector:
+Each synchronization primitive owns its own storage via an inline `storage {}` block. No separate cache connector is needed — the sync block connects to Redis directly.
+
+### Using a URL
 
 ```hcl
-connector "redis" {
-  type    = "cache"
-  driver  = "redis"
-  address = env("REDIS_ADDRESS")
+lock {
+  storage {
+    driver = "redis"
+    url    = env("REDIS_URL", "redis://localhost:6379")
+  }
+  key = "'my_lock'"
 }
 ```
 
-Reference it in synchronization blocks as `connector.redis` or just `"redis"`.
+### Using host / port
+
+```hcl
+lock {
+  storage {
+    driver   = "redis"
+    host     = env("REDIS_HOST", "localhost")
+    port     = 6379
+    password = env("REDIS_PASSWORD", "")
+    db       = 0
+  }
+  key = "'my_lock'"
+}
+```
+
+Both forms work for `lock`, `semaphore`, and `coordinate`. Use whichever matches your environment.
 
 ## See Also
 

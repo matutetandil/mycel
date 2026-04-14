@@ -11,7 +11,7 @@ First, define a cache connector:
 connector "redis_cache" {
   type    = "cache"
   driver  = "redis"
-  address = env("REDIS_ADDRESS")
+  url     = env("REDIS_URL", "redis://localhost:6379")
   prefix  = "myapp:"
 }
 
@@ -238,7 +238,7 @@ dedupe {
 connector "redis_cache" {
   type    = "cache"
   driver  = "redis"
-  address = env("REDIS_ADDRESS")
+  url     = env("REDIS_URL", "redis://localhost:6379")
   prefix  = "catalog:"
 }
 

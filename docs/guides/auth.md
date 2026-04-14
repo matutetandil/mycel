@@ -265,7 +265,7 @@ storage {
 # Redis (recommended for production)
 storage {
   driver   = "redis"
-  address  = env("REDIS_URL", "localhost:6379")
+  url      = env("REDIS_URL", "redis://localhost:6379")
   password = env("REDIS_PASSWORD", "")
   db       = 0
 }

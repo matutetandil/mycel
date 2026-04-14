@@ -61,6 +61,8 @@ func (f *Factory) parseConfig(cfg *connector.Config) *types.Config {
 	// Get URL (for Redis standalone)
 	if url, ok := cfg.Properties["url"].(string); ok {
 		config.URL = url
+	} else if config.Driver == "redis" {
+		config.URL = buildRedisURL(cfg.Properties)
 	}
 
 	// Get prefix
@@ -226,7 +228,7 @@ func (f *Factory) createRedis(name string, config *types.Config) (connector.Conn
 	switch mode {
 	case "standalone":
 		if config.URL == "" {
-			return nil, fmt.Errorf("redis standalone mode requires 'url' configuration")
+			return nil, fmt.Errorf("redis standalone mode requires 'url' or 'host' configuration")
 		}
 	case "cluster":
 		if config.Cluster == nil || len(config.Cluster.Nodes) == 0 {
@@ -257,6 +259,31 @@ func (f *Factory) createMemory(name string, config *types.Config) (connector.Con
 	}
 
 	return memory.New(name, config), nil
+}
+
+// buildRedisURL constructs a Redis URL from individual host/port/password/db params.
+func buildRedisURL(props map[string]interface{}) string {
+	host, _ := props["host"].(string)
+	if host == "" {
+		return ""
+	}
+	port := "6379"
+	if p, ok := props["port"].(int); ok {
+		port = fmt.Sprintf("%d", p)
+	} else if p, ok := props["port"].(string); ok && p != "" {
+		port = p
+	}
+	password, _ := props["password"].(string)
+	db := "0"
+	if d, ok := props["db"].(int); ok {
+		db = fmt.Sprintf("%d", d)
+	} else if d, ok := props["db"].(string); ok && d != "" {
+		db = d
+	}
+	if password != "" {
+		return fmt.Sprintf("redis://:%s@%s:%s/%s", password, host, port, db)
+	}
+	return fmt.Sprintf("redis://%s:%s/%s", host, port, db)
 }
 
 // GetCache retrieves a Cache interface from a connector.

@@ -309,7 +309,7 @@ connector "kafka" {
 connector "redis_events" {
   type     = "queue"
   driver   = "redis"
-  address  = env("REDIS_ADDRESS")   # "host:port"
+  url      = env("REDIS_URL", "redis://localhost:6379")
   password = env("REDIS_PASSWORD")
   db       = 0
   channels = ["orders", "payments"]  # Subscribe to channels
@@ -397,8 +397,7 @@ connector "tcp_client" {
 connector "redis_cache" {
   type        = "cache"
   driver      = "redis"
-  address     = env("REDIS_ADDRESS")  # "host:port"
-  url         = env("REDIS_URL")      # Alternative: Redis URL
+  url         = env("REDIS_URL", "redis://localhost:6379")
   password    = env("REDIS_PASSWORD")
   db          = 0
   prefix      = "myapp:"
@@ -805,7 +804,10 @@ error_handling {
 
 ```hcl
 lock {
-  storage = "connector.redis"    # Required
+  storage {
+    driver = "redis"
+    url    = env("REDIS_URL", "redis://localhost:6379")
+  }
   key     = "'account:' + input.account_id"  # Required
   timeout = "30s"
   wait    = true
@@ -817,7 +819,10 @@ lock {
 
 ```hcl
 semaphore {
-  storage = "connector.redis"    # Required
+  storage {
+    driver = "redis"
+    url    = env("REDIS_URL", "redis://localhost:6379")
+  }
   key     = "'api_quota'"        # Required
   limit   = 10                   # Required
   timeout = "5s"
@@ -828,7 +833,10 @@ semaphore {
 
 ```hcl
 coordinate {
-  storage              = "connector.redis"    # Required
+  storage {
+    driver = "redis"
+    url    = env("REDIS_URL", "redis://localhost:6379")
+  }
   timeout              = "60s"                # Default: 60s
   on_timeout           = "fail"               # "fail", "retry", "skip", "pass"
   max_retries          = 3                    # When on_timeout = "retry"

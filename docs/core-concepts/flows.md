@@ -719,7 +719,10 @@ flow "process_payment" {
   }
 
   lock {
-    storage = "connector.redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'account:' + input.account_id"
     timeout = "30s"
     wait    = true
@@ -743,7 +746,10 @@ flow "call_external_api" {
   }
 
   semaphore {
-    storage = "connector.redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'api_quota'"
     limit   = 10        # Max 10 concurrent flows
     timeout = "5s"
@@ -771,7 +777,10 @@ flow "produce_data" {
   }
 
   coordinate {
-    storage = "connector.redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
 
     signal {
       when = "true"
@@ -789,7 +798,10 @@ flow "consume_data" {
   }
 
   coordinate {
-    storage    = "connector.redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     timeout    = "60s"
     on_timeout = "fail"
 

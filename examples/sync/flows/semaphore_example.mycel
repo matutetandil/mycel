@@ -9,7 +9,10 @@ flow "call_external_api" {
 
   # Allow max 10 concurrent requests to external API
   semaphore {
-    storage     = "redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key         = "'external_api'"
     max_permits = 10
     timeout     = "30s"
@@ -30,7 +33,10 @@ flow "call_external_api_rest" {
   }
 
   semaphore {
-    storage     = "redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key         = "'external_api'"
     max_permits = 10
     timeout     = "30s"

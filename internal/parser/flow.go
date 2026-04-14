@@ -1801,7 +1801,10 @@ func parseNamedCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.NamedCa
 // Supports format:
 //
 //	lock {
-//	  storage = "redis"
+//	  storage {
+//	    driver = "redis"
+//	    url    = "redis://localhost:6379"
+//	  }
 //	  key     = "'user:' + input.body.user_id"
 //	  timeout = "30s"
 //	  wait    = true
@@ -1810,11 +1813,13 @@ func parseNamedCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.NamedCa
 func parseLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "storage", Required: true},
 			{Name: "key", Required: true},
 			{Name: "timeout"},
 			{Name: "wait"},
 			{Name: "retry"},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "storage"},
 		},
 	}
 
@@ -1825,12 +1830,14 @@ func parseLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, e
 
 	lock := &flow.LockConfig{}
 
-	if attr, ok := content.Attributes["storage"]; ok {
-		val, diags := attr.Expr.Value(ctx)
-		if diags.HasErrors() {
-			return nil, fmt.Errorf("lock storage error: %s", diags.Error())
+	for _, nestedBlock := range content.Blocks {
+		if nestedBlock.Type == "storage" {
+			storage, err := parseSyncStorageBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("lock storage error: %w", err)
+			}
+			lock.Storage = storage
 		}
-		lock.Storage = parseConnectorReference(val.AsString())
 	}
 
 	if attr, ok := content.Attributes["key"]; ok {
@@ -1869,23 +1876,16 @@ func parseLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, e
 }
 
 // parseSemaphoreBlock parses a semaphore block in a flow.
-// Supports format:
-//
-//	semaphore {
-//	  storage     = "redis"
-//	  key         = "'external_api'"
-//	  max_permits = 10
-//	  timeout     = "30s"
-//	  lease       = "60s"
-//	}
 func parseSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SemaphoreConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "storage", Required: true},
 			{Name: "key", Required: true},
 			{Name: "max_permits", Required: true},
 			{Name: "timeout"},
 			{Name: "lease"},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "storage"},
 		},
 	}
 
@@ -1896,12 +1896,14 @@ func parseSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Semaphor
 
 	sem := &flow.SemaphoreConfig{}
 
-	if attr, ok := content.Attributes["storage"]; ok {
-		val, diags := attr.Expr.Value(ctx)
-		if diags.HasErrors() {
-			return nil, fmt.Errorf("semaphore storage error: %s", diags.Error())
+	for _, nestedBlock := range content.Blocks {
+		if nestedBlock.Type == "storage" {
+			storage, err := parseSyncStorageBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("semaphore storage error: %w", err)
+			}
+			sem.Storage = storage
 		}
-		sem.Storage = parseConnectorReference(val.AsString())
 	}
 
 	if attr, ok := content.Attributes["key"]; ok {
@@ -1945,7 +1947,10 @@ func parseSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Semaphor
 // Supports format:
 //
 //	coordinate {
-//	  storage              = "redis"
+//	  storage {
+//	    driver = "redis"
+//	    url    = "redis://localhost:6379"
+//	  }
 //	  timeout              = "60s"
 //	  on_timeout           = "fail"
 //	  max_retries          = 3
@@ -1972,13 +1977,13 @@ func parseSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Semaphor
 func parseCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CoordinateConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "storage", Required: true},
 			{Name: "timeout"},
 			{Name: "on_timeout"},
 			{Name: "max_retries"},
 			{Name: "max_concurrent_waits"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "storage"},
 			{Type: "wait"},
 			{Type: "signal"},
 			{Type: "preflight"},
@@ -1991,14 +1996,6 @@ func parseCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Coordin
 	}
 
 	coord := &flow.CoordinateConfig{}
-
-	if attr, ok := content.Attributes["storage"]; ok {
-		val, diags := attr.Expr.Value(ctx)
-		if diags.HasErrors() {
-			return nil, fmt.Errorf("coordinate storage error: %s", diags.Error())
-		}
-		coord.Storage = parseConnectorReference(val.AsString())
-	}
 
 	if attr, ok := content.Attributes["timeout"]; ok {
 		val, diags := attr.Expr.Value(ctx)
@@ -2038,6 +2035,13 @@ func parseCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Coordin
 
 	for _, nestedBlock := range content.Blocks {
 		switch nestedBlock.Type {
+		case "storage":
+			storage, err := parseSyncStorageBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("coordinate storage error: %w", err)
+			}
+			coord.Storage = storage
+
 		case "wait":
 			wait, err := parseWaitBlock(nestedBlock, ctx)
 			if err != nil {
@@ -2062,6 +2066,81 @@ func parseCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Coordin
 	}
 
 	return coord, nil
+}
+
+// parseSyncStorageBlock parses an inline storage block for sync primitives.
+func parseSyncStorageBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SyncStorageConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "driver", Required: true},
+			{Name: "url"},
+			{Name: "host"},
+			{Name: "port"},
+			{Name: "password"},
+			{Name: "db"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("storage block content error: %s", diags.Error())
+	}
+
+	cfg := &flow.SyncStorageConfig{}
+
+	if attr, ok := content.Attributes["driver"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("storage driver error: %s", diags.Error())
+		}
+		cfg.Driver = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["url"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("storage url error: %s", diags.Error())
+		}
+		cfg.URL = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["host"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("storage host error: %s", diags.Error())
+		}
+		cfg.Host = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["port"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("storage port error: %s", diags.Error())
+		}
+		bf := val.AsBigFloat()
+		i, _ := bf.Int64()
+		cfg.Port = int(i)
+	}
+
+	if attr, ok := content.Attributes["password"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("storage password error: %s", diags.Error())
+		}
+		cfg.Password = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["db"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("storage db error: %s", diags.Error())
+		}
+		bf := val.AsBigFloat()
+		i, _ := bf.Int64()
+		cfg.DB = int(i)
+	}
+
+	return cfg, nil
 }
 
 // parseWaitBlock parses a wait block inside coordinate.

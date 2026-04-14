@@ -1078,7 +1078,7 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 		if h.Config.Lock != nil {
 			lockKey := h.evaluateSyncKey(ctx, h.Config.Lock.Key, input)
 			lockCfg := &msync.FlowLockConfig{
-				Storage: h.Config.Lock.Storage,
+				Storage: mapSyncStorage(h.Config.Lock.Storage),
 				Key:     h.Config.Lock.Key,
 				Timeout: h.Config.Lock.Timeout,
 				Wait:    h.Config.Lock.Wait,
@@ -1091,7 +1091,7 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 		if h.Config.Semaphore != nil {
 			semKey := h.evaluateSyncKey(ctx, h.Config.Semaphore.Key, input)
 			semCfg := &msync.FlowSemaphoreConfig{
-				Storage:    h.Config.Semaphore.Storage,
+				Storage:    mapSyncStorage(h.Config.Semaphore.Storage),
 				Key:        h.Config.Semaphore.Key,
 				MaxPermits: h.Config.Semaphore.MaxPermits,
 				Timeout:    h.Config.Semaphore.Timeout,
@@ -1127,7 +1127,7 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 			}
 
 			coordCfg := &msync.FlowCoordinateConfig{
-				Storage:            h.Config.Coordinate.Storage,
+				Storage:            mapSyncStorage(h.Config.Coordinate.Storage),
 				Wait:               waitCfg,
 				Signal:             signalFlowCfg,
 				Timeout:            h.Config.Coordinate.Timeout,
@@ -1141,6 +1141,21 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 
 	// No sync primitives, execute directly
 	return executeCore()
+}
+
+// mapSyncStorage maps flow.SyncStorageConfig to sync.SyncStorageConfig.
+func mapSyncStorage(cfg *flow.SyncStorageConfig) *msync.SyncStorageConfig {
+	if cfg == nil {
+		return nil
+	}
+	return &msync.SyncStorageConfig{
+		Driver:   cfg.Driver,
+		URL:      cfg.URL,
+		Host:     cfg.Host,
+		Port:     cfg.Port,
+		Password: cfg.Password,
+		DB:       cfg.DB,
+	}
 }
 
 // evaluateSyncKey evaluates a CEL expression for sync key, or returns the key as-is if not a CEL expression.

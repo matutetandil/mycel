@@ -1665,9 +1665,12 @@ from {
 ```hcl
 flow "call_rate_limited_api" {
   semaphore {
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "external_api"
     permits = 5  # Max 5 concurrent calls
-    storage = "redis"
   }
   # ...
 }
@@ -1678,8 +1681,11 @@ flow "call_rate_limited_api" {
 ```hcl
 flow "process_payment" {
   lock {
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'payment:' + input.body.payment_id"
-    storage = "redis"
     timeout = "5m"
   }
   # ...

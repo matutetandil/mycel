@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-04-14
+
+### BREAKING CHANGES
+- **Sync primitives use inline storage config**: `lock`, `semaphore`, and `coordinate` blocks no longer reference a connector via `storage = "connector.redis"`. Instead, they define their own `storage {}` block with `driver`, `url` (or `host`/`port`/`password`/`db`). The sync manager creates its own Redis connection and no longer depends on the connector registry
+
+### Added
+- **`SyncStorageConfig`**: New inline storage configuration for sync primitives with `driver` (redis/memory), `url`, `host`, `port`, `password`, `db`
+- **Cache connector individual params**: Cache connector now accepts `host`, `port`, `password`, `db` as alternatives to `url`. A connection URL is built automatically from individual params when `url` is not provided
+
+### Fixed
+- **`address` attribute in docs**: Replaced all stale `address = env("REDIS_ADDRESS")` references with `url` or `host`/`port` across documentation and examples
+
 ## [1.18.10] - 2026-04-14
 
 ### Fixed

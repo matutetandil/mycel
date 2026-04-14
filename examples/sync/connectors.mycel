@@ -17,13 +17,6 @@ connector "postgres" {
   password = env("POSTGRES_PASSWORD", "mycel")
 }
 
-# Redis for sync primitives (locks, semaphores, coordinate)
-connector "redis" {
-  type   = "cache"
-  driver = "redis"
-  url    = env("REDIS_URL", "redis://localhost:6379")
-}
-
 # RabbitMQ for message processing examples
 connector "rabbitmq" {
   type   = "mq"

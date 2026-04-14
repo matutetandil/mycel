@@ -21,7 +21,10 @@ flow "process_payment" {
   }
 
   lock {
-    storage = "redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'user:' + input.body.user_id"
     timeout = "30s"
     wait    = true
@@ -47,7 +50,10 @@ flow "call_external_api" {
   }
 
   semaphore {
-    storage     = "redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key         = "'external_api'"
     max_permits = 10
     timeout     = "30s"
@@ -73,7 +79,10 @@ flow "process_entity" {
   }
 
   coordinate {
-    storage              = "redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     timeout              = "60s"
     on_timeout           = "retry"
     max_retries          = 3
@@ -115,7 +124,10 @@ flow "daily_cleanup" {
   when = "0 3 * * *"
 
   lock {
-    storage = "redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'job:daily_cleanup'"
     timeout = "1h"
     wait    = false
@@ -152,6 +164,6 @@ mycel start --config ./examples/sync
 
 See the HCL files in this directory:
 
-- `config.hcl` - Main configuration
-- `connectors.hcl` - Connector definitions
+- `config.mycel` - Main configuration
+- `connectors.mycel` - Connector definitions
 - `flows/` - Flow definitions

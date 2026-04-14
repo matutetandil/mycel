@@ -154,7 +154,7 @@ connector "kafka" {
 connector "redis_events" {
   type     = "queue"
   driver   = "redis"
-  address  = env("REDIS_ADDRESS")
+  url      = env("REDIS_URL", "redis://localhost:6379")
   channels = ["orders", "payments"]
 }
 ```
@@ -166,10 +166,7 @@ connector "redis_events" {
 connector "cache" {
   type    = "cache"
   driver  = "redis"
-  address = env("REDIS_ADDRESS")  # "localhost:6379"
-
-  # Or use Redis URL
-  url = env("REDIS_URL")
+  url     = env("REDIS_URL", "redis://localhost:6379")
 
   default_ttl = "1h"
   prefix      = "myapp:"
@@ -342,11 +339,11 @@ connector "cache" {
   fallback = ["primary", "secondary"]
 
   profile "primary" {
-    address = env("REDIS_PRIMARY")
+    url = env("REDIS_PRIMARY_URL")
   }
 
   profile "secondary" {
-    address = env("REDIS_SECONDARY")
+    url = env("REDIS_SECONDARY_URL")
   }
 }
 ```

@@ -35,9 +35,6 @@ type Lock interface {
 
 // LockConfig holds configuration for a lock in a flow.
 type LockConfig struct {
-	// Storage is the name of the connector to use for lock storage.
-	Storage string `json:"storage"`
-
 	// Key is a CEL expression that evaluates to the lock key.
 	Key string `json:"key"`
 

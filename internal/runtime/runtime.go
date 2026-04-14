@@ -675,7 +675,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	r.upgradeRateLimiterToRedis()
 
 	// Initialize sync manager (needs connectors to be ready)
-	r.syncManager = msync.NewManager(r.connectors)
+	r.syncManager = msync.NewManager()
 
 	// Create aspect executor (needs connectors to be initialized)
 	if err := r.initAspects(); err != nil {
@@ -816,7 +816,7 @@ func (r *Runtime) InitForTrace(ctx context.Context) error {
 	}
 
 	// Initialize sync manager
-	r.syncManager = msync.NewManager(r.connectors)
+	r.syncManager = msync.NewManager()
 
 	// Initialize aspects
 	if err := r.initAspects(); err != nil {

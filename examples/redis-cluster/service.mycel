@@ -35,7 +35,7 @@ connector "redis_standalone" {
   host     = env("REDIS_HOST", "localhost")
   port     = 6379
   password = env("REDIS_PASSWORD", "")
-  database = 0
+  db = 0
 }
 
 # REST API

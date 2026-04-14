@@ -650,10 +650,31 @@ type NamedCacheConfig struct {
 	InvalidateOn []string
 }
 
+// SyncStorageConfig defines inline storage configuration for sync primitives.
+type SyncStorageConfig struct {
+	// Driver is the storage backend: "redis" or "memory".
+	Driver string
+
+	// URL is the full Redis connection URL (e.g., "redis://localhost:6379/0").
+	URL string
+
+	// Host is the Redis host (used if URL is empty).
+	Host string
+
+	// Port is the Redis port (used if URL is empty, default 6379).
+	Port int
+
+	// Password is the Redis password.
+	Password string
+
+	// DB is the Redis database number.
+	DB int
+}
+
 // LockConfig holds mutex lock configuration for a flow.
 type LockConfig struct {
-	// Storage is the lock connector name (typically Redis).
-	Storage string
+	// Storage defines the storage backend for this lock.
+	Storage *SyncStorageConfig
 
 	// Key is a CEL expression for the lock key.
 	// Example: "'user:' + input.body.user_id"
@@ -671,8 +692,8 @@ type LockConfig struct {
 
 // SemaphoreConfig holds semaphore configuration for a flow.
 type SemaphoreConfig struct {
-	// Storage is the semaphore connector name (typically Redis).
-	Storage string
+	// Storage defines the storage backend for this semaphore.
+	Storage *SyncStorageConfig
 
 	// Key is a CEL expression for the semaphore key.
 	// Example: "'external_api'"
@@ -690,8 +711,8 @@ type SemaphoreConfig struct {
 
 // CoordinateConfig holds coordination configuration for a flow.
 type CoordinateConfig struct {
-	// Storage is the coordinator connector name (typically Redis).
-	Storage string
+	// Storage defines the storage backend for this coordinator.
+	Storage *SyncStorageConfig
 
 	// Wait defines when and what to wait for.
 	Wait *WaitConfig

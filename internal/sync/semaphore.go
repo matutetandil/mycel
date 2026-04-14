@@ -32,9 +32,6 @@ type Semaphore interface {
 
 // SemaphoreConfig holds configuration for a semaphore in a flow.
 type SemaphoreConfig struct {
-	// Storage is the name of the connector to use for semaphore storage.
-	Storage string `json:"storage"`
-
 	// Key is a CEL expression that evaluates to the semaphore key.
 	Key string `json:"key"`
 

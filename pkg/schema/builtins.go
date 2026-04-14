@@ -182,16 +182,33 @@ func EnrichSchema() Block {
 	}
 }
 
+func SyncStorageSchema() Block {
+	return Block{
+		Type: "storage",
+		Doc:  "Storage backend for sync primitive",
+		Attrs: []Attr{
+			{Name: "driver", Doc: "Storage driver", Type: TypeString, Required: true, Values: []string{"redis", "memory"}},
+			{Name: "url", Doc: "Redis connection URL (redis://[:password@]host:port[/db])", Type: TypeString},
+			{Name: "host", Doc: "Redis host (alternative to url)", Type: TypeString},
+			{Name: "port", Doc: "Redis port (default: 6379)", Type: TypeNumber},
+			{Name: "password", Doc: "Redis password", Type: TypeString},
+			{Name: "db", Doc: "Redis database number (default: 0)", Type: TypeNumber},
+		},
+	}
+}
+
 func LockSchema() Block {
 	return Block{
 		Type: "lock",
 		Doc:  "Mutex lock for this flow",
 		Attrs: []Attr{
-			{Name: "storage", Doc: "Lock storage connector (Redis)", Type: TypeString, Required: true, Ref: RefConnector},
 			{Name: "key", Doc: "CEL expression for the lock key", Type: TypeString, Required: true},
 			{Name: "timeout", Doc: "Max time to hold the lock", Type: TypeDuration},
 			{Name: "wait", Doc: "Wait for lock or fail immediately", Type: TypeBool},
 			{Name: "retry", Doc: "Retry interval", Type: TypeDuration},
+		},
+		Children: []Block{
+			SyncStorageSchema(),
 		},
 	}
 }
@@ -201,11 +218,13 @@ func SemaphoreSchema() Block {
 		Type: "semaphore",
 		Doc:  "Concurrency limiter for this flow",
 		Attrs: []Attr{
-			{Name: "storage", Doc: "Semaphore storage connector", Type: TypeString, Required: true, Ref: RefConnector},
 			{Name: "key", Doc: "CEL expression for the semaphore key", Type: TypeString, Required: true},
 			{Name: "max_permits", Doc: "Maximum concurrent permits", Type: TypeNumber, Required: true},
 			{Name: "timeout", Doc: "Max time to wait for a permit", Type: TypeDuration},
 			{Name: "lease", Doc: "Max time to hold a permit", Type: TypeDuration},
+		},
+		Children: []Block{
+			SyncStorageSchema(),
 		},
 	}
 }
@@ -215,12 +234,13 @@ func CoordinateSchema() Block {
 		Type: "coordinate",
 		Doc:  "Signal/wait coordination between flows",
 		Attrs: []Attr{
-			{Name: "storage", Doc: "Coordinator storage connector", Type: TypeString, Required: true, Ref: RefConnector},
 			{Name: "timeout", Doc: "Max time to wait", Type: TypeDuration},
 			{Name: "on_timeout", Doc: "Behavior on timeout", Type: TypeString, Values: []string{"fail", "retry", "skip", "pass"}},
 			{Name: "max_retries", Doc: "Max retries when on_timeout is retry", Type: TypeNumber},
+			{Name: "max_concurrent_waits", Doc: "Limit simultaneous waiting processes (0 = unlimited)", Type: TypeNumber},
 		},
 		Children: []Block{
+			SyncStorageSchema(),
 			{Type: "wait", Doc: "Wait condition", Attrs: []Attr{
 				{Name: "when", Doc: "CEL condition to trigger wait", Type: TypeString},
 				{Name: "for", Doc: "CEL expression for signal to wait for", Type: TypeString},

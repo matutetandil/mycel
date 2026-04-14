@@ -6,16 +6,47 @@ import (
 	gosync "sync"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/connector/cache"
-	"github.com/matutetandil/mycel/internal/connector/cache/redis"
+	"github.com/redis/go-redis/v9"
 )
 
-// Manager manages sync primitives (Lock, Semaphore, Coordinator).
-// It creates instances based on connector configuration.
-type Manager struct {
-	connectors *connector.Registry
+// SyncStorageConfig defines inline storage configuration for sync primitives.
+// This is a mirror of flow.SyncStorageConfig to avoid circular imports.
+type SyncStorageConfig struct {
+	Driver   string
+	URL      string
+	Host     string
+	Port     int
+	Password string
+	DB       int
+}
 
+// redisURL returns the effective Redis connection URL.
+func (c *SyncStorageConfig) redisURL() string {
+	if c.URL != "" {
+		return c.URL
+	}
+	host := c.Host
+	if host == "" {
+		host = "localhost"
+	}
+	port := c.Port
+	if port == 0 {
+		port = 6379
+	}
+	if c.Password != "" {
+		return fmt.Sprintf("redis://:%s@%s:%d/%d", c.Password, host, port, c.DB)
+	}
+	return fmt.Sprintf("redis://%s:%d/%d", host, port, c.DB)
+}
+
+// cacheKey returns a string key for client caching.
+func (c *SyncStorageConfig) cacheKey() string {
+	return c.redisURL()
+}
+
+// Manager manages sync primitives (Lock, Semaphore, Coordinator).
+// It creates Redis clients from inline storage configs.
+type Manager struct {
 	// Shared memory storage for memory-backed locks
 	memoryLockStorage *MemoryLockStorage
 
@@ -23,89 +54,94 @@ type Manager struct {
 	memorySemaphore   *MemorySemaphore
 	memoryCoordinator *MemoryCoordinator
 
+	// Cached Redis clients, keyed by resolved address
+	redisClients map[string]*redis.Client
+
 	mu gosync.RWMutex
 }
 
 // NewManager creates a new sync manager.
-func NewManager(connectors *connector.Registry) *Manager {
+func NewManager() *Manager {
 	return &Manager{
-		connectors:        connectors,
 		memoryLockStorage: NewMemoryLockStorage(),
 		memorySemaphore:   NewMemorySemaphore(100), // Default max permits
 		memoryCoordinator: NewMemoryCoordinator(time.Second),
+		redisClients:      make(map[string]*redis.Client),
 	}
 }
 
-// GetLock returns a Lock implementation based on the storage connector.
-func (m *Manager) GetLock(ctx context.Context, storageName string) (Lock, error) {
-	if storageName == "" || storageName == "memory" {
+// getOrCreateRedisClient returns a cached Redis client or creates a new one.
+func (m *Manager) getOrCreateRedisClient(cfg *SyncStorageConfig) (*redis.Client, error) {
+	key := cfg.cacheKey()
+
+	m.mu.RLock()
+	if client, ok := m.redisClients[key]; ok {
+		m.mu.RUnlock()
+		return client, nil
+	}
+	m.mu.RUnlock()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Double-check after acquiring write lock
+	if client, ok := m.redisClients[key]; ok {
+		return client, nil
+	}
+
+	url := cfg.redisURL()
+	opts, err := redis.ParseURL(url)
+	if err != nil {
+		return nil, fmt.Errorf("invalid redis URL %q: %w", url, err)
+	}
+	client := redis.NewClient(opts)
+	m.redisClients[key] = client
+	return client, nil
+}
+
+// GetLock returns a Lock implementation based on the storage config.
+func (m *Manager) GetLock(ctx context.Context, cfg *SyncStorageConfig) (Lock, error) {
+	if cfg == nil || cfg.Driver == "" || cfg.Driver == "memory" {
 		return NewMemoryLockWithStorage(m.memoryLockStorage), nil
 	}
-
-	conn, err := m.connectors.Get(storageName)
-	if err != nil {
-		return nil, fmt.Errorf("storage connector not found: %s", storageName)
-	}
-
-	// Check if it's a Redis cache connector
-	if cacheConn := cache.GetCache(conn); cacheConn != nil {
-		if redisConn, ok := cacheConn.(*redis.Connector); ok {
-			if client := redisConn.Client(); client != nil {
-				return NewRedisLockFromClient(client, "mycel:lock:"), nil
-			}
+	if cfg.Driver == "redis" {
+		client, err := m.getOrCreateRedisClient(cfg)
+		if err != nil {
+			return nil, err
 		}
+		return NewRedisLockFromClient(client, "mycel:lock:"), nil
 	}
-
-	// Default to memory lock
-	return NewMemoryLockWithStorage(m.memoryLockStorage), nil
+	return nil, fmt.Errorf("unsupported sync storage driver: %s", cfg.Driver)
 }
 
-// GetSemaphore returns a Semaphore implementation based on the storage connector.
-func (m *Manager) GetSemaphore(ctx context.Context, storageName string, maxPermits int) (Semaphore, error) {
-	if storageName == "" || storageName == "memory" {
+// GetSemaphore returns a Semaphore implementation based on the storage config.
+func (m *Manager) GetSemaphore(ctx context.Context, cfg *SyncStorageConfig, maxPermits int) (Semaphore, error) {
+	if cfg == nil || cfg.Driver == "" || cfg.Driver == "memory" {
 		return m.memorySemaphore, nil
 	}
-
-	conn, err := m.connectors.Get(storageName)
-	if err != nil {
-		return nil, fmt.Errorf("storage connector not found: %s", storageName)
-	}
-
-	// Check if it's a Redis cache connector
-	if cacheConn := cache.GetCache(conn); cacheConn != nil {
-		if redisConn, ok := cacheConn.(*redis.Connector); ok {
-			if client := redisConn.Client(); client != nil {
-				return NewRedisSemaphoreFromClient(client, "mycel:sem:", maxPermits), nil
-			}
+	if cfg.Driver == "redis" {
+		client, err := m.getOrCreateRedisClient(cfg)
+		if err != nil {
+			return nil, err
 		}
+		return NewRedisSemaphoreFromClient(client, "mycel:sem:", maxPermits), nil
 	}
-
-	// Default to memory semaphore
-	return m.memorySemaphore, nil
+	return nil, fmt.Errorf("unsupported sync storage driver: %s", cfg.Driver)
 }
 
-// GetCoordinator returns a Coordinator implementation based on the storage connector.
-func (m *Manager) GetCoordinator(ctx context.Context, storageName string) (Coordinator, error) {
-	if storageName == "" || storageName == "memory" {
+// GetCoordinator returns a Coordinator implementation based on the storage config.
+func (m *Manager) GetCoordinator(ctx context.Context, cfg *SyncStorageConfig) (Coordinator, error) {
+	if cfg == nil || cfg.Driver == "" || cfg.Driver == "memory" {
 		return m.memoryCoordinator, nil
 	}
-
-	conn, err := m.connectors.Get(storageName)
-	if err != nil {
-		return nil, fmt.Errorf("storage connector not found: %s", storageName)
-	}
-
-	// Check if it's a Redis cache connector
-	if cacheConn := cache.GetCache(conn); cacheConn != nil {
-		if redisConn, ok := cacheConn.(*redis.Connector); ok {
-			if client := redisConn.Client(); client != nil {
-				return NewRedisCoordinatorFromClient(client, "mycel:coord:"), nil
-			}
+	if cfg.Driver == "redis" {
+		client, err := m.getOrCreateRedisClient(cfg)
+		if err != nil {
+			return nil, err
 		}
+		return NewRedisCoordinatorFromClient(client, "mycel:coord:"), nil
 	}
-
-	// Default to memory coordinator
-	return m.memoryCoordinator, nil
+	return nil, fmt.Errorf("unsupported sync storage driver: %s", cfg.Driver)
 }
 
 // Close closes all sync primitive resources.
@@ -133,6 +169,13 @@ func (m *Manager) Close() error {
 		}
 	}
 
+	for _, client := range m.redisClients {
+		if err := client.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	m.redisClients = make(map[string]*redis.Client)
+
 	if len(errs) > 0 {
 		return fmt.Errorf("errors closing sync manager: %v", errs)
 	}
@@ -141,7 +184,7 @@ func (m *Manager) Close() error {
 
 // FlowLockConfig is the flow-level lock configuration.
 type FlowLockConfig struct {
-	Storage string
+	Storage *SyncStorageConfig
 	Key     string
 	Timeout string
 	Wait    bool
@@ -150,7 +193,7 @@ type FlowLockConfig struct {
 
 // FlowSemaphoreConfig is the flow-level semaphore configuration.
 type FlowSemaphoreConfig struct {
-	Storage    string
+	Storage    *SyncStorageConfig
 	Key        string
 	MaxPermits int
 	Timeout    string
@@ -159,7 +202,7 @@ type FlowSemaphoreConfig struct {
 
 // FlowCoordinateConfig is the flow-level coordinate configuration.
 type FlowCoordinateConfig struct {
-	Storage            string
+	Storage            *SyncStorageConfig
 	Wait               *FlowWaitConfig
 	Signal             *FlowSignalConfig
 	Timeout            string
@@ -210,7 +253,6 @@ func (m *Manager) ExecuteWithLock(ctx context.Context, cfg *FlowLockConfig, key 
 
 	// Create lock config for acquire
 	lockCfg := &LockConfig{
-		Storage: cfg.Storage,
 		Key:     key,
 		Timeout: timeout,
 		Wait:    cfg.Wait,
@@ -269,7 +311,6 @@ func (m *Manager) ExecuteWithSemaphore(ctx context.Context, cfg *FlowSemaphoreCo
 
 	// Create semaphore config for acquire
 	semCfg := &SemaphoreConfig{
-		Storage:    cfg.Storage,
 		Key:        key,
 		MaxPermits: maxPermits,
 		Timeout:    timeout,
