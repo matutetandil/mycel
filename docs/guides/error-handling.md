@@ -400,7 +400,7 @@ The RabbitMQ connector has native DLQ support — separate from the flow-level f
 
 ```hcl
 connector "rabbit" {
-  type   = "queue"
+  type   = "mq"
   driver = "rabbitmq"
   url    = env("RABBITMQ_URL")
 

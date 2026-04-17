@@ -8,7 +8,7 @@
 #   - Trigger batch jobs
 
 connector "rabbit" {
-  type   = "queue"
+  type   = "mq"
   driver = "rabbitmq"
 
   host     = env("RABBIT_HOST", "localhost")

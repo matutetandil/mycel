@@ -134,7 +134,7 @@ connector "mongo" {
 ```hcl
 # RabbitMQ
 connector "rabbit" {
-  type     = "queue"
+  type     = "mq"
   driver   = "rabbitmq"
   host     = env("RABBITMQ_HOST")
   port     = 5672
@@ -145,14 +145,14 @@ connector "rabbit" {
 
 # Kafka
 connector "kafka" {
-  type    = "queue"
+  type    = "mq"
   driver  = "kafka"
   brokers = ["kafka:9092"]
 }
 
 # Redis Pub/Sub
 connector "redis_events" {
-  type     = "queue"
+  type     = "mq"
   driver   = "redis"
   url      = env("REDIS_URL", "redis://localhost:6379")
   channels = ["orders", "payments"]

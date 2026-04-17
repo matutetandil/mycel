@@ -255,7 +255,7 @@ connector "user_service" {
 ```hcl
 # RabbitMQ
 connector "rabbit" {
-  type           = "queue"
+  type           = "mq"
   driver         = "rabbitmq"
   url            = env("RABBITMQ_URL")
   vhost          = "/"
@@ -281,7 +281,7 @@ connector "rabbit" {
 
 # Kafka
 connector "kafka" {
-  type      = "queue"
+  type      = "mq"
   driver    = "kafka"
   brokers   = ["kafka1:9092", "kafka2:9092"]
   client_id = "my-service"
@@ -307,7 +307,7 @@ connector "kafka" {
 
 # Redis Pub/Sub
 connector "redis_events" {
-  type     = "queue"
+  type     = "mq"
   driver   = "redis"
   url      = env("REDIS_URL", "redis://localhost:6379")
   password = env("REDIS_PASSWORD")

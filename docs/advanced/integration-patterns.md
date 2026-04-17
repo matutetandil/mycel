@@ -1221,7 +1221,7 @@ The following patterns show complete, production-ready examples for event-driven
 
 ```hcl
 connector "rabbit" {
-  type   = "queue"
+  type   = "mq"
   driver = "rabbitmq"
   host   = env("RABBIT_HOST")
   # ...
@@ -1418,7 +1418,7 @@ connector "api" {
 }
 
 connector "rabbit" {
-  type   = "queue"
+  type   = "mq"
   driver = "rabbitmq"
 
   exchange {
@@ -1508,7 +1508,7 @@ connector "files" {
 }
 
 connector "rabbit" {
-  type   = "queue"
+  type   = "mq"
   driver = "rabbitmq"
 
   exchange {

@@ -885,7 +885,7 @@ connector "db" {
 }
 
 connector "rabbit" {
-  type   = "queue"
+  type   = "mq"
   driver = "rabbitmq"
   url    = env("RABBITMQ_URL")
 }
@@ -1258,7 +1258,7 @@ Process messages from RabbitMQ and store them in PostgreSQL. One of the most com
 
 ```hcl
 connector "rabbit" {
-  type   = "queue"
+  type   = "mq"
   driver = "rabbitmq"
   url    = env("RABBITMQ_URL")
 }
@@ -1511,7 +1511,7 @@ connector "search" {
 }
 
 connector "rabbit" {
-  type   = "queue"
+  type   = "mq"
   driver = "rabbitmq"
   url    = env("RABBITMQ_URL")
 }

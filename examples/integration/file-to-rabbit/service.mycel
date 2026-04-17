@@ -27,7 +27,7 @@ connector "s3" {
 }
 
 connector "rabbit" {
-  type   = "queue"
+  type   = "mq"
   driver = "rabbitmq"
 
   host     = env("RABBIT_HOST", "localhost")

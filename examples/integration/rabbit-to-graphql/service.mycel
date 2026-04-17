@@ -7,7 +7,7 @@
 #   - Trigger mutations based on domain events
 
 connector "rabbit" {
-  type   = "queue"
+  type   = "mq"
   driver = "rabbitmq"
 
   host     = env("RABBIT_HOST", "localhost")
