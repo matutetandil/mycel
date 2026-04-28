@@ -566,8 +566,11 @@ func parseServiceBlock(block *hcl.Block, ctx *hcl.EvalContext) (*ServiceConfig, 
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("service admin_port error: %s", diags.Error())
 		}
-		port, _ := val.AsBigFloat().Int64()
-		svc.AdminPort = int(port)
+		port, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("service admin_port error: %s", err)
+		}
+		svc.AdminPort = port
 	}
 
 	// Parse nested blocks
@@ -633,8 +636,11 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("requests_per_second error: %s", diags.Error())
 		}
-		f, _ := val.AsBigFloat().Float64()
-		rl.RequestsPerSecond = f
+		rps, err := coerceFloat(val)
+		if err != nil {
+			return nil, fmt.Errorf("requests_per_second error: %s", err)
+		}
+		rl.RequestsPerSecond = rps
 	}
 
 	if attr, ok := content.Attributes["burst"]; ok {
@@ -642,8 +648,11 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("burst error: %s", diags.Error())
 		}
-		i, _ := val.AsBigFloat().Int64()
-		rl.Burst = int(i)
+		burst, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("burst error: %s", err)
+		}
+		rl.Burst = burst
 	}
 
 	if attr, ok := content.Attributes["key_extractor"]; ok {

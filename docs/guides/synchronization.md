@@ -365,15 +365,17 @@ lock {
   storage {
     driver   = "redis"
     host     = env("REDIS_HOST", "localhost")
-    port     = 6379
+    port     = env("REDIS_PORT", "6379")
     password = env("REDIS_PASSWORD", "")
-    db       = 0
+    db       = env("REDIS_DB", "0")
   }
   key = "'my_lock'"
 }
 ```
 
-Both forms work for `lock`, `semaphore`, and `coordinate`. Use whichever matches your environment.
+`port` and `db` accept either a numeric literal (`port = 6379`) or a string (`port = "6379"`), so values sourced from `env()` — which always returns strings — work without conversion.
+
+Both forms (`url` and `host`/`port`) work for `lock`, `semaphore`, and `coordinate`. Use whichever matches your environment.
 
 ## See Also
 

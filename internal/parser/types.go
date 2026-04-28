@@ -2,13 +2,68 @@ package parser
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/matutetandil/mycel/internal/validate"
 )
+
+// coerceInt converts a cty.Value to int, accepting either a number or a
+// numeric string. Returning a typed error (rather than panicking) lets HCL
+// values produced by env() — which are always strings — be used wherever an
+// int is expected.
+func coerceInt(val cty.Value) (int, error) {
+	if val.IsNull() {
+		return 0, nil
+	}
+	switch val.Type() {
+	case cty.Number:
+		bf := val.AsBigFloat()
+		i, _ := bf.Int64()
+		return int(i), nil
+	case cty.String:
+		s := val.AsString()
+		if s == "" {
+			return 0, nil
+		}
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return 0, fmt.Errorf("expected number, got non-numeric string %q", s)
+		}
+		return n, nil
+	default:
+		return 0, fmt.Errorf("expected number or numeric string, got %s", val.Type().FriendlyName())
+	}
+}
+
+// coerceFloat is the float64 counterpart of coerceInt. Same rationale: env()
+// always returns strings, so any float-typed user setting must accept both.
+func coerceFloat(val cty.Value) (float64, error) {
+	if val.IsNull() {
+		return 0, nil
+	}
+	switch val.Type() {
+	case cty.Number:
+		f, _ := val.AsBigFloat().Float64()
+		return f, nil
+	case cty.String:
+		s := val.AsString()
+		if s == "" {
+			return 0, nil
+		}
+		f, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return 0, fmt.Errorf("expected number, got non-numeric string %q", s)
+		}
+		return f, nil
+	default:
+		return 0, fmt.Errorf("expected number or numeric string, got %s", val.Type().FriendlyName())
+	}
+}
 
 // parseTypeBlock parses a type block from HCL.
 // Type definitions look like:

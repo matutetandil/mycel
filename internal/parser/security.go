@@ -60,8 +60,11 @@ func parseSecurityBlock(block *hcl.Block, ctx *hcl.EvalContext) (*security.Confi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("max_input_length error: %s", diags.Error())
 		}
-		n, _ := val.AsBigFloat().Int64()
-		cfg.MaxInputLength = int(n)
+		n, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("max_input_length error: %s", err)
+		}
+		cfg.MaxInputLength = n
 	}
 
 	if attr, ok := content.Attributes["max_field_length"]; ok {
@@ -69,8 +72,11 @@ func parseSecurityBlock(block *hcl.Block, ctx *hcl.EvalContext) (*security.Confi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("max_field_length error: %s", diags.Error())
 		}
-		n, _ := val.AsBigFloat().Int64()
-		cfg.MaxFieldLength = int(n)
+		n, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("max_field_length error: %s", err)
+		}
+		cfg.MaxFieldLength = n
 	}
 
 	if attr, ok := content.Attributes["max_field_depth"]; ok {
@@ -78,8 +84,11 @@ func parseSecurityBlock(block *hcl.Block, ctx *hcl.EvalContext) (*security.Confi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("max_field_depth error: %s", diags.Error())
 		}
-		n, _ := val.AsBigFloat().Int64()
-		cfg.MaxFieldDepth = int(n)
+		n, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("max_field_depth error: %s", err)
+		}
+		cfg.MaxFieldDepth = n
 	}
 
 	if attr, ok := content.Attributes["allowed_control_chars"]; ok {
@@ -209,8 +218,11 @@ func parseFlowSecurityBlock(block *hcl.Block, ctx *hcl.EvalContext) (*security.F
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("max_input_length error: %s", diags.Error())
 		}
-		n, _ := val.AsBigFloat().Int64()
-		cfg.MaxInputLength = int(n)
+		n, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("max_input_length error: %s", err)
+		}
+		cfg.MaxInputLength = n
 	}
 
 	if attr, ok := content.Attributes["max_field_length"]; ok {
@@ -218,8 +230,11 @@ func parseFlowSecurityBlock(block *hcl.Block, ctx *hcl.EvalContext) (*security.F
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("max_field_length error: %s", diags.Error())
 		}
-		n, _ := val.AsBigFloat().Int64()
-		cfg.MaxFieldLength = int(n)
+		n, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("max_field_length error: %s", err)
+		}
+		cfg.MaxFieldLength = n
 	}
 
 	if attr, ok := content.Attributes["sanitizers"]; ok {

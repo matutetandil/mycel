@@ -274,8 +274,8 @@ func (p *HCLParser) parseAuthMFABlock(block *hcl.Block) (*auth.MFAConfig, error)
 	if attr, exists := content.Attributes["min_factors"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			f, _ := val.AsBigFloat().Int64()
-			config.MinFactors = int(f)
+			f, _ := coerceInt(val)
+			config.MinFactors = f
 		}
 	}
 
@@ -408,8 +408,8 @@ func (p *HCLParser) parseWebAuthnBlock(block *hcl.Block) (*auth.WebAuthnConfig, 
 	if attr, exists := content.Attributes["max_credentials"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			f, _ := val.AsBigFloat().Int64()
-			config.MaxCredentials = int(f)
+			f, _ := coerceInt(val)
+			config.MaxCredentials = f
 		}
 	}
 
@@ -462,8 +462,8 @@ func (p *HCLParser) parseAuthSMSBlock(block *hcl.Block) (*auth.SMSConfig, error)
 	if attr, exists := content.Attributes["code_length"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			f, _ := val.AsBigFloat().Int64()
-			config.CodeLength = int(f)
+			f, _ := coerceInt(val)
+			config.CodeLength = f
 		}
 	}
 
@@ -639,8 +639,8 @@ func (p *HCLParser) parseAuthBruteForceBlock(block *hcl.Block) (*auth.BruteForce
 	if attr, exists := content.Attributes["max_attempts"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			f, _ := val.AsBigFloat().Int64()
-			config.MaxAttempts = int(f)
+			f, _ := coerceInt(val)
+			config.MaxAttempts = f
 		}
 	}
 

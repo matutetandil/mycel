@@ -39,10 +39,7 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 			host = "localhost"
 		}
 
-		port := 27017
-		if p, ok := cfg.Properties["port"].(int); ok {
-			port = p
-		}
+		port := connector.IntFromProps(cfg.Properties, "port", 27017)
 
 		user, _ := cfg.Properties["user"].(string)
 		password, _ := cfg.Properties["password"].(string)

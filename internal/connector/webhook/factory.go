@@ -141,13 +141,7 @@ func getString(m map[string]interface{}, key, defaultVal string) string {
 }
 
 func getInt(m map[string]interface{}, key string, defaultVal int) int {
-	if v, ok := m[key].(int); ok {
-		return v
-	}
-	if v, ok := m[key].(float64); ok {
-		return int(v)
-	}
-	return defaultVal
+	return connector.IntFromProps(m, key, defaultVal)
 }
 
 func getStringSlice(m map[string]interface{}, key string) []string {

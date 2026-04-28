@@ -71,7 +71,7 @@ func (f *Factory) parseConfig(cfg *connector.Config) *types.Config {
 	}
 
 	// Get max_items (for memory)
-	if maxItems, ok := cfg.Properties["max_items"].(int); ok {
+	if maxItems, ok := connector.IntFromPropsStrict(cfg.Properties, "max_items"); ok {
 		config.MaxItems = maxItems
 	}
 

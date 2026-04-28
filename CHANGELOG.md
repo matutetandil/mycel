@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.1] - 2026-04-28
+
+### Fixed
+- **Sync storage panic on string `port`/`db`**: `parseSyncStorageBlock` called `cty.Value.AsBigFloat()` directly on `port` and `db`, which panicked with `not a number` when the values came from `env()` (which always returns strings). The parser now accepts either a numeric literal or a numeric string and returns a typed validation error on garbage input. Affects `lock`, `semaphore`, and `coordinate`.
+- **HTTP connector retry vocabulary**: `parseRetryBlock` accepted `attempts` + `backoff`, the IDE schema declared a flat `retry_count`, and `docs/connectors/rest.md` documented `retry { count, interval, backoff }` — three divergent vocabularies for the same feature. Aligned everything to `retry { attempts = N }` (matching flow-level retry). The `retry_count` shorthand still works at the connector level. The runtime currently only honors `attempts`; the schema/parser no longer declare unsupported sub-attributes that were silently ignored.
+- **Panic-prone `AsBigFloat()` calls**: Added `coerceInt`/`coerceFloat` helpers in `internal/parser/types.go` that accept either numbers or numeric strings. Applied to user-configurable fields across the parser (`max_requeue`, `retry.attempts`, `error_response.status`, `semaphore.max_permits`, `coordinate.max_retries`, `coordinate.max_concurrent_waits`, `batch.chunk_size`, `service.admin_port`, `rate_limit.requests_per_second`, `rate_limit.burst`, aspect priority/thresholds, security `max_*` limits, auth integers). All paths that previously panicked on `env()`-sourced strings now return clear errors.
+- **Connector factories silently ignored string ports**: All connector factories had a private `getInt(props, key, default)` helper (or inline `props[key].(int)` assertions) that only handled `int`/`int64`/`float64`. When a numeric value came from `env()` — which always returns a string — the assertion failed silently and the factory fell back to the default. Result: `port = env("DB_PORT", "3306")` looked correct in HCL but the database actually connected to whatever default was hardcoded. Introduced `connector.IntFromProps` / `IntFromPropsStrict` in `internal/connector/coerce.go` and wired it into every factory: `database/{mysql,postgres,mongodb}`, `mq` (RabbitMQ/Kafka/Redis), `cache`, `tcp`, `grpc`, `graphql`, `mqtt`, `ftp`, `file`, `webhook`, `email`, `exec` (SSH port), `http` (`retry_count` + nested `retry.attempts`). Also fixed the runtime's startup banner to use the same coercion (`getRESTPort`, TCP/RabbitMQ details).
+
+### Documentation
+- `docs/guides/synchronization.md`: `host`/`port` example updated to use `env()` and clarifies that `port`/`db` accept either numeric literals or numeric strings.
+- `docs/connectors/rest.md`: `retry` block reference rewritten with the canonical `attempts` attribute.
+
 ## [1.19.0] - 2026-04-14
 
 ### BREAKING CHANGES

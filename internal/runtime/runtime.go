@@ -771,10 +771,8 @@ func (r *Runtime) getConnectorType(name string) string {
 func (r *Runtime) getRESTPort() int {
 	for _, cfg := range r.config.Connectors {
 		if cfg.Type == "rest" {
-			if port, ok := cfg.Properties["port"]; ok {
-				if p, ok := port.(int); ok {
-					return p
-				}
+			if port, ok := connector.IntFromPropsStrict(cfg.Properties, "port"); ok {
+				return port
 			}
 		}
 	}
@@ -1013,10 +1011,7 @@ func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
 		if h, ok := cfg.Properties["host"].(string); ok {
 			host = h
 		}
-		port := 9000
-		if p, ok := cfg.Properties["port"].(int); ok {
-			port = p
-		}
+		port := connector.IntFromProps(cfg.Properties, "port", 9000)
 		protocol := "json"
 		if p, ok := cfg.Properties["protocol"].(string); ok {
 			protocol = p
@@ -1077,10 +1072,7 @@ func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
 		if h, ok := cfg.Properties["host"].(string); ok {
 			host = h
 		}
-		port := 5672
-		if p, ok := cfg.Properties["port"].(int); ok {
-			port = p
-		}
+		port := connector.IntFromProps(cfg.Properties, "port", 5672)
 		// Check if consumer or publisher
 		if queueCfg, ok := cfg.Properties["queue"].(map[string]interface{}); ok {
 			if queueName, ok := queueCfg["name"].(string); ok {

@@ -93,7 +93,7 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 		if host, ok := ssh["host"].(string); ok {
 			config.SSH.Host = host
 		}
-		if port, ok := ssh["port"].(int); ok {
+		if port, ok := connector.IntFromPropsStrict(ssh, "port"); ok {
 			config.SSH.Port = port
 		}
 		if user, ok := ssh["user"].(string); ok {

@@ -382,9 +382,12 @@ func parseFilterBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FilterConfi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("filter max_requeue error: %s", diags.Error())
 		}
-		maxRequeue, _ := val.AsBigFloat().Int64()
+		maxRequeue, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("filter max_requeue error: %s", err)
+		}
 		if maxRequeue > 0 {
-			cfg.MaxRequeue = int(maxRequeue)
+			cfg.MaxRequeue = maxRequeue
 		}
 	}
 
@@ -980,9 +983,11 @@ func parseRetryConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryC
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("retry attempts error: %s", diags.Error())
 		}
-		bf := val.AsBigFloat()
-		i, _ := bf.Int64()
-		retry.Attempts = int(i)
+		attempts, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("retry attempts error: %s", err)
+		}
+		retry.Attempts = attempts
 	}
 
 	if attr, ok := content.Attributes["delay"]; ok {
@@ -1094,8 +1099,11 @@ func parseErrorResponseBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Erro
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("error_response status error: %s", diags.Error())
 		}
-		statusInt, _ := val.AsBigFloat().Int64()
-		errResp.Status = int(statusInt)
+		status, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("error_response status error: %s", err)
+		}
+		errResp.Status = status
 	}
 
 	if attr, ok := content.Attributes["headers"]; ok {
@@ -1919,9 +1927,11 @@ func parseSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Semaphor
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("semaphore max_permits error: %s", diags.Error())
 		}
-		bf := val.AsBigFloat()
-		i, _ := bf.Int64()
-		sem.MaxPermits = int(i)
+		permits, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("semaphore max_permits error: %s", err)
+		}
+		sem.MaxPermits = permits
 	}
 
 	if attr, ok := content.Attributes["timeout"]; ok {
@@ -2018,9 +2028,11 @@ func parseCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Coordin
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("coordinate max_retries error: %s", diags.Error())
 		}
-		bf := val.AsBigFloat()
-		i, _ := bf.Int64()
-		coord.MaxRetries = int(i)
+		retries, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("coordinate max_retries error: %s", err)
+		}
+		coord.MaxRetries = retries
 	}
 
 	if attr, ok := content.Attributes["max_concurrent_waits"]; ok {
@@ -2028,9 +2040,11 @@ func parseCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Coordin
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("coordinate max_concurrent_waits error: %s", diags.Error())
 		}
-		bf := val.AsBigFloat()
-		i, _ := bf.Int64()
-		coord.MaxConcurrentWaits = int(i)
+		waits, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("coordinate max_concurrent_waits error: %s", err)
+		}
+		coord.MaxConcurrentWaits = waits
 	}
 
 	for _, nestedBlock := range content.Blocks {
@@ -2117,9 +2131,11 @@ func parseSyncStorageBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SyncSt
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("storage port error: %s", diags.Error())
 		}
-		bf := val.AsBigFloat()
-		i, _ := bf.Int64()
-		cfg.Port = int(i)
+		port, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("storage port error: %s", err)
+		}
+		cfg.Port = port
 	}
 
 	if attr, ok := content.Attributes["password"]; ok {
@@ -2135,9 +2151,11 @@ func parseSyncStorageBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SyncSt
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("storage db error: %s", diags.Error())
 		}
-		bf := val.AsBigFloat()
-		i, _ := bf.Int64()
-		cfg.DB = int(i)
+		db, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("storage db error: %s", err)
+		}
+		cfg.DB = db
 	}
 
 	return cfg, nil
@@ -2358,10 +2376,11 @@ func parseBatchBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.BatchConfig,
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("batch chunk_size error: %s", diags.Error())
 		}
-		if val.Type() == cty.Number {
-			f, _ := val.AsBigFloat().Int64()
-			batch.ChunkSize = int(f)
+		size, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("batch chunk_size error: %s", err)
 		}
+		batch.ChunkSize = size
 	}
 
 	// Parse on_error

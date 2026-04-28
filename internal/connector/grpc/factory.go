@@ -296,17 +296,7 @@ func getString(props map[string]interface{}, key, defaultVal string) string {
 }
 
 func getInt(props map[string]interface{}, key string, defaultVal int) int {
-	if v, ok := props[key]; ok {
-		switch n := v.(type) {
-		case int:
-			return n
-		case int64:
-			return int(n)
-		case float64:
-			return int(n)
-		}
-	}
-	return defaultVal
+	return connector.IntFromProps(props, key, defaultVal)
 }
 
 func getBool(props map[string]interface{}, key string, defaultVal bool) bool {

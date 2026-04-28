@@ -78,8 +78,11 @@ func parseAspectBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Config, e
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("aspect 'priority' error: %s", diags.Error())
 		}
-		priority, _ := val.AsBigFloat().Int64()
-		config.Priority = int(priority)
+		priority, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("aspect 'priority' error: %s", err)
+		}
+		config.Priority = priority
 	}
 
 	// Parse nested blocks
@@ -396,7 +399,10 @@ func parseAspectRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("rate_limit 'requests_per_second' error: %s", diags.Error())
 		}
-		rps, _ := val.AsBigFloat().Float64()
+		rps, err := coerceFloat(val)
+		if err != nil {
+			return nil, fmt.Errorf("rate_limit 'requests_per_second' error: %s", err)
+		}
 		rateLimit.RequestsPerSecond = rps
 	}
 
@@ -405,8 +411,11 @@ func parseAspectRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("rate_limit 'burst' error: %s", diags.Error())
 		}
-		burst, _ := val.AsBigFloat().Int64()
-		rateLimit.Burst = int(burst)
+		burst, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("rate_limit 'burst' error: %s", err)
+		}
+		rateLimit.Burst = burst
 	}
 
 	return rateLimit, nil
@@ -443,8 +452,11 @@ func parseAspectCircuitBreakerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*as
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("circuit_breaker 'failure_threshold' error: %s", diags.Error())
 		}
-		threshold, _ := val.AsBigFloat().Int64()
-		cb.FailureThreshold = int(threshold)
+		threshold, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("circuit_breaker 'failure_threshold' error: %s", err)
+		}
+		cb.FailureThreshold = threshold
 	}
 
 	if attr, ok := content.Attributes["success_threshold"]; ok {
@@ -452,8 +464,11 @@ func parseAspectCircuitBreakerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*as
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("circuit_breaker 'success_threshold' error: %s", diags.Error())
 		}
-		threshold, _ := val.AsBigFloat().Int64()
-		cb.SuccessThreshold = int(threshold)
+		threshold, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("circuit_breaker 'success_threshold' error: %s", err)
+		}
+		cb.SuccessThreshold = threshold
 	}
 
 	if attr, ok := content.Attributes["timeout"]; ok {

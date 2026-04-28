@@ -38,9 +38,7 @@ connector "external_api" {
   }
 
   retry {
-    count    = 3
-    interval = "1s"
-    backoff  = 2.0
+    attempts = 3
   }
 }
 ```
@@ -50,9 +48,8 @@ connector "external_api" {
 | `base_url` | string | — | Base URL for all requests |
 | `timeout` | duration | `"30s"` | Request timeout |
 | `auth.type` | string | — | Auth method: `bearer`, `api_key`, `basic`, `oauth2` |
-| `retry.count` | int | `0` | Max retry attempts |
-| `retry.interval` | duration | `"1s"` | Initial retry interval |
-| `retry.backoff` | float | `2.0` | Backoff multiplier |
+| `retry.attempts` | int | `1` | Maximum retry attempts. The connector applies a fixed exponential backoff. |
+| `retry_count` | int | — | Shorthand for `retry { attempts = N }`. |
 
 ## Operations
 

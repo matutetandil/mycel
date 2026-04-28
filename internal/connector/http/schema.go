@@ -10,11 +10,14 @@ func (Schema) ConnectorSchema() schema.Block {
 		Attrs: []schema.Attr{
 			{Name: "base_url", Doc: "Base URL for HTTP requests", Type: schema.TypeString, Required: true},
 			{Name: "timeout", Doc: "Request timeout", Type: schema.TypeDuration},
-			{Name: "retry_count", Doc: "Number of retries on failure", Type: schema.TypeNumber},
+			{Name: "retry_count", Doc: "Shorthand for retry { attempts = N }. Prefer the retry block for finer control.", Type: schema.TypeNumber},
 			{Name: "format", Doc: "Request/response format", Type: schema.TypeString, Values: []string{"json", "xml"}},
 		},
 		Children: []schema.Block{
 			{Type: "headers", Doc: "Default request headers", Open: true},
+			{Type: "retry", Doc: "Retry policy for failed requests", Attrs: []schema.Attr{
+				{Name: "attempts", Doc: "Maximum retry attempts", Type: schema.TypeNumber},
+			}},
 			{Type: "auth", Doc: "Authentication", Open: true, Attrs: []schema.Attr{
 				{Name: "type", Doc: "Auth type", Type: schema.TypeString, Values: []string{"bearer", "api_key", "basic", "oauth2"}},
 				{Name: "token", Doc: "Bearer token", Type: schema.TypeString},

@@ -35,11 +35,9 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 		host = "localhost"
 	}
 
-	// Get port (optional, default 3306)
-	port := 3306
-	if p, ok := cfg.Properties["port"].(int); ok {
-		port = p
-	}
+	// Get port (optional, default 3306). Accepts numeric and string values
+	// so port = env("DB_PORT", "3306") works.
+	port := connector.IntFromProps(cfg.Properties, "port", 3306)
 
 	// Get database name (required)
 	database, ok := cfg.Properties["database"].(string)
@@ -109,13 +107,13 @@ func parseReplicaConfig(m map[string]interface{}) ReplicaConfig {
 	if host, ok := m["host"].(string); ok {
 		replica.Host = host
 	}
-	if port, ok := m["port"].(int); ok {
+	if port, ok := connector.IntFromPropsStrict(m, "port"); ok {
 		replica.Port = port
 	}
-	if weight, ok := m["weight"].(int); ok {
+	if weight, ok := connector.IntFromPropsStrict(m, "weight"); ok {
 		replica.Weight = weight
 	}
-	if maxConns, ok := m["max_connections"].(int); ok {
+	if maxConns, ok := connector.IntFromPropsStrict(m, "max_connections"); ok {
 		replica.MaxConns = maxConns
 	}
 

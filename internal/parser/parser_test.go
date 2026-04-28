@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -1583,5 +1584,201 @@ flow "bad_flow" {
 	_, err := parser.ParseFile(context.Background(), tmpFile)
 	if err == nil {
 		t.Fatal("expected error for invalid on_reject value")
+	}
+}
+
+// TestSyncStorageNumericPort covers the canonical case: port given as a number.
+func TestSyncStorageNumericPort(t *testing.T) {
+	hcl := `
+flow "x" {
+  from {
+    connector = "redis"
+    target    = "trigger"
+  }
+
+  coordinate {
+    storage {
+      driver = "redis"
+      host   = "localhost"
+      port   = 6379
+      db     = 0
+    }
+    timeout = "5s"
+    wait {
+      when = "true"
+      for  = "'k'"
+    }
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	cfg, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(cfg.Flows) != 1 || cfg.Flows[0].Coordinate == nil || cfg.Flows[0].Coordinate.Storage == nil {
+		t.Fatalf("expected coordinate.storage to be parsed")
+	}
+	if cfg.Flows[0].Coordinate.Storage.Port != 6379 {
+		t.Errorf("expected port 6379, got %d", cfg.Flows[0].Coordinate.Storage.Port)
+	}
+}
+
+// TestSyncStorageStringPort guards against the v1.19.0 panic: env() returns
+// strings, so port = "6379" must parse cleanly instead of crashing the runtime.
+func TestSyncStorageStringPort(t *testing.T) {
+	hcl := `
+flow "x" {
+  from {
+    connector = "redis"
+    target    = "trigger"
+  }
+
+  coordinate {
+    storage {
+      driver = "redis"
+      host   = "localhost"
+      port   = "6379"
+      db     = "0"
+    }
+    timeout = "5s"
+    wait {
+      when = "true"
+      for  = "'k'"
+    }
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	cfg, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	storage := cfg.Flows[0].Coordinate.Storage
+	if storage.Port != 6379 {
+		t.Errorf("expected port 6379, got %d", storage.Port)
+	}
+	if storage.DB != 0 {
+		t.Errorf("expected db 0, got %d", storage.DB)
+	}
+}
+
+// TestSyncStorageInvalidPort ensures non-numeric strings produce a typed error
+// instead of a panic.
+func TestSyncStorageInvalidPort(t *testing.T) {
+	hcl := `
+flow "x" {
+  from {
+    connector = "redis"
+    target    = "trigger"
+  }
+
+  coordinate {
+    storage {
+      driver = "redis"
+      host   = "localhost"
+      port   = "not-a-number"
+    }
+    timeout = "5s"
+    wait {
+      when = "true"
+      for  = "'k'"
+    }
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	_, err := parser.ParseFile(context.Background(), tmpFile)
+	if err == nil {
+		t.Fatal("expected error for non-numeric port")
+	}
+	if !strings.Contains(err.Error(), "port") {
+		t.Errorf("expected error to mention port, got: %v", err)
+	}
+}
+
+// TestConnectorRetryBlock validates the canonical retry { attempts = N } form
+// on connectors. Previously the parser accepted attempts + backoff but the
+// docs/IDE schema declared count + interval + backoff — the divergence meant
+// no documented form actually worked.
+func TestConnectorRetryBlock(t *testing.T) {
+	hcl := `
+connector "api" {
+  type     = "http"
+  base_url = "https://api.example.com"
+
+  retry {
+    attempts = 5
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "connector.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	cfg, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(cfg.Connectors) != 1 {
+		t.Fatalf("expected 1 connector, got %d", len(cfg.Connectors))
+	}
+	retry, ok := cfg.Connectors[0].Properties["retry"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected retry properties to be a map, got %T", cfg.Connectors[0].Properties["retry"])
+	}
+	if retry["attempts"] != 5 {
+		t.Errorf("expected retry.attempts = 5, got %v", retry["attempts"])
+	}
+}
+
+// TestConnectorRetryBlockRejectsCount guards against the v1.19.0 documentation
+// vocabulary (count) silently breaking — until the docs are aligned, the
+// parser must reject "count" with a clear error rather than appearing to work.
+func TestConnectorRetryBlockRejectsCount(t *testing.T) {
+	hcl := `
+connector "api" {
+  type     = "http"
+  base_url = "https://api.example.com"
+
+  retry {
+    count = 5
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "connector.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	_, err := parser.ParseFile(context.Background(), tmpFile)
+	if err == nil {
+		t.Fatal("expected error for unsupported retry attribute 'count'")
+	}
+	if !strings.Contains(err.Error(), "count") {
+		t.Errorf("expected error to mention 'count', got: %v", err)
 	}
 }

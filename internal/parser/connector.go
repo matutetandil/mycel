@@ -876,12 +876,14 @@ func parseHeadersBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]inter
 	return headers, nil
 }
 
-// parseRetryBlock parses a retry configuration block.
+// parseRetryBlock parses a retry configuration block on a connector. Only
+// "attempts" is honored at runtime today; the connector applies a fixed
+// exponential backoff. The vocabulary is kept aligned with the flow-level
+// retry block (parseRetryConfigBlock) so users see one consistent name.
 func parseRetryBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interface{}, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "attempts"},
-			{Name: "backoff"},
 		},
 	}
 

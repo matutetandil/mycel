@@ -45,14 +45,12 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 		timeout = time.Duration(t) * time.Second
 	}
 
-	// Get retry count (optional, default 1)
-	retryCount := 1
-	if r, ok := cfg.Properties["retry_count"].(int); ok {
-		retryCount = r
-	}
-	// Also check nested retry block
+	// Get retry count (optional, default 1). Accepts numeric and string values
+	// so retry_count = env("RETRY", "3") works.
+	retryCount := connector.IntFromProps(cfg.Properties, "retry_count", 1)
+	// Nested retry block takes precedence over the shorthand.
 	if retry, ok := cfg.Properties["retry"].(map[string]interface{}); ok {
-		if attempts, ok := retry["attempts"].(int); ok {
+		if attempts, ok := connector.IntFromPropsStrict(retry, "attempts"); ok {
 			retryCount = attempts
 		}
 	}
