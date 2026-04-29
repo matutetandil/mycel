@@ -118,6 +118,12 @@ type Config struct {
 	// Coordinate defines signal/wait coordination for this flow.
 	Coordinate *CoordinateConfig
 
+	// SequenceGuard rejects messages whose sequence number is not strictly
+	// greater than the last one observed for the same key. Used to prevent
+	// out-of-order delivery from regressing per-resource state (e.g. an old
+	// product update overwriting a newer one).
+	SequenceGuard *SequenceGuardConfig
+
 	// Cache defines caching behavior for this flow.
 	Cache *CacheConfig
 
@@ -733,6 +739,42 @@ type SemaphoreConfig struct {
 
 	// Lease is the maximum time to hold a permit before auto-release (e.g., "60s").
 	Lease string
+}
+
+// SequenceGuardConfig holds monotonic sequence-number deduplication for a
+// flow. When a message arrives, the runtime reads the last sequence stored
+// for the resolved key and only proceeds when the current sequence is
+// strictly greater. Older or equal sequences are rejected with the
+// configured policy. After a successful flow execution the stored sequence
+// is bumped to the current value.
+//
+// Designed to compose with Lock — wrap the same key in both blocks and the
+// outer lock guarantees the read-decide-write pattern is atomic across
+// concurrent workers without explicit CAS.
+type SequenceGuardConfig struct {
+	// Storage defines the storage backend (Redis or in-memory). Same shape
+	// as LockConfig / CoordinateConfig — accepts either a `url` or
+	// `host`/`port`/`password`/`db`.
+	Storage *SyncStorageConfig
+
+	// Key is a CEL expression for the sequence key (per-resource scope).
+	// Example: "'sku:' + input.body.payload.styleNumber"
+	Key string
+
+	// Sequence is a CEL expression yielding the current monotonic value.
+	// Must evaluate to a number. Example: "input.body.payload.jobId"
+	Sequence string
+
+	// OnOlder defines what to do when the current sequence is <= the stored
+	// sequence: "ack", "reject", or "requeue". Defaults to "ack" — the
+	// most common case (older message superseded by a newer one already
+	// processed).
+	OnOlder string
+
+	// TTL is how long to keep the stored sequence after the last update
+	// (e.g., "30d"). Empty means no expiry. Long-tail keys can leak; a
+	// 30-day TTL is the recommended baseline.
+	TTL string
 }
 
 // CoordinateConfig holds coordination configuration for a flow.

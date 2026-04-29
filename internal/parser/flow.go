@@ -37,6 +37,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			{Type: "lock"},
 			{Type: "semaphore"},
 			{Type: "coordinate"},
+			{Type: "sequence_guard"},
 			{Type: "cache"},
 			{Type: "validate"},
 			{Type: "enrich", LabelNames: []string{"name"}},
@@ -147,6 +148,13 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 				return nil, fmt.Errorf("coordinate block error: %w", err)
 			}
 			config.Coordinate = coord
+
+		case "sequence_guard":
+			sg, err := parseSequenceGuardBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("sequence_guard block error: %w", err)
+			}
+			config.SequenceGuard = sg
 
 		case "cache":
 			cache, err := parseCacheBlock(nestedBlock, ctx)
@@ -1899,6 +1907,94 @@ func parseLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, e
 	}
 
 	return lock, nil
+}
+
+// parseSequenceGuardBlock parses a sequence_guard block in a flow.
+// Supports format:
+//
+//	sequence_guard {
+//	  storage {
+//	    driver = "redis"
+//	    url    = "redis://localhost:6379"
+//	  }
+//	  key      = "'sku:' + input.body.sku"
+//	  sequence = "input.body.jobId"
+//	  on_older = "ack"
+//	  ttl      = "30d"
+//	}
+func parseSequenceGuardBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SequenceGuardConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "key", Required: true},
+			{Name: "sequence", Required: true},
+			{Name: "on_older"},
+			{Name: "ttl"},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "storage"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("sequence_guard block content error: %s", diags.Error())
+	}
+
+	sg := &flow.SequenceGuardConfig{}
+
+	for _, nestedBlock := range content.Blocks {
+		if nestedBlock.Type == "storage" {
+			storage, err := parseSyncStorageBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("sequence_guard storage error: %w", err)
+			}
+			sg.Storage = storage
+		}
+	}
+
+	if attr, ok := content.Attributes["key"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("sequence_guard key error: %s", diags.Error())
+		}
+		sg.Key = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["sequence"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("sequence_guard sequence error: %s", diags.Error())
+		}
+		sg.Sequence = val.AsString()
+	}
+
+	if attr, ok := content.Attributes["on_older"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("sequence_guard on_older error: %s", diags.Error())
+		}
+		policy := val.AsString()
+		switch policy {
+		case "", "ack", "reject", "requeue":
+			sg.OnOlder = policy
+		default:
+			return nil, fmt.Errorf("sequence_guard on_older must be ack, reject, or requeue (got %q)", policy)
+		}
+	}
+
+	if attr, ok := content.Attributes["ttl"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("sequence_guard ttl error: %s", diags.Error())
+		}
+		sg.TTL = val.AsString()
+	}
+
+	if sg.Storage == nil {
+		return nil, fmt.Errorf("sequence_guard requires a storage block")
+	}
+
+	return sg, nil
 }
 
 // parseSemaphoreBlock parses a semaphore block in a flow.

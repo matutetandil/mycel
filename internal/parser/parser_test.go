@@ -1819,6 +1819,147 @@ flow "magento_post" {
 	}
 }
 
+// TestSequenceGuardBlock: parser captures all attributes on a sequence_guard block.
+func TestSequenceGuardBlock(t *testing.T) {
+	hcl := `
+flow "guarded" {
+  from {
+    connector = "rabbit"
+    target    = "q"
+  }
+
+  sequence_guard {
+    storage {
+      driver = "redis"
+      url    = "redis://localhost:6379"
+    }
+    key      = "'sku:' + input.body.sku"
+    sequence = "input.body.jobId"
+    on_older = "ack"
+    ttl      = "30d"
+  }
+
+  to {
+    connector = "rabbit"
+    target    = "out"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	cfg, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(cfg.Flows) != 1 || cfg.Flows[0].SequenceGuard == nil {
+		t.Fatalf("expected sequence_guard to be parsed")
+	}
+	sg := cfg.Flows[0].SequenceGuard
+	if sg.Key != "'sku:' + input.body.sku" {
+		t.Errorf("key: got %q", sg.Key)
+	}
+	if sg.Sequence != "input.body.jobId" {
+		t.Errorf("sequence: got %q", sg.Sequence)
+	}
+	if sg.OnOlder != "ack" {
+		t.Errorf("on_older: got %q", sg.OnOlder)
+	}
+	if sg.TTL != "30d" {
+		t.Errorf("ttl: got %q", sg.TTL)
+	}
+	if sg.Storage == nil || sg.Storage.Driver != "redis" || sg.Storage.URL != "redis://localhost:6379" {
+		t.Errorf("storage: got %+v", sg.Storage)
+	}
+}
+
+// TestSequenceGuardBlockHostPort: parser supports host/port form too (not just url).
+func TestSequenceGuardBlockHostPort(t *testing.T) {
+	hcl := `
+flow "guarded" {
+  from {
+    connector = "rabbit"
+    target    = "q"
+  }
+
+  sequence_guard {
+    storage {
+      driver   = "redis"
+      host     = env("REDIS_HOST", "localhost")
+      port     = env("REDIS_PORT", "6379")
+      password = env("REDIS_PASSWORD", "")
+      db       = env("REDIS_DB", "0")
+    }
+    key      = "'sku:' + input.body.sku"
+    sequence = "input.body.jobId"
+  }
+
+  to {
+    connector = "rabbit"
+    target    = "out"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	cfg, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	sg := cfg.Flows[0].SequenceGuard
+	if sg == nil || sg.Storage == nil {
+		t.Fatalf("expected storage parsed")
+	}
+	if sg.Storage.Host != "localhost" || sg.Storage.Port != 6379 || sg.Storage.DB != 0 {
+		t.Errorf("storage host/port/db not coerced from string env: %+v", sg.Storage)
+	}
+}
+
+// TestSequenceGuardBlockInvalidPolicy: parser rejects unknown on_older values.
+func TestSequenceGuardBlockInvalidPolicy(t *testing.T) {
+	hcl := `
+flow "guarded" {
+  from {
+    connector = "rabbit"
+    target    = "q"
+  }
+
+  sequence_guard {
+    storage { driver = "memory" }
+    key      = "'sku:' + input.body.sku"
+    sequence = "input.body.jobId"
+    on_older = "wat"
+  }
+
+  to {
+    connector = "rabbit"
+    target    = "out"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+	_, err := NewHCLParser().ParseFile(context.Background(), tmpFile)
+	if err == nil {
+		t.Fatal("expected error for invalid on_older")
+	}
+	if !strings.Contains(err.Error(), "on_older") {
+		t.Errorf("expected error to mention on_older, got: %v", err)
+	}
+}
+
 // TestStepBlockEnvelope: parser captures the envelope key on a step block.
 func TestStepBlockEnvelope(t *testing.T) {
 	hcl := `

@@ -375,7 +375,85 @@ lock {
 
 `port` and `db` accept either a numeric literal (`port = 6379`) or a string (`port = "6379"`), so values sourced from `env()` — which always returns strings — work without conversion.
 
-Both forms (`url` and `host`/`port`) work for `lock`, `semaphore`, and `coordinate`. Use whichever matches your environment.
+Both forms (`url` and `host`/`port`) work for `lock`, `semaphore`, `coordinate`, and `sequence_guard`. Use whichever matches your environment.
+
+## Sequence Guard (Monotonic Dedup)
+
+A `sequence_guard` block rejects messages whose monotonic sequence number is not strictly greater than the last one observed for the same key. The classic use case: an MQ source that may redeliver — under retry, fan-out, requeue policies, or just multi-worker shuffling — and would otherwise let an older update overwrite a newer one already applied. This is **comparative** dedup, not the boolean "have I seen this exact key" of `dedupe` and `idempotency`.
+
+```hcl
+flow "style_update" {
+  from {
+    connector = "rabbit"
+    operation = "all.in.magento.q"
+  }
+
+  // Atomic boundary: serialize same-SKU work across workers.
+  lock {
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
+    key     = "'sku_lock:' + input.body.payload.styleNumber"
+    timeout = "30s"
+    wait    = true
+  }
+
+  // Reject older or equal jobIds for this SKU.
+  sequence_guard {
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
+    key      = "'sku_seq:' + input.body.payload.styleNumber"
+    sequence = "input.body.payload.jobId"
+    on_older = "ack"   // ack | reject | requeue
+    ttl      = "30d"
+  }
+
+  transform { /* ... */ }
+
+  to {
+    connector = "magento"
+    target    = "/rest/V1/products"
+    operation = "POST"
+    envelope  = "productData"
+  }
+}
+```
+
+### How it composes
+
+When more than one sync block is configured on a flow, wrappers run from outer to inner:
+
+```
+lock → coordinate → sequence_guard → transform → to → (write-back)
+```
+
+- **`lock`** holds the SKU mutex for the duration of the flow, so the read-decide-execute-write pattern of the sequence guard is atomic across workers without explicit CAS.
+- **`coordinate`** waits on cross-flow signals (e.g. parent must exist before child) before the guard checks. This way the guard sees up-to-date dependencies.
+- **`sequence_guard`** reads the stored sequence; if `current <= stored`, returns immediately with the configured `on_older` policy and the destination is never touched. If `current > stored`, the flow proceeds.
+- **Write-back** to the stored sequence happens automatically only after the entire flow succeeds. If the destination POST fails, the stored sequence is **not** bumped — the next retry of the same `jobId` can pass through and try again.
+
+### Attributes
+
+| Attribute | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `storage` | block | yes | — | Inline storage config (`driver`, `url` or `host`/`port`/`password`/`db`) |
+| `key` | string | yes | — | CEL expression for the per-resource key |
+| `sequence` | string | yes | — | CEL expression yielding the current numeric sequence |
+| `on_older` | string | no | `"ack"` | What to do when current is not strictly greater than stored: `ack` (drop silently), `reject` (DLQ), `requeue` (return to queue) |
+| `ttl` | duration | no | no expiry | How long to retain stored sequences after the last update (e.g. `30d`) |
+
+### Semantics, edge cases
+
+- The comparison is strict-greater (`current > stored`). An equal sequence is rejected — already processed.
+- Missing or non-numeric `sequence` evaluates to `0`. A new key with an unset store is treated as "no stored value", so the message passes through and the store is initialized.
+- `on_older = "ack"` is the right default for almost every case: an older message has already been superseded; dropping it silently is correct.
+- `on_older = "reject"` sends the message to the DLQ. Use this when older messages signal an upstream bug and you want them visible.
+- `on_older = "requeue"` puts the message back on the queue. Rarely useful for sequence dedup — it would just re-deliver the same older message — but supported for symmetry with `filter`.
+- Atomicity requires the outer `lock` on the same key. Without it, two workers can read the same stored value concurrently and both proceed; the guard cannot detect the race on its own.
+- Write-back failures are logged but do not propagate. The destination side effect already happened; the next retry will simply re-process — acceptable when the destination is idempotent for the same `jobId`.
 
 ## See Also
 

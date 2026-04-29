@@ -48,6 +48,7 @@ func FlowSchema() Block {
 			LockSchema(),
 			SemaphoreSchema(),
 			CoordinateSchema(),
+			SequenceGuardSchema(),
 			FlowCacheSchema(),
 			RequireSchema(),
 			AfterSchema(),
@@ -257,6 +258,22 @@ func CoordinateSchema() Block {
 				{Name: "query", Doc: "Query to execute", Type: TypeString},
 				{Name: "if_exists", Doc: "Behavior if query returns results", Type: TypeString, Values: []string{"pass", "fail"}},
 			}},
+		},
+	}
+}
+
+func SequenceGuardSchema() Block {
+	return Block{
+		Type: "sequence_guard",
+		Doc:  "Monotonic sequence dedup — rejects messages whose sequence is not strictly greater than the last one stored for the same key. Compose with lock for atomicity.",
+		Attrs: []Attr{
+			{Name: "key", Doc: "CEL expression for the per-resource key (e.g. 'sku:' + input.body.sku)", Type: TypeString, Required: true},
+			{Name: "sequence", Doc: "CEL expression yielding a monotonic numeric sequence (e.g. input.body.jobId)", Type: TypeString, Required: true},
+			{Name: "on_older", Doc: "What to do when current sequence is not strictly greater than stored", Type: TypeString, Values: []string{"ack", "reject", "requeue"}},
+			{Name: "ttl", Doc: "How long to retain stored sequences after the last update (e.g. 30d)", Type: TypeDuration},
+		},
+		Children: []Block{
+			SyncStorageSchema(),
 		},
 	}
 }

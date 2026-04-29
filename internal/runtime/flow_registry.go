@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1065,82 +1066,119 @@ func (h *FlowHandler) resultToConnectorResult(result interface{}) *connector.Res
 	}
 }
 
-// executeFlowCore executes the core flow logic without aspects.
+// executeFlowCore executes the core flow logic without aspects, wrapping it
+// in any configured sync primitives. Wrappers compose from outer to inner:
+// lock → coordinate → sequence_guard → core. The outermost lock guarantees
+// atomicity for the inner read-decide-write of sequence_guard, so a flow
+// can safely combine them on the same key.
 func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]interface{}) (interface{}, error) {
-	// Build the core execution function
-	executeCore := func() (interface{}, error) {
+	// Innermost call: the actual flow logic.
+	exec := func() (interface{}, error) {
 		return h.executeFlowCoreInternal(ctx, input)
 	}
 
-	// Wrap with sync primitives if configured
-	if h.SyncManager != nil {
-		// Handle lock
-		if h.Config.Lock != nil {
-			lockKey := h.evaluateSyncKey(ctx, h.Config.Lock.Key, input)
-			lockCfg := &msync.FlowLockConfig{
-				Storage: mapSyncStorage(h.Config.Lock.Storage),
-				Key:     h.Config.Lock.Key,
-				Timeout: h.Config.Lock.Timeout,
-				Wait:    h.Config.Lock.Wait,
-				Retry:   h.Config.Lock.Retry,
-			}
-			return h.SyncManager.ExecuteWithLock(ctx, lockCfg, lockKey, executeCore)
+	if h.SyncManager == nil {
+		return exec()
+	}
+
+	// Wrap (innermost first): sequence_guard → coordinate → semaphore → lock.
+	// Each wrap captures the previous exec; outer wraps run earlier.
+	if h.Config.SequenceGuard != nil {
+		sgCfg := &msync.FlowSequenceGuardConfig{
+			Storage:  mapSyncStorage(h.Config.SequenceGuard.Storage),
+			Key:      h.Config.SequenceGuard.Key,
+			Sequence: h.Config.SequenceGuard.Sequence,
+			OnOlder:  h.Config.SequenceGuard.OnOlder,
+			TTL:      h.Config.SequenceGuard.TTL,
 		}
-
-		// Handle semaphore
-		if h.Config.Semaphore != nil {
-			semKey := h.evaluateSyncKey(ctx, h.Config.Semaphore.Key, input)
-			semCfg := &msync.FlowSemaphoreConfig{
-				Storage:    mapSyncStorage(h.Config.Semaphore.Storage),
-				Key:        h.Config.Semaphore.Key,
-				MaxPermits: h.Config.Semaphore.MaxPermits,
-				Timeout:    h.Config.Semaphore.Timeout,
-				Lease:      h.Config.Semaphore.Lease,
+		key := h.evaluateSyncKey(ctx, h.Config.SequenceGuard.Key, input)
+		current := h.evaluateSyncSequence(ctx, h.Config.SequenceGuard.Sequence, input)
+		inner := exec
+		exec = func() (interface{}, error) {
+			result, err := h.SyncManager.ExecuteWithSequenceGuard(ctx, sgCfg, key, current, inner)
+			if skipped, ok := msync.IsSequenceGuardSkipped(err); ok {
+				// Translate the sentinel error into the policy-aware filtered
+				// result the MQ consumers know how to ack/reject/requeue.
+				return &flow.FilteredResultWithPolicy{
+					Filtered: true,
+					Policy:   string(skipped.Policy),
+				}, nil
 			}
-			return h.SyncManager.ExecuteWithSemaphore(ctx, semCfg, semKey, executeCore)
-		}
-
-		// Handle coordinate
-		if h.Config.Coordinate != nil {
-			var waitKey, signalKey string
-			if h.Config.Coordinate.Wait != nil {
-				waitKey = h.evaluateSyncKey(ctx, h.Config.Coordinate.Wait.For, input)
-			}
-			if h.Config.Coordinate.Signal != nil {
-				signalKey = h.evaluateSyncKey(ctx, h.Config.Coordinate.Signal.Emit, input)
-			}
-
-			var waitCfg *msync.FlowWaitConfig
-			if h.Config.Coordinate.Wait != nil {
-				waitCfg = &msync.FlowWaitConfig{
-					When: h.Config.Coordinate.Wait.When,
-					For:  h.Config.Coordinate.Wait.For,
-				}
-			}
-			var signalFlowCfg *msync.FlowSignalConfig
-			if h.Config.Coordinate.Signal != nil {
-				signalFlowCfg = &msync.FlowSignalConfig{
-					When: h.Config.Coordinate.Signal.When,
-					Emit: h.Config.Coordinate.Signal.Emit,
-					TTL:  h.Config.Coordinate.Signal.TTL,
-				}
-			}
-
-			coordCfg := &msync.FlowCoordinateConfig{
-				Storage:            mapSyncStorage(h.Config.Coordinate.Storage),
-				Wait:               waitCfg,
-				Signal:             signalFlowCfg,
-				Timeout:            h.Config.Coordinate.Timeout,
-				OnTimeout:          h.Config.Coordinate.OnTimeout,
-				MaxRetries:         h.Config.Coordinate.MaxRetries,
-				MaxConcurrentWaits: h.Config.Coordinate.MaxConcurrentWaits,
-			}
-			return h.SyncManager.ExecuteWithCoordinate(ctx, coordCfg, signalKey, waitKey, executeCore)
+			return result, err
 		}
 	}
 
-	// No sync primitives, execute directly
-	return executeCore()
+	if h.Config.Coordinate != nil {
+		var waitKey, signalKey string
+		if h.Config.Coordinate.Wait != nil {
+			waitKey = h.evaluateSyncKey(ctx, h.Config.Coordinate.Wait.For, input)
+		}
+		if h.Config.Coordinate.Signal != nil {
+			signalKey = h.evaluateSyncKey(ctx, h.Config.Coordinate.Signal.Emit, input)
+		}
+
+		var waitCfg *msync.FlowWaitConfig
+		if h.Config.Coordinate.Wait != nil {
+			waitCfg = &msync.FlowWaitConfig{
+				When: h.Config.Coordinate.Wait.When,
+				For:  h.Config.Coordinate.Wait.For,
+			}
+		}
+		var signalFlowCfg *msync.FlowSignalConfig
+		if h.Config.Coordinate.Signal != nil {
+			signalFlowCfg = &msync.FlowSignalConfig{
+				When: h.Config.Coordinate.Signal.When,
+				Emit: h.Config.Coordinate.Signal.Emit,
+				TTL:  h.Config.Coordinate.Signal.TTL,
+			}
+		}
+
+		coordCfg := &msync.FlowCoordinateConfig{
+			Storage:            mapSyncStorage(h.Config.Coordinate.Storage),
+			Wait:               waitCfg,
+			Signal:             signalFlowCfg,
+			Timeout:            h.Config.Coordinate.Timeout,
+			OnTimeout:          h.Config.Coordinate.OnTimeout,
+			MaxRetries:         h.Config.Coordinate.MaxRetries,
+			MaxConcurrentWaits: h.Config.Coordinate.MaxConcurrentWaits,
+		}
+		inner := exec
+		exec = func() (interface{}, error) {
+			return h.SyncManager.ExecuteWithCoordinate(ctx, coordCfg, signalKey, waitKey, inner)
+		}
+	}
+
+	if h.Config.Semaphore != nil {
+		semKey := h.evaluateSyncKey(ctx, h.Config.Semaphore.Key, input)
+		semCfg := &msync.FlowSemaphoreConfig{
+			Storage:    mapSyncStorage(h.Config.Semaphore.Storage),
+			Key:        h.Config.Semaphore.Key,
+			MaxPermits: h.Config.Semaphore.MaxPermits,
+			Timeout:    h.Config.Semaphore.Timeout,
+			Lease:      h.Config.Semaphore.Lease,
+		}
+		inner := exec
+		exec = func() (interface{}, error) {
+			return h.SyncManager.ExecuteWithSemaphore(ctx, semCfg, semKey, inner)
+		}
+	}
+
+	if h.Config.Lock != nil {
+		lockKey := h.evaluateSyncKey(ctx, h.Config.Lock.Key, input)
+		lockCfg := &msync.FlowLockConfig{
+			Storage: mapSyncStorage(h.Config.Lock.Storage),
+			Key:     h.Config.Lock.Key,
+			Timeout: h.Config.Lock.Timeout,
+			Wait:    h.Config.Lock.Wait,
+			Retry:   h.Config.Lock.Retry,
+		}
+		inner := exec
+		exec = func() (interface{}, error) {
+			return h.SyncManager.ExecuteWithLock(ctx, lockCfg, lockKey, inner)
+		}
+	}
+
+	return exec()
 }
 
 // mapSyncStorage maps flow.SyncStorageConfig to sync.SyncStorageConfig.
@@ -1176,6 +1214,38 @@ func (h *FlowHandler) evaluateSyncKey(ctx context.Context, keyExpr string, input
 	}
 
 	return keyExpr
+}
+
+// evaluateSyncSequence evaluates a CEL expression yielding an int64 sequence
+// number. Empty / invalid / non-numeric expressions evaluate to 0 — the
+// sequence_guard will treat that as "no sequence", which means new messages
+// without a stored value pass through and any existing stored value blocks
+// them (the safe default).
+func (h *FlowHandler) evaluateSyncSequence(ctx context.Context, expr string, input map[string]interface{}) int64 {
+	if expr == "" || h.Transformer == nil {
+		return 0
+	}
+	result, err := h.Transformer.EvaluateExpression(ctx, input, nil, expr)
+	if err != nil {
+		return 0
+	}
+	switch v := result.(type) {
+	case int:
+		return int64(v)
+	case int64:
+		return v
+	case uint64:
+		return int64(v)
+	case float64:
+		return int64(v)
+	case string:
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return 0
+		}
+		return n
+	}
+	return 0
 }
 
 // executeFlowCoreInternal contains the actual flow logic.

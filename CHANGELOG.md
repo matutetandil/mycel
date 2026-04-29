@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.0] - 2026-04-29
+
+### Added
+- **`sequence_guard` block — monotonic sequence-number deduplication per resource**: rejects messages whose sequence number is not strictly greater than the last one stored for the same key. Use case: an MQ source that may re-deliver under retry / fan-out / requeue, where an older update must not overwrite a newer one already applied. Different from `dedupe` (boolean "have I seen this key") and `idempotency` (returns cached result for same key) — this is **comparative** dedup, with a stored numeric sequence per key.
+
+  ```hcl
+  flow "style_update" {
+    from { connector = "rabbit" operation = "all.in.magento.q" }
+
+    lock {
+      storage { driver = "redis" url = env("REDIS_URL", "...") }
+      key = "'sku:' + input.body.payload.sku"
+    }
+
+    sequence_guard {
+      storage  { driver = "redis" url = env("REDIS_URL", "...") }
+      key      = "'sku:' + input.body.payload.sku"
+      sequence = "input.body.payload.jobId"
+      on_older = "ack"
+      ttl      = "30d"
+    }
+
+    transform { /* ... */ }
+    to { connector = "magento" target = "/rest/V1/products" operation = "POST" envelope = "productData" }
+  }
+  ```
+
+  - Storage block accepts both `url` and `host`/`port`/`password`/`db` forms (consistent with `lock`/`coordinate`).
+  - Read happens after `accept`, before `transform`. If `current <= stored`, the flow returns the configured `on_older` policy (`ack` / `reject` / `requeue`) and the destination is never touched.
+  - Write-back happens only after a successful flow execution. If the destination errors, the stored sequence is **not** bumped, so the next retry can re-process.
+  - Atomicity requires an outer `lock` on the same key — wraps run from outer to inner: `lock → coordinate → sequence_guard → transform → to`.
+
+- **Sync primitives compose now**: `executeFlowCore` was refactored from else-if to chained wrappers. A flow can use `lock` + `coordinate` + `sequence_guard` together; the previous code only honored one. Existing single-primitive flows are unaffected.
+
+- **Docs**: `docs/guides/synchronization.md` gains a "Sequence Guard" section covering composition, semantics, and edge cases.
+
+### Backend
+- New `internal/sync/sequence_guard.go` (interface), `sequence_guard_memory.go` (in-process backend with TTL reaper), `sequence_guard_redis.go` (Redis GET/SET backend keyed by `mycel:seqguard:`). Manager exposes `GetSequenceGuard` and `ExecuteWithSequenceGuard` paralleling the lock/semaphore/coordinate APIs.
+
+### Tests
+- 6 unit tests for the memory backend covering empty reads, write-then-read, TTL expiry, distinct keys, overwrites, and `on_older` parsing.
+- 3 parser tests for the HCL block (full attrs, host/port form, invalid `on_older`).
+- 6 runtime integration tests against a real `httptest.Server`: first message bumps store, older rejected, equal rejected, newer passes (and bumps), distinct keys are independent, destination failure does **not** bump the store.
+
 ## [1.19.7] - 2026-04-29
 
 ### Fixed

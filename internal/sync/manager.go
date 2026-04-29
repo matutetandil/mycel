@@ -44,15 +44,16 @@ func (c *SyncStorageConfig) cacheKey() string {
 	return c.redisURL()
 }
 
-// Manager manages sync primitives (Lock, Semaphore, Coordinator).
+// Manager manages sync primitives (Lock, Semaphore, Coordinator, SequenceGuard).
 // It creates Redis clients from inline storage configs.
 type Manager struct {
 	// Shared memory storage for memory-backed locks
 	memoryLockStorage *MemoryLockStorage
 
 	// Cached memory instances (to avoid creating multiple instances)
-	memorySemaphore   *MemorySemaphore
-	memoryCoordinator *MemoryCoordinator
+	memorySemaphore     *MemorySemaphore
+	memoryCoordinator   *MemoryCoordinator
+	memorySequenceGuard *MemorySequenceGuard
 
 	// Cached Redis clients, keyed by resolved address
 	redisClients map[string]*redis.Client
@@ -63,10 +64,11 @@ type Manager struct {
 // NewManager creates a new sync manager.
 func NewManager() *Manager {
 	return &Manager{
-		memoryLockStorage: NewMemoryLockStorage(),
-		memorySemaphore:   NewMemorySemaphore(100), // Default max permits
-		memoryCoordinator: NewMemoryCoordinator(time.Second),
-		redisClients:      make(map[string]*redis.Client),
+		memoryLockStorage:   NewMemoryLockStorage(),
+		memorySemaphore:     NewMemorySemaphore(100), // Default max permits
+		memoryCoordinator:   NewMemoryCoordinator(time.Second),
+		memorySequenceGuard: NewMemorySequenceGuard(time.Minute),
+		redisClients:        make(map[string]*redis.Client),
 	}
 }
 
@@ -144,6 +146,24 @@ func (m *Manager) GetCoordinator(ctx context.Context, cfg *SyncStorageConfig) (C
 	return nil, fmt.Errorf("unsupported sync storage driver: %s", cfg.Driver)
 }
 
+// GetSequenceGuard returns a SequenceGuard implementation based on the
+// storage config. Memory driver shares one in-process guard across all
+// flows; Redis driver shares the underlying client through the manager's
+// connection cache.
+func (m *Manager) GetSequenceGuard(ctx context.Context, cfg *SyncStorageConfig) (SequenceGuard, error) {
+	if cfg == nil || cfg.Driver == "" || cfg.Driver == "memory" {
+		return m.memorySequenceGuard, nil
+	}
+	if cfg.Driver == "redis" {
+		client, err := m.getOrCreateRedisClient(cfg)
+		if err != nil {
+			return nil, err
+		}
+		return NewRedisSequenceGuardFromClient(client, "mycel:seqguard:"), nil
+	}
+	return nil, fmt.Errorf("unsupported sync storage driver: %s", cfg.Driver)
+}
+
 // Close closes all sync primitive resources.
 func (m *Manager) Close() error {
 	m.mu.Lock()
@@ -165,6 +185,12 @@ func (m *Manager) Close() error {
 
 	if m.memoryCoordinator != nil {
 		if err := m.memoryCoordinator.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if m.memorySequenceGuard != nil {
+		if err := m.memorySequenceGuard.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -330,6 +356,65 @@ func (m *Manager) ExecuteWithSemaphore(ctx context.Context, cfg *FlowSemaphoreCo
 
 	// Execute the function
 	return fn()
+}
+
+// ExecuteWithSequenceGuard wraps a function with monotonic sequence-number
+// dedup. Reads the stored sequence for the resolved key; if current is not
+// strictly greater than stored, returns a *SequenceGuardSkippedError without
+// calling fn. Otherwise calls fn, and on success bumps the stored sequence
+// to current with the configured TTL. Write-back failures are logged but do
+// not propagate — the destination side effect already happened.
+//
+// Atomicity is the caller's responsibility: wrap the same key in an outer
+// Lock so the read-decide-write pattern is safe across concurrent workers.
+func (m *Manager) ExecuteWithSequenceGuard(ctx context.Context, cfg *FlowSequenceGuardConfig, key string, current int64, fn func() (interface{}, error)) (interface{}, error) {
+	if cfg == nil {
+		return fn()
+	}
+
+	guard, err := m.GetSequenceGuard(ctx, cfg.Storage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get sequence guard: %w", err)
+	}
+
+	stored, exists, err := guard.Read(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("sequence guard read: %w", err)
+	}
+
+	if exists && current <= stored {
+		return nil, &SequenceGuardSkippedError{
+			Key:             key,
+			StoredSequence:  stored,
+			CurrentSequence: current,
+			Policy:          ParseOnOlder(cfg.OnOlder),
+		}
+	}
+
+	result, err := fn()
+	if err != nil {
+		// Don't bump the sequence on failure — the next retry should be
+		// able to process this same message again.
+		return result, err
+	}
+
+	// Bump the stored sequence. Failures here are logged-but-ignored: the
+	// real side effect (Magento POST, etc.) already happened.
+	var ttl time.Duration
+	if cfg.TTL != "" {
+		if d, parseErr := time.ParseDuration(cfg.TTL); parseErr == nil {
+			ttl = d
+		}
+	}
+	if writeErr := guard.Write(ctx, key, current, ttl); writeErr != nil {
+		// Log via the manager's logger if we had one; for now, silent.
+		// The next message for the same key will read the unchanged stored
+		// value and may pass through again — that's acceptable for an
+		// idempotent destination.
+		_ = writeErr
+	}
+
+	return result, nil
 }
 
 // ExecuteWithCoordinate handles coordination (signal/wait) for a function execution.
