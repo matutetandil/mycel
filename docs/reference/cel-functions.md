@@ -303,7 +303,15 @@ input.age >= 18 ? "adult" : "minor"
 
 // Null coalescing
 input.nickname ?? input.name
+input.body.payload.jobId ?? ''
+input.list ?? []
 ```
+
+`??` is preprocessed by Mycel before reaching CEL. When the left-hand side is a simple dotted path (e.g. `input.body.payload.jobId`), the rewrite uses CEL's `has()` macro to check every parent segment, so a missing intermediate field falls back cleanly instead of raising "no such key". For other left-hand sides (function calls, parenthesized expressions) the rewrite is `coalesce(lhs, rhs)`, which catches present-but-null and present-but-empty-string values but evaluates `lhs` eagerly.
+
+Chaining is right-associative: `a ?? b ?? c` behaves like `a ?? (b ?? c)`.
+
+When mixing `??` with the ternary `?:` at the same depth, parenthesize for clarity: `(a ?? b) ? c : d`. The rewriter does not resolve precedence against `?:` automatically.
 
 ## Common Patterns
 

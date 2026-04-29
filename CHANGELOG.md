@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.2] - 2026-04-29
+
+### Added
+- **`??` null-coalescing operator now works in CEL expressions**: Documentation has used `??` since v1 (`docs/reference/cel-functions.md:305`, `docs/guides/troubleshooting.md`, several integration patterns), but native CEL has no `??` operator — every transform that used it failed at compile time with `Syntax error: extraneous input '?'`. Mycel now preprocesses CEL expressions before compilation:
+  - When the left-hand side is a simple dotted path (e.g. `input.body.payload.jobId`), the rewrite emits `has(input.body) && has(input.body.payload) && has(input.body.payload.jobId) ? coalesce(path, default) : default`. Missing intermediate fields fall back to the default rather than raising "no such key".
+  - For other left-hand sides, the rewrite is `coalesce(lhs, rhs)` (existing behavior — catches present-but-null and present-but-empty-string).
+  - Chaining is right-associative: `a ?? b ?? c` becomes `a ?? (b ?? c)`.
+  - String literals containing `??` are passed through unchanged.
+  - `??` inside parens, brackets and braces is processed recursively, so `f(a ?? b)` and sibling args like `concat(a ?? 'x', b ?? 'y')` work correctly.
+- The rewrite is applied at both CEL compilation sites (`internal/transform/cel.go` and `internal/validator/types.go`), so transforms, aspects, validators, `when` expressions, `wait.for`, `accept.when`, and any other CEL-typed string benefits.
+
+### Limitation
+- When mixing `??` with the ternary `?:` at the same depth, parenthesize the `??` expression: `(a ?? b) ? c : d`. The rewriter does not resolve precedence against `?:` automatically. Same convention as JS/C#.
+
 ## [1.19.1] - 2026-04-28
 
 ### Fixed

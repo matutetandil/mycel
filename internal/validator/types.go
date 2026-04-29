@@ -8,6 +8,8 @@ import (
 	"sync"
 
 	"github.com/google/cel-go/cel"
+
+	"github.com/matutetandil/mycel/internal/transform"
 )
 
 // ValidatorType represents the type of validator.
@@ -126,8 +128,9 @@ func NewCELValidator(name, expr, message string) (*CELValidator, error) {
 		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
 	}
 
-	// Parse and check the expression
-	ast, issues := env.Compile(expr)
+	// Parse and check the expression. `??` is rewritten to coalesce() so
+	// validators may use the same null-coalescing syntax as transforms.
+	ast, issues := env.Compile(transform.RewriteCoalesce(expr))
 	if issues != nil && issues.Err() != nil {
 		return nil, fmt.Errorf("CEL compilation error: %w", issues.Err())
 	}

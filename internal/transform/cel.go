@@ -819,6 +819,10 @@ func compare(a, b ref.Val) int {
 
 // Compile compiles a CEL expression and caches the program.
 // Call this at startup/config load time for early error detection.
+//
+// The `??` null-coalescing operator is preprocessed into coalesce() calls
+// before reaching the CEL compiler. Mycel's docs and idiomatic flows use
+// `??` as if CEL supported it natively; this rewrite makes that true.
 func (t *CELTransformer) Compile(expr string) (cel.Program, error) {
 	t.mu.RLock()
 	if prog, ok := t.programs[expr]; ok {
@@ -827,8 +831,10 @@ func (t *CELTransformer) Compile(expr string) (cel.Program, error) {
 	}
 	t.mu.RUnlock()
 
+	rewritten := RewriteCoalesce(expr)
+
 	// Parse and check the expression
-	ast, issues := t.env.Compile(expr)
+	ast, issues := t.env.Compile(rewritten)
 	if issues != nil && issues.Err() != nil {
 		return nil, fmt.Errorf("CEL compile error: %w", issues.Err())
 	}
