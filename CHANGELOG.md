@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.3] - 2026-04-29
+
+### Fixed
+- **Nested CEL values reaching JSON encoders**: Transform output flowed through CEL's shallow `result.Value()` conversion, which leaves child elements as `ref.Val`. When a transform attribute resolved to a nested map (e.g. `websites = "input.body.payload.websites"`), `json.Marshal` rejected it with `json: unsupported type: map[ref.Val]ref.Val` and the flow failed at the connector encode step. Added `transform.CELValueToNative` — a recursive walker that unwraps `traits.Mapper` to `map[string]interface{}`, `traits.Lister` to `[]interface{}`, scalars to their Go counterparts, and stringifies non-string map keys (so JSON keys are always strings). Applied to every CEL evaluation site in the transform pipeline (`Transform`, `TransformWithContext`, `Evaluate`, `EvaluateExpressionWithSteps`). Also handles already-unwrapped Go containers carrying ref.Val children, so partial-unwrap states are normalized too.
+
 ## [1.19.2] - 2026-04-29
 
 ### Added

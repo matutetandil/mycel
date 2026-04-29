@@ -873,7 +873,7 @@ func (t *CELTransformer) Evaluate(ctx context.Context, expr string, input map[st
 		return nil, fmt.Errorf("CEL eval error: %w", err)
 	}
 
-	return result.Value(), nil
+	return CELValueToNative(result), nil
 }
 
 // Transform applies transformation rules to input data using CEL.
@@ -915,8 +915,11 @@ func (t *CELTransformer) Transform(ctx context.Context, input map[string]interfa
 			return nil, fmt.Errorf("failed to evaluate expression for '%s': %w", rule.Target, err)
 		}
 
-		// Set the result in output
-		value := result.Value()
+		// Set the result in output. CELValueToNative recursively unwraps
+		// ref.Val so downstream encoders (json, msgpack) receive native Go
+		// types. Without it, nested CEL maps reach json.Marshal as
+		// map[ref.Val]ref.Val and fail with "unsupported type".
+		value := CELValueToNative(result)
 
 		// TransformHook: after rule
 		if hook != nil {
@@ -1014,7 +1017,7 @@ func (t *CELTransformer) EvaluateExpression(ctx context.Context, input map[strin
 		return nil, fmt.Errorf("CEL eval error: %w", err)
 	}
 
-	return result.Value(), nil
+	return CELValueToNative(result), nil
 }
 
 // EvaluateExpressionWithSteps evaluates a single expression with step results available.
@@ -1065,7 +1068,7 @@ func (t *CELTransformer) EvaluateExpressionWithSteps(ctx context.Context, input 
 		return nil, fmt.Errorf("CEL eval error: %w", err)
 	}
 
-	return result.Value(), nil
+	return CELValueToNative(result), nil
 }
 
 // TransformWithEnriched applies transformation rules with enriched data available.
@@ -1179,7 +1182,7 @@ func (t *CELTransformer) TransformWithContext(ctx context.Context, input map[str
 		}
 
 		// Set the result in output
-		value := result.Value()
+		value := CELValueToNative(result)
 		if hook != nil {
 			hook.AfterRule(ctx, i, rule, value, nil)
 		}
