@@ -216,6 +216,11 @@ type StepConfig struct {
 	// Default is the default value to use if OnError is "default".
 	Default interface{}
 
+	// Envelope wraps the outgoing payload under a single root key before it
+	// reaches the connector. Same semantics as ToConfig.Envelope. Empty means
+	// no wrapping.
+	Envelope string
+
 	// ConnectorParams holds all connector-specific parameters.
 	// Populated by the parser from the HCL block attributes.
 	// Access via getter methods (GetOperation, GetTarget, etc.).
@@ -321,6 +326,21 @@ type FilterConfig struct {
 	MaxRequeue int
 }
 
+// WrapPayload nests payload under a single root key when key is non-empty.
+// Used by ToConfig.Envelope and StepConfig.Envelope to satisfy SOAP-derived
+// REST frameworks (Magento webapi, Spring @RequestBody) that expect bodies
+// shaped like `{ "<paramName>": { ...body... } }`.
+//
+// A nil payload becomes `{ "<key>": nil }` rather than being passed through —
+// the framework on the other end is the one that knows whether nil is OK,
+// and our job is to be predictable about the wrapper.
+func WrapPayload(payload map[string]interface{}, key string) map[string]interface{} {
+	if key == "" {
+		return payload
+	}
+	return map[string]interface{}{key: payload}
+}
+
 // FilteredResultWithPolicy is returned when a message is filtered out,
 // carrying the rejection policy so MQ consumers can handle it appropriately.
 type FilteredResultWithPolicy struct {
@@ -347,6 +367,12 @@ type ToConfig struct {
 	// Parallel indicates if this destination should be written in parallel with others.
 	// Default is true. Set to false for sequential writes.
 	Parallel bool
+
+	// Envelope wraps the outgoing payload under a single root key before it
+	// reaches the connector. Required by Magento webapi, Spring's
+	// @RequestBody, and other SOAP-derived REST frameworks that expect
+	// `{ "<paramName>": { ...body... } }`. Empty means no wrapping.
+	Envelope string
 
 	// ConnectorParams holds all connector-specific parameters.
 	// Populated by the parser from the HCL block attributes.

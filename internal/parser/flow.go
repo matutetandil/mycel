@@ -470,6 +470,7 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 			{Name: "connector", Required: true},
 			{Name: "when"},
 			{Name: "parallel"},
+			{Name: "envelope"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "transform"},
@@ -511,6 +512,14 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		if val.Type() == cty.Bool {
 			to.Parallel = val.True()
 		}
+	}
+
+	if attr, ok := content.Attributes["envelope"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("to envelope error: %s", diags.Error())
+		}
+		to.Envelope = val.AsString()
 	}
 
 	// Parse nested transform block
@@ -561,6 +570,7 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 			{Name: "timeout"},
 			{Name: "on_error"},
 			{Name: "default"},
+			{Name: "envelope"},
 		},
 	}
 
@@ -612,6 +622,14 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 			return nil, fmt.Errorf("step default error: %s", diags.Error())
 		}
 		step.Default = ctyValueToInterface(val)
+	}
+
+	if attr, ok := content.Attributes["envelope"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("step envelope error: %s", diags.Error())
+		}
+		step.Envelope = val.AsString()
 	}
 
 	// Capture all connector-specific attributes from the remaining body.

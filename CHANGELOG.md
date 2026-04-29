@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.5] - 2026-04-29
+
+### Added
+- **`envelope` attribute on `to` and `step` blocks**: wraps the outgoing payload under a single root key just before it reaches the connector. Required by Magento webapi, Spring `@RequestBody`, and SOAP-derived REST APIs that expect bodies shaped like `{ "<paramName>": { ...body... } }`. The transform block stays clean — one mapping per line — and the wrapping is a one-line opt-in. Connector-agnostic: works for HTTP, MQ, and any other writer that takes a payload map. Schema declared in both `pkg/schema/builtins.go` and the IDE engine so editors recognize the attribute.
+
+```hcl
+to {
+  connector = "magento"
+  target    = "/rest/V1/products"
+  operation = "POST"
+  envelope  = "productData"   # wraps the transform output as { "productData": {...} }
+}
+```
+
 ## [1.19.4] - 2026-04-29
 
 ### Documentation

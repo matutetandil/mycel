@@ -1782,3 +1782,80 @@ connector "api" {
 		t.Errorf("expected error to mention 'count', got: %v", err)
 	}
 }
+
+// TestToBlockEnvelope: parser captures the envelope key on a to block.
+func TestToBlockEnvelope(t *testing.T) {
+	hcl := `
+flow "magento_post" {
+  from {
+    connector = "rabbit"
+    target    = "q"
+  }
+
+  to {
+    connector = "magento"
+    target    = "/rest/V1/products"
+    operation = "POST"
+    envelope  = "productData"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	cfg, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(cfg.Flows) != 1 || cfg.Flows[0].To == nil {
+		t.Fatalf("expected 1 flow with a to block")
+	}
+	if got := cfg.Flows[0].To.Envelope; got != "productData" {
+		t.Errorf("expected Envelope='productData', got %q", got)
+	}
+}
+
+// TestStepBlockEnvelope: parser captures the envelope key on a step block.
+func TestStepBlockEnvelope(t *testing.T) {
+	hcl := `
+flow "with_step" {
+  from {
+    connector = "rabbit"
+    target    = "q"
+  }
+
+  step "post_to_magento" {
+    connector = "magento"
+    operation = "POST"
+    target    = "/rest/V1/products"
+    envelope  = "productData"
+  }
+
+  to {
+    connector = "rabbit"
+    target    = "done"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	cfg, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(cfg.Flows) != 1 || len(cfg.Flows[0].Steps) != 1 {
+		t.Fatalf("expected 1 flow with 1 step")
+	}
+	if got := cfg.Flows[0].Steps[0].Envelope; got != "productData" {
+		t.Errorf("expected step.Envelope='productData', got %q", got)
+	}
+}

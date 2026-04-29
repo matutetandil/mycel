@@ -103,6 +103,7 @@ func ToSchema() Block {
 			{Name: "operation", Doc: "Target operation", Type: TypeString},
 			{Name: "when", Doc: "CEL condition for conditional write", Type: TypeString},
 			{Name: "parallel", Doc: "Write in parallel with other destinations", Type: TypeBool},
+			{Name: "envelope", Doc: "Wrap the outgoing payload under a single root key (Magento webapi / Spring @RequestBody / SOAP-style REST)", Type: TypeString},
 			{Name: "query", Doc: "SQL query for database writes", Type: TypeString},
 			{Name: "format", Doc: "Output format", Type: TypeString, Values: []string{"json", "xml", "csv", "tsv"}},
 			{Name: "filter", Doc: "Per-user filter (WebSocket, SSE, subscriptions)", Type: TypeString},
@@ -135,6 +136,7 @@ func StepSchema() Block {
 			{Name: "when", Doc: "CEL condition for conditional execution", Type: TypeString},
 			{Name: "timeout", Doc: "Timeout duration (e.g., 5s)", Type: TypeDuration},
 			{Name: "on_error", Doc: "Error handling: fail, skip, or default", Type: TypeString, Values: []string{"fail", "skip", "default"}},
+			{Name: "envelope", Doc: "Wrap the step's body under a single root key", Type: TypeString},
 		},
 	}
 }

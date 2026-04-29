@@ -1452,7 +1452,7 @@ func (h *FlowHandler) executeBatch(ctx context.Context, input map[string]interfa
 			writeData := &connector.Data{
 				Target:    batch.To.GetTarget(),
 				Operation: batch.To.GetOperation(),
-				Payload:   row,
+				Payload:   flow.WrapPayload(row, batch.To.Envelope),
 			}
 
 			_, err := writer.Write(ctx, writeData)
@@ -1679,7 +1679,7 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 	data := &connector.Data{
 		Target:    h.Config.To.GetTarget(),
 		Operation: "INSERT",
-		Payload:   payload,
+		Payload:   flow.WrapPayload(payload, h.Config.To.Envelope),
 	}
 
 	// Override operation if specified in to block config
@@ -1779,7 +1779,7 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 	data := &connector.Data{
 		Target:    h.Config.To.GetTarget(),
 		Operation: "UPDATE",
-		Payload:   payload,
+		Payload:   flow.WrapPayload(payload, h.Config.To.Envelope),
 		Filters:   make(map[string]interface{}),
 	}
 
@@ -2060,7 +2060,7 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 	// Build data for write
 	data := &connector.Data{
 		Target:  destConfig.GetTarget(),
-		Payload: payload,
+		Payload: flow.WrapPayload(payload, destConfig.Envelope),
 	}
 
 	// Set operation type
@@ -2479,7 +2479,7 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 				data := &connector.Data{
 					Target:    step.GetTarget(),
 					Operation: step.GetOperation(),
-					Payload:   step.GetBody(),
+					Payload:   flow.WrapPayload(step.GetBody(), step.Envelope),
 					Filters:   params,
 				}
 				writeResult, err := writer.Write(ctx, data)

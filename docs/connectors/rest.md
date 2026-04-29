@@ -95,6 +95,41 @@ connector "magento" {
 
 When `insecure_skip_verify` is enabled, Mycel logs a single `WARN` at connector startup with the connector name and base URL — loud enough that an accidental production deploy is obvious in the logs.
 
+### Wrapping the request body — `envelope`
+
+Some REST frameworks (Magento webapi, Spring `@RequestBody`, several SOAP-derived REST APIs) require the request body nested under a single root key matching the service method's parameter name:
+
+```json
+{ "productData": { "style_number": "AI02LT", "name": "..." } }
+```
+
+Rather than wrap the body inside a CEL map literal, set `envelope` on the `to` block. The transform stays clean — one line per attribute — and Mycel wraps the entire transform output under the named key just before it reaches the connector:
+
+```hcl
+flow "magento_create_style" {
+  from {
+    connector = "rabbit"
+    target    = "all.in.magento.q"
+  }
+
+  transform {
+    style_number = "input.body.payload.styleNumber"
+    name         = "coalesce(input.body.payload.styleName, '')"
+    websites     = "input.body.payload.websites"
+    # ...30 more lines, one mapping each
+  }
+
+  to {
+    connector = "magento"
+    target    = "/rest/V1/mercury/products/styles"
+    operation = "POST"
+    envelope  = "productData"
+  }
+}
+```
+
+`envelope` also works on `step` blocks for intermediate HTTP calls that need the same shape. The wrap is a single key with the entire payload as its value — chained / nested wrappers are not supported (parenthesize manually with another transform if you need them).
+
 ## Operations
 
 **Server (source):** Any HTTP method + path pattern — `GET /users`, `POST /users`, `PUT /users/:id`, `DELETE /users/:id`.
