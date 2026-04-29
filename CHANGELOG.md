@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.6] - 2026-04-29
+
+### Added
+- **HTTP outbound body observability**: when `MYCEL_LOG_LEVEL=debug`, the HTTP connector logs one line per outbound `POST` / `PUT` / `PATCH` with the connector name, method, path, body size in bytes, and the payload's sorted top-level keys. Values are deliberately not logged (safe to enable when bodies may carry sensitive data). Lets users verify wrap / envelope behavior end-to-end without intercepting traffic. Silent at any level above `debug`.
+- **Integration tests for envelope end-to-end**: `internal/runtime/envelope_integration_test.go` drives a full `from MQ → handleCreate → HTTP destination` flow through a real `httptest.Server` and asserts the bytes on the wire. The companion test confirms the absence of the attribute leaves the body flat. Closes the test gap in v1.19.5 where only parser-level capture was verified.
+
+### Documentation
+- `docs/connectors/rest.md`: added a "Debugging outbound requests" section describing the new DEBUG log.
+
+### Verified
+- `envelope` attribute on `to {}` works end-to-end in production: confirmed against the live `mercury-microservices-mercury-consumer-styles-1` container with real RabbitMQ messages and a transparent HTTP capture proxy. Every outbound `POST` arrived with `{"productData": {...}}` as expected. No code change was required for v1.19.5 envelope behavior — this release adds the test and observability that should have shipped with it.
+
 ## [1.19.5] - 2026-04-29
 
 ### Added

@@ -3,7 +3,9 @@ package http
 import (
 	"bytes"
 	"context"
+	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -82,6 +84,88 @@ func TestTLSInsecureSkipVerifyEmitsWarn(t *testing.T) {
 	// Must fire exactly once.
 	if got := strings.Count(out, "TLS verification disabled"); got != 1 {
 		t.Errorf("expected exactly one WARN, got %d", got)
+	}
+}
+
+// TestOutboundBodyDebugLog: when MYCEL_LOG_LEVEL=debug, the HTTP connector
+// emits a single log line per request with method, path, body size and the
+// payload's top-level keys. Values are NOT logged. Allows users to confirm
+// wrap / envelope behavior end-to-end without intercepting traffic.
+func TestOutboundBodyDebugLog(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(original)
+
+	c := New("api", srv.URL, 0, nil, nil, 1)
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	_, err := c.Write(context.Background(), &connector.Data{
+		Target:    "POST /post",
+		Operation: "POST",
+		Payload: map[string]interface{}{
+			"productData": map[string]interface{}{
+				"sku":  "AI02LT",
+				"name": "Axil",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "outbound HTTP body") {
+		t.Errorf("expected outbound body log line, got: %s", out)
+	}
+	if !strings.Contains(out, "top_level_keys=[productData]") {
+		t.Errorf("expected top_level_keys=[productData] in log, got: %s", out)
+	}
+	if !strings.Contains(out, "method=POST") {
+		t.Errorf("expected method=POST in log, got: %s", out)
+	}
+	// Sanity: values must not appear in the log.
+	if strings.Contains(out, "AI02LT") || strings.Contains(out, "Axil") {
+		t.Errorf("payload values must not be in DEBUG log, got: %s", out)
+	}
+}
+
+// TestOutboundBodyNoLogAtInfo: at INFO level, the body log must be silent —
+// users on the default level should see zero noise.
+func TestOutboundBodyNoLogAtInfo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	original := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	defer slog.SetDefault(original)
+
+	c := New("api", srv.URL, 0, nil, nil, 1)
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	_, _ = c.Write(context.Background(), &connector.Data{
+		Target:    "POST /post",
+		Operation: "POST",
+		Payload:   map[string]interface{}{"x": 1},
+	})
+
+	if strings.Contains(buf.String(), "outbound HTTP body") {
+		t.Errorf("body log must be silent at INFO level, got: %s", buf.String())
 	}
 }
 

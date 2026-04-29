@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -280,6 +281,19 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 			return nil, fmt.Errorf("failed to encode payload: %w", err)
 		}
 		body = bytes.NewReader(encoded)
+
+		// DEBUG: surface the outbound body shape so users can verify wrap /
+		// envelope behavior without intercepting traffic. Only top-level keys
+		// and size are logged — values stay out of the log to avoid leaking
+		// sensitive content. Costs nothing when the level is above DEBUG.
+		if slog.Default().Enabled(ctx, slog.LevelDebug) {
+			slog.DebugContext(ctx, "outbound HTTP body",
+				"connector", c.name,
+				"method", method,
+				"path", path,
+				"size_bytes", len(encoded),
+				"top_level_keys", topLevelKeys(data.Payload))
+		}
 	}
 
 	// Execute with retry
@@ -653,4 +667,19 @@ func isClientError(err error) bool {
 		return httpErr.StatusCode >= 400 && httpErr.StatusCode < 500
 	}
 	return false
+}
+
+// topLevelKeys returns the keys of payload when it is a map, else nil. Used
+// in DEBUG logging to describe the outbound body shape without dumping
+// values (which may be sensitive). Sorted for stable log output.
+func topLevelKeys(payload map[string]interface{}) []string {
+	if len(payload) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(payload))
+	for k := range payload {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

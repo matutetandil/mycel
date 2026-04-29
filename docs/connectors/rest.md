@@ -136,6 +136,17 @@ flow "magento_create_style" {
 
 **Client (target):** Same method + path syntax, resolved against `base_url`.
 
+## Debugging outbound requests
+
+When the log level is set to `debug` (`MYCEL_LOG_LEVEL=debug` or `--log-level=debug`), the HTTP connector emits one log line per `POST` / `PUT` / `PATCH` request describing the body shape:
+
+```
+DEBUG outbound HTTP body connector=magento method=POST path=/rest/V1/products
+      size_bytes=27566 top_level_keys=[productData]
+```
+
+Only the top-level keys and total size are logged — no values, so it is safe to enable in environments where the body may contain sensitive data. Enough to verify wrap / envelope behavior end-to-end without intercepting traffic. The log is silent at any level above `debug`, so production logs are not noisier when you leave the default.
+
 ## Example
 
 ```hcl
