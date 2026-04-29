@@ -215,9 +215,12 @@ func (c *Connector) handleFilterReject(ctx context.Context, msg kafka.Message, f
 	case "reject":
 		// Republish to <topic>.dlq
 		dlqTopic := msg.Topic + ".dlq"
-		c.logger.Debug("filter reject: sending to DLQ topic",
+		c.logger.Info("filter reject (→ DLQ topic)",
 			"topic", msg.Topic,
 			"dlq_topic", dlqTopic,
+			"partition", msg.Partition,
+			"offset", msg.Offset,
+			"action", "republish_dlq",
 		)
 		return c.republishMessage(ctx, dlqTopic, msg)
 
@@ -232,6 +235,9 @@ func (c *Connector) handleFilterReject(ctx context.Context, msg kafka.Message, f
 			// No message ID available, skip silently
 			c.logger.Warn("filter requeue: no message ID available, skipping",
 				"topic", msg.Topic,
+				"partition", msg.Partition,
+				"offset", msg.Offset,
+				"action", "skip",
 			)
 			return nil
 		}
@@ -243,17 +249,24 @@ func (c *Connector) handleFilterReject(ctx context.Context, msg kafka.Message, f
 
 		count, shouldAck := c.requeueTracker.IncrementAndCheck(msgID, maxRequeue)
 		if shouldAck {
-			c.logger.Debug("filter requeue: max attempts reached, skipping",
+			c.logger.Info("filter requeue exhausted, skipping",
 				"topic", msg.Topic,
+				"partition", msg.Partition,
+				"offset", msg.Offset,
 				"message_id", msgID,
+				"action", "skip",
 				"attempts", count,
+				"max", maxRequeue,
 			)
 			return nil // Skip silently (offset already committed)
 		}
 
-		c.logger.Debug("filter requeue: republishing to same topic",
+		c.logger.Info("filter requeue",
 			"topic", msg.Topic,
+			"partition", msg.Partition,
+			"offset", msg.Offset,
 			"message_id", msgID,
+			"action", "republish_same_topic",
 			"attempt", count,
 			"max", maxRequeue,
 		)

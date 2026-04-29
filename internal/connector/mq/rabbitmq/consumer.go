@@ -218,6 +218,12 @@ func (c *Connector) handleDelivery(ctx context.Context, delivery amqp.Delivery) 
 
 	// Acknowledge successful processing
 	if c.config.Consumer != nil && !c.config.Consumer.AutoAck {
+		c.logger.Debug("ack",
+			"routing_key", delivery.RoutingKey,
+			"delivery_tag", delivery.DeliveryTag,
+			"message_id", delivery.MessageId,
+			"redelivered", delivery.Redelivered,
+		)
 		return delivery.Ack(false)
 	}
 
@@ -233,9 +239,12 @@ func (c *Connector) handleFilterReject(delivery amqp.Delivery, filtered *flow.Fi
 	switch filtered.Policy {
 	case "reject":
 		// NACK without requeue — goes to DLX/DLQ if configured
-		c.logger.Debug("filter reject: sending to DLQ",
+		c.logger.Info("filter reject (→ DLQ)",
 			"routing_key", delivery.RoutingKey,
+			"delivery_tag", delivery.DeliveryTag,
 			"message_id", delivery.MessageId,
+			"action", "nack",
+			"requeue", false,
 		)
 		return delivery.Nack(false, false)
 
@@ -249,6 +258,8 @@ func (c *Connector) handleFilterReject(delivery amqp.Delivery, filtered *flow.Fi
 			// No message ID available, fall back to ACK
 			c.logger.Warn("filter requeue: no message ID available, ACKing instead",
 				"routing_key", delivery.RoutingKey,
+				"delivery_tag", delivery.DeliveryTag,
+				"action", "ack",
 			)
 			return delivery.Ack(false)
 		}
@@ -260,23 +271,35 @@ func (c *Connector) handleFilterReject(delivery amqp.Delivery, filtered *flow.Fi
 
 		count, shouldAck := c.requeueTracker.IncrementAndCheck(msgID, maxRequeue)
 		if shouldAck {
-			c.logger.Debug("filter requeue: max attempts reached, ACKing",
+			c.logger.Info("filter requeue exhausted, ACKing",
 				"routing_key", delivery.RoutingKey,
+				"delivery_tag", delivery.DeliveryTag,
 				"message_id", msgID,
+				"action", "ack",
 				"attempts", count,
+				"max", maxRequeue,
 			)
 			return delivery.Ack(false)
 		}
 
-		c.logger.Debug("filter requeue: returning to queue",
+		c.logger.Info("filter requeue",
 			"routing_key", delivery.RoutingKey,
+			"delivery_tag", delivery.DeliveryTag,
 			"message_id", msgID,
+			"action", "nack",
+			"requeue", true,
 			"attempt", count,
 			"max", maxRequeue,
 		)
 		return delivery.Nack(false, true)
 
 	default: // "ack" or unknown
+		c.logger.Debug("filter ack",
+			"routing_key", delivery.RoutingKey,
+			"delivery_tag", delivery.DeliveryTag,
+			"message_id", delivery.MessageId,
+			"action", "ack",
+		)
 		return delivery.Ack(false)
 	}
 }

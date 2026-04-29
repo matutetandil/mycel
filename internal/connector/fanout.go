@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 // HandlerFunc is the universal handler signature used by all connectors.
@@ -30,10 +32,24 @@ func ChainRequestResponse(existing, additional HandlerFunc, logger *slog.Logger)
 // ChainEventDriven creates a composite handler for event-driven connectors (MQ, CDC, etc.).
 // Both handlers run concurrently. The function waits for all handlers to complete
 // and returns the first error encountered (if any).
+//
+// Result aggregation rules — important for filter-rejection semantics:
+//   - If any handler returns an error, the first error is returned and the
+//     consumer's retry / DLQ path takes over.
+//   - If at least one handler returns a real success (i.e. NOT a
+//     *flow.FilteredResultWithPolicy), that success becomes the aggregate
+//     result. The delivery is acked. A sibling flow that rejected the
+//     message via its own filter must not requeue what another flow already
+//     processed.
+//   - If all handlers returned filter rejections, the most "demanding"
+//     policy wins: requeue > reject > ack (most-aggressive-first). This
+//     matches the operator intuition that if any flow asked the broker to
+//     try again, we should try again, even if other flows would have
+//     dropped it silently.
 func ChainEventDriven(existing, additional HandlerFunc, logger *slog.Logger) HandlerFunc {
 	return func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
 		var wg sync.WaitGroup
-		var result interface{}
+		var result1, result2 interface{}
 		var err1, err2 error
 
 		// Copy input before launching goroutines to avoid races
@@ -42,11 +58,11 @@ func ChainEventDriven(existing, additional HandlerFunc, logger *slog.Logger) Han
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			result, err1 = existing(ctx, input)
+			result1, err1 = existing(ctx, input)
 		}()
 		go func() {
 			defer wg.Done()
-			_, err2 = additional(ctx, inputCopy)
+			result2, err2 = additional(ctx, inputCopy)
 		}()
 		wg.Wait()
 
@@ -56,8 +72,52 @@ func ChainEventDriven(existing, additional HandlerFunc, logger *slog.Logger) Han
 		if err2 != nil {
 			return nil, err2
 		}
-		return result, nil
+		return aggregateFanoutResults(result1, result2), nil
 	}
+}
+
+// aggregateFanoutResults picks the right aggregate result for two fan-out
+// branches. See ChainEventDriven for the rules.
+func aggregateFanoutResults(a, b interface{}) interface{} {
+	fa, aFiltered := a.(*flow.FilteredResultWithPolicy)
+	fb, bFiltered := b.(*flow.FilteredResultWithPolicy)
+
+	switch {
+	case !aFiltered && !bFiltered:
+		// Two real successes — caller doesn't care about either result
+		// individually (it just acks). Return the first deterministically.
+		return a
+	case !aFiltered:
+		// a succeeded, b filtered out — a wins, ack the delivery.
+		return a
+	case !bFiltered:
+		// b succeeded, a filtered out — b wins, ack the delivery.
+		return b
+	default:
+		// Both filtered. Pick the most-aggressive policy.
+		return mergeFilteredPolicies(fa, fb)
+	}
+}
+
+// mergeFilteredPolicies returns the FilteredResultWithPolicy whose policy
+// asks the broker for the most retention: requeue > reject > ack.
+// Identifiers (MessageID, MaxRequeue, IDField) are taken from whichever
+// result wins so the consumer's dedup tracker keys remain stable.
+func mergeFilteredPolicies(a, b *flow.FilteredResultWithPolicy) *flow.FilteredResultWithPolicy {
+	rank := func(p string) int {
+		switch p {
+		case "requeue":
+			return 2
+		case "reject":
+			return 1
+		default: // "ack" or unknown
+			return 0
+		}
+	}
+	if rank(a.Policy) >= rank(b.Policy) {
+		return a
+	}
+	return b
 }
 
 // CopyInput creates a shallow copy of an input map.

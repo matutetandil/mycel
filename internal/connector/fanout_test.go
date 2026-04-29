@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 func TestChainRequestResponse_SingleHandler(t *testing.T) {
@@ -307,5 +309,124 @@ func TestCopyInput(t *testing.T) {
 func TestCopyInput_Nil(t *testing.T) {
 	if CopyInput(nil) != nil {
 		t.Fatal("copy of nil should be nil")
+	}
+}
+
+// --- Fan-out filter-rejection aggregation -----------------------------------
+//
+// These tests reproduce the symptom Mercury hit on v1.19.5: two flows on the
+// same MQ source, one rejects via filter (on_reject = "requeue"), the other
+// processes the message successfully. The pre-fix ChainEventDriven returned
+// the FIRST handler's result, so the rejection masked the success and the
+// broker re-delivered the message until the requeue tracker capped it at 3.
+// Post-fix: a real success in any branch wins and the delivery is acked.
+
+func TestChainEventDriven_RejectingFlowDoesNotMaskSuccess_RejectorFirst(t *testing.T) {
+	rejecting := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return &flow.FilteredResultWithPolicy{
+			Filtered: true,
+			Policy:   "requeue",
+		}, nil
+	})
+	succeeding := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return map[string]interface{}{"sku": "AI02LT"}, nil
+	})
+
+	chained := ChainEventDriven(rejecting, succeeding, nil)
+	result, err := chained(context.Background(), map[string]interface{}{"op": "update"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, isFiltered := result.(*flow.FilteredResultWithPolicy); isFiltered {
+		t.Fatalf("rejecting flow's filter result must not mask the sibling success — would cause spurious requeue")
+	}
+	got, ok := result.(map[string]interface{})
+	if !ok || got["sku"] != "AI02LT" {
+		t.Fatalf("expected the success result to win, got %T %v", result, result)
+	}
+}
+
+func TestChainEventDriven_RejectingFlowDoesNotMaskSuccess_RejectorSecond(t *testing.T) {
+	succeeding := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return map[string]interface{}{"sku": "AI02LT"}, nil
+	})
+	rejecting := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return &flow.FilteredResultWithPolicy{
+			Filtered: true,
+			Policy:   "requeue",
+		}, nil
+	})
+
+	chained := ChainEventDriven(succeeding, rejecting, nil)
+	result, err := chained(context.Background(), map[string]interface{}{"op": "update"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, isFiltered := result.(*flow.FilteredResultWithPolicy); isFiltered {
+		t.Fatalf("rejecting flow's filter result must not mask the sibling success — would cause spurious requeue")
+	}
+}
+
+func TestChainEventDriven_BothFiltered_PicksMostAggressivePolicy(t *testing.T) {
+	rejectThenAck := []struct {
+		name string
+		a, b string
+		want string
+	}{
+		{"requeue beats reject", "requeue", "reject", "requeue"},
+		{"requeue beats ack", "requeue", "ack", "requeue"},
+		{"reject beats ack", "reject", "ack", "reject"},
+		{"ack vs ack", "ack", "ack", "ack"},
+		{"order is irrelevant", "ack", "requeue", "requeue"},
+	}
+	for _, tc := range rejectThenAck {
+		t.Run(tc.name, func(t *testing.T) {
+			ha := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+				return &flow.FilteredResultWithPolicy{Filtered: true, Policy: tc.a}, nil
+			})
+			hb := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+				return &flow.FilteredResultWithPolicy{Filtered: true, Policy: tc.b}, nil
+			})
+			chained := ChainEventDriven(ha, hb, nil)
+			result, err := chained(context.Background(), nil)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			f, ok := result.(*flow.FilteredResultWithPolicy)
+			if !ok {
+				t.Fatalf("both filtered: expected aggregate FilteredResultWithPolicy, got %T", result)
+			}
+			if f.Policy != tc.want {
+				t.Errorf("expected policy=%q, got %q", tc.want, f.Policy)
+			}
+		})
+	}
+}
+
+func TestChainEventDriven_FilteredHandlerStillCallsSibling(t *testing.T) {
+	// Regression: even though one branch is "filtered" early, the other
+	// branch still must run — the user intended both flows to look at the
+	// message and decide independently.
+	var siblingCalled bool
+	var mu sync.Mutex
+
+	rejecting := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return &flow.FilteredResultWithPolicy{Filtered: true, Policy: "requeue"}, nil
+	})
+	sibling := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		mu.Lock()
+		siblingCalled = true
+		mu.Unlock()
+		return map[string]interface{}{"ok": true}, nil
+	})
+
+	chained := ChainEventDriven(rejecting, sibling, nil)
+	if _, err := chained(context.Background(), nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !siblingCalled {
+		t.Fatal("sibling handler must run even when the other branch was filtered")
 	}
 }

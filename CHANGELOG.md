@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.7] - 2026-04-29
+
+### Fixed
+- **Fan-out: a sibling flow's filter rejection no longer masks another flow's success**: when two or more flows on the same MQ source were registered against the same routing key (e.g. one matches `operation == "create"` and another matches `operation == "update"`, both with `on_reject = "requeue"`), `ChainEventDriven` returned the FIRST handler's result regardless of what it was. If the rejecting flow's `FilteredResultWithPolicy` came first, it shadowed the sibling success — the consumer saw a filter-rejection result and issued a `Nack(requeue=true)` even though the message had already been processed successfully. The broker re-delivered up to the requeue dedup tracker's cap (default 3), producing 3 successful HTTP POSTs to the destination per message before Mycel finally acked.
+- The new aggregation rules in `ChainEventDriven`:
+  - At least one branch returned a real success → return that success → **delivery is acked**.
+  - All branches returned `FilteredResultWithPolicy` → pick the most-aggressive policy (`requeue` > `reject` > `ack`).
+  - Any branch returned an error → first error wins, retry/DLQ path takes over (unchanged).
+
+### Added
+- **INFO-level ack/nack/requeue logs in MQ consumers**: RabbitMQ and Kafka consumers now log every filter-driven decision at INFO with `routing_key`/`topic`, `delivery_tag`/`partition+offset`, `message_id`, `action` (`nack`/`ack`/`republish_*`), and (for requeues) the `attempt`/`max` counter. Acks on the success path stay at DEBUG to avoid steady-state noise. Lets operators see redelivery loops without changing log level when something is misbehaving.
+
 ## [1.19.6] - 2026-04-29
 
 ### Added
