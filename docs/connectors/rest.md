@@ -50,6 +50,50 @@ connector "external_api" {
 | `auth.type` | string | — | Auth method: `bearer`, `api_key`, `basic`, `oauth2` |
 | `retry.attempts` | int | `1` | Maximum retry attempts. The connector applies a fixed exponential backoff. |
 | `retry_count` | int | — | Shorthand for `retry { attempts = N }`. |
+| `tls.ca_cert` | string | — | Path to a custom CA certificate (PEM) used to verify the server. |
+| `tls.client_cert` | string | — | Path to client certificate (PEM) for mTLS. |
+| `tls.client_key` | string | — | Path to client private key (PEM) for mTLS. |
+| `tls.insecure_skip_verify` | bool | `false` | Disable TLS certificate verification. **Dev only — never use in production.** |
+
+### TLS
+
+For HTTPS endpoints whose certificate is signed by a private CA (e.g. an internal corporate CA, or a `mkcert`-signed dev proxy) point the connector at the CA bundle:
+
+```hcl
+connector "internal_api" {
+  type     = "http"
+  base_url = "https://internal.example.com"
+
+  tls {
+    ca_cert = "/etc/ssl/private-ca.pem"
+  }
+}
+```
+
+For mutual TLS, add the client certificate pair:
+
+```hcl
+tls {
+  ca_cert     = "/etc/ssl/ca.pem"
+  client_cert = "/etc/ssl/client.pem"
+  client_key  = "/etc/ssl/client.key"
+}
+```
+
+For local development against a self-signed certificate (e.g. an `nginx-proxy` container in `docker compose`), skip verification entirely:
+
+```hcl
+connector "magento" {
+  type     = "http"
+  base_url = env("MAGENTO_BASE_URL")
+
+  tls {
+    insecure_skip_verify = true   # dev only
+  }
+}
+```
+
+When `insecure_skip_verify` is enabled, Mycel logs a single `WARN` at connector startup with the connector name and base URL — loud enough that an accidental production deploy is obvious in the logs.
 
 ## Operations
 

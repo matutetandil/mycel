@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -190,6 +191,15 @@ func (c *Connector) Connect(ctx context.Context) error {
 	// Validate base URL
 	if _, err := url.Parse(c.baseURL); err != nil {
 		return fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	// Loud, single-shot warning when TLS verification is disabled. Connect()
+	// runs once per connector at startup, so this fires exactly once and is
+	// hard to miss in logs — making accidental production use obvious.
+	if c.tlsConfig != nil && c.tlsConfig.InsecureSkipVerify {
+		slog.Warn("TLS verification disabled for HTTP connector — never use in production",
+			"connector", c.name,
+			"base_url", c.baseURL)
 	}
 
 	// If OAuth2 with refresh token, get initial access token

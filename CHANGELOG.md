@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.4] - 2026-04-29
+
+### Documentation
+- **HTTP connector TLS settings**: `tls { ca_cert, client_cert, client_key, insecure_skip_verify }` were already implemented end-to-end (parser → factory → `*tls.Config` → `http.Transport`) but undocumented in `docs/connectors/rest.md`. Added a TLS reference table, mTLS example, and dev-only `insecure_skip_verify` example.
+
+### Added
+- **WARN log when `insecure_skip_verify` is enabled**: `Connect()` on the HTTP connector now emits a single `WARN` at startup when TLS verification is disabled, including the connector name and base URL. Loud enough that an accidental production deploy is obvious in the logs. Fires exactly once (at connect time), zero noise on the safe path.
+
 ## [1.19.3] - 2026-04-29
 
 ### Fixed
