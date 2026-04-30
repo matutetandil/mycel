@@ -29,6 +29,16 @@ type Lock interface {
 	// IsHeld checks if the lock is currently held by this instance.
 	IsHeld(ctx context.Context, key string) (bool, error)
 
+	// Extend resets the TTL on a lock this instance still owns. Returns
+	// true when the extension succeeded, false when the caller no longer
+	// owns the lock (TTL expired in the gap, or another worker stole it).
+	// Used by ExecuteWithLock to heartbeat long-running flows so the
+	// timeout acts as a deadman switch (worker crashed → TTL expires →
+	// another worker takes over) instead of a footgun (flow took longer
+	// than expected → TTL expires while still holding the critical
+	// section → duplicate processing).
+	Extend(ctx context.Context, key string, timeout time.Duration) (bool, error)
+
 	// Close cleans up any resources.
 	Close() error
 }

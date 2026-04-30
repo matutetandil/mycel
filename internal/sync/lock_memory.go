@@ -147,6 +147,30 @@ func (m *MemoryLock) Release(ctx context.Context, key string) error {
 	return nil
 }
 
+// Extend resets the lock's expiration if this instance still owns it.
+// Returns false when the caller no longer owns the lock — same contract as
+// the Redis backend, so ExecuteWithLock's heartbeat path behaves
+// identically across drivers.
+func (m *MemoryLock) Extend(ctx context.Context, key string, timeout time.Duration) (bool, error) {
+	m.storage.mu.Lock()
+	defer m.storage.mu.Unlock()
+
+	entry, exists := m.storage.locks[key]
+	if !exists {
+		return false, nil
+	}
+	if entry.owner != m.instanceID {
+		return false, nil
+	}
+	if time.Now().After(entry.expiresAt) {
+		// TTL already expired; lock is in the cleanup window.
+		delete(m.storage.locks, key)
+		return false, nil
+	}
+	entry.expiresAt = time.Now().Add(timeout)
+	return true, nil
+}
+
 // IsHeld checks if the lock is currently held by this instance.
 func (m *MemoryLock) IsHeld(ctx context.Context, key string) (bool, error) {
 	m.storage.mu.RLock()

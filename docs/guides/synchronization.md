@@ -43,11 +43,21 @@ flow "process_payment" {
 |-----------|------|----------|---------|-------------|
 | `storage` | block | yes | — | Inline storage config (`driver`, `url` or `host`/`port`) |
 | `key` | string | yes | — | CEL expression for the lock key (scopes the lock to a resource) |
-| `timeout` | string | no | `"30s"` | Maximum time to hold the lock |
+| `timeout` | string | no | `"30s"` | Initial TTL for the lock. The runtime heartbeats this value while the flow runs (see below), so it acts as a deadman switch on worker crashes — not as a hard cap on flow duration. |
 | `wait` | bool | no | `true` | Block until the lock is available |
 | `retry` | string | no | `"100ms"` | Interval between lock acquisition attempts |
 
 The `key` expression determines lock granularity. Using `"account:" + input.account_id` means only flows for the same account are serialized — flows for different accounts run in parallel.
+
+#### Heartbeat (TTL renewal)
+
+Once the lock is acquired, Mycel starts a background goroutine that extends the TTL every `timeout / 3` (clamped to ≥50ms). This means the configured `timeout` is the **deadman switch** for crashed workers — if the process dies, no more heartbeats and the key expires naturally so another worker can take over. It is NOT a hard cap on how long a flow may hold the lock.
+
+A flow that takes longer than `timeout` therefore stays mutually exclusive: the heartbeat keeps the key alive for as long as the flow is running. Without this, a flow that exceeded its lock timeout would let another worker acquire the same key and process the same SKU concurrently — silently breaking the contract.
+
+If the heartbeat detects the caller no longer owns the lock (TTL elapsed before a tick due to a Redis blip across multiple ticks, or an operator manually cleared the key), it logs `lock lost during execution — TTL expired or another worker took it` at ERROR. The flow continues to completion in that case, but the operator is alerted that the mutual-exclusion guarantee was breached.
+
+Recommended `timeout` values: a few seconds. Don't try to size `timeout` to your worst-case flow duration — heartbeat handles long flows automatically; a long timeout just delays recovery from real worker crashes.
 
 ### Lock Example: Inventory Reservation
 

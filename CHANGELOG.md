@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.7] - 2026-04-30
+
+### Fixed
+- **Lock TTL expired mid-flow → mutual exclusion silently broken**: `lock { timeout = "30s" }` set a 30-second Redis TTL on the lock key but did nothing while the flow ran. A flow that took longer than 30 seconds (preflight DB query + outbound HTTP + retries — Mercury's typical p99) let the lock auto-expire mid-execution; another worker would then acquire the same key for a different message of the same SKU, both flows processed concurrently, and the second one's `Release` failed with `lock release failed key=... error="lock is not held by this instance"`. Symptom on the user side: duplicate POSTs to the destination, occasionally with corrupted bodies (CEL evaluation context shared across the racing workers), and the silent "lock didn't actually exclude anyone" failure mode the primitive is supposed to prevent.
+
+  - Added `Extend(ctx, key, timeout) (bool, error)` to the `Lock` interface. RedisLock already had this method (Lua script that atomically checks ownership and extends); MemoryLock now implements it for parity.
+  - `ExecuteWithLock` now starts a heartbeat goroutine after `Acquire` returns. The heartbeat ticks at `timeout / 3` (clamped to ≥50ms) and calls `Extend`. As long as the goroutine keeps ticking and the lock is still owned, the Redis TTL is reset every interval — the lock effectively stays held for the entire flow duration.
+  - `timeout` becomes a **deadman switch** for crashed workers (process dies → no heartbeats → key expires → another worker takes over) rather than a hard cap on flow duration. Recommended values: a few seconds; don't size `timeout` to worst-case flow duration.
+  - When `Extend` returns false (caller no longer owns the lock), the heartbeat logs `lock lost during execution — TTL expired or another worker took it` at ERROR with a hint about the timeout setting. The flow continues to completion in that case (we don't have ctx-level abort yet) but the operator is alerted that mutual exclusion was breached.
+
+### Documentation
+- `docs/guides/synchronization.md`: `Lock Attributes` table now describes `timeout` as the deadman switch, with a new `Heartbeat (TTL renewal)` subsection documenting the behavior, the log-line on lost ownership, and recommended timeout sizing.
+
+### Tests
+- `internal/sync/lock_heartbeat_test.go` — 4 tests:
+  - `TestExecuteWithLock_HeartbeatExtendsTTL` — worker A holds for 700ms with 200ms timeout; worker B waits ~600ms (would have acquired at 200ms without heartbeat).
+  - `TestExecuteWithLock_HeartbeatExtendCalled` — Extend is called repeatedly while fn() runs and the lock stays held past the original TTL.
+  - `TestMemoryLock_ExtendNotHeldReturnsFalse` — non-owner Extend returns false (parity with Redis).
+  - `TestMemoryLock_ExtendMissingKeyReturnsFalse` — Extend on missing key returns false, no error.
+
 ## [1.20.6] - 2026-04-30
 
 ### Fixed

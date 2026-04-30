@@ -312,13 +312,67 @@ func (m *Manager) ExecuteWithLock(ctx context.Context, cfg *FlowLockConfig, key 
 		return nil, ErrLockTimeout
 	}
 
-	slog.Info("lock acquired", "key", key)
+	slog.Info("lock acquired", "key", key, "timeout", timeout)
+
+	// Heartbeat: extend the lock TTL while fn() runs. Without this, a
+	// flow that takes longer than `timeout` lets the lock auto-expire
+	// mid-execution; another worker can then acquire the same key and
+	// the supposed mutual-exclusion guarantee silently breaks. The TTL
+	// stays as a deadman switch (if this process crashes, no more
+	// heartbeats → key expires → recovery), but normal long-running
+	// flows are no longer at risk.
+	// Heartbeat at timeout/3 — three attempts to extend before the TTL
+	// elapses, so a single transient Redis blip doesn't drop the lock.
+	// Clamped to ≥50ms to avoid hammering Redis on absurdly short
+	// timeouts (mostly tests); production values are typically seconds.
+	hbInterval := timeout / 3
+	if hbInterval < 50*time.Millisecond {
+		hbInterval = 50 * time.Millisecond
+	}
+	hbCtx, hbCancel := context.WithCancel(context.Background())
+	hbDone := make(chan struct{})
+	go func() {
+		defer close(hbDone)
+		ticker := time.NewTicker(hbInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-hbCtx.Done():
+				return
+			case <-ticker.C:
+				extendCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				ok, err := lock.Extend(extendCtx, key, timeout)
+				cancel()
+				if err != nil {
+					// Transient (e.g. Redis blip) — the next tick gets
+					// another shot before the original TTL elapses
+					// (we tick at timeout/3).
+					slog.Warn("lock heartbeat extend failed, will retry",
+						"key", key,
+						"error", err)
+					continue
+				}
+				if !ok {
+					// Lost ownership: the TTL expired between ticks
+					// (slow goroutine scheduling) or some operator
+					// manually cleared the key. Stop heartbeating; the
+					// release will also fail and surface the loss.
+					slog.Error("lock lost during execution — TTL expired or another worker took it",
+						"key", key,
+						"hint", "increase lock.timeout if your flow takes longer than the configured timeout / 3")
+					return
+				}
+			}
+		}
+	}()
 
 	// Ensure lock is released even when the parent context is already
 	// cancelled. Without a detached context, a coordinate-wait timeout
 	// cascades into the defer here and Redis never sees the DEL — the
 	// lock then sits at its TTL while every queued worker times out.
 	defer func() {
+		hbCancel()
+		<-hbDone // wait for the heartbeat goroutine to exit before release
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := lock.Release(releaseCtx, key); err != nil {
