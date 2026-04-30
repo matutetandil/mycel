@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.1] - 2026-04-29
+
+### Fixed
+- **Hot reload silently halted MQ consumers**: After a hot reload, `hotReloadSwitch` called `CloseAll()` on the existing connectors (which cancels their consumer goroutines) and `initConnectors()` on the new ones (which calls `Connect()` only). It never called `Start()` on the new event-driven connectors outside of debug mode. The connector reported "connected to RabbitMQ" but no worker was reading from the queue, so message delivery silently halted until the next process restart. Affects RabbitMQ, Kafka, MQTT, CDC, file watchers, WebSocket, SSE — every connector that implements `Starter`. The fix iterates the new registry after init/registerFlows and starts every Starter, deferring only when a debugger is connected but not yet ready (preserving the existing debug-suspend behavior). Also re-applies `HealthRegistrar` / `MetricsRegistrar` / `RateLimitRegistrar` wiring on the new instances so probes and metrics keep working post-reload.
+
 ## [1.20.0] - 2026-04-29
 
 ### Added

@@ -2292,43 +2292,100 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 		r.aspectExecutor.SetFlowInvoker(r.flows)
 	}
 
-	// Note: We don't restart HTTP servers here because they're already running
-	// and the new flows are registered with them. This provides zero-downtime reload.
+	// Note: HTTP/REST/GraphQL/gRPC servers are not restarted here — they're
+	// long-lived listeners owned by the runtime, and the new flow handlers
+	// were re-registered against them above. That provides zero-downtime
+	// reload for request-response connectors.
+	//
+	// Event-driven connectors (MQ, CDC, file watchers, WebSocket, MQTT) are
+	// a different story. CloseAll() above cancelled their consumer
+	// goroutines; the freshly-built connectors are connected via
+	// initConnectors() but their Start()s have not been called. Without
+	// that call, the connector is open but no worker is reading messages —
+	// the symptom users see as "after hot reload, RabbitMQ stops
+	// consuming". Restart them now.
+	debugConnected := r.debugServer != nil && r.debugServer.HasClients()
+	debugReady := debugConnected && r.debugServer.IsReady()
 
-	// After hot reload, if a debugger is already connected, we need to:
-	// 1. Re-apply debug throttling to new connector instances
-	// 2. Start suspended connectors only if the debugger already completed the ready handshake
-	if r.debugServer != nil && r.debugServer.HasClients() {
-		// Re-apply debug throttling to new connector instances
-		for _, name := range r.connectors.List() {
-			conn, err := r.connectors.Get(name)
-			if err != nil {
-				continue
-			}
+	for _, name := range r.connectors.List() {
+		conn, err := r.connectors.Get(name)
+		if err != nil {
+			continue
+		}
+
+		// Re-apply debug throttling on the new connector instance regardless
+		// of whether we're about to start it now or defer it.
+		if debugConnected {
 			if throttler, ok := conn.(connector.DebugThrottler); ok {
 				throttler.SetDebugMode(true)
 			}
 		}
 
-		// Start suspended connectors only if the debugger already completed setup
-		if r.debugServer.IsReady() && len(r.suspendedStarters) > 0 {
-			for _, sc := range r.suspendedStarters {
-				r.logger.Info("hot reload: starting connector (debugger ready)",
-					"connector", sc.name)
-				if err := sc.starter.Start(context.Background()); err != nil {
-					r.logger.Error("failed to start connector after hot reload",
-						"connector", sc.name, "error", err)
-					continue
-				}
-				// Re-apply debug mode AFTER Start() so it takes effect on the
-				// newly created channel/consumer (prefetch=1 + gate enabled).
-				conn, _ := r.connectors.Get(sc.name)
-				if throttler, ok := conn.(connector.DebugThrottler); ok {
-					throttler.SetDebugMode(true)
-				}
-			}
-			r.suspendedStarters = nil
+		starter, isStarter := conn.(Starter)
+		if !isStarter {
+			continue
 		}
+
+		// If a debugger is connected but hasn't completed the ready
+		// handshake, defer Start for event-driven connectors so the IDE
+		// can attach controllers before the first message flows.
+		if debugConnected && !debugReady {
+			if _, isEventDriven := conn.(connector.DebugThrottler); isEventDriven {
+				r.suspendedStarters = append(r.suspendedStarters, suspendedConnector{
+					name:    name,
+					starter: starter,
+				})
+				r.logger.Info("hot reload: connector start deferred until debugger ready",
+					"connector", name)
+				continue
+			}
+		}
+
+		// Health/metrics/rate-limit registration was done by the previous
+		// startServers; the new connector instance needs the same wiring
+		// so probes and metrics keep working.
+		if hr, ok := conn.(HealthRegistrar); ok {
+			hr.SetHealthManager(r.health)
+		}
+		if mr, ok := conn.(MetricsRegistrar); ok {
+			mr.SetMetrics(r.metrics)
+		}
+		if rlr, ok := conn.(RateLimitRegistrar); ok && r.rateLimiter != nil {
+			rlr.SetRateLimiter(r.rateLimiter)
+		}
+
+		r.logger.Info("hot reload: starting connector", "connector", name)
+		if err := starter.Start(context.Background()); err != nil {
+			r.logger.Error("failed to start connector after hot reload",
+				"connector", name, "error", err)
+			continue
+		}
+
+		// Re-apply debug mode AFTER Start() so it takes effect on the
+		// newly created channel/consumer (e.g. RabbitMQ prefetch=1 + gate).
+		if debugConnected {
+			if throttler, ok := conn.(connector.DebugThrottler); ok {
+				throttler.SetDebugMode(true)
+			}
+		}
+	}
+
+	// Drain previously-suspended starters that the debugger already cleared.
+	if debugReady && len(r.suspendedStarters) > 0 {
+		for _, sc := range r.suspendedStarters {
+			r.logger.Info("hot reload: starting suspended connector (debugger ready)",
+				"connector", sc.name)
+			if err := sc.starter.Start(context.Background()); err != nil {
+				r.logger.Error("failed to start suspended connector after hot reload",
+					"connector", sc.name, "error", err)
+				continue
+			}
+			conn, _ := r.connectors.Get(sc.name)
+			if throttler, ok := conn.(connector.DebugThrottler); ok {
+				throttler.SetDebugMode(true)
+			}
+		}
+		r.suspendedStarters = nil
 	}
 
 	return nil
