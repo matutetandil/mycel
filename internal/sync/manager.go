@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	gosync "sync"
 	"time"
 
@@ -294,9 +295,20 @@ func (m *Manager) ExecuteWithLock(ctx context.Context, cfg *FlowLockConfig, key 
 		return nil, ErrLockTimeout
 	}
 
-	// Ensure lock is released
+	slog.Info("lock acquired", "key", key)
+
+	// Ensure lock is released even when the parent context is already
+	// cancelled. Without a detached context, a coordinate-wait timeout
+	// cascades into the defer here and Redis never sees the DEL — the
+	// lock then sits at its TTL while every queued worker times out.
 	defer func() {
-		_ = lock.Release(ctx, key)
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := lock.Release(releaseCtx, key); err != nil {
+			slog.Warn("lock release failed", "key", key, "error", err)
+			return
+		}
+		slog.Info("lock released", "key", key)
 	}()
 
 	// Execute the function
@@ -349,9 +361,13 @@ func (m *Manager) ExecuteWithSemaphore(ctx context.Context, cfg *FlowSemaphoreCo
 		return nil, fmt.Errorf("failed to acquire semaphore permit: %w", err)
 	}
 
-	// Ensure permit is released
+	// Ensure permit is released even when parent ctx is cancelled. Same
+	// rationale as ExecuteWithLock — without a detached context, releases
+	// silently no-op and the semaphore leaks permits.
 	defer func() {
-		_ = sem.Release(ctx, key, permitID)
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = sem.Release(releaseCtx, key, permitID)
 	}()
 
 	// Execute the function
@@ -417,8 +433,17 @@ func (m *Manager) ExecuteWithSequenceGuard(ctx context.Context, cfg *FlowSequenc
 	return result, nil
 }
 
-// ExecuteWithCoordinate handles coordination (signal/wait) for a function execution.
-func (m *Manager) ExecuteWithCoordinate(ctx context.Context, cfg *FlowCoordinateConfig, signalKey, waitKey string, fn func() (interface{}, error)) (interface{}, error) {
+// SignalKeyBuilder resolves coordinate.signal.emit's CEL expression against
+// the flow result post-success. Returns the resolved key plus a bool that
+// is false when the expression evaluates to empty / errors out — in that
+// case the runtime should skip emitting rather than write a corrupted key.
+type SignalKeyBuilder func(result interface{}) (string, bool)
+
+// ExecuteWithCoordinate handles coordination (signal/wait) for a function
+// execution. signalKeyFn is invoked AFTER fn() returns, with the flow
+// result available so its CEL expression can reference output.* bindings.
+// waitKey is evaluated up-front because the wait runs before fn.
+func (m *Manager) ExecuteWithCoordinate(ctx context.Context, cfg *FlowCoordinateConfig, signalKeyFn SignalKeyBuilder, waitKey string, fn func() (interface{}, error)) (interface{}, error) {
 	if cfg == nil {
 		return fn()
 	}
@@ -429,10 +454,17 @@ func (m *Manager) ExecuteWithCoordinate(ctx context.Context, cfg *FlowCoordinate
 	}
 
 	// Handle signal after execution if configured
-	if cfg.Signal != nil && signalKey != "" {
+	if cfg.Signal != nil && signalKeyFn != nil {
 		result, err := fn()
 		if err != nil {
 			return result, err
+		}
+
+		signalKey, ok := signalKeyFn(result)
+		if !ok || signalKey == "" {
+			slog.Warn("coordinate.signal.emit evaluated to empty key, skipping emit",
+				"emit_expr", cfg.Signal.Emit)
+			return result, nil
 		}
 
 		// Parse TTL
@@ -443,11 +475,16 @@ func (m *Manager) ExecuteWithCoordinate(ctx context.Context, cfg *FlowCoordinate
 			}
 		}
 
-		if signalErr := coord.Signal(ctx, signalKey, ttl); signalErr != nil {
-			// Log but don't fail the operation
+		// Use a detached context so the signal fires even if the parent
+		// context is being torn down (rare but happens at shutdown).
+		signalCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if signalErr := coord.Signal(signalCtx, signalKey, ttl); signalErr != nil {
+			slog.Warn("coordinate signal emit failed", "key", signalKey, "error", signalErr)
 			return result, nil
 		}
 
+		slog.Info("coordinate signal emitted", "key", signalKey, "ttl", ttl)
 		return result, nil
 	}
 

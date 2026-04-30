@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.2] - 2026-04-29
+
+### Fixed
+- **`coordinate.signal.emit` was stored verbatim in Redis instead of evaluated as CEL**: the runtime resolved the signal key BEFORE running the flow body, with only `input` bound. References to `output.*` failed to resolve and `evaluateSyncKey` silently fell back to the literal source string — the Redis key `mycel:coord:'parent_ready:' + output.sku` was being written instead of `mycel:coord:parent_ready:AI02LT`. Every `coordinate.wait { for = ... }` consumer that should match such a signal missed and timed out.
+  - `ExecuteWithCoordinate` now accepts a `SignalKeyBuilder` closure invoked AFTER `fn()` returns. The runtime captures the transform output via a per-execution `OutputSlot` (attached to context in `executeFlowCore`, populated by `applyTransforms`) and binds it to `output` when evaluating the signal expression. Echo flows that have no transform fall back to using the destination response.
+  - When CEL evaluation fails or the resolved key is empty, the runtime now logs a `WARN` and skips emitting rather than writing a corrupted key. The previous silent fallback to literal source is gone.
+  - New `transform.EvaluateExpressionWithOutput` evaluator is the entry point for post-success expression resolution.
+
+- **Lock not released after flow failure** (defer `Release` ran with a cancelled context): `ExecuteWithLock` / `ExecuteWithSemaphore` / `ExecuteWithCoordinate` (signal emit) used the same parent context for cleanup. When `coordinate.wait` timed out and cancelled the sub-context, every cleanup defer that talked to Redis silently no-op'd. The lock key sat at its TTL, queued workers piled up behind it and timed out one by one with `failed to acquire lock: context canceled`.
+  - All cleanup defers now use a fresh `context.Background()` with a 5-second timeout so lock / permit / signal release happens even when the parent context is being torn down.
+
+### Added
+- **INFO logs on lock acquire / release**: every lock now emits `lock acquired` and `lock released` (or `lock release failed`) at INFO with the resolved key. Makes pile-ups visible without source modifications.
+- **WARN on heuristic CEL fallback**: when a sync key string looks like CEL (contains `+`, `(`, `input.`, `output.`, `step.`) but the evaluator errors out, the runtime now logs a clear warning naming the expression and the error before falling back to the literal — silent corruption is no longer possible.
+
+### Bindings reference
+- `coordinate.wait.for` is evaluated up front with `input` bound (unchanged).
+- `coordinate.signal.emit` is evaluated post-success with `input` AND `output` bound. `output` is the transform output map (the user's mental model — fields written by the `transform` block), not the destination's raw response. Echo flows without a transform fall back to the destination response.
+
 ## [1.20.1] - 2026-04-29
 
 ### Fixed

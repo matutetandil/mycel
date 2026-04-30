@@ -1072,6 +1072,11 @@ func (h *FlowHandler) resultToConnectorResult(result interface{}) *connector.Res
 // atomicity for the inner read-decide-write of sequence_guard, so a flow
 // can safely combine them on the same key.
 func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+	// Per-execution slot for the transform output. coordinate.signal.emit
+	// resolves `output.*` against this — not the destination's raw response.
+	outputSlot := &flow.OutputSlot{}
+	ctx = flow.WithOutputCapture(ctx, outputSlot)
+
 	// Innermost call: the actual flow logic.
 	exec := func() (interface{}, error) {
 		return h.executeFlowCoreInternal(ctx, input)
@@ -1109,12 +1114,32 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 	}
 
 	if h.Config.Coordinate != nil {
-		var waitKey, signalKey string
+		var waitKey string
 		if h.Config.Coordinate.Wait != nil {
 			waitKey = h.evaluateSyncKey(ctx, h.Config.Coordinate.Wait.For, input)
 		}
+
+		// Signal key is built post-success: it commonly references
+		// output.* fields that don't exist until the flow body has
+		// produced its result. Evaluating up front (with input only)
+		// would silently fall back to the literal CEL source string.
+		// `output` is bound to the transform output (captured via the
+		// OutputSlot in ctx), not the destination's raw response —
+		// matches the user's mental model.
+		var signalKeyFn msync.SignalKeyBuilder
 		if h.Config.Coordinate.Signal != nil {
-			signalKey = h.evaluateSyncKey(ctx, h.Config.Coordinate.Signal.Emit, input)
+			signalExpr := h.Config.Coordinate.Signal.Emit
+			signalKeyFn = func(result interface{}) (string, bool) {
+				output := outputSlot.Get()
+				if output == nil {
+					// Fallback to the destination response when no
+					// transform ran (echo flows etc.).
+					if m, ok := result.(map[string]interface{}); ok {
+						output = m
+					}
+				}
+				return h.evaluateSignalKey(ctx, signalExpr, input, output)
+			}
 		}
 
 		var waitCfg *msync.FlowWaitConfig
@@ -1144,7 +1169,7 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 		}
 		inner := exec
 		exec = func() (interface{}, error) {
-			return h.SyncManager.ExecuteWithCoordinate(ctx, coordCfg, signalKey, waitKey, inner)
+			return h.SyncManager.ExecuteWithCoordinate(ctx, coordCfg, signalKeyFn, waitKey, inner)
 		}
 	}
 
@@ -1196,24 +1221,73 @@ func mapSyncStorage(cfg *flow.SyncStorageConfig) *msync.SyncStorageConfig {
 	}
 }
 
-// evaluateSyncKey evaluates a CEL expression for sync key, or returns the key as-is if not a CEL expression.
+// evaluateSyncKey evaluates a CEL expression for sync key, or returns the
+// key as-is if it does not look like CEL. When the expression LOOKS like
+// CEL (contains operators / function calls / `input.`) but evaluation
+// fails, the runtime logs a warning before falling back to the literal —
+// silent fallback used to ship corrupted keys to Redis (e.g. literal
+// string `"'parent_ready:' + output.sku"` as the coord key).
 func (h *FlowHandler) evaluateSyncKey(ctx context.Context, keyExpr string, input map[string]interface{}) string {
 	if keyExpr == "" {
 		return ""
 	}
 
-	// If it looks like a CEL expression (contains operators or function calls), evaluate it
-	if h.Transformer != nil && (strings.Contains(keyExpr, "+") || strings.Contains(keyExpr, "(") || strings.Contains(keyExpr, "input.")) {
-		result, err := h.Transformer.EvaluateExpression(ctx, input, nil, keyExpr)
-		if err == nil {
-			if s, ok := result.(string); ok {
-				return s
-			}
-			return fmt.Sprintf("%v", result)
-		}
+	if !looksLikeCEL(keyExpr) || h.Transformer == nil {
+		return keyExpr
 	}
 
-	return keyExpr
+	result, err := h.Transformer.EvaluateExpression(ctx, input, nil, keyExpr)
+	if err != nil {
+		slog.Warn("sync key CEL evaluation failed, using literal expression as key (likely a misconfiguration)",
+			"expression", keyExpr,
+			"error", err)
+		return keyExpr
+	}
+	if s, ok := result.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", result)
+}
+
+// evaluateSignalKey evaluates coordinate.signal.emit AFTER the flow body has
+// returned, with `input` and `output` (the captured transform output)
+// bound. Returns (key, ok); ok=false signals "do not emit" so the runtime
+// skips writing a corrupted key. Empty / failed evaluations are flagged
+// at WARN so the operator notices.
+func (h *FlowHandler) evaluateSignalKey(ctx context.Context, expr string, input, output map[string]interface{}) (string, bool) {
+	if expr == "" || h.Transformer == nil {
+		return "", false
+	}
+
+	if !looksLikeCEL(expr) {
+		// Pure literal — keep working but flag it. A literal here is
+		// almost always a misconfiguration (no template means every flow
+		// emits the same key).
+		return expr, expr != ""
+	}
+
+	val, err := h.Transformer.EvaluateExpressionWithOutput(ctx, input, output, expr)
+	if err != nil {
+		slog.Warn("coordinate.signal.emit CEL evaluation failed, signal will not be emitted",
+			"expression", expr,
+			"error", err)
+		return "", false
+	}
+	if s, ok := val.(string); ok {
+		return s, s != ""
+	}
+	return fmt.Sprintf("%v", val), true
+}
+
+// looksLikeCEL is the heuristic that decides whether a sync key string
+// should be passed through the CEL evaluator. CEL operators / function
+// calls / `input.` references are the strong signals.
+func looksLikeCEL(expr string) bool {
+	return strings.Contains(expr, "+") ||
+		strings.Contains(expr, "(") ||
+		strings.Contains(expr, "input.") ||
+		strings.Contains(expr, "output.") ||
+		strings.Contains(expr, "step.")
 }
 
 // evaluateSyncSequence evaluates a CEL expression yielding an int64 sequence
@@ -2846,6 +2920,11 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 		return nil, transformErr
 	}
 	if m, ok := transformResult.(map[string]interface{}); ok {
+		// Capture for downstream consumers (coordinate.signal.emit needs
+		// `output.*` post-success).
+		if slot := flow.TransformOutputFromContext(ctx); slot != nil {
+			slot.Set(m)
+		}
 		return m, nil
 	}
 	return nil, fmt.Errorf("transform returned unexpected type")

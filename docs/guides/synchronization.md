@@ -248,6 +248,41 @@ Defines when and what to signal. Emitted after the flow completes successfully.
 | `emit` | string | yes | CEL expression for the signal key to emit |
 | `ttl` | duration | no | How long the signal remains valid |
 
+**CEL bindings inside `emit`:**
+
+`emit` is evaluated **after** the flow body finishes, so it sees the full post-success context:
+
+| Variable | What it is |
+|----------|------------|
+| `input` | The original flow input (RabbitMQ body / HTTP request / etc.) |
+| `output` | The **transform output map** — fields written by the flow's `transform { }` block. For echo flows that have no transform, falls back to the destination response. |
+
+Example:
+
+```hcl
+flow "style_create" {
+  from { connector = "rabbit" target = "all.in.magento.q" }
+
+  transform {
+    sku  = "input.body.payload.styleNumber"
+    name = "input.body.payload.styleName"
+  }
+
+  to { connector = "magento" target = "/rest/V1/products" operation = "POST" }
+
+  coordinate {
+    storage { driver = "redis" url = env("REDIS_URL", "...") }
+    signal {
+      when = "true"
+      emit = "'parent_ready:' + output.sku"   # output.sku = the transform mapping above
+      ttl  = "24h"
+    }
+  }
+}
+```
+
+If the CEL evaluation fails (e.g. you reference `output.foo` and `foo` is not in the transform), Mycel logs a `WARN` with the expression and the error and **does not emit** rather than writing the literal source string as the key.
+
 ### preflight sub-block
 
 Defines a database check to run before waiting. If the check finds results, waiting is skipped. This is an alternative to using a `step` + `when` condition on the `wait` block.

@@ -1020,6 +1020,51 @@ func (t *CELTransformer) EvaluateExpression(ctx context.Context, input map[strin
 	return CELValueToNative(result), nil
 }
 
+// EvaluateExpressionWithOutput evaluates expr with the input AND output
+// variables bound. Used for post-execution sync key resolution where the
+// caller needs `output.something` to resolve against the flow's result —
+// for example coordinate.signal.emit, which fires after the destination
+// returns and may reference fields produced by the transform / response.
+func (t *CELTransformer) EvaluateExpressionWithOutput(ctx context.Context, input map[string]interface{}, output interface{}, expr string) (interface{}, error) {
+	prog, err := t.Compile(expr)
+	if err != nil {
+		return nil, err
+	}
+
+	activation := map[string]interface{}{
+		"input":    input,
+		"output":   output,
+		"ctx":      make(map[string]interface{}),
+		"enriched": make(map[string]interface{}),
+	}
+
+	// Mirror EvaluateExpression's top-level bindings so post-success keys
+	// can use the same auxiliary variables.
+	topLevelVars := []string{"result", "error", "_flow", "_operation", "_target", "_timestamp"}
+	for _, key := range topLevelVars {
+		if val, ok := input[key]; ok {
+			activation[key] = val
+		} else {
+			switch key {
+			case "result":
+				activation[key] = map[string]interface{}{}
+			case "error":
+				activation[key] = ""
+			case "_flow", "_operation", "_target":
+				activation[key] = ""
+			case "_timestamp":
+				activation[key] = int64(0)
+			}
+		}
+	}
+
+	result, _, err := prog.Eval(activation)
+	if err != nil {
+		return nil, fmt.Errorf("CEL eval error: %w", err)
+	}
+	return CELValueToNative(result), nil
+}
+
 // EvaluateExpressionWithSteps evaluates a single expression with step results available.
 // This is used for evaluating step params that reference input.* or step.* variables.
 func (t *CELTransformer) EvaluateExpressionWithSteps(ctx context.Context, input map[string]interface{}, steps map[string]interface{}, expr string) (interface{}, error) {
