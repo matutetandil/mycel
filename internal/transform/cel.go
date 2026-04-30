@@ -78,8 +78,12 @@ func baseCELOptions() []cel.EnvOption {
 		// Result variable - for aspect conditions (after execution)
 		cel.Variable("result", cel.MapType(cel.StringType, cel.DynType)),
 
-		// Error variable - for aspect conditions (after execution with error)
-		cel.Variable("error", cel.StringType),
+		// Error variable - structured object available in on_error aspects.
+		// Has fields message (string), code (int), type (string), and
+		// optionally body (string) for HTTP error responses. Map type
+		// allows `error.message`, `error.code`, etc. to type-check
+		// against the schema-less activation.
+		cel.Variable("error", cel.MapType(cel.StringType, cel.DynType)),
 
 		// Flow metadata variables for aspects
 		cel.Variable("_flow", cel.StringType),
@@ -1002,7 +1006,13 @@ func (t *CELTransformer) EvaluateExpression(ctx context.Context, input map[strin
 			case "result":
 				activation[key] = map[string]interface{}{}
 			case "error":
-				activation[key] = ""
+				// Map type so error.message / error.code / error.type
+				// type-check successfully even when no error has occurred.
+				activation[key] = map[string]interface{}{
+					"message": "",
+					"code":    int64(0),
+					"type":    "",
+				}
 			case "_flow", "_operation", "_target":
 				activation[key] = ""
 			case "_timestamp":
@@ -1049,7 +1059,11 @@ func (t *CELTransformer) EvaluateExpressionWithOutput(ctx context.Context, input
 			case "result":
 				activation[key] = map[string]interface{}{}
 			case "error":
-				activation[key] = ""
+				activation[key] = map[string]interface{}{
+					"message": "",
+					"code":    int64(0),
+					"type":    "",
+				}
 			case "_flow", "_operation", "_target":
 				activation[key] = ""
 			case "_timestamp":
@@ -1098,7 +1112,13 @@ func (t *CELTransformer) EvaluateExpressionWithSteps(ctx context.Context, input 
 			case "result":
 				activation[key] = map[string]interface{}{}
 			case "error":
-				activation[key] = ""
+				// Map type so error.message / error.code / error.type
+				// type-check successfully even when no error has occurred.
+				activation[key] = map[string]interface{}{
+					"message": "",
+					"code":    int64(0),
+					"type":    "",
+				}
 			case "_flow", "_operation", "_target":
 				activation[key] = ""
 			case "_timestamp":

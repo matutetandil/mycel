@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.3] - 2026-04-30
+
+### Fixed
+- **Flow-level retry now skips permanent HTTP errors**: `executeWithRetry` retried on every error, including HTTP 4xx responses where the destination has already returned a verdict that the request itself is wrong. A 409 Conflict was burning three retry attempts (and producing three identical Slack alerts, three identical destination POSTs, and 3× the time-to-DLQ) before giving up. New `isPermanentError` helper detects `*httpconn.HTTPError` / `*gqlconn.HTTPError` with status 4xx and breaks out of the retry loop. 5xx still consumes the full retry budget — those can be transient backend hiccups.
+
+- **`after` aspects no longer fire on flow failure**: contradicting `docs/guides/extending.md` ("Run after the flow succeeds"), `executeAfter` ran unconditionally even when `flowErr != nil`. The combined effect with the layering bug below was that a 409 produced both an "INFO: completed" and an "ERROR: failed" Slack message per retry attempt. `executeAfter` is now gated on success.
+
+- **Aspects fire once per delivery, not once per retry attempt**: pre-fix the layering was `retry → aspects → flow`, so `after` / `on_error` ran inside every retry iteration. A flow that hit its 3-attempt budget emitted three `after` notifications + three `on_error` notifications. Refactored to `aspects → retry → flow`: aspects now wrap the whole retry budget and fire exactly once per delivery, with the final outcome.
+
+- **`error` variable in CEL was typed as String, not Map**: `cel.Variable("error", cel.StringType)` (in `internal/transform/cel.go`) caused every reference to `error.message` / `error.code` / `error.type` from an `on_error` aspect's transform to fail at compile time with `type 'string' does not support field selection`. The runtime injected the correct map value, but the static type check rejected field access. Declared as `cel.MapType(cel.StringType, cel.DynType)` (matching `result`), and updated the default activations in `EvaluateExpression` / `EvaluateExpressionWithSteps` / `EvaluateExpressionWithOutput` to inject an empty map (`{message: "", code: 0, type: ""}`) instead of an empty string.
+
+### Documented
+- `docs/guides/extending.md` already documented `after` as success-only and `error` as a structured object with `.message`/`.code`/`.type`. The runtime now matches the documentation (it didn't before).
+
 ## [1.20.2] - 2026-04-29
 
 ### Fixed

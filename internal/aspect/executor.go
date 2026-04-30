@@ -114,12 +114,19 @@ func (e *Executor) Execute(
 	// Execute the flow (with around wrappers)
 	result, flowErr := execFn(ctx, flowInput)
 
-	// Execute after aspects (even if flow failed) — may enrich the result
-	result, afterErr := e.executeAfter(ctx, afterAspects, enrichedInput, result, flowErr)
-	if afterErr != nil {
-		slog.Warn("after aspect error",
-			"flow", flowName,
-			"error", afterErr)
+	// Execute after aspects only when the flow succeeded. Per the
+	// documented contract (`docs/guides/extending.md` — "after: Run after
+	// the flow succeeds"), `after` is for success notifications / cache
+	// writes / response enrichment. Failures take the on_error branch
+	// instead.
+	if flowErr == nil {
+		var afterErr error
+		result, afterErr = e.executeAfter(ctx, afterAspects, enrichedInput, result, flowErr)
+		if afterErr != nil {
+			slog.Warn("after aspect error",
+				"flow", flowName,
+				"error", afterErr)
+		}
 	}
 
 	// Execute on_error aspects (only when flow failed)

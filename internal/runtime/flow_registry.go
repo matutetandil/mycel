@@ -12,10 +12,14 @@ import (
 	"sync"
 	"time"
 
+	"errors"
+
 	"github.com/matutetandil/mycel/internal/aspect"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/debug"
 	"github.com/matutetandil/mycel/internal/connector/cache"
+	gqlconn "github.com/matutetandil/mycel/internal/connector/graphql"
+	httpconn "github.com/matutetandil/mycel/internal/connector/http"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/functions"
 	"github.com/matutetandil/mycel/internal/sanitize"
@@ -370,30 +374,32 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		return nil, valErr
 	}
 
-	// Core execution function
-	executeFn := func() (interface{}, error) {
-		// If aspect executor is configured, wrap execution with aspects
-		if h.AspectExecutor != nil && h.Config.Name != "" {
-			return h.handleRequestWithAspects(ctx, input)
-		}
-		// Execute without aspects
+	// Layered execution: aspects (outermost) → retry → flow core (innermost).
+	// This order ensures `after`/`on_error` aspects fire exactly once per
+	// delivery — once the retry budget is exhausted — instead of once per
+	// retry attempt. Pre-fix the layering was inverted and a flow that
+	// failed three times would emit three Slack notifications.
+	flowExec := func() (interface{}, error) {
 		return h.executeFlowCore(ctx, input)
 	}
+	if h.Config.ErrorHandling != nil {
+		retryFn := flowExec
+		flowExec = func() (interface{}, error) {
+			return h.executeWithRetry(ctx, input, retryFn)
+		}
+	}
 
-	// If error handling is configured, wrap with retry logic
 	var finalResult interface{}
 	var finalErr error
 
-	if h.Config.ErrorHandling != nil {
-		finalResult, finalErr = h.executeWithRetry(ctx, input, executeFn)
-		if finalErr != nil {
-			return finalResult, h.wrapErrorResponse(ctx, input, finalErr)
-		}
+	if h.AspectExecutor != nil && h.Config.Name != "" {
+		finalResult, finalErr = h.handleRequestWithAspectsForFlow(ctx, input, flowExec)
 	} else {
-		finalResult, finalErr = executeFn()
-		if finalErr != nil && h.Config.ErrorHandling != nil {
-			return finalResult, h.wrapErrorResponse(ctx, input, finalErr)
-		}
+		finalResult, finalErr = flowExec()
+	}
+
+	if finalErr != nil && h.Config.ErrorHandling != nil {
+		return finalResult, h.wrapErrorResponse(ctx, input, finalErr)
 	}
 
 	// Store result for idempotency (only on success)
@@ -402,6 +408,26 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 	}
 
 	return finalResult, finalErr
+}
+
+// isPermanentError returns true for errors that retrying cannot fix —
+// principally HTTP 4xx responses where the destination has already
+// returned a verdict on the request as-is. Replaying the identical
+// payload would produce the identical status. 5xx remains retryable
+// (could be a transient backend hiccup).
+func isPermanentError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var httpErr *httpconn.HTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.StatusCode >= 400 && httpErr.StatusCode < 500
+	}
+	var gqlErr *gqlconn.HTTPError
+	if errors.As(err, &gqlErr) {
+		return gqlErr.StatusCode >= 400 && gqlErr.StatusCode < 500
+	}
+	return false
 }
 
 // executeWithRetry executes the flow with retry and fallback handling.
@@ -444,6 +470,15 @@ func (h *FlowHandler) executeWithRetry(ctx context.Context, input map[string]int
 
 		// Don't retry if context is cancelled
 		if ctx.Err() != nil {
+			break
+		}
+
+		// Don't retry on permanent HTTP errors. A 4xx response means the
+		// request itself was rejected (validation, auth, conflict, missing
+		// resource); replaying the identical bytes will produce the same
+		// status. Same for HTTP 501 / 505 (semantically permanent) — but
+		// 5xx in general can be transient so we keep retrying those.
+		if isPermanentError(err) {
 			break
 		}
 
@@ -962,11 +997,24 @@ func (h *FlowHandler) evaluateIdempotencyKey(ctx context.Context, input map[stri
 
 // handleRequestWithAspects wraps flow execution with aspect executor.
 func (h *FlowHandler) handleRequestWithAspects(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+	return h.handleRequestWithAspectsForFlow(ctx, input, func() (interface{}, error) {
+		return h.executeFlowCore(ctx, input)
+	})
+}
+
+// handleRequestWithAspectsForFlow wraps a custom flow function with the
+// aspect executor. Used by HandleRequest to layer aspects ABOVE retry, so
+// `after` / `on_error` fire once per delivery instead of once per retry
+// attempt.
+func (h *FlowHandler) handleRequestWithAspectsForFlow(ctx context.Context, input map[string]interface{}, flow func() (interface{}, error)) (interface{}, error) {
 	operation := parseOperation(h.Config.From.GetOperation())
 
-	// Create the flow function that the aspect executor will wrap
-	flowFn := func(ctx context.Context, flowInput map[string]interface{}) (*connector.Result, error) {
-		result, err := h.executeFlowCore(ctx, flowInput)
+	// Create the flow function that the aspect executor will wrap. The
+	// aspect executor passes its own input map (with metadata fields
+	// stripped); we ignore it because the caller's closure already
+	// captured the original input.
+	flowFn := func(ctx context.Context, _ map[string]interface{}) (*connector.Result, error) {
+		result, err := flow()
 		if err != nil {
 			return nil, err
 		}
