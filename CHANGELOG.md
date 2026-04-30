@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.8] - 2026-04-30
+
+### Fixed
+- **`sequence_guard` rejection had no log line** → user reported as "preflight skips the entire flow body". When `coordinate.preflight` returned skip and the flow then hit `sequence_guard` with a current sequence ≤ stored, the guard correctly rejected the message — but emitted **zero logs**. The only visible signal was a suspiciously fast "request" entry (~6ms) followed by no transform / to / aspect activity. Operators reasonably blamed the most recent visible decision (preflight) for stopping the flow, but the actual gate was the sequence_guard one step inside.
+
+  Verified live in the Mercury container: `mycel:seqguard:sku_seq:AI02LTA = 355054`. Any republished message for that SKU with `jobId ≤ 355054` was getting rejected by the guard with no log.
+
+  - `ExecuteWithSequenceGuard` now logs at INFO with `key`, `stored`, `current`, `policy`, `action` for the rejection path; logs `sequence guard passed` (existing key, current > stored) and `sequence guard initialized` (no prior stored value) on the success paths so the disposition is always visible at the default log level.
+  - `sequence guard write-back failed` is upgraded from silent `_ = err` to a WARN that includes the key and current value.
+
+### Tests
+- `internal/sync/sequence_guard_test.go` adds two tests with a captured log handler:
+  - `TestExecuteWithSequenceGuard_LogsRejection` — pre-seed the store with 100, attempt 50, assert the rejection log contains `stored=100 current=50`.
+  - `TestExecuteWithSequenceGuard_LogsPass` — first call logs `sequence guard initialized`; second call (higher sequence) logs `sequence guard passed`.
+
+### Note on the user's bug report
+The user reported this as "v1.20.7 regression — preflight skips entire flow body". Verified that v1.20.6 and v1.20.7 have identical behavior here: the preflight branch correctly hands control to `fn()`, the inner sequence_guard wrapper rejects the message, and the rejection — until this release — produced no log. The lock heartbeat work in v1.20.7 didn't touch this code path; the apparent regression is the change in stored sequence values (from 0 to a real jobId) once the guard had been live for a while. With these logs, future debugging is one-line.
+
 ## [1.20.7] - 2026-04-30
 
 ### Fixed

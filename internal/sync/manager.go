@@ -470,12 +470,37 @@ func (m *Manager) ExecuteWithSequenceGuard(ctx context.Context, cfg *FlowSequenc
 	}
 
 	if exists && current <= stored {
+		// Loud INFO log so the operator can see WHY the flow short-
+		// circuited. Without it, the only visible signal is a
+		// suspiciously fast "request" log line and the rest of the
+		// flow body silently never running — easy to mistake for a bug
+		// in an upstream block (e.g. coordinate.preflight skipping
+		// "too much").
+		slog.Info("sequence guard skipped (current <= stored)",
+			"key", key,
+			"stored", stored,
+			"current", current,
+			"policy", string(ParseOnOlder(cfg.OnOlder)),
+			"action", "skip_flow")
 		return nil, &SequenceGuardSkippedError{
 			Key:             key,
 			StoredSequence:  stored,
 			CurrentSequence: current,
 			Policy:          ParseOnOlder(cfg.OnOlder),
 		}
+	}
+
+	if exists {
+		slog.Info("sequence guard passed",
+			"key", key,
+			"stored", stored,
+			"current", current,
+			"action", "proceed")
+	} else {
+		slog.Info("sequence guard initialized",
+			"key", key,
+			"current", current,
+			"action", "proceed")
 	}
 
 	result, err := fn()
@@ -494,11 +519,10 @@ func (m *Manager) ExecuteWithSequenceGuard(ctx context.Context, cfg *FlowSequenc
 		}
 	}
 	if writeErr := guard.Write(ctx, key, current, ttl); writeErr != nil {
-		// Log via the manager's logger if we had one; for now, silent.
-		// The next message for the same key will read the unchanged stored
-		// value and may pass through again — that's acceptable for an
-		// idempotent destination.
-		_ = writeErr
+		slog.Warn("sequence guard write-back failed (destination side effect already happened)",
+			"key", key,
+			"current", current,
+			"error", writeErr)
 	}
 
 	return result, nil
