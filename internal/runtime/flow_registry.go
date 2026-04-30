@@ -1248,6 +1248,7 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 			OnTimeout:          h.Config.Coordinate.OnTimeout,
 			MaxRetries:         h.Config.Coordinate.MaxRetries,
 			MaxConcurrentWaits: h.Config.Coordinate.MaxConcurrentWaits,
+			Preflight:          h.buildPreflightFn(input),
 		}
 		inner := exec
 		exec = func() (interface{}, error) {
@@ -1342,6 +1343,95 @@ func (h *FlowHandler) evaluateSyncKey(ctx context.Context, keyExpr string, input
 		return s
 	}
 	return fmt.Sprintf("%v", result)
+}
+
+// buildPreflightFn produces the FlowPreflightFn closure that the sync
+// manager runs before entering the wait. It evaluates the configured
+// connector + query + params, decides skip-or-wait based on if_exists,
+// and emits an INFO log with the row count so operators can see why the
+// wait was (or wasn't) skipped.
+//
+// Returns nil when no preflight is configured — sync.ExecuteWithCoordinate
+// short-circuits the preflight branch in that case.
+func (h *FlowHandler) buildPreflightFn(input map[string]interface{}) msync.FlowPreflightFn {
+	if h.Config.Coordinate == nil || h.Config.Coordinate.Preflight == nil {
+		return nil
+	}
+	pf := h.Config.Coordinate.Preflight
+	return func(ctx context.Context) (bool, error) {
+		conn := h.getConnector(pf.Connector)
+		if conn == nil {
+			return false, fmt.Errorf("preflight connector %q not found", pf.Connector)
+		}
+		reader, ok := conn.(connector.Reader)
+		if !ok {
+			return false, fmt.Errorf("preflight connector %q does not support reads", pf.Connector)
+		}
+
+		// Resolve params: each value is a CEL expression evaluated
+		// against `input`. Same shape used by step / enrich blocks.
+		params := make(map[string]interface{}, len(pf.Params))
+		for k, expr := range pf.Params {
+			val, err := h.Transformer.EvaluateExpression(ctx, input, nil, expr)
+			if err != nil {
+				return false, fmt.Errorf("preflight param %q error: %w", k, err)
+			}
+			params[k] = val
+		}
+
+		slog.Info("coordinate preflight running",
+			"connector", pf.Connector,
+			"if_exists", pf.IfExists)
+
+		result, err := reader.Read(ctx, connector.Query{
+			RawSQL:  pf.Query,
+			Filters: params,
+		})
+		if err != nil {
+			return false, fmt.Errorf("preflight query: %w", err)
+		}
+
+		rows := len(result.Rows)
+		exists := rows > 0
+
+		// if_exists semantics:
+		//   "pass" — skip the wait when the resource already exists.
+		//            (canonical Mercury use case: SKU already in DB,
+		//            no need to wait for the parent_ready signal.)
+		//   "fail" — return an error when the resource exists, so the
+		//            flow takes the on_error branch instead of waiting.
+		policy := pf.IfExists
+		if policy == "" {
+			policy = "pass"
+		}
+		switch policy {
+		case "pass":
+			if exists {
+				slog.Info("coordinate preflight passed",
+					"connector", pf.Connector,
+					"action", "skip_wait",
+					"reason", "resource_exists",
+					"rows", rows)
+				return true, nil
+			}
+			slog.Info("coordinate preflight rejected",
+				"connector", pf.Connector,
+				"action", "enter_wait",
+				"reason", "resource_missing",
+				"rows", 0)
+			return false, nil
+		case "fail":
+			if exists {
+				// Wrap the sync sentinel so ExecuteWithCoordinate
+				// knows this is a policy decision (abort), not a
+				// transient query error (fall through to wait).
+				return false, fmt.Errorf("%w: resource exists (rows=%d)", msync.ErrPreflightCheckFailed, rows)
+			}
+			return false, nil
+		default:
+			return false, fmt.Errorf("preflight if_exists must be %q or %q, got %q", "pass", "fail", policy)
+		}
+	}
 }
 
 // shouldCoordinateWait evaluates coordinate.wait.when. An empty / missing

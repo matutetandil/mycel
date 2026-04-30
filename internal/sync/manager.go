@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	gosync "sync"
@@ -236,7 +237,23 @@ type FlowCoordinateConfig struct {
 	OnTimeout          string
 	MaxRetries         int
 	MaxConcurrentWaits int
+
+	// Preflight, if non-nil, runs before the wait. Returns true to skip
+	// the wait (the awaited resource already exists). Returns an error
+	// to abort the flow when if_exists="fail" semantics decide so. The
+	// caller (the runtime) builds the closure with access to the
+	// connector registry so the sync package stays decoupled from
+	// connector implementations.
+	Preflight FlowPreflightFn
 }
+
+// FlowPreflightFn is the closure shape for coordinate.preflight execution.
+// Returns (skipWait, err): skipWait=true means the resource the wait was
+// going to wait for already exists; err is non-nil when if_exists="fail"
+// is configured and the query did find a row, or when the query itself
+// errors (logged at WARN by the runtime — the manager still falls through
+// to the wait when Preflight reports an error, matching docs).
+type FlowPreflightFn func(ctx context.Context) (skipWait bool, err error)
 
 // FlowWaitConfig is the flow-level wait configuration.
 type FlowWaitConfig struct {
@@ -490,6 +507,38 @@ func (m *Manager) ExecuteWithCoordinate(ctx context.Context, cfg *FlowCoordinate
 
 	// Handle wait before execution if configured
 	if cfg.Wait != nil && waitKey != "" {
+		// Run preflight first if configured. A successful preflight
+		// (skipWait=true) bypasses the wait entirely — the resource the
+		// wait was going to wait for already exists, no point blocking.
+		// Errors from the preflight closure fall through to the wait
+		// (best-effort gate; we don't want a transient DB blip to drop
+		// the message).
+		if cfg.Preflight != nil {
+			skip, pfErr := cfg.Preflight(ctx)
+			switch {
+			case pfErr != nil && errors.Is(pfErr, ErrPreflightCheckFailed):
+				// Explicit policy reject (if_exists="fail" matched a
+				// row). Abort the flow — caller surfaces this through
+				// the on_error path.
+				return nil, pfErr
+			case pfErr != nil:
+				// Transient error (DB blip, params eval failure). Best
+				// effort: fall through to the wait so a single bad
+				// check doesn't drop the message.
+				slog.Warn("coordinate preflight error, falling through to wait",
+					"error", pfErr)
+			case skip:
+				slog.Info("coordinate preflight passed, skipping wait",
+					"key", waitKey,
+					"action", "skip_wait")
+				return fn()
+			default:
+				slog.Info("coordinate preflight rejected, entering wait",
+					"key", waitKey,
+					"action", "enter_wait")
+			}
+		}
+
 		// Parse timeout
 		timeout := 60 * time.Second
 		if cfg.Timeout != "" {

@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.6] - 2026-04-30
+
+### Fixed
+- **`coordinate.preflight` was parsed but never executed**: the parser captured the block, the `flow.PreflightConfig` struct was populated, and `docs/guides/synchronization.md` documented it as the canonical way to gate the wait against a DB existence check. But `sync.FlowCoordinateConfig` had no slot for it and `ExecuteWithCoordinate` had no preflight branch — the data was dropped on the floor at the runtime/sync boundary. Mercury's `style_update` flow used preflight as a fast-path skip for SKUs that already exist in the destination DB; with preflight unwired, every update message blocked on `coordinate.wait` for the configured timeout (5 minutes), with `on_timeout="ack"` eventually dropping the message — the worst of both worlds.
+  - Added `FlowPreflightFn` closure to `sync.FlowCoordinateConfig`. The runtime builds the closure with access to the connector registry and the CEL transformer; `ExecuteWithCoordinate` runs it before the wait.
+  - Implemented full `if_exists` semantics:
+    - `"pass"` (default) — skip the wait when the query returns ≥ 1 row. Resource already exists; no point waiting.
+    - `"fail"` — abort the flow with `ErrPreflightCheckFailed` when the query returns ≥ 1 row. Surfaces through the on_error path.
+  - Transient errors during preflight (DB blip, CEL eval failure on params) fall through to the wait — best-effort gate so a single bad check doesn't drop the message.
+
+### Added
+- **INFO logs at every preflight branch** (no DEBUG required), parallel to the existing wait/signal logs:
+  - `coordinate preflight running connector=... if_exists=...` — when the closure is invoked.
+  - `coordinate preflight passed connector=... action=skip_wait reason=resource_exists rows=N` — query returned rows, wait will be skipped.
+  - `coordinate preflight rejected connector=... action=enter_wait reason=resource_missing rows=0` — query returned no rows, wait will fire.
+  - `coordinate preflight passed, skipping wait key=...` / `coordinate preflight rejected, entering wait key=...` — manager-side decision for cross-correlation with the wait key.
+  - `coordinate preflight error, falling through to wait error=...` — transient error path.
+
+### Tests
+- `internal/runtime/coordinate_preflight_test.go` — 4 integration tests using a stub Reader connector:
+  - `TestPreflight_SkipsWaitWhenResourceExists` — Mercury's canonical case: rows=1, if_exists=pass, wait skipped, destination called, sub-millisecond elapsed.
+  - `TestPreflight_EntersWaitWhenResourceMissing` — rows=0 → wait fires → on_timeout=ack → FilteredResultWithPolicy.
+  - `TestPreflight_IfExistsFailReturnsError` — rows=1 + if_exists=fail surfaces an error; destination not called.
+  - `TestPreflight_NotConfiguredFallsThroughToWait` — regression: no preflight block leaves existing wait path unchanged.
+
 ## [1.20.5] - 2026-04-30
 
 ### Fixed
