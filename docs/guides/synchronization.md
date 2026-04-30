@@ -225,9 +225,19 @@ flow "create_item" {
 |-----------|------|----------|---------|-------------|
 | `storage` | block | yes | — | Inline storage config (`driver`, `url` or `host`/`port`) |
 | `timeout` | duration | no | `"60s"` | Maximum time to wait for a signal |
-| `on_timeout` | string | no | `"fail"` | Behavior on timeout: `"fail"`, `"retry"`, `"skip"`, `"pass"` |
+| `on_timeout` | string | no | `"fail"` | Behavior on timeout: `"fail"`, `"retry"`, `"skip"`, `"pass"`, `"ack"` |
 | `max_retries` | int | no | `3` | Max retries when `on_timeout` is `"retry"` |
 | `max_concurrent_waits` | int | no | `0` (unlimited) | Limit simultaneous waiting processes |
+
+#### `on_timeout` semantics
+
+| Value | What happens at timeout |
+|-------|--------------------------|
+| `"fail"` | Flow returns an error. Goes through the configured `error_handling.retry` budget. Eventually permanent-fails to the consumer's ack/DLQ branch. |
+| `"retry"` | Re-enter the wait. Capped by `max_retries`. |
+| `"skip"` | Continue the flow as if the wait succeeded — but the `transform` / `to` runs without the data the wait was supposed to make available, so failures downstream are likely. |
+| `"pass"` | Synonym for `skip` for cases where the wait was genuinely optional. |
+| `"ack"` | Ack the broker delivery and drop the message. The flow's `transform` / `to` does NOT run; `after` and `on_error` aspects do NOT fire. Use this when the wait is for a signal that was supposed to come from another flow and didn't — the message is orphaned and replaying it would only orphan it again. Logs `coordinate wait timed out, acking delivery` at INFO so the disposition is visible. |
 
 ### wait sub-block
 
@@ -237,6 +247,18 @@ Defines when and what to wait for. The `when` condition is evaluated per message
 |-----------|------|----------|-------------|
 | `when` | string | yes | CEL expression — wait only if this evaluates to `true` |
 | `for` | string | yes | CEL expression for the signal key to wait for |
+
+**CEL bindings inside `when` and `for`:**
+
+Both expressions are evaluated **before** the flow body runs (the wait happens up front), so only `input` is in scope:
+
+| Variable | What it is |
+|----------|------------|
+| `input` | The original flow input (RabbitMQ body / HTTP request / etc.) |
+
+Step results are NOT available — `step.*` references will fail to evaluate because steps run inside the flow body, after coordinate has already decided whether to wait. If you need to gate the wait on a database lookup, use the dedicated [`preflight`](#coordinate-with-preflight) sub-block instead.
+
+The runtime emits an INFO log per decision: `coordinate wait blocking key=... timeout=...` when the wait fires, or `coordinate wait skipped reason="when=false"` when it doesn't — useful for confirming the right branch ran without enabling DEBUG logs.
 
 ### signal sub-block
 

@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"errors"
+
 	"github.com/matutetandil/mycel/internal/aspect"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/debug"
@@ -994,20 +996,27 @@ func (h *FlowHandler) handleRequestWithAspects(ctx context.Context, input map[st
 // aspect executor. Used by HandleRequest to layer aspects ABOVE retry, so
 // `after` / `on_error` fire once per delivery instead of once per retry
 // attempt.
-func (h *FlowHandler) handleRequestWithAspectsForFlow(ctx context.Context, input map[string]interface{}, flow func() (interface{}, error)) (interface{}, error) {
+func (h *FlowHandler) handleRequestWithAspectsForFlow(ctx context.Context, input map[string]interface{}, flowImpl func() (interface{}, error)) (interface{}, error) {
 	operation := parseOperation(h.Config.From.GetOperation())
 
 	// Create the flow function that the aspect executor will wrap. The
 	// aspect executor passes its own input map (with metadata fields
 	// stripped); we ignore it because the caller's closure already
 	// captured the original input.
+	//
+	// FilteredResultWithPolicy is wrapped in FilteredDropError so the
+	// aspect executor short-circuits its after/on_error dispatch — the
+	// message was deflected, not a success or a failure. We unwrap it on
+	// the way out so the MQ consumer still sees the original type and
+	// acks/nacks/requeues per its policy.
 	flowFn := func(ctx context.Context, _ map[string]interface{}) (*connector.Result, error) {
-		result, err := flow()
+		result, err := flowImpl()
 		if err != nil {
 			return nil, err
 		}
-
-		// Convert result to connector.Result format
+		if filtered, ok := result.(*flow.FilteredResultWithPolicy); ok && filtered.Filtered {
+			return nil, &flow.FilteredDropError{Result: filtered}
+		}
 		return h.resultToConnectorResult(result), nil
 	}
 
@@ -1020,6 +1029,15 @@ func (h *FlowHandler) handleRequestWithAspectsForFlow(ctx context.Context, input
 		input,
 		flowFn,
 	)
+
+	// Unwrap FilteredDropError back into the original
+	// FilteredResultWithPolicy. The aspect executor used the sentinel to
+	// short-circuit after/on_error dispatch; the MQ consumer needs the
+	// real type to ack / reject / requeue per its policy.
+	var dropErr *flow.FilteredDropError
+	if errors.As(err, &dropErr) && dropErr != nil {
+		return dropErr.Result, nil
+	}
 
 	if err != nil {
 		return nil, err
@@ -1150,9 +1168,29 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 	}
 
 	if h.Config.Coordinate != nil {
+		// `wait.when` is evaluated up front — the coordinate wrapper runs
+		// before the flow body, so only `input` is in scope (step
+		// results are not yet available; for DB pre-flight checks use
+		// the `preflight` block which is designed for this). When the
+		// condition is false, skip the wait entirely by passing an
+		// empty waitKey — the manager treats that as "no wait".
 		var waitKey string
 		if h.Config.Coordinate.Wait != nil {
-			waitKey = h.evaluateSyncKey(ctx, h.Config.Coordinate.Wait.For, input)
+			should, err := h.shouldCoordinateWait(ctx, input)
+			if err != nil {
+				return nil, fmt.Errorf("coordinate.wait.when error: %w", err)
+			}
+			if should {
+				waitKey = h.evaluateSyncKey(ctx, h.Config.Coordinate.Wait.For, input)
+				slog.Info("coordinate wait blocking",
+					"flow", h.Config.Name,
+					"key", waitKey,
+					"timeout", h.Config.Coordinate.Timeout)
+			} else {
+				slog.Info("coordinate wait skipped",
+					"flow", h.Config.Name,
+					"reason", "when=false")
+			}
 		}
 
 		// Signal key is built post-success: it commonly references
@@ -1161,10 +1199,12 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 		// would silently fall back to the literal CEL source string.
 		// `output` is bound to the transform output (captured via the
 		// OutputSlot in ctx), not the destination's raw response —
-		// matches the user's mental model.
+		// matches the user's mental model. signal.when is evaluated
+		// against the same context post-success; false → no emit.
 		var signalKeyFn msync.SignalKeyBuilder
 		if h.Config.Coordinate.Signal != nil {
 			signalExpr := h.Config.Coordinate.Signal.Emit
+			whenExpr := h.Config.Coordinate.Signal.When
 			signalKeyFn = func(result interface{}) (string, bool) {
 				output := outputSlot.Get()
 				if output == nil {
@@ -1173,6 +1213,12 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 					if m, ok := result.(map[string]interface{}); ok {
 						output = m
 					}
+				}
+				if !h.evaluateSignalWhen(ctx, whenExpr, input, output) {
+					slog.Info("coordinate signal skipped",
+						"flow", h.Config.Name,
+						"reason", "when=false")
+					return "", false
 				}
 				return h.evaluateSignalKey(ctx, signalExpr, input, output)
 			}
@@ -1205,7 +1251,20 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 		}
 		inner := exec
 		exec = func() (interface{}, error) {
-			return h.SyncManager.ExecuteWithCoordinate(ctx, coordCfg, signalKeyFn, waitKey, inner)
+			result, err := h.SyncManager.ExecuteWithCoordinate(ctx, coordCfg, signalKeyFn, waitKey, inner)
+			// On on_timeout = "ack" the manager returns ErrCoordinateAck.
+			// Translate to a filter-rejection-style result so the MQ
+			// consumer acks the broker delivery cleanly and the runtime
+			// skips the rest of the flow (transform, to, aspects).
+			if errors.Is(err, msync.ErrCoordinateAck) {
+				slog.Info("coordinate wait timed out, acking delivery",
+					"flow", h.Config.Name,
+					"key", waitKey,
+					"timeout", h.Config.Coordinate.Timeout,
+					"action", "ack")
+				return &flow.FilteredResultWithPolicy{Filtered: true, Policy: "ack"}, nil
+			}
+			return result, err
 		}
 	}
 
@@ -1283,6 +1342,61 @@ func (h *FlowHandler) evaluateSyncKey(ctx context.Context, keyExpr string, input
 		return s
 	}
 	return fmt.Sprintf("%v", result)
+}
+
+// shouldCoordinateWait evaluates coordinate.wait.when. An empty / missing
+// expression defaults to true (wait fires) — matches the existing config
+// shape where users only set `when` when they need a fast-path skip. The
+// expression sees `input` only; step results are not in scope because
+// coordinate runs OUTSIDE the flow body. Use the `preflight` block when
+// a DB-driven pre-flight check is needed.
+func (h *FlowHandler) shouldCoordinateWait(ctx context.Context, input map[string]interface{}) (bool, error) {
+	if h.Config.Coordinate == nil || h.Config.Coordinate.Wait == nil {
+		return false, nil
+	}
+	when := h.Config.Coordinate.Wait.When
+	if when == "" {
+		return true, nil
+	}
+	if h.Transformer == nil {
+		var err error
+		celOptions := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
+		h.Transformer, err = transform.NewCELTransformerWithOptions(celOptions...)
+		if err != nil {
+			return false, fmt.Errorf("failed to create CEL transformer: %w", err)
+		}
+	}
+	data := map[string]interface{}{"input": input}
+	return h.Transformer.EvaluateCondition(ctx, data, when)
+}
+
+// evaluateSignalWhen evaluates coordinate.signal.when AFTER the flow body
+// has returned, with `input` and `output` (transform output) bound. An
+// empty / missing expression defaults to true (signal fires). Errors are
+// logged at WARN and treated as false — failing closed prevents a buggy
+// CEL expression from emitting spurious signals. Mirrors the
+// signal.emit evaluation context.
+func (h *FlowHandler) evaluateSignalWhen(ctx context.Context, when string, input, output map[string]interface{}) bool {
+	if when == "" {
+		return true
+	}
+	if h.Transformer == nil {
+		return false
+	}
+	val, err := h.Transformer.EvaluateExpressionWithOutput(ctx, input, output, when)
+	if err != nil {
+		slog.Warn("coordinate.signal.when CEL evaluation failed, signal will not be emitted",
+			"expression", when,
+			"error", err)
+		return false
+	}
+	if b, ok := val.(bool); ok {
+		return b
+	}
+	slog.Warn("coordinate.signal.when did not evaluate to a boolean, signal will not be emitted",
+		"expression", when,
+		"value", val)
+	return false
 }
 
 // evaluateSignalKey evaluates coordinate.signal.emit AFTER the flow body has

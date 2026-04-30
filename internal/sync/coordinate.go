@@ -8,12 +8,13 @@ import (
 
 // Coordinate errors.
 var (
-	ErrCoordinateTimeout     = errors.New("coordinate wait timed out")
-	ErrMaxRetriesExceeded    = errors.New("maximum retries exceeded")
-	ErrMaxConcurrentWaits    = errors.New("maximum concurrent waits reached")
-	ErrCoordinateSkip        = errors.New("coordinate skip requested")
-	ErrCoordinateRetry       = errors.New("coordinate retry requested")
-	ErrPreflightCheckFailed  = errors.New("preflight check failed")
+	ErrCoordinateTimeout    = errors.New("coordinate wait timed out")
+	ErrMaxRetriesExceeded   = errors.New("maximum retries exceeded")
+	ErrMaxConcurrentWaits   = errors.New("maximum concurrent waits reached")
+	ErrCoordinateSkip       = errors.New("coordinate skip requested")
+	ErrCoordinateRetry      = errors.New("coordinate retry requested")
+	ErrCoordinateAck        = errors.New("coordinate ack requested (drop message)")
+	ErrPreflightCheckFailed = errors.New("preflight check failed")
 )
 
 // OnTimeoutAction defines what happens when coordinate wait times out.
@@ -24,6 +25,7 @@ const (
 	OnTimeoutRetry OnTimeoutAction = "retry" // Requeue message for retry
 	OnTimeoutSkip  OnTimeoutAction = "skip"  // Skip silently (ack without processing)
 	OnTimeoutPass  OnTimeoutAction = "pass"  // Process anyway despite timeout
+	OnTimeoutAck   OnTimeoutAction = "ack"   // Ack the broker delivery and drop the message (cross-flow synchronization gave up)
 )
 
 // Coordinator represents the signal/wait coordination interface.
@@ -126,6 +128,8 @@ func ParseOnTimeoutAction(s string) OnTimeoutAction {
 		return OnTimeoutSkip
 	case "pass":
 		return OnTimeoutPass
+	case "ack":
+		return OnTimeoutAck
 	default:
 		return OnTimeoutFail
 	}

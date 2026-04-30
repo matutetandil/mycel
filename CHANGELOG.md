@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.5] - 2026-04-30
+
+### Fixed
+- **`coordinate.wait.when` was ignored**: the parser captured the attribute, the config carried it through, but no code path ever evaluated it. The wait fired unconditionally, blocking the flow for the configured `coordinate.timeout` (5 minutes in the typical setup) before failing — even when `when = "false"` was hardcoded. Mercury's `style_update` flow used `when = "size(step.check_product) == 0"` and the wait fired anyway. Now `coordinate.wait.when` is evaluated against `input` before the wait fires; false → wait is skipped entirely (fast path).
+- **`coordinate.signal.when` was ignored**: same bug, mirrored on the emit side. The condition is now evaluated post-success against `input` and the captured transform output (`output`); false → no signal is emitted. Failed evaluations / non-boolean results log a WARN and fail closed.
+- **Aspects fired for filter-rejection results**: filter / accept blocks return `*flow.FilteredResultWithPolicy`; the message was deflected, but `after` aspects fired anyway because the runtime saw `flowErr == nil`. The aspect executor now short-circuits its after/on_error dispatch for filter dispositions via a new `flow.FilteredDropError` sentinel — `after` no longer announces "completed" for messages that were filter-rejected, accept-rejected, or coordinate-acked.
+
+### Added
+- **`on_timeout = "ack"` for `coordinate { ... }`**: when a wait times out and there's no point retrying (the awaited signal would never arrive — typical for cross-flow synchronization where the producer flow never received a matching message), `on_timeout = "ack"` acks the broker delivery and drops the message immediately. The flow's `transform` / `to` is skipped, `after` and `on_error` aspects don't fire (it's a documented disposition, not a success or a failure), and the retry budget is **not** consumed. INFO log `coordinate wait timed out, acking delivery key=... timeout=... action=ack`. Joins the existing `fail`/`retry`/`skip`/`pass` set.
+- **INFO logs at coordinate decision points** (no DEBUG required):
+  - `coordinate wait blocking flow=... key=... timeout=...` when the wait fires.
+  - `coordinate wait skipped flow=... reason="when=false"` when the wait is bypassed.
+  - `coordinate wait timed out, acking delivery flow=... key=... timeout=... action=ack` for the new ack disposition.
+  - `coordinate signal skipped flow=... reason="when=false"` when emit is bypassed.
+  - `coordinate signal emitted flow=... key=... ttl=...` (existing) when the emit fires.
+
+### Documented
+- `docs/guides/synchronization.md`: bindings reference for `wait.when` (`input` only — step results are not in scope because `wait.when` is evaluated before the flow body runs; for DB-driven pre-flight checks use the `preflight` block). Plus a new `on_timeout` semantics table covering all five values and when each is appropriate.
+
+### Tests
+- `internal/runtime/coordinate_when_test.go` — six integration tests covering both the When fixes and the new ack disposition:
+  - `TestCoordinateWaitWhenFalse_SkipsWaitFastPath` — flow completes in sub-second, not after the timeout.
+  - `TestCoordinateWaitWhenTrue_ActuallyWaits` — regression: `when=true` still blocks for the configured timeout.
+  - `TestCoordinateWaitWhenInputDriven` — realistic `input.body.kind == 'create'` style condition skips correctly.
+  - `TestCoordinateSignalWhenFalse_SkipsEmit` — `signal.when=false` → no key written to the coordinator.
+  - `TestCoordinateSignalWhenTrue_StillEmits` — regression: `signal.when=true` still emits.
+  - `TestCoordinateOnTimeoutAck` — orphaned message is acked, `to` is not called, retry budget is not consumed (timeout is 100ms, total elapsed is < 250ms even with `attempts = 3`).
+
 ## [1.20.4] - 2026-04-30
 
 ### Fixed

@@ -512,6 +512,12 @@ func (m *Manager) ExecuteWithCoordinate(ctx context.Context, cfg *FlowCoordinate
 				return nil, ErrCoordinateSkip
 			case OnTimeoutRetry:
 				return nil, ErrCoordinateRetry
+			case OnTimeoutAck:
+				// Caller (the runtime) translates this sentinel into a
+				// FilteredResultWithPolicy{Policy: "ack"} so the MQ consumer
+				// acks the broker delivery cleanly and the rest of the flow
+				// (transform / to / aspects) is skipped.
+				return nil, ErrCoordinateAck
 			case OnTimeoutPass:
 				// Continue with execution
 			default:

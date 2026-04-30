@@ -356,6 +356,27 @@ type FilteredResultWithPolicy struct {
 	MaxRequeue int
 }
 
+// FilteredDropError wraps a FilteredResultWithPolicy when the value crosses
+// a layer (the aspect executor) that wants to short-circuit aspect dispatch
+// for it. The sentinel makes the disposition look like an error to layers
+// that gate on errors, while still carrying the original FilteredResultWithPolicy
+// for the layers that need it (the MQ consumer's ack/nack/requeue branch).
+//
+// Used for filter/accept rejections AND coordinate.on_timeout="ack". In
+// both cases the flow body did not run its main path; firing
+// after/on_error aspects would produce misleading notifications.
+type FilteredDropError struct {
+	Result *FilteredResultWithPolicy
+}
+
+// Error makes FilteredDropError satisfy the error interface.
+func (e *FilteredDropError) Error() string {
+	if e == nil || e.Result == nil {
+		return "filtered drop"
+	}
+	return "filtered drop (policy=" + e.Result.Policy + ")"
+}
+
 // ToConfig defines the flow destination.
 type ToConfig struct {
 	// Connector is the destination connector name.

@@ -114,6 +114,16 @@ func (e *Executor) Execute(
 	// Execute the flow (with around wrappers)
 	result, flowErr := execFn(ctx, flowInput)
 
+	// FilteredDropError signals "the flow body emitted a documented
+	// disposition (filter / accept rejection, coordinate on_timeout=ack)
+	// rather than running its main path". Skip both after AND on_error
+	// — the message was deflected, not succeeded or failed. Propagate
+	// the sentinel up so the runtime can unwrap it for the MQ consumer.
+	var dropErr *flow.FilteredDropError
+	if errors.As(flowErr, &dropErr) {
+		return result, flowErr
+	}
+
 	// Execute after aspects only when the flow succeeded. Per the
 	// documented contract (`docs/guides/extending.md` — "after: Run after
 	// the flow succeeds"), `after` is for success notifications / cache
