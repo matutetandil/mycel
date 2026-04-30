@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.4] - 2026-04-30
+
+### Fixed
+- **MQ consumers redelivered permanent failures forever**: when a flow returned a permanent error (HTTP 4xx etc.) and the consumer's DLQ was not configured, `handleRetry` did `Nack(false, true)` — nack-with-requeue — and the broker re-handed the same message to the consumer immediately. With nothing acking it, the same delivery cycled at ~750ms intervals, generating dozens of duplicate POSTs and Slack alerts per published message. The consumer now distinguishes permanent failures (any error implementing the new `connector.PermanentError` interface) from transient ones: permanent → `Ack(false)` with a WARN log naming the delivery tag and reason; transient → existing `handleRetry` path. Same fix applied to the Kafka consumer (commits the offset on permanent failure to skip the message instead of looping).
+- **Misleading "after N attempts" failure log**: when a permanent error broke the retry loop early, the runtime still emitted `"flow failed after 3 attempts: ..."` because the budget value was used in the format string. The actual count taken is now reported, plus a `"(permanent failure, retry skipped)"` suffix when the break was due to a permanent error. Reading the logs no longer suggests three POSTs were made when only one was.
+
+### Added
+- **`connector.PermanentError` interface**: an exported interface in `internal/connector/` that error types opt into via `IsPermanent() bool`. `*httpconn.HTTPError` and `*gqlconn.HTTPError` now implement it (4xx → permanent, 5xx → transient). `connector.IsPermanent(err)` is the helper used by the runtime retry loop and the MQ consumers, and walks `errors.As` so wrapping via `fmt.Errorf("...%w", ...)` still works through the chain.
+
+### Tests
+- 4 new unit tests in `internal/runtime/permanent_ack_test.go`:
+  - `TestRetryFailureMessageReportsActualAttempts` — 4xx → "after 1 attempt" + "permanent failure, retry skipped".
+  - `TestRetryFailureMessageOn5xxShowsFullBudget` — 5xx → "after 3 attempts" without the permanent suffix.
+  - `TestHTTPErrorImplementsPermanent` — full 4xx/5xx matrix exercising the interface.
+  - `TestPermanentDetectionUnwraps` — `errors.As` walks the wrapping chain so the runtime's `fmt.Errorf` wrapper doesn't hide the underlying HTTP error.
+
 ## [1.20.3] - 2026-04-30
 
 ### Fixed

@@ -12,14 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"errors"
-
 	"github.com/matutetandil/mycel/internal/aspect"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/debug"
 	"github.com/matutetandil/mycel/internal/connector/cache"
-	gqlconn "github.com/matutetandil/mycel/internal/connector/graphql"
-	httpconn "github.com/matutetandil/mycel/internal/connector/http"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/functions"
 	"github.com/matutetandil/mycel/internal/sanitize"
@@ -410,26 +406,6 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 	return finalResult, finalErr
 }
 
-// isPermanentError returns true for errors that retrying cannot fix —
-// principally HTTP 4xx responses where the destination has already
-// returned a verdict on the request as-is. Replaying the identical
-// payload would produce the identical status. 5xx remains retryable
-// (could be a transient backend hiccup).
-func isPermanentError(err error) bool {
-	if err == nil {
-		return false
-	}
-	var httpErr *httpconn.HTTPError
-	if errors.As(err, &httpErr) {
-		return httpErr.StatusCode >= 400 && httpErr.StatusCode < 500
-	}
-	var gqlErr *gqlconn.HTTPError
-	if errors.As(err, &gqlErr) {
-		return gqlErr.StatusCode >= 400 && gqlErr.StatusCode < 500
-	}
-	return false
-}
-
 // executeWithRetry executes the flow with retry and fallback handling.
 func (h *FlowHandler) executeWithRetry(ctx context.Context, input map[string]interface{}, executeFn func() (interface{}, error)) (interface{}, error) {
 	eh := h.Config.ErrorHandling
@@ -459,8 +435,10 @@ func (h *FlowHandler) executeWithRetry(ctx context.Context, input map[string]int
 
 	var lastErr error
 	currentDelay := delay
+	attemptsTaken := 0
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		attemptsTaken = attempt
 		result, err := executeFn()
 		if err == nil {
 			return result, nil
@@ -476,9 +454,9 @@ func (h *FlowHandler) executeWithRetry(ctx context.Context, input map[string]int
 		// Don't retry on permanent HTTP errors. A 4xx response means the
 		// request itself was rejected (validation, auth, conflict, missing
 		// resource); replaying the identical bytes will produce the same
-		// status. Same for HTTP 501 / 505 (semantically permanent) — but
-		// 5xx in general can be transient so we keep retrying those.
-		if isPermanentError(err) {
+		// status. 5xx in general can be transient so we keep retrying
+		// those.
+		if connector.IsPermanent(err) {
 			break
 		}
 
@@ -507,17 +485,27 @@ func (h *FlowHandler) executeWithRetry(ctx context.Context, input map[string]int
 		}
 	}
 
+	// Build the failure message with the actual attempt count taken —
+	// when isPermanent broke the loop early, lying about the budget being
+	// exhausted (e.g. "after 3 attempts" for a single 409) makes
+	// downstream debugging confusing.
+	suffix := fmt.Sprintf("after %d attempt", attemptsTaken)
+	if attemptsTaken != 1 {
+		suffix += "s"
+	}
+	if connector.IsPermanent(lastErr) {
+		suffix += " (permanent failure, retry skipped)"
+	}
+
 	// All retries exhausted, check for fallback
 	if eh.Fallback != nil {
 		if fallbackErr := h.sendToFallback(ctx, input, lastErr); fallbackErr != nil {
-			// Return both errors
-			return nil, fmt.Errorf("flow failed after %d attempts: %w (fallback also failed: %v)", maxAttempts, lastErr, fallbackErr)
+			return nil, fmt.Errorf("flow failed %s: %w (fallback also failed: %v)", suffix, lastErr, fallbackErr)
 		}
-		// Fallback succeeded
-		return nil, fmt.Errorf("flow failed after %d attempts, sent to fallback: %w", maxAttempts, lastErr)
+		return nil, fmt.Errorf("flow failed %s, sent to fallback: %w", suffix, lastErr)
 	}
 
-	return nil, fmt.Errorf("flow failed after %d attempts: %w", maxAttempts, lastErr)
+	return nil, fmt.Errorf("flow failed %s: %w", suffix, lastErr)
 }
 
 // sendToFallback sends the failed message to the fallback connector (DLQ).

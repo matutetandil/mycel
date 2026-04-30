@@ -376,6 +376,13 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("HTTP %d: %s", e.StatusCode, e.Body)
 }
 
+// IsPermanent satisfies connector.PermanentError. See the http connector's
+// implementation for the rationale: 4xx is a definitionally permanent
+// failure, 5xx may be transient and remains retryable.
+func (e *HTTPError) IsPermanent() bool {
+	return e != nil && e.StatusCode >= 400 && e.StatusCode < 500
+}
+
 // GraphQLErrors represents multiple GraphQL errors.
 type GraphQLErrors struct {
 	Errors []GraphQLError

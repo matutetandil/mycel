@@ -11,6 +11,7 @@ import (
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/segmentio/kafka-go/sasl/scram"
 
+	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/flow"
 )
 
@@ -198,6 +199,22 @@ func (c *Connector) handleMessage(ctx context.Context, msg kafka.Message) error 
 			"topic", msg.Topic,
 			"error", err,
 		)
+		// Permanent failures (HTTP 4xx etc.) cannot be fixed by replaying.
+		// Return nil so the offset commits and the message is not
+		// re-consumed (Kafka offset semantics — equivalent to ack on
+		// AMQP). Without this branch a 4xx blocks consumer-group
+		// progress on the partition.
+		if connector.IsPermanent(err) {
+			c.logger.Warn("permanent flow failure, committing offset to skip",
+				"topic", msg.Topic,
+				"partition", msg.Partition,
+				"offset", msg.Offset,
+				"action", "commit",
+				"reason", "permanent_failure",
+				"error", err,
+			)
+			return nil
+		}
 		return err
 	}
 

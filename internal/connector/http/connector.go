@@ -661,6 +661,14 @@ func (e *HTTPError) Error() string {
 	return fmt.Sprintf("HTTP %d: %s - %s", e.StatusCode, e.Status, e.Body)
 }
 
+// IsPermanent satisfies connector.PermanentError. A 4xx response means
+// the destination already evaluated the request and rejected it as-is —
+// retrying the same bytes will produce the same status. 5xx is allowed
+// to remain retryable (transient backend issues, rolling deploys, etc.).
+func (e *HTTPError) IsPermanent() bool {
+	return e != nil && e.StatusCode >= 400 && e.StatusCode < 500
+}
+
 // isClientError checks if the error is a client error (4xx).
 func isClientError(err error) bool {
 	if httpErr, ok := err.(*HTTPError); ok {

@@ -7,6 +7,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
+	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/flow"
 )
 
@@ -207,7 +208,25 @@ func (c *Connector) handleDelivery(ctx context.Context, delivery amqp.Delivery) 
 			"routing_key", delivery.RoutingKey,
 			"error", err,
 		)
-		// Handle retry logic
+		// Permanent failures (HTTP 4xx etc.) cannot be fixed by retrying
+		// — replaying the same payload would produce the same response.
+		// Ack-and-drop so the broker stops redelivering. Without this
+		// branch, every 4xx triggers an infinite redelivery loop because
+		// the broker has no way to know the payload itself is the
+		// problem and just re-hands it to the next worker.
+		if connector.IsPermanent(err) {
+			c.logger.Warn("permanent flow failure, acking to stop redelivery",
+				"routing_key", delivery.RoutingKey,
+				"delivery_tag", delivery.DeliveryTag,
+				"message_id", delivery.MessageId,
+				"action", "ack",
+				"reason", "permanent_failure",
+				"error", err,
+			)
+			return delivery.Ack(false)
+		}
+		// Transient failure — let handleRetry route to DLQ if configured,
+		// otherwise nack-with-requeue and let the broker try again.
 		return c.handleRetry(delivery, err)
 	}
 
