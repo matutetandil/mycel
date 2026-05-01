@@ -85,6 +85,12 @@ func baseCELOptions() []cel.EnvOption {
 		// against the schema-less activation.
 		cel.Variable("error", cel.MapType(cel.StringType, cel.DynType)),
 
+		// Drop variable - structured object available in on_drop aspects.
+		// Has fields reason (string: "filter" / "accept" /
+		// "coordinate_timeout" / "sequence_older"), policy (string:
+		// "ack" / "reject" / "requeue"), and message_id (string).
+		cel.Variable("drop", cel.MapType(cel.StringType, cel.DynType)),
+
 		// Flow metadata variables for aspects
 		cel.Variable("_flow", cel.StringType),
 		cel.Variable("_operation", cel.StringType),
@@ -996,7 +1002,7 @@ func (t *CELTransformer) EvaluateExpression(ctx context.Context, input map[strin
 
 	// For aspect conditions, we need certain variables at the top level of activation.
 	// These are declared in the CEL environment and must be present.
-	topLevelVars := []string{"result", "error", "_flow", "_operation", "_target", "_timestamp"}
+	topLevelVars := []string{"result", "error", "drop", "_flow", "_operation", "_target", "_timestamp"}
 	for _, key := range topLevelVars {
 		if val, ok := input[key]; ok {
 			activation[key] = val
@@ -1012,6 +1018,12 @@ func (t *CELTransformer) EvaluateExpression(ctx context.Context, input map[strin
 					"message": "",
 					"code":    int64(0),
 					"type":    "",
+				}
+			case "drop":
+				activation[key] = map[string]interface{}{
+					"reason":     "",
+					"policy":     "",
+					"message_id": "",
 				}
 			case "_flow", "_operation", "_target":
 				activation[key] = ""
@@ -1050,7 +1062,7 @@ func (t *CELTransformer) EvaluateExpressionWithOutput(ctx context.Context, input
 
 	// Mirror EvaluateExpression's top-level bindings so post-success keys
 	// can use the same auxiliary variables.
-	topLevelVars := []string{"result", "error", "_flow", "_operation", "_target", "_timestamp"}
+	topLevelVars := []string{"result", "error", "drop", "_flow", "_operation", "_target", "_timestamp"}
 	for _, key := range topLevelVars {
 		if val, ok := input[key]; ok {
 			activation[key] = val
@@ -1063,6 +1075,12 @@ func (t *CELTransformer) EvaluateExpressionWithOutput(ctx context.Context, input
 					"message": "",
 					"code":    int64(0),
 					"type":    "",
+				}
+			case "drop":
+				activation[key] = map[string]interface{}{
+					"reason":     "",
+					"policy":     "",
+					"message_id": "",
 				}
 			case "_flow", "_operation", "_target":
 				activation[key] = ""
@@ -1102,7 +1120,7 @@ func (t *CELTransformer) EvaluateExpressionWithSteps(ctx context.Context, input 
 
 	// For aspect conditions, we need certain variables at the top level of activation.
 	// These are declared in the CEL environment and must be present.
-	topLevelVars := []string{"result", "error", "_flow", "_operation", "_target", "_timestamp"}
+	topLevelVars := []string{"result", "error", "drop", "_flow", "_operation", "_target", "_timestamp"}
 	for _, key := range topLevelVars {
 		if val, ok := input[key]; ok {
 			activation[key] = val
@@ -1118,6 +1136,12 @@ func (t *CELTransformer) EvaluateExpressionWithSteps(ctx context.Context, input 
 					"message": "",
 					"code":    int64(0),
 					"type":    "",
+				}
+			case "drop":
+				activation[key] = map[string]interface{}{
+					"reason":     "",
+					"policy":     "",
+					"message_id": "",
 				}
 			case "_flow", "_operation", "_target":
 				activation[key] = ""

@@ -2354,6 +2354,13 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 			rlr.SetRateLimiter(r.rateLimiter)
 		}
 
+		// Re-register flow handlers against the NEW connector instance.
+		// CloseAll above wiped the previous instance and its internal
+		// handler map; Start() below would otherwise spin up a consumer
+		// against an empty registry — symptom: "no handler for routing
+		// key" warnings + silent ack-and-drop after every hot reload.
+		r.registerFlowHandlers(name, conn)
+
 		r.logger.Info("hot reload: starting connector", "connector", name)
 		if err := starter.Start(context.Background()); err != nil {
 			r.logger.Error("failed to start connector after hot reload",
@@ -2375,14 +2382,20 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 		for _, sc := range r.suspendedStarters {
 			r.logger.Info("hot reload: starting suspended connector (debugger ready)",
 				"connector", sc.name)
+			conn, _ := r.connectors.Get(sc.name)
+			if conn != nil {
+				// Same handler-map population as the immediate-start path.
+				r.registerFlowHandlers(sc.name, conn)
+			}
 			if err := sc.starter.Start(context.Background()); err != nil {
 				r.logger.Error("failed to start suspended connector after hot reload",
 					"connector", sc.name, "error", err)
 				continue
 			}
-			conn, _ := r.connectors.Get(sc.name)
-			if throttler, ok := conn.(connector.DebugThrottler); ok {
-				throttler.SetDebugMode(true)
+			if conn != nil {
+				if throttler, ok := conn.(connector.DebugThrottler); ok {
+					throttler.SetDebugMode(true)
+				}
 			}
 		}
 		r.suspendedStarters = nil

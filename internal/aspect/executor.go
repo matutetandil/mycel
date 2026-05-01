@@ -83,6 +83,7 @@ func (e *Executor) Execute(
 	aroundAspects := e.registry.GetAround(flowName)
 	afterAspects := e.registry.GetAfter(flowName)
 	onErrorAspects := e.registry.GetOnError(flowName)
+	onDropAspects := e.registry.GetOnDrop(flowName)
 
 	// Add metadata to input
 	enrichedInput := e.enrichInput(input, flowName, operation, target)
@@ -115,12 +116,21 @@ func (e *Executor) Execute(
 	result, flowErr := execFn(ctx, flowInput)
 
 	// FilteredDropError signals "the flow body emitted a documented
-	// disposition (filter / accept rejection, coordinate on_timeout=ack)
-	// rather than running its main path". Skip both after AND on_error
-	// — the message was deflected, not succeeded or failed. Propagate
-	// the sentinel up so the runtime can unwrap it for the MQ consumer.
+	// disposition (filter / accept rejection, coordinate on_timeout=ack,
+	// sequence_guard older-than-stored) rather than running its main
+	// path". Skip both after AND on_error — the message was deflected,
+	// not succeeded or failed. Run on_drop aspects so operators can
+	// notify on orphans / drops without writing one aspect per gate;
+	// `drop.reason` and `drop.policy` are bound for routing.
 	var dropErr *flow.FilteredDropError
 	if errors.As(flowErr, &dropErr) {
+		if len(onDropAspects) > 0 {
+			if onDropErr := e.executeOnDrop(ctx, onDropAspects, enrichedInput, dropErr.Result); onDropErr != nil {
+				slog.Warn("on_drop aspect error",
+					"flow", flowName,
+					"error", onDropErr)
+			}
+		}
 		return result, flowErr
 	}
 
@@ -304,6 +314,63 @@ func (e *Executor) executeOnError(ctx context.Context, aspects []*Config, input 
 	}
 
 	return nil
+}
+
+// executeOnDrop runs all on_drop aspects when the flow body emitted a
+// documented filter disposition. The aspect's transform / `if` sees the
+// `drop` variable with `.reason` (e.g. "coordinate_timeout",
+// "sequence_older", "filter", "accept") and `.policy` ("ack", "reject",
+// "requeue"); the connector + payload of the action come from the
+// aspect's own `action { connector = ... transform { ... } }` block, same
+// as `on_error`. Errors from individual aspect actions are logged and
+// swallowed — a broken alerter shouldn't make the disposition worse.
+func (e *Executor) executeOnDrop(ctx context.Context, aspects []*Config, input map[string]interface{}, dropResult *flow.FilteredResultWithPolicy) error {
+	dropInfo := buildDropInfo(dropResult)
+
+	for _, aspect := range aspects {
+		if !e.evaluateCondition(ctx, aspect, input, nil, nil) {
+			continue
+		}
+
+		slog.Debug("executing on_drop aspect",
+			"aspect", aspect.Name,
+			"flow", input["_flow"],
+			"reason", dropInfo["reason"],
+			"policy", dropInfo["policy"])
+
+		if aspect.Action != nil {
+			dropInput := make(map[string]interface{}, len(input)+1)
+			for k, v := range input {
+				dropInput[k] = v
+			}
+			dropInput["drop"] = dropInfo
+
+			if err := e.executeAction(ctx, aspect.Action, dropInput, nil); err != nil {
+				slog.Warn("on_drop aspect action error",
+					"aspect", aspect.Name,
+					"error", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// buildDropInfo converts a FilteredResultWithPolicy into the map shape
+// `on_drop` aspects use as the `drop` CEL binding.
+func buildDropInfo(result *flow.FilteredResultWithPolicy) map[string]interface{} {
+	info := map[string]interface{}{
+		"reason":     "",
+		"policy":     "",
+		"message_id": "",
+	}
+	if result == nil {
+		return info
+	}
+	info["reason"] = result.Reason
+	info["policy"] = result.Policy
+	info["message_id"] = result.MessageID
+	return info
 }
 
 // buildErrorInfo extracts structured error information from an error.

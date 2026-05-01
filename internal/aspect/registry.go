@@ -122,6 +122,14 @@ func (r *Registry) GetOnError(flowName string) []*Config {
 	return r.MatchByWhen(flowName, OnError)
 }
 
+// GetOnDrop returns all "on_drop" aspects for a flow. Used when the flow
+// body did not run its main path because a documented disposition (filter
+// or accept rejection, coordinate.on_timeout="ack", sequence_guard
+// older-than-stored) deflected the message.
+func (r *Registry) GetOnDrop(flowName string) []*Config {
+	return r.MatchByWhen(flowName, OnDrop)
+}
+
 // All returns all registered aspects.
 func (r *Registry) All() []*Config {
 	r.mu.RLock()
@@ -171,6 +179,8 @@ func whenOrder(w When) int {
 		return 2
 	case OnError:
 		return 3
+	case OnDrop:
+		return 4
 	default:
 		return 99
 	}

@@ -296,13 +296,14 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 					Filtered:   true,
 					Policy:     h.Config.From.FilterConfig.OnReject,
 					MaxRequeue: h.Config.From.FilterConfig.MaxRequeue,
+					Reason:     "filter",
 				}
 				// Evaluate ID field if configured (for requeue dedup)
 				if h.Config.From.FilterConfig.IDField != "" && h.Config.From.FilterConfig.OnReject == "requeue" {
 					msgID, _ := h.evaluateIDField(ctx, input)
 					result.MessageID = msgID
 				}
-				return result, nil
+				return h.dispatchOnDropAndReturn(ctx, input, result)
 			}
 			return FilteredResult, nil
 		}
@@ -320,10 +321,12 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		}
 		shouldAccept, _ := acceptResult.(bool)
 		if !shouldAccept {
-			return &flow.FilteredResultWithPolicy{
+			result := &flow.FilteredResultWithPolicy{
 				Filtered: true,
 				Policy:   h.Config.Accept.OnReject,
-			}, nil
+				Reason:   "accept",
+			}
+			return h.dispatchOnDropAndReturn(ctx, input, result)
 		}
 	}
 
@@ -985,6 +988,26 @@ func (h *FlowHandler) evaluateIdempotencyKey(ctx context.Context, input map[stri
 	}
 }
 
+// dispatchOnDropAndReturn fires `on_drop` aspects (when registered) for a
+// drop disposition produced by the early gates in HandleRequest (filter
+// and accept reject before any sync wrapper has a chance to). The
+// dispatch reuses the aspect executor by handing it a flowFn that just
+// re-emits the drop, so before/around/on_drop aspects observe the same
+// shape they would for a coordinate timeout. The drop result is then
+// returned to the caller — the MQ consumer reads `Policy` and acks /
+// nacks / requeues as configured.
+func (h *FlowHandler) dispatchOnDropAndReturn(ctx context.Context, input map[string]interface{}, dropResult *flow.FilteredResultWithPolicy) (interface{}, error) {
+	if h.AspectExecutor != nil && h.Config.Name != "" {
+		// Best-effort dispatch: errors are logged inside the executor;
+		// here we just need the side effects (notifications) and to
+		// return the original drop result for the consumer.
+		_, _ = h.handleRequestWithAspectsForFlow(ctx, input, func() (interface{}, error) {
+			return dropResult, nil
+		})
+	}
+	return dropResult, nil
+}
+
 // handleRequestWithAspects wraps flow execution with aspect executor.
 func (h *FlowHandler) handleRequestWithAspects(ctx context.Context, input map[string]interface{}) (interface{}, error) {
 	return h.handleRequestWithAspectsForFlow(ctx, input, func() (interface{}, error) {
@@ -1161,6 +1184,7 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 				return &flow.FilteredResultWithPolicy{
 					Filtered: true,
 					Policy:   string(skipped.Policy),
+					Reason:   "sequence_older",
 				}, nil
 			}
 			return result, err
@@ -1263,7 +1287,11 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 					"key", waitKey,
 					"timeout", h.Config.Coordinate.Timeout,
 					"action", "ack")
-				return &flow.FilteredResultWithPolicy{Filtered: true, Policy: "ack"}, nil
+				return &flow.FilteredResultWithPolicy{
+					Filtered: true,
+					Policy:   "ack",
+					Reason:   "coordinate_timeout",
+				}, nil
 			}
 			return result, err
 		}

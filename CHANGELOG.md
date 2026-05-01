@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.0] - 2026-04-30
+
+### Fixed
+- **Hot reload left flows without handlers on the new connector instances**: v1.20.1's hot reload fix called `Start()` on the new connector after `CloseAll` + `initConnectors` + `registerFlows`, but never called `registerFlowHandlers(name, conn)`. The connector spun up its consumer loop against an empty handler map; every delivery hit `handler_found=false / registered_handlers=0`, the broker saw silent ack-and-drop, and the queue drained without any work being done. Symptom for the operator: `kubectl apply` on the ConfigMap → reload completed cleanly → service stayed "healthy" → messages stopped being processed. Same shape as v1.20.1 (Start was missing) and v1.19.0 (config field dropped at boundary): the visible logs showed success, the runtime wiring was broken one layer down. The fix wires `registerFlowHandlers(name, conn)` immediately before `Start()` in the post-reload loop, mirroring the initial `startServers` path.
+
+### Added
+- **`when = "on_drop"` aspect phase**: a new aspect lifecycle hook for messages that were deflected via a documented disposition rather than succeeded or failed — coordinate `on_timeout="ack"`, sequence_guard older-than-stored, filter rejections, accept rejections. The aspect's CEL expressions see a `drop` map with:
+  - `drop.reason` — `"filter"` / `"accept"` / `"coordinate_timeout"` / `"sequence_older"`
+  - `drop.policy` — `"ack"` / `"reject"` / `"requeue"` (from the gate's configured on-rejection policy)
+  - `drop.message_id` — present when the gate captured one (e.g. filter requeue dedup)
+
+  Use case: notify operators on orphaned messages without writing one aspect per gate.
+
+  ```hcl
+  aspect "orphan_alert" {
+    on   = ["item_update", "style_update"]
+    when = "on_drop"
+    action {
+      connector = "slack"
+      transform {
+        text = "'_*WARN:*_ ' + _flow + ' dropped (' + drop.reason + ')'"
+      }
+    }
+  }
+  ```
+
+  `before` and `around` aspects still run on the dispatch path (so cache hits / rate limits still gate deflected messages); `after` and `on_error` are explicitly skipped — the message wasn't a success or a failure. The `Reason` field on `flow.FilteredResultWithPolicy` is populated at every drop site so future gates can plug in by setting one string.
+
+### Documentation
+- The `on_drop` phase joins the `when = "before" / "after" / "around" / "on_error"` validation set in `internal/aspect/types.go`. Validation error messages now list `on_drop` as a valid value.
+
+### Tests
+- `internal/runtime/hot_reload_start_test.go` — `TestHotReloadRegistersHandlersBeforeStart` adds a fake `RouteRegistrar` connector and asserts `RegisterRoute` is invoked before `Start` during the post-reload loop.
+- `internal/runtime/on_drop_aspect_test.go` — three integration tests:
+  - `TestOnDropAspect_FiresOnCoordinateTimeout` — `drop.reason="coordinate_timeout"` / `drop.policy="ack"` resolve correctly.
+  - `TestOnDropAspect_FiresOnFilterReject` — filter rejection dispatches `on_drop` with `drop.reason="filter"`.
+  - `TestOnDropAspect_DoesNotFireOnSuccess` — regression: `on_drop` only fires on deflection, not on completion.
+
 ## [1.20.8] - 2026-04-30
 
 ### Fixed

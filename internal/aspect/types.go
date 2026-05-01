@@ -16,6 +16,13 @@ const (
 	Around When = "around"
 	// OnError executes only when the flow fails. Has access to error details.
 	OnError When = "on_error"
+	// OnDrop executes when a flow ends without running its main path —
+	// the message was deflected via a documented disposition (filter or
+	// accept rejection, coordinate.on_timeout="ack", sequence_guard
+	// older-than-stored). Has access to a `drop` variable with `.reason`
+	// and `.policy` fields so a single aspect can route notifications
+	// per disposition without writing one aspect per gate.
+	OnDrop When = "on_drop"
 )
 
 // Config represents an aspect configuration.
@@ -179,14 +186,14 @@ func (c *Config) Validate() error {
 	}
 
 	if c.When == "" {
-		return &ValidationError{Field: "when", Message: "when is required (before, after, around, on_error)"}
+		return &ValidationError{Field: "when", Message: "when is required (before, after, around, on_error, on_drop)"}
 	}
 
 	switch c.When {
-	case Before, After, Around, OnError:
+	case Before, After, Around, OnError, OnDrop:
 		// Valid
 	default:
-		return &ValidationError{Field: "when", Message: "must be 'before', 'after', 'around', or 'on_error'"}
+		return &ValidationError{Field: "when", Message: "must be 'before', 'after', 'around', 'on_error', or 'on_drop'"}
 	}
 
 	// Validate that appropriate config is provided for the aspect type

@@ -354,6 +354,16 @@ type FilteredResultWithPolicy struct {
 	Policy     string // "ack", "reject", "requeue"
 	MessageID  string
 	MaxRequeue int
+
+	// Reason names the gate that produced the drop. Surfaced to
+	// `on_drop` aspects via the `drop.reason` CEL binding so a single
+	// alerter can route per-disposition without writing one aspect per
+	// gate. Stable values:
+	//   - "filter"             — from { filter { } } rejected
+	//   - "accept"             — accept { } rejected
+	//   - "coordinate_timeout" — coordinate { on_timeout = "ack" } fired
+	//   - "sequence_older"     — sequence_guard { } saw current <= stored
+	Reason string
 }
 
 // FilteredDropError wraps a FilteredResultWithPolicy when the value crosses
