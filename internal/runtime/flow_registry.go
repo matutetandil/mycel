@@ -303,7 +303,7 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 					msgID, _ := h.evaluateIDField(ctx, input)
 					result.MessageID = msgID
 				}
-				return h.dispatchOnDropAndReturn(ctx, input, result)
+				return h.prepareDropResult(ctx, input, result)
 			}
 			return FilteredResult, nil
 		}
@@ -326,7 +326,7 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 				Policy:   h.Config.Accept.OnReject,
 				Reason:   "accept",
 			}
-			return h.dispatchOnDropAndReturn(ctx, input, result)
+			return h.prepareDropResult(ctx, input, result)
 		}
 	}
 
@@ -988,22 +988,36 @@ func (h *FlowHandler) evaluateIdempotencyKey(ctx context.Context, input map[stri
 	}
 }
 
-// dispatchOnDropAndReturn fires `on_drop` aspects (when registered) for a
-// drop disposition produced by the early gates in HandleRequest (filter
-// and accept reject before any sync wrapper has a chance to). The
-// dispatch reuses the aspect executor by handing it a flowFn that just
-// re-emits the drop, so before/around/on_drop aspects observe the same
-// shape they would for a coordinate timeout. The drop result is then
-// returned to the caller — the MQ consumer reads `Policy` and acks /
-// nacks / requeues as configured.
-func (h *FlowHandler) dispatchOnDropAndReturn(ctx context.Context, input map[string]interface{}, dropResult *flow.FilteredResultWithPolicy) (interface{}, error) {
+// prepareDropResult attaches the `on_drop` aspect dispatcher as a deferred
+// closure on the drop result instead of firing it inline. The owning
+// consumer (single-flow path) or the fan-out aggregator (multi-flow path)
+// is responsible for invoking flow.FireDropAspect on the *winning* result
+// exactly once.
+//
+// The deferral exists for fan-out filter coordination. When several flows
+// share the same MQ source via fan-out and only one passes its filter, the
+// rejecting siblings' drops are intra-container routing — the message
+// belongs to the matching flow, not to no-one. Firing on_drop for the
+// rejecters would multiply notifications by N flows × M retry cycles and
+// (worse) their `on_reject = "requeue"` policy would bounce a message that
+// another sibling has already accepted. Deferring the firing lets the
+// aggregator nil-out losers and only fire the winner's closure.
+//
+// When no fan-out is in play the consumer simply calls FireDropAspect
+// after the handler returns and behavior is identical to the inline
+// firing it replaces.
+func (h *FlowHandler) prepareDropResult(ctx context.Context, input map[string]interface{}, dropResult *flow.FilteredResultWithPolicy) (interface{}, error) {
 	if h.AspectExecutor != nil && h.Config.Name != "" {
-		// Best-effort dispatch: errors are logged inside the executor;
-		// here we just need the side effects (notifications) and to
-		// return the original drop result for the consumer.
-		_, _ = h.handleRequestWithAspectsForFlow(ctx, input, func() (interface{}, error) {
-			return dropResult, nil
-		})
+		captured := dropResult
+		// The closure runs in the same goroutine that called the
+		// consumer, immediately after the handler returns. It is
+		// invoked at most once — FireDropAspect nils out the slot
+		// before calling — so there is no double-fire risk.
+		dropResult.PendingOnDrop = func(asyncCtx context.Context) {
+			_, _ = h.handleRequestWithAspectsForFlow(asyncCtx, input, func() (interface{}, error) {
+				return captured, nil
+			})
+		}
 	}
 	return dropResult, nil
 }

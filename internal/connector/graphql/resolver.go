@@ -6,6 +6,7 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 
+	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/graphql/analyzer"
 	"github.com/matutetandil/mycel/internal/graphql/pruner"
 )
@@ -74,6 +75,8 @@ func CreateOptimizedResolverWithOptions(handler HandlerFunc, opts ResolverOption
 
 		// Call the flow handler with enriched context
 		result, err := handler(ctx, input)
+		// Fire deferred on_drop closure (no-op on success).
+		flow.FireDropAspect(ctx, result)
 		if err != nil {
 			return nil, err
 		}
@@ -104,6 +107,8 @@ func CreateResolverWithOptions(handler HandlerFunc, opts ResolverOptions) graphq
 
 		// Call the flow handler
 		result, err := handler(p.Context, input)
+		// Fire deferred on_drop closure (no-op on success).
+		flow.FireDropAspect(p.Context, result)
 		if err != nil {
 			return nil, err
 		}
@@ -144,6 +149,8 @@ func CreateSmartResolver(handler HandlerFunc) graphql.FieldResolveFn {
 
 		// Call the flow handler with enriched context
 		result, err := handler(ctx, input)
+		// Fire deferred on_drop closure (no-op on success).
+		flow.FireDropAspect(ctx, result)
 		if err != nil {
 			return nil, err
 		}

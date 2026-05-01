@@ -270,6 +270,12 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 	result, err := handler(r.Context(), input)
 	duration := time.Since(start)
 
+	// Fire deferred on_drop closure (no-op on success / no on_drop
+	// aspects). The flow handler defers firing so fan-out aggregation
+	// can suppress losers; for sync REST there is no fan-out, so this
+	// just fires inline as before.
+	flow.FireDropAspect(r.Context(), result)
+
 	if err != nil {
 		status := c.writeError(w, err)
 		if c.metrics != nil {

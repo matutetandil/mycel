@@ -364,6 +364,36 @@ type FilteredResultWithPolicy struct {
 	//   - "coordinate_timeout" — coordinate { on_timeout = "ack" } fired
 	//   - "sequence_older"     — sequence_guard { } saw current <= stored
 	Reason string
+
+	// PendingOnDrop is the deferred dispatcher for the flow's on_drop
+	// aspects. The flow handler attaches this closure instead of firing
+	// the aspect inline so that fan-out aggregation gets a chance to
+	// suppress it: when sibling flows on the same MQ source share a
+	// queue and only one passes its filter, the rejecting siblings'
+	// drops are intra-container routing, not real drops, and their
+	// closures are simply never invoked.
+	//
+	// The owning consumer is responsible for calling FireDropAspect on
+	// the *winning* result exactly once, after fan-out aggregation has
+	// chosen the aggregate. nil means there are no on_drop aspects to
+	// fire (no aspects registered for this flow). Not serialized.
+	PendingOnDrop func(ctx context.Context) `json:"-"`
+}
+
+// FireDropAspect invokes the result's PendingOnDrop closure if present
+// and clears it so a stray double-fire is impossible. It accepts an
+// arbitrary value so consumers can pass either a *FilteredResultWithPolicy
+// or any handler return value without inspecting the type themselves.
+// Safe on nil. Returns true if a closure was fired.
+func FireDropAspect(ctx context.Context, result interface{}) bool {
+	filtered, ok := result.(*FilteredResultWithPolicy)
+	if !ok || filtered == nil || filtered.PendingOnDrop == nil {
+		return false
+	}
+	fn := filtered.PendingOnDrop
+	filtered.PendingOnDrop = nil
+	fn(ctx)
+	return true
 }
 
 // FilteredDropError wraps a FilteredResultWithPolicy when the value crosses

@@ -218,6 +218,12 @@ func (c *Connector) handleMessage(ctx context.Context, msg kafka.Message) error 
 		return err
 	}
 
+	// Fire any deferred on_drop closure attached to the result. The
+	// flow handler defers firing so fan-out aggregation can suppress
+	// siblings whose filter rejected when another sibling passed its
+	// filter. No-op on success or when no on_drop aspects registered.
+	flow.FireDropAspect(ctx, result)
+
 	// Check if the result is a filter rejection with policy
 	if filtered, ok := result.(*flow.FilteredResultWithPolicy); ok && filtered.Filtered {
 		return c.handleFilterReject(ctx, msg, filtered)

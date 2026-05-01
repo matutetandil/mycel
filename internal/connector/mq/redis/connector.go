@@ -12,6 +12,7 @@ import (
 
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/mq/types"
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 // HandlerFunc is the function signature for message handlers.
@@ -276,8 +277,14 @@ func (c *Connector) handleMessage(msg *redis.Message) {
 
 	// Debug throttling: wait for gate before processing
 	c.debugGate.Acquire()
-	_, err := handler(c.ctx, input)
+	result, err := handler(c.ctx, input)
 	c.debugGate.Release()
+
+	// Fire any deferred on_drop closure attached to the result. The
+	// flow handler defers firing so fan-out aggregation can suppress
+	// siblings whose filter rejected when another sibling passed its
+	// filter. No-op on success or when no on_drop aspects registered.
+	flow.FireDropAspect(c.ctx, result)
 
 	if err != nil {
 		c.logger.Error("handler error",

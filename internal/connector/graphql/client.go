@@ -17,6 +17,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 // ClientConnector calls external GraphQL APIs.
@@ -679,7 +680,10 @@ func (c *ClientConnector) handleNextMessage(ctx context.Context, topic string, p
 		}
 	}
 
-	if _, err := handler(ctx, input); err != nil {
+	handlerResult, err := handler(ctx, input)
+	// Fire deferred on_drop closure (no-op on success).
+	flow.FireDropAspect(ctx, handlerResult)
+	if err != nil {
 		c.logger.Error("subscription handler error",
 			"connector", c.name,
 			"topic", topic,

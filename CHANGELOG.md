@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.2] - 2026-04-30
+
+### Fixed
+- **Fan-out filter coordination — one accepter must silence the rejecting siblings**: when several flows shared the same MQ source via fan-out (multiple flows registered on the same routing key) and exactly one passed its filter, the rejecting siblings still fired their `on_reject = "requeue"` policy and `on_drop` aspects. For one Mercury delivery on `all.in.magento.q` with `operation = "update"` and three registered flows (one per operation: create / update / delete), the symptom was:
+  - `item_create` filter rejects → `on_reject = "requeue"` → broker requeue
+  - `item_update` filter accepts → enters `coordinate.wait` → 30s timeout → ack
+  - `item_delete` filter rejects → `on_reject = "requeue"` → broker requeue
+  - Net per-delivery: **6 spurious `on_drop` notifications** (2 from each cycle × 3 cycles), **3 retry cycles** of 30s each (because `aggregateFanoutResults` picked the most-aggressive policy across the 3 returns and `requeue > ack`, so the broker saw "requeue" even though the matching flow had ack'd), until the requeue tracker capped it at 3 attempts. Notification spam, log noise, 90 seconds wasted per orphan-shaped delivery.
+
+  The `on_reject = "requeue"` configuration is intentional and correct at the consumer-protocol level — it lets *cross-service* fan-out work, where another container's Mycel (or another consumer entirely) takes the message a flow in this container doesn't own. Changing it to `ack` would break that routing pattern. The bug was specifically about *intra-container* coordination: when a sibling in the same container has the message, the local rejecters should be silent, but the cross-service path must still requeue when ALL local flows reject.
+
+  The fix splits these two cases at the aggregator. `FilteredResultWithPolicy.Reason` already named the gate that produced the drop (`"filter"` / `"accept"` / `"coordinate_timeout"` / `"sequence_older"`); the aggregator now reads it: if exactly one branch's `Reason != "filter"` (it passed its filter and was deflected later), that branch wins outright and the rejecting siblings are silenced — no policy contribution, no on_drop firing. If both passed filter (concurrent post-filter drops) or both rejected at filter (no flow in this container owns it), fall through to most-aggressive policy as before. Cross-service requeue path is preserved.
+
+  To suppress the rejecting siblings' on_drop aspects (which previously fired inline inside each flow's handler before the aggregator could decide), `on_drop` firing is now deferred via a `PendingOnDrop` closure attached to `FilteredResultWithPolicy`. The aggregator nils out the loser's closure; the consumer fires only the winner's via `flow.FireDropAspect`. End result for the Mercury scenario: **1 `on_drop` notification** (from the winning `coordinate_timeout`), **0 retry cycles**, broker acks the message immediately.
+
+### Implementation notes
+- `flow.FilteredResultWithPolicy.PendingOnDrop func(context.Context)` — closure attached at the gate, invoked at most once. `flow.FireDropAspect(ctx, result)` is the helper consumers call; nils the slot before firing so a stray double-call is impossible. No-op on nil / non-filtered results.
+- `internal/runtime/flow_registry.go`: `dispatchOnDropAndReturn` → `prepareDropResult`. The closure replays the executor pipeline (so `before`/`around` aspects still observe filter drops the same way they did) but defers the actual firing.
+- `internal/connector/fanout.go::aggregateFanoutResults`: filter-coordination branch added. `suppressDrop` helper nils losing branches' closures so even if a result reference escapes, nobody fires them by accident.
+- `flow.FireDropAspect` wired into every consumer that hands a flow result to broker / response logic: RabbitMQ, Kafka, Redis Pub/Sub, MQTT, CDC, file watcher, WebSocket, REST, GraphQL (3 resolver paths + subscription client), gRPC server (unary + streaming), SOAP server, TCP server (NestJS protocol + standard).
+
+### Tests
+- `internal/connector/fanout_test.go` — 5 new tests: `FilterCoordination_AccepterWinsOverRejecter`, `_AccepterFirst` (order-independent), `_ThreeFlowsMercuryScenario` (exact reproduction with 3 chained flows), `_AllRejectFiresOnDropOnce` (cross-service requeue path preserved + single on_drop), `_SuccessSuppressesFilterDrop` (real success also suppresses sibling filter drops).
+- `internal/runtime/on_drop_aspect_test.go::TestOnDropAspect_FiresOnFilterReject` updated to call `FireDropAspect` after `HandleRequest`, mirroring the consumer contract.
+
 ## [1.21.1] - 2026-04-30
 
 ### Fixed

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 // HandlerFunc is the function signature for message handlers.
@@ -382,6 +383,8 @@ func (s *ServerConnector) processNestJSMessage(framer *NestJSFramer, msg *NestJS
 	defer cancel()
 
 	result, err := handler(ctx, input)
+	// Fire deferred on_drop closure (no-op on success).
+	flow.FireDropAspect(ctx, result)
 	if err != nil {
 		s.sendNestJSErrorResponse(framer, msg.ID, err.Error())
 		return
@@ -438,6 +441,8 @@ func (s *ServerConnector) processMessage(framer *Framer, msg *Message) {
 	defer cancel()
 
 	result, err := handler(ctx, input)
+	// Fire deferred on_drop closure (no-op on success).
+	flow.FireDropAspect(ctx, result)
 	if err != nil {
 		s.sendErrorResponse(framer, msg.ID, err.Error())
 		return

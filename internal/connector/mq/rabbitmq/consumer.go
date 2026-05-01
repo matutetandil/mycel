@@ -230,6 +230,13 @@ func (c *Connector) handleDelivery(ctx context.Context, delivery amqp.Delivery) 
 		return c.handleRetry(delivery, err)
 	}
 
+	// Fire any deferred on_drop closure attached to the result. The
+	// flow handler defers the firing so fan-out aggregation can
+	// suppress siblings whose filter rejected when another sibling
+	// passed its filter. If no closure is attached (success or no
+	// on_drop aspects registered), this is a no-op.
+	flow.FireDropAspect(ctx, result)
+
 	// Check if the result is a filter rejection with policy
 	if filtered, ok := result.(*flow.FilteredResultWithPolicy); ok && filtered.Filtered {
 		return c.handleFilterReject(delivery, filtered)

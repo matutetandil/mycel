@@ -403,6 +403,218 @@ func TestChainEventDriven_BothFiltered_PicksMostAggressivePolicy(t *testing.T) {
 	}
 }
 
+// --- Fan-out filter-coordination & on_drop suppression --------------------
+//
+// These tests cover the v1.21.2 fix: when several flows share the same MQ
+// source and only one passes its filter, the rejecting siblings are
+// intra-container routing, not real drops. The aggregator must:
+//   1. Pick the result of whichever branch passed its filter (Reason !=
+//      "filter") even if that branch was later deflected by a different
+//      gate (accept / coordinate_timeout / sequence_older).
+//   2. Suppress the rejecting siblings' deferred on_drop closures so the
+//      operator does not get N notifications per delivery.
+//   3. Honor the cross-service requeue path when ALL branches reject —
+//      the message belongs to no flow in this container and the broker
+//      must be free to redeliver to a different consumer.
+
+func TestChainEventDriven_FilterCoordination_AccepterWinsOverRejecter(t *testing.T) {
+	// Mercury scenario: 3 flows, 1 accepts filter and times out at
+	// coordinate.wait, 2 reject at filter with on_reject="requeue".
+	// Pre-fix: rejecter's "requeue" beat the accepter's "ack" via
+	// most-aggressive policy → broker requeued the message → 3-cycle
+	// retry storm. Post-fix: accepter (Reason != "filter") wins.
+
+	var rejectorDrops atomic.Int32
+	rejector := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		r := &flow.FilteredResultWithPolicy{
+			Filtered: true,
+			Policy:   "requeue",
+			Reason:   "filter",
+		}
+		// Stand-in for the deferred firing the runtime attaches.
+		r.PendingOnDrop = func(ctx context.Context) {
+			rejectorDrops.Add(1)
+		}
+		return r, nil
+	})
+
+	var accepterDrops atomic.Int32
+	accepter := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		r := &flow.FilteredResultWithPolicy{
+			Filtered: true,
+			Policy:   "ack",
+			Reason:   "coordinate_timeout",
+		}
+		r.PendingOnDrop = func(ctx context.Context) {
+			accepterDrops.Add(1)
+		}
+		return r, nil
+	})
+
+	chained := ChainEventDriven(rejector, accepter, nil)
+	result, err := chained(context.Background(), map[string]interface{}{"op": "update"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Aggregator returned the accepter's result.
+	f, ok := result.(*flow.FilteredResultWithPolicy)
+	if !ok {
+		t.Fatalf("expected FilteredResultWithPolicy aggregate, got %T", result)
+	}
+	if f.Reason != "coordinate_timeout" {
+		t.Errorf("expected accepter (coordinate_timeout) to win, got Reason=%q", f.Reason)
+	}
+	if f.Policy != "ack" {
+		t.Errorf("expected accepter's ack policy, got %q (the bug — rejecter's requeue masked accepter's ack)", f.Policy)
+	}
+
+	// Fire on the aggregate as the consumer would. Only the accepter's
+	// closure should run; the rejecter's was suppressed.
+	flow.FireDropAspect(context.Background(), result)
+
+	if got := rejectorDrops.Load(); got != 0 {
+		t.Errorf("rejecter's on_drop must be suppressed when sibling passed filter, fired %d", got)
+	}
+	if got := accepterDrops.Load(); got != 1 {
+		t.Errorf("accepter's on_drop should fire once, fired %d", got)
+	}
+}
+
+func TestChainEventDriven_FilterCoordination_AccepterFirst(t *testing.T) {
+	// Same scenario as above but with the accepter chained first.
+	// Aggregation must be order-independent.
+	var rejectorDrops atomic.Int32
+	rejector := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		r := &flow.FilteredResultWithPolicy{Filtered: true, Policy: "requeue", Reason: "filter"}
+		r.PendingOnDrop = func(ctx context.Context) { rejectorDrops.Add(1) }
+		return r, nil
+	})
+	var accepterDrops atomic.Int32
+	accepter := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		r := &flow.FilteredResultWithPolicy{Filtered: true, Policy: "ack", Reason: "coordinate_timeout"}
+		r.PendingOnDrop = func(ctx context.Context) { accepterDrops.Add(1) }
+		return r, nil
+	})
+
+	chained := ChainEventDriven(accepter, rejector, nil)
+	result, _ := chained(context.Background(), nil)
+
+	f := result.(*flow.FilteredResultWithPolicy)
+	if f.Reason != "coordinate_timeout" {
+		t.Errorf("expected accepter to win regardless of order, got Reason=%q", f.Reason)
+	}
+	flow.FireDropAspect(context.Background(), result)
+
+	if rejectorDrops.Load() != 0 {
+		t.Errorf("rejecter's on_drop must be suppressed, fired %d", rejectorDrops.Load())
+	}
+	if accepterDrops.Load() != 1 {
+		t.Errorf("accepter's on_drop should fire once, fired %d", accepterDrops.Load())
+	}
+}
+
+func TestChainEventDriven_FilterCoordination_ThreeFlowsMercuryScenario(t *testing.T) {
+	// The exact Mercury reproduction: 3 flows, 2 reject filter + 1
+	// accept-then-coord-timeout. End-to-end through the chained
+	// aggregator: only the accepter's on_drop fires, the broker sees ack.
+	var rejectorADrops, rejectorBDrops, accepterDrops atomic.Int32
+
+	rejectorA := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		r := &flow.FilteredResultWithPolicy{Filtered: true, Policy: "requeue", Reason: "filter", MessageID: "m1"}
+		r.PendingOnDrop = func(ctx context.Context) { rejectorADrops.Add(1) }
+		return r, nil
+	})
+	accepter := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		r := &flow.FilteredResultWithPolicy{Filtered: true, Policy: "ack", Reason: "coordinate_timeout", MessageID: "m1"}
+		r.PendingOnDrop = func(ctx context.Context) { accepterDrops.Add(1) }
+		return r, nil
+	})
+	rejectorB := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		r := &flow.FilteredResultWithPolicy{Filtered: true, Policy: "requeue", Reason: "filter", MessageID: "m1"}
+		r.PendingOnDrop = func(ctx context.Context) { rejectorBDrops.Add(1) }
+		return r, nil
+	})
+
+	chained := ChainEventDriven(rejectorA, accepter, nil)
+	chained = ChainEventDriven(chained, rejectorB, nil)
+
+	result, _ := chained(context.Background(), map[string]interface{}{"op": "update"})
+
+	f := result.(*flow.FilteredResultWithPolicy)
+	if f.Policy != "ack" {
+		t.Fatalf("expected ack (no requeue cycle), got %q — broker would re-deliver and storm", f.Policy)
+	}
+	if f.Reason != "coordinate_timeout" {
+		t.Errorf("expected accepter's coord_timeout to win, got Reason=%q", f.Reason)
+	}
+
+	flow.FireDropAspect(context.Background(), result)
+
+	if rejectorADrops.Load() != 0 || rejectorBDrops.Load() != 0 {
+		t.Errorf("filter-rejecting siblings must be silent, got A=%d B=%d", rejectorADrops.Load(), rejectorBDrops.Load())
+	}
+	if accepterDrops.Load() != 1 {
+		t.Errorf("expected exactly 1 on_drop (accepter's), got %d", accepterDrops.Load())
+	}
+}
+
+func TestChainEventDriven_FilterCoordination_AllRejectFiresOnDropOnce(t *testing.T) {
+	// All branches filter-reject: cross-service "requeue" must be
+	// honored (operator may have other consumers waiting for unknown
+	// operations). on_drop fires exactly once on the merged winner.
+	var aDrops, bDrops, cDrops atomic.Int32
+
+	mk := func(policy string, counter *atomic.Int32) HandlerFunc {
+		return HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+			r := &flow.FilteredResultWithPolicy{Filtered: true, Policy: policy, Reason: "filter"}
+			r.PendingOnDrop = func(ctx context.Context) { counter.Add(1) }
+			return r, nil
+		})
+	}
+
+	chained := ChainEventDriven(mk("ack", &aDrops), mk("requeue", &bDrops), nil)
+	chained = ChainEventDriven(chained, mk("reject", &cDrops), nil)
+
+	result, _ := chained(context.Background(), nil)
+
+	f := result.(*flow.FilteredResultWithPolicy)
+	if f.Policy != "requeue" {
+		t.Errorf("most-aggressive policy across 3 filter-rejecters should be requeue, got %q", f.Policy)
+	}
+
+	flow.FireDropAspect(context.Background(), result)
+
+	total := aDrops.Load() + bDrops.Load() + cDrops.Load()
+	if total != 1 {
+		t.Errorf("exactly one on_drop must fire when all reject, got %d total (a=%d b=%d c=%d)",
+			total, aDrops.Load(), bDrops.Load(), cDrops.Load())
+	}
+}
+
+func TestChainEventDriven_FilterCoordination_SuccessSuppressesFilterDrop(t *testing.T) {
+	// Pure success on one branch must suppress sibling's filter drop.
+	// This is the original v1.19.7 success-masking test, now also
+	// asserting on_drop suppression.
+	var rejectorDrops atomic.Int32
+	rejector := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		r := &flow.FilteredResultWithPolicy{Filtered: true, Policy: "requeue", Reason: "filter"}
+		r.PendingOnDrop = func(ctx context.Context) { rejectorDrops.Add(1) }
+		return r, nil
+	})
+	winner := HandlerFunc(func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return map[string]interface{}{"ok": true}, nil
+	})
+
+	chained := ChainEventDriven(rejector, winner, nil)
+	result, _ := chained(context.Background(), nil)
+	flow.FireDropAspect(context.Background(), result)
+
+	if rejectorDrops.Load() != 0 {
+		t.Errorf("rejecter's on_drop must be suppressed when a sibling succeeded, fired %d", rejectorDrops.Load())
+	}
+}
+
 func TestChainEventDriven_FilteredHandlerStillCallsSibling(t *testing.T) {
 	// Regression: even though one branch is "filtered" early, the other
 	// branch still must run — the user intended both flows to look at the

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 // HandlerFunc handles a SOAP operation request.
@@ -152,6 +153,8 @@ func (s *Server) handleSOAPRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Execute handler
 	result, err := handler(r.Context(), params)
+	// Fire deferred on_drop closure (no-op on success).
+	flow.FireDropAspect(r.Context(), result)
 	if err != nil {
 		s.logger.Error("SOAP handler error",
 			slog.String("operation", operation),

@@ -172,9 +172,16 @@ func TestOnDropAspect_FiresOnFilterReject(t *testing.T) {
 	}
 
 	input := map[string]interface{}{"body": map[string]interface{}{"kind": "unwanted"}}
-	if _, err := h.HandleRequest(context.Background(), input); err != nil {
+	result, err := h.HandleRequest(context.Background(), input)
+	if err != nil {
 		t.Fatalf("HandleRequest: %v", err)
 	}
+
+	// Filter rejection defers on_drop firing via PendingOnDrop closure
+	// so that fan-out aggregation can suppress losers. Real consumers
+	// invoke flow.FireDropAspect after the handler returns; the test
+	// mirrors that contract.
+	flow.FireDropAspect(context.Background(), result)
 
 	if got := alerter.mu.Load(); got != 1 {
 		t.Fatalf("on_drop must fire on filter rejection, got %d", got)

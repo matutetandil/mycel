@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 // HandlerFunc is a function that handles a flow request.
@@ -363,6 +364,8 @@ func (c *Connector) handleClientMessage(client *Client, msg *Message) {
 		c.debugGate.Acquire()
 		result, err := handler(context.Background(), input)
 		c.debugGate.Release()
+		// Fire deferred on_drop closure (no-op on success).
+		flow.FireDropAspect(context.Background(), result)
 		if err != nil {
 			c.sendError(client, err.Error())
 			return

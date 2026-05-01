@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 // HandlerFunc is a function that handles a CDC event.
@@ -240,8 +241,10 @@ func (c *Connector) dispatchEvent(event *Event) {
 	for _, key := range keys {
 		if handler, ok := handlers[key]; ok {
 			c.debugGate.Acquire()
-			_, err := handler(c.ctx, input)
+			result, err := handler(c.ctx, input)
 			c.debugGate.Release()
+			// Fire deferred on_drop closure (no-op on success).
+			flow.FireDropAspect(c.ctx, result)
 			if err != nil {
 				c.logger.Error("CDC handler error",
 					"connector", c.name,

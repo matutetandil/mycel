@@ -14,6 +14,7 @@ import (
 	pahomqtt "github.com/eclipse/paho.mqtt.golang"
 
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 // HandlerFunc is the function signature for message handlers.
@@ -454,8 +455,13 @@ func (c *Connector) buildMessageHandler(topic string, handler HandlerFunc) pahom
 
 		// Debug throttling: wait for gate before processing
 		c.debugGate.Acquire()
-		_, err := handler(ctx, input)
+		result, err := handler(ctx, input)
 		c.debugGate.Release()
+
+		// Fire deferred on_drop closure (no-op on success / no on_drop
+		// aspects). Fan-out aggregation already nilled out losers'
+		// closures, so only the winner fires.
+		flow.FireDropAspect(ctx, result)
 
 		if err != nil {
 			c.logger.Error("MQTT handler error",

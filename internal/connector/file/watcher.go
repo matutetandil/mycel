@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/matutetandil/mycel/internal/flow"
 )
 
 // pollLoop runs the file watcher on a ticker interval.
@@ -123,8 +125,10 @@ func (c *Connector) scan(ctx context.Context) {
 		// Build input and dispatch
 		input := buildWatchInput(relPath, info, event, rows, readErr)
 		c.debugGate.Acquire()
-		_, handlerErr := handler(ctx, input)
+		result, handlerErr := handler(ctx, input)
 		c.debugGate.Release()
+		// Fire deferred on_drop closure (no-op on success).
+		flow.FireDropAspect(ctx, result)
 		if handlerErr != nil {
 			c.logger.Error("file watch handler error",
 				"connector", c.name,

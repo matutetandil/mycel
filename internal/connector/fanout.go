@@ -78,6 +78,20 @@ func ChainEventDriven(existing, additional HandlerFunc, logger *slog.Logger) Han
 
 // aggregateFanoutResults picks the right aggregate result for two fan-out
 // branches. See ChainEventDriven for the rules.
+//
+// Filter coordination: when one branch passed its filter (Reason != "filter")
+// and the other rejected at filter, the rejecter is treated as intra-container
+// routing — its drop is suppressed (PendingOnDrop closure cleared so it never
+// fires) and its policy is discarded. The winner's policy is honored. This
+// stops a single fan-out delivery from triggering N-1 spurious on_drop
+// notifications and an `on_reject = "requeue"` from a sibling that doesn't
+// own the message.
+//
+// Cross-service `on_reject = "requeue"` semantics are preserved: that
+// pattern only matters when ALL flows in the local container reject — in
+// that case both branches have Reason="filter" and we fall through to
+// mergeFilteredPolicies, which picks the most-aggressive policy and lets
+// the broker hand the message to a different service's consumer.
 func aggregateFanoutResults(a, b interface{}) interface{} {
 	fa, aFiltered := a.(*flow.FilteredResultWithPolicy)
 	fb, bFiltered := b.(*flow.FilteredResultWithPolicy)
@@ -89,20 +103,57 @@ func aggregateFanoutResults(a, b interface{}) interface{} {
 		return a
 	case !aFiltered:
 		// a succeeded, b filtered out — a wins, ack the delivery.
+		// Suppress b's deferred on_drop: it was intra-routing.
+		suppressDrop(fb)
 		return a
 	case !bFiltered:
 		// b succeeded, a filtered out — b wins, ack the delivery.
+		// Suppress a's deferred on_drop.
+		suppressDrop(fa)
 		return b
-	default:
-		// Both filtered. Pick the most-aggressive policy.
-		return mergeFilteredPolicies(fa, fb)
+	}
+
+	// Both branches returned a FilteredResultWithPolicy. Apply
+	// filter-coordination: a non-"filter" reason means the branch
+	// passed its filter and was deflected later (accept gate /
+	// coordinate timeout / sequence_guard older). When exactly one
+	// branch passed its filter, that branch's outcome owns the
+	// delivery and the rejecting sibling is silenced.
+	aPassedFilter := fa.Reason != "filter"
+	bPassedFilter := fb.Reason != "filter"
+	switch {
+	case aPassedFilter && !bPassedFilter:
+		suppressDrop(fb)
+		return fa
+	case !aPassedFilter && bPassedFilter:
+		suppressDrop(fa)
+		return fb
+	}
+
+	// Either both passed filter (concurrent post-filter drops) or
+	// both rejected at filter (no flow in this container owns the
+	// message). Fall through to most-aggressive policy. The losing
+	// branch's PendingOnDrop closure is naturally suppressed by not
+	// being returned — we only fire the winner's.
+	return mergeFilteredPolicies(fa, fb)
+}
+
+// suppressDrop nils out a result's PendingOnDrop closure so it can never
+// be fired. Used when fan-out determines the branch lost — its drop is
+// not a real drop, just intra-container routing noise.
+func suppressDrop(r *flow.FilteredResultWithPolicy) {
+	if r != nil {
+		r.PendingOnDrop = nil
 	}
 }
 
 // mergeFilteredPolicies returns the FilteredResultWithPolicy whose policy
 // asks the broker for the most retention: requeue > reject > ack.
 // Identifiers (MessageID, MaxRequeue, IDField) are taken from whichever
-// result wins so the consumer's dedup tracker keys remain stable.
+// result wins so the consumer's dedup tracker keys remain stable. The
+// loser's PendingOnDrop closure is suppressed so only the winner fires
+// on_drop (consistent with the operator intuition that one delivery
+// produces one on_drop notification, not N).
 func mergeFilteredPolicies(a, b *flow.FilteredResultWithPolicy) *flow.FilteredResultWithPolicy {
 	rank := func(p string) int {
 		switch p {
@@ -115,8 +166,10 @@ func mergeFilteredPolicies(a, b *flow.FilteredResultWithPolicy) *flow.FilteredRe
 		}
 	}
 	if rank(a.Policy) >= rank(b.Policy) {
+		suppressDrop(b)
 		return a
 	}
+	suppressDrop(a)
 	return b
 }
 

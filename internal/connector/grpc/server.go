@@ -15,6 +15,7 @@ import (
 	"github.com/jhump/protoreflect/desc/protoparse"
 	"github.com/jhump/protoreflect/dynamic"
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/flow"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -424,6 +425,8 @@ func (c *ServerConnector) handleUnary(ctx context.Context, md *desc.MethodDescri
 
 	// Call handler
 	result, err := handler(ctx, inputData)
+	// Fire deferred on_drop closure (no-op on success).
+	flow.FireDropAspect(ctx, result)
 	if err != nil {
 		return nil, err
 	}
@@ -488,6 +491,8 @@ func (c *ServerConnector) handleStream(md *desc.MethodDescriptor, handler Handle
 	}
 
 	result, err := handler(stream.Context(), inputData)
+	// Fire deferred on_drop closure (no-op on success).
+	flow.FireDropAspect(stream.Context(), result)
 	if err != nil {
 		return err
 	}
