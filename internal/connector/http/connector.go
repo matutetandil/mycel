@@ -273,14 +273,18 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 		}
 	}
 
-	// Build request body
-	var body io.Reader
+	// Encode the request body ONCE. The retry loop below produces a fresh
+	// bytes.Reader from this slice on every attempt — without this the
+	// first attempt consumed the reader, and subsequent retries went out
+	// with an empty body (server saw 500 once + then 400 "field required"
+	// from the retry, mistaking a transient failure for permanent).
+	var encoded []byte
 	if data.Payload != nil && (method == "POST" || method == "PUT" || method == "PATCH") {
-		encoded, err := c.codec.Encode(data.Payload)
+		var err error
+		encoded, err = c.codec.Encode(data.Payload)
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode payload: %w", err)
 		}
-		body = bytes.NewReader(encoded)
 
 		// DEBUG: surface the outbound body shape so users can verify wrap /
 		// envelope behavior without intercepting traffic. Only top-level keys
@@ -299,6 +303,12 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	// Execute with retry
 	var lastErr error
 	for attempt := 0; attempt < c.retryCount; attempt++ {
+		// Fresh reader per attempt — bytes.Reader is one-shot.
+		var body io.Reader
+		if encoded != nil {
+			body = bytes.NewReader(encoded)
+		}
+
 		result, err := c.doRequest(ctx, method, fullURL, body)
 		if err == nil {
 			return result, nil

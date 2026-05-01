@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/matutetandil/mycel/internal/connector"
@@ -166,6 +167,77 @@ func TestOutboundBodyNoLogAtInfo(t *testing.T) {
 
 	if strings.Contains(buf.String(), "outbound HTTP body") {
 		t.Errorf("body log must be silent at INFO level, got: %s", buf.String())
+	}
+}
+
+// TestRetryPreservesBodyAcrossAttempts is the regression test for the
+// silent data-loss bug where the connector built a bytes.Reader once
+// before the retry loop. The first attempt consumed the reader; the
+// second attempt sent an empty body, turning a transient 5xx that
+// might have recovered into a permanent 400 "field required" — and
+// when the server had committed a side effect before the 5xx, the
+// retry never overwrote it because the second request was empty.
+func TestRetryPreservesBodyAcrossAttempts(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		bodies   [][]byte
+		attempts int
+	)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, body)
+		attempts++
+		current := attempts
+		mu.Unlock()
+
+		// First attempt 500 (transient — connector should retry).
+		// Second attempt 200 (success).
+		if current == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"err":"transient"}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	// retryCount = 3 so the connector retries the 500.
+	c := New("api", srv.URL, 0, nil, nil, 3)
+	if err := c.Connect(context.Background()); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	payload := map[string]interface{}{
+		"productData": map[string]interface{}{
+			"sku":  "AI02LT",
+			"name": "Axil",
+		},
+	}
+	if _, err := c.Write(context.Background(), &connector.Data{
+		Target:    "POST /post",
+		Operation: "POST",
+		Payload:   payload,
+	}); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if attempts != 2 {
+		t.Fatalf("expected exactly 2 attempts (500 then 200), got %d", attempts)
+	}
+	if len(bodies[0]) == 0 {
+		t.Error("first attempt body must not be empty")
+	}
+	if len(bodies[1]) == 0 {
+		t.Fatal("regression: second attempt body was empty (bytes.Reader exhausted)")
+	}
+	if !bytes.Equal(bodies[0], bodies[1]) {
+		t.Errorf("retry body must be identical to the first; got first=%s retry=%s",
+			bodies[0], bodies[1])
 	}
 }
 

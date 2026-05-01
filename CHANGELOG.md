@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.1] - 2026-04-30
+
+### Fixed
+- **HTTP retry sent an empty body on the second attempt** → silent data corruption when destinations had committed side effects before returning 5xx. The connector built a `bytes.NewReader(encoded)` ONCE before the retry loop. The first attempt consumed the reader; subsequent retries handed `doRequest` an exhausted reader, producing a request with no body. The destination saw 500 once (from the real error) and then a 400 "field required" from the empty retry — causing several cascading downstream effects:
+  - **Lost error context**: the operator saw the 400 in `flow failed after 1 attempt`, not the actual 5xx that triggered the retry. Diagnosing took 3× as long because the surface error pointed at a body-shape problem that wasn't real.
+  - **Permanent failure from transient**: the connector's `isClientError` correctly stops retrying on the 4xx that the empty-body retry produced — but that 4xx was a synthetic artifact of the bug, not a real permanent failure. Real transient 5xx errors that would have recovered with a proper retry instead converted to permanent failures.
+  - **Half-baked side effects**: when a destination committed a side effect before returning 500 (e.g. the row was inserted, then a post-save plugin threw), the empty-body retry never overwrote/completed the operation. The system was left with partial state — a row created but not linked to its parent, an order accepted but never invoiced, etc. — and the retry budget was burned without ever reapplying the original payload.
+
+  The fix moves the `bytes.NewReader(encoded)` construction inside the retry loop. The encoded payload is computed once at the top (no double encoding); each attempt gets a fresh reader from the same `[]byte`. Retries now send the exact same bytes as the first attempt.
+
+### Tests
+- `internal/connector/http/connector_test.go` adds `TestRetryPreservesBodyAcrossAttempts`: server returns 500 then 200, test asserts the connector sent the same non-empty body on both attempts. Locks the contract.
+
 ## [1.21.0] - 2026-04-30
 
 ### Fixed
