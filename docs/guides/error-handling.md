@@ -434,9 +434,12 @@ connector "rabbit" {
 
 1. Consumer picks up a message
 2. If processing fails, the retry count header is incremented
-3. If retries < max_retries, the message is requeued after `retry_delay`
-4. If retries >= max_retries, the message is routed to the DLQ
-5. The DLQ exchange and queue are created automatically
+3. If retries < max_retries, the message is republished to the same queue with the updated retry header, and the original is acked
+4. If retries >= max_retries, the message is rejected with `Reject(false)` — RabbitMQ then either routes it to the DLX (if the queue carries `x-dead-letter-exchange`) or discards it
+
+**Shared queue compatibility (passive-first declare):** When the queue named in `consumer.queue` already exists, Mycel preserves its topology and does not redeclare it. The retry counting in step 3 works unchanged, but step 4 will only route to a DLQ if the queue's `x-dead-letter-exchange` arg was set externally (e.g. via a RabbitMQ `set_policy`). If `dlq.enabled = true` and the queue pre-existed without DLX args, Mycel emits a WARN at startup explaining that retries still work but final rejection discards instead of routing.
+
+When the queue does not exist yet, Mycel declares it with `x-dead-letter-exchange` (and creates the DLX exchange + DLQ queue automatically) — full DLQ-for-inspection behavior is preserved for greenfield deployments.
 
 **Flow-level fallback vs. RabbitMQ DLQ:** Use both. The RabbitMQ DLQ catches failures at the message layer (consumer crashes, unhandled errors). The flow-level fallback catches failures at the application layer (business logic errors, connector timeouts) after retries.
 

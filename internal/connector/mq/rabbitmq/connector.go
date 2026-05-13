@@ -443,6 +443,15 @@ func (c *Connector) handleReconnect() {
 }
 
 // setupTopology declares exchanges and queues.
+//
+// The consumer queue is declared with a passive-first strategy so that shared,
+// pre-existing queues (typically created by another publisher or a historic
+// consumer) do not cause AMQP 406 PRECONDITION_FAILED when this consumer
+// enables dlq{} — which would otherwise add x-dead-letter-exchange args that
+// the existing queue does not carry. When the queue already exists, its
+// topology is preserved as-is; the retry-N-then-drop behaviour still works
+// via the republish path in handleRetry, and Reject(false) at the final
+// attempt discards the message instead of routing to a DLQ.
 func (c *Connector) setupTopology() error {
 	// Declare exchange if configured
 	if c.config.Exchange != nil && c.config.Exchange.Name != "" {
@@ -464,41 +473,23 @@ func (c *Connector) setupTopology() error {
 		)
 	}
 
-	// Setup DLQ infrastructure if enabled
 	dlqConfig := c.getDLQConfig()
-	if dlqConfig != nil && dlqConfig.Enabled {
-		if err := c.setupDLQ(dlqConfig); err != nil {
-			return fmt.Errorf("failed to setup DLQ: %w", err)
-		}
-	}
 
-	// Declare queue if configured
+	// Declare queue if configured. DLX infrastructure (setupDLQ) is set up
+	// only when we actually own the queue declaration — declaring orphan DLX
+	// exchanges and DLQ queues for a pre-existing queue we did not configure
+	// would create dead infrastructure that nothing routes to.
 	if c.config.Queue != nil && c.config.Queue.Name != "" {
-		// Add dead letter exchange argument if DLQ is enabled
-		args := c.config.Queue.Args
-		if dlqConfig != nil && dlqConfig.Enabled {
-			if args == nil {
-				args = make(map[string]interface{})
-			}
-			dlxExchange := c.getDLXExchangeName(dlqConfig)
-			args["x-dead-letter-exchange"] = dlxExchange
-			if dlqConfig.RoutingKey != "" {
-				args["x-dead-letter-routing-key"] = dlqConfig.RoutingKey
-			}
-		}
-
-		_, err := c.channel.QueueDeclare(
-			c.config.Queue.Name,
-			c.config.Queue.Durable,
-			c.config.Queue.AutoDelete,
-			c.config.Queue.Exclusive,
-			c.config.Queue.NoWait,
-			args,
-		)
+		queueExisted, err := c.declareConsumerQueue(dlqConfig)
 		if err != nil {
 			return fmt.Errorf("failed to declare queue: %w", err)
 		}
-		c.logger.Debug("declared queue", "name", c.config.Queue.Name)
+
+		if !queueExisted && dlqConfig != nil && dlqConfig.Enabled {
+			if err := c.setupDLQ(dlqConfig); err != nil {
+				return fmt.Errorf("failed to setup DLQ: %w", err)
+			}
+		}
 
 		// Bind queue to exchange if both are configured
 		if c.config.Exchange != nil && c.config.Exchange.Name != "" {
@@ -526,6 +517,89 @@ func (c *Connector) setupTopology() error {
 	}
 
 	return nil
+}
+
+// declareConsumerQueue declares the consumer queue using a passive-first
+// strategy. Returns true if the queue already existed (and was not redeclared
+// by Mycel). Callers should skip DLX infrastructure setup in that case.
+//
+// AMQP semantics:
+//   - QueueDeclarePassive succeeds → queue exists; do not redeclare so that
+//     args mismatch (e.g. dlq{} adds x-dead-letter-exchange while the existing
+//     queue has none) cannot produce 406 PRECONDITION_FAILED.
+//   - QueueDeclarePassive fails with NotFound (404) → queue does not exist;
+//     RabbitMQ has closed the channel server-side, so we reopen it and run
+//     the active declare with full args (including DLX when dlq is enabled).
+//   - Any other passive error is treated as fatal and bubbled up.
+func (c *Connector) declareConsumerQueue(dlqConfig *DLQConfig) (bool, error) {
+	queueCfg := c.config.Queue
+
+	_, passiveErr := c.channel.QueueDeclarePassive(
+		queueCfg.Name,
+		queueCfg.Durable,
+		queueCfg.AutoDelete,
+		queueCfg.Exclusive,
+		queueCfg.NoWait,
+		nil,
+	)
+	if passiveErr == nil {
+		c.logger.Info("queue exists; preserving existing topology",
+			"queue", queueCfg.Name,
+		)
+		if dlqConfig != nil && dlqConfig.Enabled {
+			c.logger.Warn(
+				"dlq enabled but queue pre-existed without Mycel-declared DLX args; "+
+					"retry counting via republish still works, but on Reject(false) "+
+					"RabbitMQ will discard messages instead of routing to a DLQ unless "+
+					"a server-side policy with dead-letter-exchange is configured on this queue",
+				"queue", queueCfg.Name,
+				"max_retries", dlqConfig.MaxRetries,
+			)
+		}
+		return true, nil
+	}
+
+	// Distinguish "queue not found" (expected) from real errors.
+	if amqpErr, ok := passiveErr.(*amqp.Error); ok && amqpErr.Code != amqp.NotFound {
+		return false, fmt.Errorf("failed to inspect queue: %w", passiveErr)
+	}
+
+	// Passive declare on a missing queue closes the channel server-side; reopen.
+	if c.conn == nil || c.conn.IsClosed() {
+		return false, fmt.Errorf("connection closed during topology setup: %w", passiveErr)
+	}
+	newChannel, chErr := c.conn.Channel()
+	if chErr != nil {
+		return false, fmt.Errorf("failed to reopen channel after passive declare: %w", chErr)
+	}
+	c.channel = newChannel
+
+	args := queueCfg.Args
+	if dlqConfig != nil && dlqConfig.Enabled {
+		if args == nil {
+			args = make(map[string]interface{})
+		}
+		dlxExchange := c.getDLXExchangeName(dlqConfig)
+		args["x-dead-letter-exchange"] = dlxExchange
+		if dlqConfig.RoutingKey != "" {
+			args["x-dead-letter-routing-key"] = dlqConfig.RoutingKey
+		}
+	}
+
+	_, err := c.channel.QueueDeclare(
+		queueCfg.Name,
+		queueCfg.Durable,
+		queueCfg.AutoDelete,
+		queueCfg.Exclusive,
+		queueCfg.NoWait,
+		args,
+	)
+	if err != nil {
+		return false, err
+	}
+
+	c.logger.Debug("declared queue", "name", queueCfg.Name)
+	return false, nil
 }
 
 // getDLQConfig returns the DLQ configuration if available.
