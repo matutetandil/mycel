@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/matutetandil/mycel/internal/connector"
@@ -349,7 +350,7 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			config.Properties["publisher"] = pub
 
 		case "consumer":
-			consumer, err := parseGenericBlock(nestedBlock, ctx)
+			consumer, err := parseConsumerBlock(nestedBlock, ctx)
 			if err != nil {
 				return nil, fmt.Errorf("consumer block error: %w", err)
 			}
@@ -720,6 +721,40 @@ func parseSubscriptionsBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string
 	}
 
 	return subscriptions, nil
+}
+
+// parseConsumerBlock parses a consumer block, accepting an optional nested
+// dlq block alongside arbitrary attributes. The MQ connector schema declares
+// dlq as a child of consumer, so plain attribute parsing rejects it.
+func parseConsumerBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interface{}, error) {
+	result := make(map[string]interface{})
+
+	syntaxBody, ok := block.Body.(*hclsyntax.Body)
+	if !ok {
+		// Fallback: no nested blocks possible, parse as attribute-only block.
+		return parseGenericBlock(block, ctx)
+	}
+
+	for name, attr := range syntaxBody.Attributes {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("attribute %s error: %s", name, diags.Error())
+		}
+		result[name] = ctyValueToGo(val)
+	}
+
+	for _, nested := range syntaxBody.Blocks {
+		if nested.Type == "dlq" {
+			dlqBlock := nested.AsHCLBlock()
+			dlq, err := parseGenericBlock(dlqBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("dlq block error: %w", err)
+			}
+			result["dlq"] = dlq
+		}
+	}
+
+	return result, nil
 }
 
 // parseGenericBlock parses a block with arbitrary attributes.
