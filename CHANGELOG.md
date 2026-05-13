@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.4] - 2026-05-13
+
+### Fixed
+- **RabbitMQ consumer crashed at startup on shared, pre-existing queues when `dlq{}` was enabled**, with `AMQP 406 PRECONDITION_FAILED: inequivalent arg 'x-dead-letter-exchange' for queue 'X': received the value 'Y' of type 'longstr' but current is none`. Cause: `setupTopology` (`internal/connector/mq/rabbitmq/connector.go:476-499`) always issued an **active** `QueueDeclare` and, when `dlq.enabled = true`, appended `x-dead-letter-exchange` (and optionally `x-dead-letter-routing-key`) to the args. AMQP's idempotency rule rejects any redeclare whose args do not match the existing queue's args exactly, so any queue created by another publisher (Burro publishing to `magento.system.items.in.q`, a historical consumer, an ops-managed queue, etc.) blocked Mycel from booting.
+
+  Hit in production by the Mercury consumers: the queue is owned by an upstream service, declared without DLX args, and cannot be deleted or redeclared without a coordinated outage across multiple consumers. The user-visible effect is a hard boot failure (`failed to start servers: failed to start rabbit: failed to setup topology: ...`) — the consumer never reaches its first message.
+
+  The fix decouples Mycel's retry-counting from its DLQ-routing. Retry counting in `handleRetry` (`internal/connector/mq/rabbitmq/consumer.go:333-429`) was always implemented via republish — the consumer increments `x-retry-count` in the message header and re-publishes to the same exchange/routing-key, acking the original. That path does not require any AMQP-level DLX; it works on any queue. Only the **final** disposition at `retries >= max_retries` uses `delivery.Reject(false)`, which routes to DLX *if the queue carries the arg* and otherwise discards. For operators who only need "retry N times then drop" (Mercury's case) the DLX arg is unnecessary.
+
+  `setupTopology` now uses a passive-first strategy: `QueueDeclarePassive` runs before any active declare. If it succeeds, the queue exists and Mycel preserves its topology untouched — no DLX args, no redeclare, no 406. A WARN is logged whenever `dlq.enabled = true` and the queue pre-existed, spelling out that retry counting still works but final rejection will discard rather than route to a DLQ unless a server-side policy is configured. If the passive declare fails with `NotFound` (404, queue doesn't exist), Mycel reopens the channel (AMQP closes it server-side on passive failure) and falls back to the existing active declare with full DLX args — greenfield deployments retain full DLQ-for-inspection behavior. Any non-NotFound passive error is treated as fatal and bubbled up.
+
+  DLX/DLQ infrastructure setup (`setupDLQ`, which declares the DLX exchange + DLQ queue + binding) now runs **only when Mycel actually owns the main queue declaration**. Previously it ran unconditionally before `QueueDeclare`, so a 406 left behind orphan DLX infrastructure that nothing routed to.
+
+### Docs
+- `docs/guides/error-handling.md` (RabbitMQ Dead Letter Queue section): clarified that retries are implemented via republish (not RabbitMQ DLX TTL), documented the passive-first behavior on pre-existing queues, and noted the WARN log path.
+
+### Tests
+- Existing `internal/connector/mq/rabbitmq/` unit tests pass unchanged. The AMQP wire-level behavior (passive declare on an existing queue, NotFound reopen flow, args-merge on greenfield declare) is exercised by `tests/integration/scripts/test-rabbitmq.sh` under the docker-compose harness; run via `tests/integration/run.sh`.
+
 ## [1.21.3] - 2026-05-13
 
 ### Fixed
