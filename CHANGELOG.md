@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.3] - 2026-05-13
+
+### Fixed
+- **`dlq {}` block inside `consumer {}` was rejected by the parser**, even though the connector schema declares it, `docs/guides/error-handling.md` documents it, and the MQ factory reads it. Operators copying the documented snippet hit `connector parse error: consumer block error: block content error: ...: Unexpected "dlq" block; Blocks are not allowed here.` and either fell back to the `retry_count = N` shorthand (no control over `exchange` / `queue` / `routing_key` / `retry_delay`) or shipped without DLQ. Bug present since v1.18.0 (when `pkg/schema` made `dlq` a child block of `consumer`).
+
+  Two layered causes:
+
+  1. `internal/parser/connector.go` routed `consumer {}` through `parseGenericBlock`, which calls `body.JustAttributes()`. That HCL method rejects every nested block by design — so the schema said "dlq is a child block", the factory expected `consumer["dlq"]` as a map, but the parser refused to even produce that map.
+
+  2. The obvious workaround — `PartialContent({Blocks: [{Type: "dlq"}]})` + `remain.JustAttributes()` — looks correct but **also fails** on hclsyntax v2.24.0. `JustAttributes()` inspects the body's `Blocks` slice directly and does not consult `hiddenBlocks`, so even after `PartialContent` marks `dlq` as extracted, `remain.JustAttributes()` still sees it in the underlying slice and emits the same diagnostic. This is documented in `hclsyntax/structure.go:248-263` ("we will continue processing anyway, and return the attributes we are able to find") — `JustAttributes` continues, but `HasErrors()` is true, so any caller that checks diags bails out.
+
+  Fix: new `parseConsumerBlock` casts the body to `*hclsyntax.Body` (same pattern already used by `extractDynamicAttrs` in `internal/parser/flow.go:1487`) and iterates `Attributes` and `Blocks` directly, routing the `dlq` child to `parseGenericBlock`. Bypasses both `JustAttributes` paths entirely. The factory layer (`internal/connector/mq/factory.go::buildRabbitMQConfig`, extracted from `createRabbitMQ` to make it testable) already handled the map — it was just never reached.
+
+  Workaround for users stuck on v1.21.2 or earlier without redeploying: `consumer { retry_count = N }` still creates `DLQConfig{Enabled: true, MaxRetries: N}` with default `Exchange` / `Queue` / `RoutingKey` / `RetryHeader = "x-retry-count"`. Anything beyond `MaxRetries` requires this fix.
+
+### Tests
+- `internal/parser/parser_test.go::TestParseConnectorRabbitMQConsumerDLQ` — the exact documented snippet (`consumer { ... dlq { enabled, max_retries, retry_delay } }`) now parses and produces `consumer["dlq"]` as `map[string]interface{}` with `enabled=true`, `max_retries=3`, `retry_delay="5s"`. Locks the parser contract.
+- `internal/connector/mq/factory_test.go::TestRabbitMQConsumerDLQEndToEnd` — end-to-end: HCL → parser → `buildRabbitMQConfig` → `rabbitmq.Config.Consumer.DLQ`. Asserts the full struct (`Enabled`, `MaxRetries`, `RetryDelay` as `5*time.Second`, `Exchange`, `Queue`, `RoutingKey`, `RetryHeader`). Guards against silent regressions where the parser would accept the block but the factory would drop it on the way to the broker.
+- `internal/connector/mq/factory_test.go::TestRabbitMQConsumerRetryCountShorthand` — `retry_count = 7` shorthand still creates `DLQConfig{Enabled: true, MaxRetries: 7}`. Pre-fix workaround stays valid.
+
+### Refactor
+- `internal/connector/mq/factory.go`: `createRabbitMQ` split into `createRabbitMQ` (returns `*rabbitmq.Connector`) and `buildRabbitMQConfig` (returns `*rabbitmq.Config`). No semantic change — the only reason to split was to let the factory test inspect the materialized config without an AMQP connection.
+
 ## [1.21.2] - 2026-04-30
 
 ### Fixed

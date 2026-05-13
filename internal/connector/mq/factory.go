@@ -64,6 +64,14 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 
 // createRabbitMQ creates a RabbitMQ connector from configuration.
 func (f *Factory) createRabbitMQ(cfg *connector.Config) (*rabbitmq.Connector, error) {
+	config := buildRabbitMQConfig(cfg)
+	return rabbitmq.NewConnector(cfg.Name, config, f.logger)
+}
+
+// buildRabbitMQConfig translates a parsed connector.Config into a rabbitmq.Config.
+// Extracted from createRabbitMQ so the mapping (including consumer.dlq) is testable
+// without requiring an AMQP connection.
+func buildRabbitMQConfig(cfg *connector.Config) *rabbitmq.Config {
 	config := rabbitmq.DefaultConfig()
 
 	// Connection settings — url overrides host/port/username/password/vhost
@@ -182,7 +190,7 @@ func (f *Factory) createRabbitMQ(cfg *connector.Config) (*rabbitmq.Connector, er
 		}
 	}
 
-	return rabbitmq.NewConnector(cfg.Name, config, f.logger)
+	return config
 }
 
 // Helper functions for extracting configuration values

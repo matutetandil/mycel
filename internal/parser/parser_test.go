@@ -2000,3 +2000,66 @@ flow "with_step" {
 		t.Errorf("expected step.Envelope='productData', got %q", got)
 	}
 }
+
+func TestParseConnectorRabbitMQConsumerDLQ(t *testing.T) {
+	hcl := `
+connector "rabbit" {
+  type   = "mq"
+  driver = "rabbitmq"
+  url    = "amqp://guest:guest@localhost:5672/"
+
+  consumer {
+    queue    = "orders"
+    prefetch = 10
+    auto_ack = false
+    workers  = 5
+
+    dlq {
+      enabled     = true
+      max_retries = 3
+      retry_delay = "5s"
+    }
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "rabbit.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	parser := NewHCLParser()
+	cfg, err := parser.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if len(cfg.Connectors) != 1 {
+		t.Fatalf("expected 1 connector, got %d", len(cfg.Connectors))
+	}
+
+	consumer, ok := cfg.Connectors[0].Properties["consumer"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("consumer block not parsed as map; got %T", cfg.Connectors[0].Properties["consumer"])
+	}
+	if got := consumer["queue"]; got != "orders" {
+		t.Errorf("expected consumer.queue='orders', got %v", got)
+	}
+	if got := consumer["workers"]; got != 5 {
+		t.Errorf("expected consumer.workers=5, got %v", got)
+	}
+
+	dlq, ok := consumer["dlq"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("dlq nested block not parsed as map; got %T", consumer["dlq"])
+	}
+	if got := dlq["enabled"]; got != true {
+		t.Errorf("expected dlq.enabled=true, got %v", got)
+	}
+	if got := dlq["max_retries"]; got != 3 {
+		t.Errorf("expected dlq.max_retries=3, got %v", got)
+	}
+	if got := dlq["retry_delay"]; got != "5s" {
+		t.Errorf("expected dlq.retry_delay='5s', got %v", got)
+	}
+}
