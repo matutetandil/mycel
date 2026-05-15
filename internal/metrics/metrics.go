@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -382,6 +383,15 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 			[]string{"service", "version", "mycel_version", "environment"},
 		),
 	}
+
+	// Register Go runtime and process collectors so the endpoint exposes
+	// standard go_* and process_* series (memory, goroutines, GC, FDs, CPU).
+	// Mycel uses a custom registry, which — unlike the global default — does
+	// not include these collectors automatically.
+	reg.MustRegister(
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+	)
 
 	// Register all metrics
 	reg.MustRegister(

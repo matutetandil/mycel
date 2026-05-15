@@ -219,6 +219,32 @@ func TestRegistry_ServiceInfo(t *testing.T) {
 	}
 }
 
+// TestRegistry_ExposesGoAndProcessCollectors guards that the custom registry
+// includes the standard Go runtime and process collectors. Without them the
+// /metrics endpoint cannot report memory, goroutines, GC, or FDs — which made
+// MQ-only services effectively unmonitorable.
+func TestRegistry_ExposesGoAndProcessCollectors(t *testing.T) {
+	reg := NewRegistry("test-service", "1.0.0", "1.3.0", "development")
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	w := httptest.NewRecorder()
+	reg.Handler().ServeHTTP(w, req)
+
+	body, _ := io.ReadAll(w.Body)
+	out := string(body)
+
+	for _, want := range []string{
+		"go_goroutines",
+		"go_memstats_alloc_bytes",
+		"process_resident_memory_bytes",
+		"process_cpu_seconds_total",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected /metrics output to contain %q", want)
+		}
+	}
+}
+
 func TestRegistry_Handler(t *testing.T) {
 	reg := NewRegistry("test-service", "1.0.0", "1.3.0", "development")
 

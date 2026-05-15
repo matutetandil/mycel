@@ -10,6 +10,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
+	"go.uber.org/automaxprocs/maxprocs"
 
 	"github.com/matutetandil/mycel/internal/envdefaults"
 	"github.com/matutetandil/mycel/internal/export/asyncapi"
@@ -26,7 +27,7 @@ const (
 
 var (
 	// Version information (set at build time)
-	version = "1.21.4"
+	version = "1.22.0"
 	commit  = "dev"
 )
 
@@ -276,6 +277,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	// Setup logger with priority: flag > env var > environment default
 	logger := createLogger()
+
+	// Align GOMAXPROCS with the CPU cgroup quota (Kubernetes, Docker). Without
+	// this the Go runtime sizes its scheduler to the host's core count, so a
+	// container limited to a fraction of a CPU spins up far more OS threads
+	// than it can run, wasting context switches and throttling the GC.
+	if _, err := maxprocs.Set(maxprocs.Logger(func(format string, args ...interface{}) {
+		logger.Info(fmt.Sprintf(format, args...))
+	})); err != nil {
+		logger.Warn("could not adjust GOMAXPROCS from cgroup quota", "error", err)
+	}
 
 	// Resolve environment with priority: flag > env var > default
 	env := resolveEnvironment()
