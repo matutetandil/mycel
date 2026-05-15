@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.0] - 2026-05-14
+
+### Added
+- **`/metrics` now exposes the standard Go runtime and process collectors.** Mycel builds metrics on a custom `prometheus.Registry` (not the global default), which meant `go_*` and `process_*` series — memory, goroutines, GC pauses, open FDs, CPU seconds — were never registered. For MQ-only services (no REST connector) the endpoint effectively reported nothing but `mycel_uptime_seconds`, `mycel_goroutines`, and `mycel_service_info`, leaving operators unable to monitor runtime health from Prometheus at all. `NewRegistry` now registers `collectors.NewGoCollector()` and `collectors.NewProcessCollector()`.
+- **Flow execution metrics are now wired into the runtime.** `mycel_flow_executions_total{flow,status}`, `mycel_flow_duration_seconds{flow}`, and `mycel_flow_errors_total{flow,error_type}` were defined in `internal/metrics` but **never recorded** — no caller invoked `RecordFlowExecution` / `RecordFlowError` anywhere in the codebase, so the series stayed empty even while flows ran and failed. `FlowHandler.HandleRequest` now records execution count, duration, and (on failure) a classified error in its deferred completion block, so the metrics populate for every flow regardless of source connector type. `error_type` is bucketed by `classifyFlowError` into a small bounded set (`timeout`, `canceled`, `validation`, `connection`, `error`) to avoid label cardinality explosion from raw error strings.
+
+### Changed
+- **`GOMAXPROCS` is now aligned to the CPU cgroup quota on startup** via `go.uber.org/automaxprocs`. Previously the Go runtime sized its scheduler to the host's core count — on an 8-core node a container limited to `300m` CPU would still spin up 8 Ps, so the kernel throttled the runtime, wasted cycles on context switches, and cut GC assists short mid-cycle. `mycel start` now calls `maxprocs.Set` right after logger init, logging the adjustment through the Mycel logger (`maxprocs: Updating GOMAXPROCS=N: ...`). Discovered while profiling the Mercury consumers in dev: bursty CPU throttling on otherwise near-idle pods.
+
+### Tests
+- `internal/metrics/metrics_test.go::TestRegistry_ExposesGoAndProcessCollectors` — scrapes the handler and asserts `go_goroutines`, `go_memstats_alloc_bytes`, `process_resident_memory_bytes`, `process_cpu_seconds_total` are present.
+- `internal/runtime/flow_metrics_test.go::TestClassifyFlowError` — table-driven coverage of the error classifier (nil, wrapped `context.DeadlineExceeded`, timeout/validation/connection message matching, generic fallback).
+
+### Notes
+- Connector-level operation metrics (`RecordConnectorOperation`) remain defined but unwired — that surface spans 25+ connectors and is deferred to a follow-up.
+
 ## [1.21.4] - 2026-05-13
 
 ### Fixed

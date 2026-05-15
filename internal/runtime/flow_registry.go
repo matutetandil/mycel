@@ -20,6 +20,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector/cache"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/functions"
+	"github.com/matutetandil/mycel/internal/metrics"
 	"github.com/matutetandil/mycel/internal/sanitize"
 	"github.com/matutetandil/mycel/internal/trace"
 	"github.com/matutetandil/mycel/internal/graphql/optimizer"
@@ -236,15 +237,26 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 
 	start := time.Now()
 	defer func() {
+		duration := time.Since(start)
+
 		// Broadcast flow end to debug clients
 		if debugCollector != nil {
-			debugCollector.BroadcastFlowEnd(result, time.Since(start), err)
+			debugCollector.BroadcastFlowEnd(result, duration, err)
 		}
+
+		// Record flow execution metrics. Runs regardless of logger
+		// availability so mycel_flow_* series populate for MQ-driven
+		// services that have no REST connector emitting request metrics.
+		status := "success"
+		if err != nil {
+			status = "error"
+			metrics.Default().RecordFlowError(h.Config.Name, classifyFlowError(err))
+		}
+		metrics.Default().RecordFlowExecution(h.Config.Name, status, duration)
 
 		if h.Logger == nil {
 			return
 		}
-		duration := time.Since(start)
 		attrs := []slog.Attr{
 			slog.String("flow", h.Config.Name),
 			slog.String("source", h.Config.From.Connector),
@@ -409,6 +421,32 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 	}
 
 	return finalResult, finalErr
+}
+
+// classifyFlowError maps a flow error to a low-cardinality error_type label
+// for the mycel_flow_errors_total metric. Keeping the set small and bounded
+// avoids label explosion from raw error strings.
+func classifyFlowError(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "canceled"
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "deadline exceeded"), strings.Contains(msg, "timeout"):
+		return "timeout"
+	case strings.Contains(msg, "validation"), strings.Contains(msg, "invalid"):
+		return "validation"
+	case strings.Contains(msg, "connection"), strings.Contains(msg, "dial "), strings.Contains(msg, "refused"):
+		return "connection"
+	default:
+		return "error"
+	}
 }
 
 // executeWithRetry executes the flow with retry and fallback handling.
