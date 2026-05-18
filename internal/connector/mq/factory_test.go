@@ -130,3 +130,109 @@ connector "rabbit" {
 		t.Errorf("DLQ.MaxRetries=%d, want 7", rmqCfg.Consumer.DLQ.MaxRetries)
 	}
 }
+
+// TestRabbitMQQueueCreateIfMissing covers all four ways to set the
+// create_if_missing flag introduced in v2.0.0, plus the default-false case
+// that is the breaking change.
+func TestRabbitMQQueueCreateIfMissing(t *testing.T) {
+	cases := []struct {
+		name             string
+		hcl              string
+		wantQueueFlag    bool
+		wantExchangeFlag bool
+		hasExchange      bool
+	}{
+		{
+			name: "consumer shorthand defaults to false (v2.0.0 strict default)",
+			hcl: `
+connector "rabbit" {
+  type   = "mq"
+  driver = "rabbitmq"
+  consumer { queue = "orders" }
+}`,
+			wantQueueFlag: false,
+		},
+		{
+			name: "consumer shorthand with explicit create_if_missing = true",
+			hcl: `
+connector "rabbit" {
+  type   = "mq"
+  driver = "rabbitmq"
+  consumer {
+    queue             = "orders"
+    create_if_missing = true
+  }
+}`,
+			wantQueueFlag: true,
+		},
+		{
+			name: "queue block with create_if_missing = true",
+			hcl: `
+connector "rabbit" {
+  type   = "mq"
+  driver = "rabbitmq"
+  queue {
+    name              = "orders"
+    durable           = true
+    create_if_missing = true
+  }
+  consumer { auto_ack = false }
+}`,
+			wantQueueFlag: true,
+		},
+		{
+			name: "exchange block with create_if_missing = true",
+			hcl: `
+connector "rabbit" {
+  type   = "mq"
+  driver = "rabbitmq"
+  exchange {
+    name              = "events"
+    type              = "topic"
+    create_if_missing = true
+  }
+  queue {
+    name              = "orders"
+    create_if_missing = true
+  }
+  consumer { auto_ack = false }
+}`,
+			wantQueueFlag:    true,
+			wantExchangeFlag: true,
+			hasExchange:      true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			tmpFile := filepath.Join(tmpDir, "rabbit.mycel")
+			if err := os.WriteFile(tmpFile, []byte(tc.hcl), 0644); err != nil {
+				t.Fatalf("write temp file: %v", err)
+			}
+
+			cfg, err := parser.NewHCLParser().ParseFile(context.Background(), tmpFile)
+			if err != nil {
+				t.Fatalf("parse error: %v", err)
+			}
+
+			rmqCfg := buildRabbitMQConfig(cfg.Connectors[0])
+
+			if rmqCfg.Queue == nil {
+				t.Fatalf("Queue config not built")
+			}
+			if got := rmqCfg.Queue.CreateIfMissing; got != tc.wantQueueFlag {
+				t.Errorf("Queue.CreateIfMissing=%v, want %v", got, tc.wantQueueFlag)
+			}
+
+			if tc.hasExchange {
+				if rmqCfg.Exchange == nil {
+					t.Fatalf("Exchange config not built")
+				}
+				if got := rmqCfg.Exchange.CreateIfMissing; got != tc.wantExchangeFlag {
+					t.Errorf("Exchange.CreateIfMissing=%v, want %v", got, tc.wantExchangeFlag)
+				}
+			}
+		})
+	}
+}

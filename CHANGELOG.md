@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-05-18
+
+### ⚠️ BREAKING CHANGE
+- **RabbitMQ connector no longer auto-creates queues or exchanges that do not exist on the broker.** Previously, when a `queue {}` block (or `consumer.queue` shorthand) referenced a queue that did not exist, Mycel silently issued `QueueDeclare` to create it. Same for `exchange {}`. That behaviour made typos invisible — a misspelled `queue = "magento.system.itesm.in.q"` would create a brand new empty queue and the consumer would happily sit on it forever while the real queue's messages went to whoever owned the correct name. It also meant Mycel imposed its idea of topology onto shared brokers where ops or another service genuinely owns the lifecycle.
+
+  From v2.0.0 the default is **fail-fast**: when `QueueDeclarePassive` / `ExchangeDeclarePassive` returns `NotFound`, Mycel returns a clear actionable error at startup instead of declaring. To opt back to the previous behaviour, add `create_if_missing = true` to the relevant block.
+
+  This is the conservative completion of the passive-first refactor shipped in v1.21.4 (which already preserved existing topologies when queues did exist). v1.21.4 closed the "shared queue with different args" failure mode; v2.0.0 closes the "queue does not exist" silent-creation footgun.
+
+  **Migration:**
+  - **Production with externally-managed queues (Terraform, rabbitmqctl, etc.):** no action — this is the new safe default. Queues already exist; passive declare succeeds.
+  - **Dev/local/demo environments where Mycel should create the queue:** add `create_if_missing = true`:
+    ```hcl
+    consumer {
+      queue             = "test-queue"
+      create_if_missing = true
+    }
+    # or in the full block form:
+    queue {
+      name              = "test-queue"
+      durable           = true
+      create_if_missing = true
+    }
+    # same flag on exchange{}:
+    exchange {
+      name              = "events"
+      type              = "topic"
+      create_if_missing = true
+    }
+    ```
+  - **Error message** when missing: `queue "X" does not exist on broker HOST (vhost "Y"). Declare it externally (Terraform, rabbitmqctl, RabbitMQ Management UI) or, for ephemeral environments, set create_if_missing = true on the consumer or queue block`.
+
+### Added
+- `create_if_missing` attribute on the `consumer {}`, `queue {}`, and `exchange {}` blocks of the RabbitMQ connector. Defaults to `false`. On the `consumer {}` block it applies to the shorthand-created queue (so users using `consumer { queue = "x" }` don't have to switch to a full `queue {}` block just to opt in). On `queue {}` and `exchange {}` blocks it applies to that declaration. Wired through `internal/connector/mq/schema.go`, `factory.go`, and `rabbitmq/config.go` (`QueueConfig.CreateIfMissing`, `ExchangeConfig.CreateIfMissing`).
+- New helper `Connector.declareExchange` mirrors `declareConsumerQueue`'s passive-first pattern for exchanges, with the same channel-reopen-after-NotFound dance (passive declare on a missing entity closes the channel server-side).
+
+### Changed
+- `setupTopology` now routes the exchange declare through `declareExchange` (passive-first) instead of unconditional `ExchangeDeclare`.
+
+### Updated config fixtures
+- `tests/integration/config/connectors/mq.mycel`: `create_if_missing = true` added to `test_queue` and `fanout_queue` so the docker-compose integration suite continues to declare them.
+- `examples/mq/service.mycel`, `examples/graphql-federation/connectors.mycel`: pedagogical examples now show `create_if_missing = true` with a comment explaining when to use it.
+
+### Tests
+- `internal/connector/mq/factory_test.go::TestRabbitMQQueueCreateIfMissing` — table-driven coverage of all four entry points: consumer-shorthand default (false), consumer-shorthand explicit (true), `queue {}` block (true), `exchange {}` block (true). Locks the breaking-change default and the opt-in plumbing.
+
 ## [1.22.0] - 2026-05-14
 
 ### Added

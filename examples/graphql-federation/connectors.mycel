@@ -49,15 +49,17 @@ connector "events" {
   vhost    = "/"
 
   queue {
-    name    = "product_events"
-    durable = true
+    name              = "product_events"
+    durable           = true
+    create_if_missing = true
   }
 
   exchange {
-    name        = "product_exchange"
-    type        = "topic"
-    durable     = true
-    routing_key = "product.*"
+    name              = "product_exchange"
+    type              = "topic"
+    durable           = true
+    routing_key       = "product.*"
+    create_if_missing = true
   }
 
   consumer {

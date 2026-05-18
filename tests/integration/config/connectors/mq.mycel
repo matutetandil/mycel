@@ -29,9 +29,10 @@ connector "rabbit_sub" {
   vhost    = "/"
 
   queue {
-    name        = "test_queue"
-    durable     = true
-    auto_delete = false
+    name              = "test_queue"
+    durable           = true
+    auto_delete       = false
+    create_if_missing = true
   }
 
   consumer {
@@ -72,9 +73,10 @@ connector "rabbit_fanout_sub" {
   vhost    = "/"
 
   queue {
-    name        = "fanout_queue"
-    durable     = true
-    auto_delete = false
+    name              = "fanout_queue"
+    durable           = true
+    auto_delete       = false
+    create_if_missing = true
   }
 
   consumer {

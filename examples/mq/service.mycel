@@ -29,19 +29,25 @@ connector "order_events" {
   password = env("RABBITMQ_PASS", "guest")
   vhost    = "/"
 
-  // Queue configuration (for consuming)
+  // Queue configuration (for consuming).
+  // create_if_missing = true lets Mycel declare the queue on first run.
+  // Default since v2.0.0 is false: a missing queue fails at startup so
+  // typos and missing infra are caught at deploy time. Set to true for
+  // greenfield/demo environments where Mycel owns the topology.
   queue {
-    name        = "orders"
-    durable     = true
-    auto_delete = false
+    name              = "orders"
+    durable           = true
+    auto_delete       = false
+    create_if_missing = true
   }
 
   // Exchange binding (optional - for topic routing)
   exchange {
-    name        = "orders_exchange"
-    type        = "topic"
-    durable     = true
-    routing_key = "order.*"
+    name              = "orders_exchange"
+    type              = "topic"
+    durable           = true
+    routing_key       = "order.*"
+    create_if_missing = true
   }
 
   // Consumer settings

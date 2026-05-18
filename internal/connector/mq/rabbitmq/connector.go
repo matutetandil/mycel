@@ -444,33 +444,25 @@ func (c *Connector) handleReconnect() {
 
 // setupTopology declares exchanges and queues.
 //
-// The consumer queue is declared with a passive-first strategy so that shared,
-// pre-existing queues (typically created by another publisher or a historic
-// consumer) do not cause AMQP 406 PRECONDITION_FAILED when this consumer
-// enables dlq{} — which would otherwise add x-dead-letter-exchange args that
-// the existing queue does not carry. When the queue already exists, its
-// topology is preserved as-is; the retry-N-then-drop behaviour still works
-// via the republish path in handleRetry, and Reject(false) at the final
-// attempt discards the message instead of routing to a DLQ.
+// Both exchange and queue use a passive-first strategy so that shared,
+// pre-existing infrastructure (typically owned by ops or another service)
+// is preserved untouched. When the resource does not exist:
+//   - create_if_missing=true → declare it actively
+//   - create_if_missing=false (default since v2.0.0) → fail at startup with
+//     a clear error, so typos and missing infra surface at deploy time
+//     instead of leaving a consumer hanging silently on an empty auto-created
+//     queue
+//
+// When the consumer queue exists, the retry-N-then-drop path still works via
+// republish in handleRetry; Reject(false) at the final attempt discards the
+// message instead of routing to a DLQ unless the queue's existing topology
+// carries x-dead-letter-exchange.
 func (c *Connector) setupTopology() error {
 	// Declare exchange if configured
 	if c.config.Exchange != nil && c.config.Exchange.Name != "" {
-		err := c.channel.ExchangeDeclare(
-			c.config.Exchange.Name,
-			string(c.config.Exchange.Type),
-			c.config.Exchange.Durable,
-			c.config.Exchange.AutoDelete,
-			c.config.Exchange.Internal,
-			c.config.Exchange.NoWait,
-			c.config.Exchange.Args,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to declare exchange: %w", err)
+		if err := c.declareExchange(); err != nil {
+			return err
 		}
-		c.logger.Debug("declared exchange",
-			"name", c.config.Exchange.Name,
-			"type", c.config.Exchange.Type,
-		)
 	}
 
 	dlqConfig := c.getDLQConfig()
@@ -528,8 +520,10 @@ func (c *Connector) setupTopology() error {
 //     args mismatch (e.g. dlq{} adds x-dead-letter-exchange while the existing
 //     queue has none) cannot produce 406 PRECONDITION_FAILED.
 //   - QueueDeclarePassive fails with NotFound (404) → queue does not exist;
-//     RabbitMQ has closed the channel server-side, so we reopen it and run
-//     the active declare with full args (including DLX when dlq is enabled).
+//     RabbitMQ has closed the channel server-side. If CreateIfMissing is true
+//     we reopen the channel and active-declare with full args; if false (the
+//     v2.0.0 default) we return a clear actionable error so the typo or
+//     missing infra surfaces at deploy time.
 //   - Any other passive error is treated as fatal and bubbled up.
 func (c *Connector) declareConsumerQueue(dlqConfig *DLQConfig) (bool, error) {
 	queueCfg := c.config.Queue
@@ -562,6 +556,15 @@ func (c *Connector) declareConsumerQueue(dlqConfig *DLQConfig) (bool, error) {
 	// Distinguish "queue not found" (expected) from real errors.
 	if amqpErr, ok := passiveErr.(*amqp.Error); ok && amqpErr.Code != amqp.NotFound {
 		return false, fmt.Errorf("failed to inspect queue: %w", passiveErr)
+	}
+
+	if !queueCfg.CreateIfMissing {
+		return false, fmt.Errorf(
+			"queue %q does not exist on broker %s (vhost %q). "+
+				"Declare it externally (Terraform, rabbitmqctl, RabbitMQ Management UI) or, "+
+				"for ephemeral environments, set create_if_missing = true on the consumer or queue block",
+			queueCfg.Name, c.config.Host, c.config.Vhost,
+		)
 	}
 
 	// Passive declare on a missing queue closes the channel server-side; reopen.
@@ -600,6 +603,70 @@ func (c *Connector) declareConsumerQueue(dlqConfig *DLQConfig) (bool, error) {
 
 	c.logger.Debug("declared queue", "name", queueCfg.Name)
 	return false, nil
+}
+
+// declareExchange declares the configured exchange using the same
+// passive-first strategy as declareConsumerQueue: respect existing topology
+// when the exchange exists; fail at startup when it does not unless
+// create_if_missing is set.
+func (c *Connector) declareExchange() error {
+	exCfg := c.config.Exchange
+
+	passiveErr := c.channel.ExchangeDeclarePassive(
+		exCfg.Name,
+		string(exCfg.Type),
+		exCfg.Durable,
+		exCfg.AutoDelete,
+		exCfg.Internal,
+		exCfg.NoWait,
+		nil,
+	)
+	if passiveErr == nil {
+		c.logger.Info("exchange exists; preserving existing topology",
+			"name", exCfg.Name,
+			"type", exCfg.Type,
+		)
+		return nil
+	}
+
+	if amqpErr, ok := passiveErr.(*amqp.Error); ok && amqpErr.Code != amqp.NotFound {
+		return fmt.Errorf("failed to inspect exchange: %w", passiveErr)
+	}
+
+	if !exCfg.CreateIfMissing {
+		return fmt.Errorf(
+			"exchange %q does not exist on broker %s (vhost %q). "+
+				"Declare it externally or, for ephemeral environments, set create_if_missing = true on the exchange block",
+			exCfg.Name, c.config.Host, c.config.Vhost,
+		)
+	}
+
+	// Passive declare on a missing exchange closes the channel server-side; reopen.
+	if c.conn == nil || c.conn.IsClosed() {
+		return fmt.Errorf("connection closed during topology setup: %w", passiveErr)
+	}
+	newChannel, chErr := c.conn.Channel()
+	if chErr != nil {
+		return fmt.Errorf("failed to reopen channel after passive declare: %w", chErr)
+	}
+	c.channel = newChannel
+
+	if err := c.channel.ExchangeDeclare(
+		exCfg.Name,
+		string(exCfg.Type),
+		exCfg.Durable,
+		exCfg.AutoDelete,
+		exCfg.Internal,
+		exCfg.NoWait,
+		exCfg.Args,
+	); err != nil {
+		return fmt.Errorf("failed to declare exchange: %w", err)
+	}
+	c.logger.Debug("declared exchange",
+		"name", exCfg.Name,
+		"type", exCfg.Type,
+	)
+	return nil
 }
 
 // getDLQConfig returns the DLQ configuration if available.
