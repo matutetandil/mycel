@@ -154,6 +154,10 @@ services:
   # ==========================================================================
   rabbitmq:
     image: rabbitmq:3-management-alpine
+    ports:
+      # Exposed so the strict-declare integration test (go test against a
+      # real broker) can reach the broker from the host.
+      - "${PORT_RABBIT:-5672}:5672"
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
