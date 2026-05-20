@@ -1,0 +1,27 @@
+// Cache connector for storing dedupe fingerprints. The dedupe primitive
+// looks this up at flow registration time and uses it directly in the
+// hot path (no per-message connector registry lookup). Driver is "memory"
+// for local development; swap to "redis" for production deployments where
+// multiple Mycel pods consume the same queue.
+connector "fp_cache" {
+  type   = "cache"
+  driver = "memory"
+}
+
+// Source: RabbitMQ. In a real Mercury-style deployment this is where the
+// upstream publisher (e.g. Burro) re-sends update messages even when
+// nothing relevant changed.
+connector "rabbit" {
+  type   = "mq"
+  driver = "rabbitmq"
+  url    = env("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+}
+
+// Destination: a slow downstream API (Magento, in Mercury's case). Each
+// call here costs 4-26 seconds. The whole point of dedupe is to avoid
+// invoking this when the message content has not actually changed.
+connector "magento" {
+  type     = "http"
+  base_url = env("MAGENTO_URL", "https://be.dev.mercury.waterworks.com")
+  timeout  = "30s"
+}

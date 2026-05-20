@@ -1,0 +1,136 @@
+// Example: drop no-op product updates BEFORE forwarding to a slow
+// downstream API.
+//
+// Problem this solves: an upstream publisher re-sends product update
+// messages periodically, even when nothing relevant has changed. Each
+// downstream call takes seconds. With ~19k messages in the queue and
+// >90% being no-ops, the consumer wastes hours on duplicated work.
+//
+// The dedupe primitive computes a canonical fingerprint over the fields
+// that actually get persisted, compares it byte-for-byte to the last
+// fingerprint stored for the same SKU, and drops the message in
+// milliseconds when they match. Phase B (commit the new fingerprint)
+// runs ONLY after the downstream call succeeds, so a failed-then-retried
+// message will not self-discard.
+//
+// Composition with the rest of the pipeline:
+//
+//   from(rabbit) → filter → accept → coordinate(preflight)
+//                                    → lock(per-SKU)
+//                                    → sequence_guard (drop older)
+//                                    → transform (canonical projection)
+//                                    → dedupe (drop no-ops)
+//                                    → to(magento POST)
+//                                    → coordinate(signal "item_ready")
+//
+// The dedupe primitive self-locks on its key for the duration of Phase A
+// + to + Phase B, so concurrent workers cannot double-call the
+// downstream with identical fingerprints. The user's outer lock {} block
+// (per-SKU here) handles cross-process serialization across Mycel pods.
+flow "item_update_with_dedupe" {
+  from {
+    connector = "rabbit"
+    operation = "all.in.magento.q"
+    filter {
+      condition = "input.body.metadata.headers.elementType == 'product' && input.body.metadata.headers.operation == 'update'"
+      on_reject = "requeue"
+    }
+  }
+
+  accept {
+    when      = "has(input.body.payload.productItemId) && input.body.payload.productItemId != ''"
+    on_reject = "reject"
+  }
+
+  // Serialize concurrent updates to the same SKU. Acquired before the
+  // expensive POST so all the dedupe + transform work for one SKU runs
+  // sequentially across workers in this pod. For production with
+  // multiple pods, swap the storage driver to "redis" so the lock
+  // serializes across the whole cluster.
+  lock {
+    storage {
+      driver = "memory"
+    }
+    key     = "'sku_lock:' + input.body.payload.productItemId"
+    timeout = "30s"
+    wait    = true
+  }
+
+  // Drop out-of-order messages: skip if jobId is not strictly greater
+  // than what we last saw for this SKU.
+  sequence_guard {
+    storage {
+      driver = "memory"
+    }
+    key      = "'sku_seq:' + input.body.payload.productItemId"
+    sequence = "input.body.payload.jobId"
+    on_older = "ack"
+    ttl      = "30d"
+  }
+
+  // Canonical projection of what we persist downstream. Every field
+  // present here must be evaluable from `input.*` at runtime; the
+  // dedupe block below references these names as `output.*`.
+  transform {
+    sku        = "input.body.payload.productItemId"
+    name       = "trim(input.body.payload.productItemName ?? '')"
+    parent_sku = "input.body.payload.styleAssociation ?? ''"
+
+    // Per-storeview price map. Two messages with the SAME prices in
+    // different key order produce identical fingerprints (map keys are
+    // sorted canonically before hashing).
+    prices = <<-EOT
+      {
+        'us': pick(input.body.payload.priceLine ?? {}, 'guestUSPrice', 'tradeUSPrice'),
+        'uk': pick(input.body.payload.priceLine ?? {}, 'guestUKPrice', 'tradeUKPrice'),
+        'fr': pick(input.body.payload.priceLine ?? {}, 'guestFRPrice', 'tradeFRPrice')
+      }
+    EOT
+
+    websites = <<-EOT
+      {
+        'us': size(input.body.payload.dynamicAttributeCollection.filter(x, x.key == 'ShowOnWebUSValue')) > 0,
+        'uk': size(input.body.payload.dynamicAttributeCollection.filter(x, x.key == 'ShowOnWebUKValue' || x.key == 'ShowOnWebUkUSValue')) > 0,
+        'fr': size(input.body.payload.dynamicAttributeCollection.filter(x, x.key == 'ShowOnWebFRValue')) > 0
+      }
+    EOT
+  }
+
+  // Drop messages whose persisted projection is byte-equal to the last
+  // one persisted for this SKU. The fingerprint block lists every field
+  // that "counts" — omitting a persisted field here would silently drop
+  // real changes.
+  //
+  // on_duplicate = "ack" means a match is fully consumed: the broker
+  // delivery is acked and no downstream call is made. The retry counter
+  // is irrelevant — the message reached its successful end state by
+  // being deduped.
+  dedupe {
+    cache        = "fp_cache"
+    key          = "'sku_fp:' + input.body.payload.productItemId"
+    ttl          = "30d"
+    on_duplicate = "ack"
+    fingerprint {
+      sku        = "output.sku"
+      name       = "output.name"
+      parent_sku = "output.parent_sku"
+      prices     = "output.prices"
+      websites   = "output.websites"
+    }
+  }
+
+  to {
+    connector = "magento"
+    target    = "/rest/V1/mercury/products/items"
+    operation = "POST"
+    envelope  = "productData"
+  }
+
+  error_handling {
+    retry {
+      attempts = 3
+      delay    = "2s"
+      backoff  = "exponential"
+    }
+  }
+}

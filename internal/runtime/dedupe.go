@@ -89,10 +89,16 @@ func (h *FlowHandler) dedupeAwareWrite(
 	// memory lock backend (internal/sync/manager.go:107). That is the
 	// in-process serialization we want. Cross-process is the caller's
 	// responsibility via the existing flow-level lock {} block.
+	//
+	// 5m is generous enough to outlast any reasonable downstream call
+	// while still preventing a stuck flow from blocking other workers on
+	// the same key forever. The internal heartbeat extends the TTL while
+	// the inner write runs, so a long-running write cannot race-release
+	// the lock mid-execution.
 	lockCfg := &msync.FlowLockConfig{
 		Storage: nil, // memory backend
 		Key:     lockKey,
-		Timeout: "0s", // wait indefinitely; the surrounding flow already has a timeout
+		Timeout: "5m",
 		Wait:    true,
 	}
 
@@ -144,8 +150,9 @@ func (h *FlowHandler) dedupeAwareWrite(
 // cause all messages to share a key and dedupe everything together.
 func (h *FlowHandler) evalDedupeKey(ctx context.Context, input map[string]interface{}) (string, error) {
 	cfg := h.Config.Dedupe
-	data := map[string]interface{}{"input": input}
-	val, err := h.Transformer.EvaluateExpression(ctx, data, nil, cfg.Key)
+	// EvaluateExpression binds `input` itself; callers must pass the raw
+	// input map, not a nested wrapper.
+	val, err := h.Transformer.EvaluateExpression(ctx, input, nil, cfg.Key)
 	if err != nil {
 		return "", fmt.Errorf("dedupe key evaluation: %w", err)
 	}
@@ -161,13 +168,11 @@ func (h *FlowHandler) evalDedupeKey(ctx context.Context, input map[string]interf
 // resulting projection into a deterministic byte string via Fingerprint.
 func (h *FlowHandler) computeDedupeFingerprint(ctx context.Context, input map[string]interface{}, payload map[string]interface{}) ([]byte, error) {
 	cfg := h.Config.Dedupe
-	scope := map[string]interface{}{
-		"input":  input,
-		"output": payload,
-	}
 	projection := make(map[string]interface{}, len(cfg.Fingerprint))
 	for name, expr := range cfg.Fingerprint {
-		v, err := h.Transformer.EvaluateExpression(ctx, scope, nil, expr)
+		// EvaluateExpressionWithOutput binds both `input` and `output`,
+		// matching the documented projection scope.
+		v, err := h.Transformer.EvaluateExpressionWithOutput(ctx, input, payload, expr)
 		if err != nil {
 			return nil, fmt.Errorf("dedupe fingerprint[%q] evaluation: %w", name, err)
 		}
