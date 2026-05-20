@@ -1,0 +1,4 @@
+service {
+  name    = "products-consumer-dedupe"
+  version = "0.1.0"
+}

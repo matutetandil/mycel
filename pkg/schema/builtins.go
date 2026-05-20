@@ -342,12 +342,20 @@ func ErrorHandlingSchema() Block {
 func DedupeSchema() Block {
 	return Block{
 		Type: "dedupe",
-		Doc:  "Deduplication configuration",
+		Doc:  "Content-based, biphasic deduplication. Compares a canonical fingerprint of a named projection of the message against the previously-stored fingerprint for the same key; on match, drops without invoking `to`. Stores the new fingerprint only after `to` succeeds.",
 		Attrs: []Attr{
-			{Name: "storage", Doc: "Storage connector for dedup state", Type: TypeString, Required: true, Ref: RefConnector},
-			{Name: "key", Doc: "CEL expression for the deduplication key", Type: TypeString, Required: true},
-			{Name: "ttl", Doc: "How long to remember seen keys", Type: TypeDuration},
-			{Name: "on_duplicate", Doc: "Behavior on duplicate", Type: TypeString, Values: []string{"skip", "fail"}},
+			{Name: "cache", Doc: "Cache-typed connector used to store fingerprints", Type: TypeString, Required: true, Ref: RefConnector},
+			{Name: "key", Doc: "CEL expression for the per-resource fingerprint key (evaluated against input.*)", Type: TypeString, Required: true},
+			{Name: "ttl", Doc: "How long to keep stored fingerprints after the last update", Type: TypeDuration},
+			{Name: "on_duplicate", Doc: "Behavior on fingerprint match", Type: TypeString, Values: []string{"ack", "reject", "requeue"}},
+		},
+		Children: []Block{
+			{
+				Type:  "fingerprint",
+				Doc:   "Named CEL expressions whose values form the projection. Must list every field the flow persists downstream — omitting one would silently drop real changes. Both input.* and output.* (transform result) are in scope.",
+				Open:  true,
+				Attrs: []Attr{},
+			},
 		},
 	}
 }

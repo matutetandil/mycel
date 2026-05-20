@@ -1195,10 +1195,13 @@ func parseTransformMappings(block *hcl.Block, ctx *hcl.EvalContext) (map[string]
 func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "storage", Required: true},
+			{Name: "cache", Required: true},
 			{Name: "key", Required: true},
 			{Name: "ttl"},
 			{Name: "on_duplicate"},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "fingerprint"},
 		},
 	}
 
@@ -1208,21 +1211,21 @@ func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfi
 	}
 
 	dedupe := &flow.DedupeConfig{
-		OnDuplicate: "skip", // Default behavior
+		OnDuplicate: "ack", // sequence_guard-style default
 	}
 
-	if attr, ok := content.Attributes["storage"]; ok {
+	if attr, ok := content.Attributes["cache"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("dedupe storage error: %s", diags.Error())
+			return nil, fmt.Errorf("dedupe cache error: %s", diags.Error())
 		}
-		dedupe.Storage = parseConnectorReference(val.AsString())
+		dedupe.Cache = parseConnectorReference(val.AsString())
 	}
 
 	if attr, ok := content.Attributes["key"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			// Try to extract raw expression for CEL expressions
+			// CEL expression — extract raw text
 			dedupe.Key = extractExpressionText(attr.Expr)
 		} else {
 			dedupe.Key = val.AsString()
@@ -1235,6 +1238,13 @@ func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfi
 			return nil, fmt.Errorf("dedupe ttl error: %s", diags.Error())
 		}
 		dedupe.TTL = val.AsString()
+		// Validate the TTL string at parse time so misconfigured
+		// deployments fail fast at deploy. Silent fallback to "no
+		// expiry" (the symptom of catching the error at runtime) would
+		// let "30days" or "5y" leak entries in Redis forever.
+		if _, err := flow.ParseDuration(dedupe.TTL); err != nil {
+			return nil, fmt.Errorf("dedupe ttl %q: %w", dedupe.TTL, err)
+		}
 	}
 
 	if attr, ok := content.Attributes["on_duplicate"]; ok {
@@ -1245,12 +1255,56 @@ func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfi
 		dedupe.OnDuplicate = val.AsString()
 	}
 
-	if dedupe.Storage == "" {
-		return nil, fmt.Errorf("dedupe block must specify a storage connector")
+	// Parse the (required) fingerprint block — named CEL expressions, same
+	// shape as a transform block. Each entry contributes to the canonical
+	// projection. The author must list every persisted field; the runtime
+	// cannot infer which fields count.
+	var fingerprintBlock *hcl.Block
+	for _, b := range content.Blocks {
+		if b.Type == "fingerprint" {
+			if fingerprintBlock != nil {
+				return nil, fmt.Errorf("dedupe block must contain exactly one fingerprint block")
+			}
+			fingerprintBlock = b
+		}
+	}
+	if fingerprintBlock == nil {
+		return nil, fmt.Errorf("dedupe block must contain a fingerprint block")
+	}
+
+	fpAttrs, diags := fingerprintBlock.Body.JustAttributes()
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("dedupe fingerprint block error: %s", diags.Error())
+	}
+	if len(fpAttrs) == 0 {
+		return nil, fmt.Errorf("dedupe fingerprint block must define at least one named expression")
+	}
+
+	dedupe.Fingerprint = make(map[string]string, len(fpAttrs))
+	for name, attr := range fpAttrs {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			// CEL expression — extract raw text to be evaluated at runtime
+			dedupe.Fingerprint[name] = extractExpressionText(attr.Expr)
+			continue
+		}
+		// Literal values are accepted too: treat them as constant projections
+		dedupe.Fingerprint[name] = val.AsString()
+	}
+
+	if dedupe.Cache == "" {
+		return nil, fmt.Errorf("dedupe block must specify a cache connector")
 	}
 
 	if dedupe.Key == "" {
 		return nil, fmt.Errorf("dedupe block must specify a key expression")
+	}
+
+	switch dedupe.OnDuplicate {
+	case "ack", "reject", "requeue":
+		// ok
+	default:
+		return nil, fmt.Errorf("dedupe on_duplicate must be 'ack', 'reject', or 'requeue', got %q", dedupe.OnDuplicate)
 	}
 
 	return dedupe, nil

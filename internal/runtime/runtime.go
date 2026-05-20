@@ -1212,6 +1212,22 @@ func (r *Runtime) registerFlows() error {
 			DebugServer:        r.debugServer,
 		}
 
+		// Resolve the dedupe cache connector once at registration so the
+		// hot path does not pay a connector lookup per message. A
+		// misconfigured reference here is a fatal startup error — silent
+		// fallback would defeat the dedupe contract entirely.
+		if cfg.Dedupe != nil {
+			cacheConn, err := r.connectors.Get(cfg.Dedupe.Cache)
+			if err != nil {
+				return fmt.Errorf("flow %q: dedupe cache connector %q not found: %w", cfg.Name, cfg.Dedupe.Cache, err)
+			}
+			cacheImpl, ok := cacheConn.(cache.Cache)
+			if !ok {
+				return fmt.Errorf("flow %q: dedupe cache %q does not implement the cache interface (got %T)", cfg.Name, cfg.Dedupe.Cache, cacheConn)
+			}
+			handler.DedupeCache = cacheImpl
+		}
+
 		r.flows.Register(cfg.Name, handler)
 
 		// Schedule flow if it has a cron/interval trigger

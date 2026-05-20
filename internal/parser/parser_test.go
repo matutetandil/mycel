@@ -764,10 +764,15 @@ flow "process_order" {
   }
 
   dedupe {
-    storage      = "redis_cache"
+    cache        = "redis_cache"
     key          = "'order:' + input.order_id"
     ttl          = "24h"
-    on_duplicate = "skip"
+    on_duplicate = "ack"
+    fingerprint {
+      order_id   = "input.order_id"
+      product_id = "input.product_id"
+      quantity   = "input.quantity"
+    }
   }
 
   transform {
@@ -803,8 +808,8 @@ flow "process_order" {
 		t.Fatal("expected dedupe config to be set")
 	}
 
-	if flow.Dedupe.Storage != "redis_cache" {
-		t.Errorf("expected dedupe storage 'redis_cache', got '%s'", flow.Dedupe.Storage)
+	if flow.Dedupe.Cache != "redis_cache" {
+		t.Errorf("expected dedupe cache 'redis_cache', got '%s'", flow.Dedupe.Cache)
 	}
 	if flow.Dedupe.Key != "'order:' + input.order_id" {
 		t.Errorf("expected dedupe key \"'order:' + input.order_id\", got '%s'", flow.Dedupe.Key)
@@ -812,8 +817,207 @@ flow "process_order" {
 	if flow.Dedupe.TTL != "24h" {
 		t.Errorf("expected dedupe TTL '24h', got '%s'", flow.Dedupe.TTL)
 	}
-	if flow.Dedupe.OnDuplicate != "skip" {
-		t.Errorf("expected dedupe on_duplicate 'skip', got '%s'", flow.Dedupe.OnDuplicate)
+	if flow.Dedupe.OnDuplicate != "ack" {
+		t.Errorf("expected dedupe on_duplicate 'ack', got '%s'", flow.Dedupe.OnDuplicate)
+	}
+	if got, want := len(flow.Dedupe.Fingerprint), 3; got != want {
+		t.Fatalf("expected %d fingerprint entries, got %d", want, got)
+	}
+	for _, name := range []string{"order_id", "product_id", "quantity"} {
+		if _, ok := flow.Dedupe.Fingerprint[name]; !ok {
+			t.Errorf("expected fingerprint key %q to be present", name)
+		}
+	}
+	// CEL expressions are preserved as raw text so the runtime can evaluate
+	// them per-message; literal values would not round-trip otherwise.
+	if got := flow.Dedupe.Fingerprint["order_id"]; got != "input.order_id" {
+		t.Errorf("fingerprint[order_id] = %q, want %q", got, "input.order_id")
+	}
+}
+
+// TestParseFlowDedupeDefaults locks the on_duplicate default ("ack") and
+// confirms that omitting it parses cleanly.
+func TestParseFlowDedupeDefaults(t *testing.T) {
+	hcl := `
+flow "f" {
+  from {
+    connector = "rabbit"
+    operation = "q"
+  }
+  dedupe {
+    cache = "c"
+    key   = "input.id"
+    fingerprint {
+      v = "input.v"
+    }
+  }
+  to {
+    connector = "db"
+    target    = "t"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	cfg, err := NewHCLParser().ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := cfg.Flows[0].Dedupe.OnDuplicate; got != "ack" {
+		t.Errorf("OnDuplicate default = %q, want ack", got)
+	}
+}
+
+// TestParseFlowDedupeRejectsBadOnDuplicate guards the validator that limits
+// on_duplicate to the sequence_guard-style set.
+func TestParseFlowDedupeRejectsBadOnDuplicate(t *testing.T) {
+	hcl := `
+flow "f" {
+  from {
+    connector = "rabbit"
+    operation = "q"
+  }
+  dedupe {
+    cache        = "c"
+    key          = "input.id"
+    on_duplicate = "skip"
+    fingerprint {
+      v = "input.v"
+    }
+  }
+  to {
+    connector = "db"
+    target    = "t"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := NewHCLParser().ParseFile(context.Background(), tmpFile)
+	if err == nil {
+		t.Fatal("expected parse to fail on on_duplicate=skip (v2.1.0 vocabulary is ack/reject/requeue)")
+	}
+	if !strings.Contains(err.Error(), "on_duplicate") {
+		t.Errorf("error should mention on_duplicate; got %v", err)
+	}
+}
+
+// TestParseFlowDedupeRejectsMalformedTTL guards against the silent
+// "no expiry" fallback that an unhandled time.ParseDuration error
+// produces for non-stdlib TTL formats. A typo like "30days" (or any
+// stdlib-unknown unit) must fail the parse, not parse to zero and let
+// Redis grow unbounded.
+func TestParseFlowDedupeRejectsMalformedTTL(t *testing.T) {
+	hcl := `
+flow "f" {
+  from {
+    connector = "rabbit"
+    operation = "q"
+  }
+  dedupe {
+    cache = "c"
+    key   = "input.id"
+    ttl   = "30days"
+    fingerprint {
+      v = "input.v"
+    }
+  }
+  to {
+    connector = "db"
+    target    = "t"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := NewHCLParser().ParseFile(context.Background(), tmpFile)
+	if err == nil {
+		t.Fatal("expected parse to fail on ttl=30days")
+	}
+	if !strings.Contains(err.Error(), "ttl") {
+		t.Errorf("error should mention ttl; got %v", err)
+	}
+}
+
+// TestParseFlowDedupeAccepts30d locks the canonical "30d" TTL baseline
+// documented across the project. Pre-fix, this would have parsed
+// successfully but silently downgraded to no-expiry at runtime via
+// time.ParseDuration returning an error.
+func TestParseFlowDedupeAccepts30d(t *testing.T) {
+	hcl := `
+flow "f" {
+  from {
+    connector = "rabbit"
+    operation = "q"
+  }
+  dedupe {
+    cache = "c"
+    key   = "input.id"
+    ttl   = "30d"
+    fingerprint {
+      v = "input.v"
+    }
+  }
+  to {
+    connector = "db"
+    target    = "t"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	cfg, err := NewHCLParser().ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("30d must parse cleanly: %v", err)
+	}
+	if got := cfg.Flows[0].Dedupe.TTL; got != "30d" {
+		t.Errorf("TTL stored = %q, want 30d", got)
+	}
+}
+
+// TestParseFlowDedupeRequiresFingerprint guards the rule that a dedupe
+// block must declare its projection — silent default would risk dropping
+// real changes.
+func TestParseFlowDedupeRequiresFingerprint(t *testing.T) {
+	hcl := `
+flow "f" {
+  from {
+    connector = "rabbit"
+    operation = "q"
+  }
+  dedupe {
+    cache = "c"
+    key   = "input.id"
+  }
+  to {
+    connector = "db"
+    target    = "t"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := NewHCLParser().ParseFile(context.Background(), tmpFile)
+	if err == nil {
+		t.Fatal("expected parse to fail when fingerprint block is missing")
+	}
+	if !strings.Contains(err.Error(), "fingerprint") {
+		t.Errorf("error should mention fingerprint; got %v", err)
 	}
 }
 
