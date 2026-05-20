@@ -118,6 +118,12 @@ type FlowHandler struct {
 	// CacheConnector is the cache connector for this flow (if configured).
 	CacheConnector cache.Cache
 
+	// DedupeCache is the cache connector used by the dedupe primitive to
+	// store fingerprints. Resolved at flow registration from
+	// Config.Dedupe.Cache so the hot path does not pay a connector
+	// registry lookup per message. nil when Config.Dedupe is unset.
+	DedupeCache cache.Cache
+
 	// NamedCaches allows lookup of named cache definitions.
 	NamedCaches map[string]*flow.NamedCacheConfig
 
@@ -2068,11 +2074,19 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		}, nil
 	}
 
-	writeResult, writeErr := trace.RecordStage(ctx, trace.StageWrite, data.Target, trace.Snapshot(data.Payload), func() (interface{}, error) {
-		return dest.Write(ctx, data)
+	writeResult, writeErr := h.dedupeAwareWrite(ctx, input, payload, func() (interface{}, error) {
+		return trace.RecordStage(ctx, trace.StageWrite, data.Target, trace.Snapshot(data.Payload), func() (interface{}, error) {
+			return dest.Write(ctx, data)
+		})
 	})
 	if writeErr != nil {
 		return nil, writeErr
+	}
+	// Dedupe match: propagate the filtered result as-is so the MQ consumer
+	// can ack/reject/requeue per the configured policy. Skip the connector
+	// result unwrap below — there is no connector.Result on this path.
+	if filtered, ok := writeResult.(*flow.FilteredResultWithPolicy); ok {
+		return filtered, nil
 	}
 	result := writeResult.(*connector.Result)
 
@@ -2170,10 +2184,16 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 		}, nil
 	}
 
-	result, err := dest.Write(ctx, data)
+	writeResult, err := h.dedupeAwareWrite(ctx, input, payload, func() (interface{}, error) {
+		return dest.Write(ctx, data)
+	})
 	if err != nil {
 		return nil, err
 	}
+	if filtered, ok := writeResult.(*flow.FilteredResultWithPolicy); ok {
+		return filtered, nil
+	}
+	result := writeResult.(*connector.Result)
 
 	// If raw SQL returned rows (e.g., UPDATE ... RETURNING), return those
 	if len(result.Rows) > 0 {
