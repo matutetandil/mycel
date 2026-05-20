@@ -708,17 +708,33 @@ flow "broadcast_user_update" {
 }
 
 # =============================================================================
-# Example 13: Message Deduplication
+# Example 13: Content-Based Deduplication (biphasic)
 # =============================================================================
-# Prevent duplicate message processing using a cache backend.
-# Useful for message queue consumers that may receive the same message twice
-# due to at-least-once delivery semantics.
+# Drop no-op messages BEFORE forwarding to a slow downstream, by comparing
+# a fingerprint of the persisted projection of the message against the
+# previously-stored fingerprint for the same key.
+#
+# Use this when an upstream re-sends "update" messages even when nothing
+# relevant changed: the dedupe primitive serializes the projection you
+# specify, compares it byte-for-byte to what was last persisted, and
+# drops the message if it matches.
+#
+# Two-phase contract:
+#   1. Phase A (before `to`): compute fingerprint, GET stored, compare.
+#      If equal → drop according to on_duplicate (no `to` invocation).
+#   2. Phase B (after `to` ONLY on success): SET the new fingerprint.
+#      A failed `to` retry will NOT self-discard.
+#
+# The primitive self-locks per-key for the duration of Phase A + `to` +
+# Phase B, so concurrent workers cannot double-call the downstream with
+# identical fingerprints.
 #
 # dedupe block options:
-# - storage:      Cache connector for storing dedup keys (required)
-# - key:          CEL expression for the deduplication key (required)
-# - ttl:          How long to remember keys (default: 1h)
-# - on_duplicate: "skip" (silent) or "fail" (return error) - default: "skip"
+# - cache:         Cache-typed connector for storing fingerprints (required)
+# - key:           CEL expression for the per-resource fingerprint key (required)
+# - ttl:           How long to keep stored fingerprints (e.g., "30d")
+# - on_duplicate:  "ack" (default), "reject", or "requeue" — sequence_guard vocabulary
+# - fingerprint:   Named CEL expressions; must list every persisted field
 
 flow "process_order_with_dedupe" {
   from {
@@ -726,12 +742,17 @@ flow "process_order_with_dedupe" {
     operation = "orders.new"
   }
 
-  # Dedupe using order_id - same order won't be processed twice within 24h
+  # Drop re-deliveries of the same order whose persisted shape did not change.
   dedupe {
-    storage      = "redis_cache"
+    cache        = "redis_cache"
     key          = "'order:' + input.order_id"
     ttl          = "24h"
-    on_duplicate = "skip"
+    on_duplicate = "ack"
+    fingerprint {
+      order_id   = "input.order_id"
+      product_id = "input.product_id"
+      quantity   = "input.quantity"
+    }
   }
 
   step "validate" {
@@ -758,19 +779,24 @@ flow "process_order_with_dedupe" {
   }
 }
 
-# Example: Idempotent payment processing with dedupe
+# Example: Content-based dedupe by idempotency_key on payment processing.
+# Two messages with the same key + same (account, amount) → only one processed.
 flow "process_payment_idempotent" {
   from {
     connector = "rabbit"
     operation = "payments.process"
   }
 
-  # Use idempotency_key from the message for deduplication
   dedupe {
-    storage      = "redis_cache"
+    cache        = "redis_cache"
     key          = "'payment:' + input.idempotency_key"
     ttl          = "7d"
-    on_duplicate = "skip"  # Silently skip duplicates
+    on_duplicate = "ack"
+    fingerprint {
+      idempotency_key = "input.idempotency_key"
+      account_id      = "input.account_id"
+      amount          = "input.amount"
+    }
   }
 
   step "check_balance" {

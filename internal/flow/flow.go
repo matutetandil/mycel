@@ -635,23 +635,53 @@ func NewFlowError(err error, status int, body map[string]interface{}, headers ma
 	}
 }
 
-// DedupeConfig holds deduplication configuration for a flow.
-// Used to prevent processing duplicate messages (e.g., from message queues).
+// DedupeConfig holds content-based, biphasic deduplication for a flow.
+//
+// Semantics (since v2.1.0):
+//
+//   - Phase A (before `to`): compute a canonical fingerprint over the named
+//     projection (Fingerprint map), GET the previously-stored fingerprint
+//     for Key, and compare byte-for-byte. If equal, the message is dropped
+//     according to OnDuplicate without invoking `to`.
+//
+//   - Phase B (after `to` ONLY on success): SET the new fingerprint for
+//     Key with TTL. Writing earlier would let a failed+retried message
+//     self-discard and lose a real change.
+//
+// The primitive is self-locking on Key for the duration of Phase A + `to`
+// + Phase B, so concurrent workers cannot both pass Phase A with the same
+// fingerprint and double-call the downstream.
+//
+// The projection must contain every field the flow persists downstream —
+// omitting a persisted field would silently drop real changes. The author
+// is the only one who knows which fields actually count; the primitive
+// cannot infer it.
 type DedupeConfig struct {
-	// Storage is the connector for storing dedup state (typically Redis or cache).
-	Storage string
+	// Cache is the name of a cache-typed connector used to store
+	// fingerprints. Driver-agnostic: works with "memory" (unit tests) or
+	// "redis" (production). The connector's pool is initialized once at
+	// service start; the dedupe hot path does not reconnect per message.
+	Cache string
 
-	// Key is a CEL expression that generates the deduplication key.
-	// Example: "input.message_id" or "'order:' + input.order_id"
+	// Key is a CEL expression for the per-resource fingerprint key.
+	// Evaluated against `input.*`. Example:
+	//   "'sku_fp:' + input.body.payload.productItemId"
 	Key string
 
-	// TTL is how long to remember seen keys (e.g., "1h", "24h").
-	// After TTL expires, the same key can be processed again.
+	// Fingerprint is a map of named CEL expressions whose results form the
+	// projection. Both `input.*` and `output.*` (transform result) are in
+	// scope. Order of keys in HCL is irrelevant — the runtime serializes
+	// with sorted keys for canonicalization.
+	Fingerprint map[string]string
+
+	// TTL is how long to keep the stored fingerprint after the last update
+	// (e.g., "30d"). Empty means no expiry. Long-tail keys can leak, so a
+	// 30-day TTL is the recommended baseline.
 	TTL string
 
-	// OnDuplicate defines behavior when duplicate is found: "skip" or "fail".
-	// - "skip": Silently skip the duplicate (default)
-	// - "fail": Return an error for duplicates
+	// OnDuplicate selects what to do when the current fingerprint matches
+	// the stored one: "ack" (default), "reject", or "requeue". Matches the
+	// sequence_guard vocabulary so MQ consumers handle it uniformly.
 	OnDuplicate string
 }
 
