@@ -1238,6 +1238,13 @@ func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfi
 			return nil, fmt.Errorf("dedupe ttl error: %s", diags.Error())
 		}
 		dedupe.TTL = val.AsString()
+		// Validate the TTL string at parse time so misconfigured
+		// deployments fail fast at deploy. Silent fallback to "no
+		// expiry" (the symptom of catching the error at runtime) would
+		// let "30days" or "5y" leak entries in Redis forever.
+		if _, err := flow.ParseDuration(dedupe.TTL); err != nil {
+			return nil, fmt.Errorf("dedupe ttl %q: %w", dedupe.TTL, err)
+		}
 	}
 
 	if attr, ok := content.Attributes["on_duplicate"]; ok {

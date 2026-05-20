@@ -76,6 +76,32 @@ field starts being persisted (e.g. `description`), the author must add
 it to `fingerprint {}` so changes to that field are not silently
 swallowed.
 
+### ⚠️ Arrays are treated as order-insensitive sets
+
+The canonical encoder sorts array elements before serialization, so two
+projections with the same set of array values in different order produce
+identical fingerprints. This is appropriate for "list of attribute
+values" projections (image URLs, dynamic attributes, websites) where
+order is presentational, but **lossy** if order is semantically
+meaningful.
+
+If your projection includes an array where order matters (e.g. an
+ordered list of pipeline steps, or a ranked tag list where position
+encodes priority), reshape it in `transform` before dedupe sees it:
+join with a delimiter into a string so the dedupe encoder treats it as
+a single ordered value.
+
+```hcl
+transform {
+  // Bad: ranked_tags as an array would lose order in the fingerprint.
+  // Good: join into a string so order is part of the encoded value.
+  ranked_tags = "input.ranked_tags.map(t, t).join(',')"
+}
+```
+
+Audit every array field in your `fingerprint {}` for order sensitivity
+before going to production.
+
 ## Composition with other primitives
 
 The flow combines several primitives that together make dedupe

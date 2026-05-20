@@ -210,14 +210,17 @@ func dedupeLockKey(flowName, key string) string {
 	return "dedupe:lock:" + flowName + ":" + key
 }
 
-// parseDedupeTTL is a small helper around time.ParseDuration that returns
-// 0 (no expiry) on empty or invalid input. Validation against malformed
-// strings happens at parse time; this is the runtime safety net.
+// parseDedupeTTL converts the TTL string into a duration. The HCL parser
+// validates the format at parse time via flow.ParseDuration, so by the
+// time we reach this code an error here would indicate either a malformed
+// flow.Config built outside the parser (tests) or a bug. We still fall
+// back to zero in that case rather than panicking — the documented
+// fail-open contract for cache errors applies to TTL parsing too.
 func parseDedupeTTL(s string) time.Duration {
 	if s == "" {
 		return 0
 	}
-	if d, err := time.ParseDuration(s); err == nil {
+	if d, err := flow.ParseDuration(s); err == nil {
 		return d
 	}
 	return 0

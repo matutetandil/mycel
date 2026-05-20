@@ -29,7 +29,7 @@ flow "dedupe_test_flow" {
   dedupe {
     cache        = "dedupe_cache"
     key          = "'sku:' + input.sku"
-    ttl          = "10m"
+    ttl          = "30d"
     on_duplicate = "ack"
     fingerprint {
       sku   = "output.sku"

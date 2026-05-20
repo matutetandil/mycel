@@ -908,6 +908,85 @@ flow "f" {
 	}
 }
 
+// TestParseFlowDedupeRejectsMalformedTTL guards against the silent
+// "no expiry" fallback that an unhandled time.ParseDuration error
+// produces for non-stdlib TTL formats. A typo like "30days" (or any
+// stdlib-unknown unit) must fail the parse, not parse to zero and let
+// Redis grow unbounded.
+func TestParseFlowDedupeRejectsMalformedTTL(t *testing.T) {
+	hcl := `
+flow "f" {
+  from {
+    connector = "rabbit"
+    operation = "q"
+  }
+  dedupe {
+    cache = "c"
+    key   = "input.id"
+    ttl   = "30days"
+    fingerprint {
+      v = "input.v"
+    }
+  }
+  to {
+    connector = "db"
+    target    = "t"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, err := NewHCLParser().ParseFile(context.Background(), tmpFile)
+	if err == nil {
+		t.Fatal("expected parse to fail on ttl=30days")
+	}
+	if !strings.Contains(err.Error(), "ttl") {
+		t.Errorf("error should mention ttl; got %v", err)
+	}
+}
+
+// TestParseFlowDedupeAccepts30d locks the canonical "30d" TTL baseline
+// documented across the project. Pre-fix, this would have parsed
+// successfully but silently downgraded to no-expiry at runtime via
+// time.ParseDuration returning an error.
+func TestParseFlowDedupeAccepts30d(t *testing.T) {
+	hcl := `
+flow "f" {
+  from {
+    connector = "rabbit"
+    operation = "q"
+  }
+  dedupe {
+    cache = "c"
+    key   = "input.id"
+    ttl   = "30d"
+    fingerprint {
+      v = "input.v"
+    }
+  }
+  to {
+    connector = "db"
+    target    = "t"
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "flow.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	cfg, err := NewHCLParser().ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("30d must parse cleanly: %v", err)
+	}
+	if got := cfg.Flows[0].Dedupe.TTL; got != "30d" {
+		t.Errorf("TTL stored = %q, want 30d", got)
+	}
+}
+
 // TestParseFlowDedupeRequiresFingerprint guards the rule that a dedupe
 // block must declare its projection — silent default would risk dropping
 // real changes.
