@@ -1,0 +1,7 @@
+// Cache connector used by the dedupe primitive to store fingerprints.
+// Memory driver so the test does not need a Redis container; the dedupe
+// runtime behaviour is identical across drivers.
+connector "dedupe_cache" {
+  type   = "cache"
+  driver = "memory"
+}

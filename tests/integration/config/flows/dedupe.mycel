@@ -1,0 +1,46 @@
+// End-to-end functional test for the dedupe primitive.
+//
+// Pipeline:
+//   POST /test/dedupe → transform → dedupe → external_api POST /dedupe-target
+//
+// The bash test exercises three scenarios in sequence against the same SKU:
+//   1. POST with content A → expected to reach mock (first time)
+//   2. POST with content A again → expected to be dropped by dedupe
+//   3. POST with content B (different price) → expected to reach mock
+//
+// Plus a fourth POST with a different SKU to assert the per-key isolation:
+//   4. POST with different SKU but same content as A → expected to reach mock
+//      (different key, no shared dedupe state)
+//
+// The assertion is on the mock-server's captured request count at the
+// /dedupe-target path: exactly 3 captures across the 4 POSTs.
+flow "dedupe_test_flow" {
+  from {
+    connector = "api"
+    operation = "POST /test/dedupe"
+  }
+
+  transform {
+    sku   = "input.sku"
+    name  = "input.name"
+    price = "input.price"
+  }
+
+  dedupe {
+    cache        = "dedupe_cache"
+    key          = "'sku:' + input.sku"
+    ttl          = "10m"
+    on_duplicate = "ack"
+    fingerprint {
+      sku   = "output.sku"
+      name  = "output.name"
+      price = "output.price"
+    }
+  }
+
+  to {
+    connector = "external_api"
+    target    = "/dedupe-target"
+    operation = "POST"
+  }
+}
