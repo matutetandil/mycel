@@ -5,6 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-05-20
+
+### ⚠️ BREAKING — `dedupe {}` block replaced
+
+The existing key-based dedupe primitive is replaced by a content-based, biphasic dedupe. The old block had a correctness bug (the dedup marker was stored *before* the inner exec ran, so a failed `to` followed by a broker redelivery would see the marker and silently drop the message, losing real work) and a conceptual overlap with what operators actually wanted (drop messages whose persisted projection is identical to the last one persisted, not just "have I seen this key before").
+
+**Migration:** replace `storage` with `cache`, restrict `on_duplicate` to `ack`/`reject`/`requeue`, and declare an explicit `fingerprint {}` projection:
+
+```hcl
+# v2.0.0 and earlier
+dedupe {
+  storage      = "redis_cache"
+  key          = "input.message_id"
+  ttl          = "1h"
+  on_duplicate = "skip"
+}
+
+# v2.1.0+
+dedupe {
+  cache        = "redis_cache"
+  key          = "input.message_id"
+  ttl          = "1h"
+  on_duplicate = "ack"
+  fingerprint {
+    id = "input.message_id"
+  }
+}
+```
+
+The two in-tree examples in `examples/steps/flows.mycel` were migrated. The `fingerprint {}` block is required and must declare at least one entry — silent defaults would risk dropping real changes when the author forgets to enumerate a persisted field.
+
+### Added
+
+- **Content-based biphasic dedupe primitive** that drops no-op messages **before** they reach a slow downstream. Phase A (before `to`) computes a canonical fingerprint over the named projection, GETs the previously stored fingerprint for the key, and compares byte-for-byte; on match the message is dropped according to `on_duplicate` (`ack`/`reject`/`requeue`) without invoking `to`. Phase B (after `to` ONLY on success) stores the new fingerprint, so a failed-then-retried message will not self-discard. Both phases run under an in-process lock keyed on `dedupe.key` (via `SyncManager.ExecuteWithLock` with memory backend), so two workers cannot both pass Phase A with identical fingerprints and double-call the downstream. Cross-process serialization remains the caller's responsibility via an outer `lock {}` block.
+
+- **Canonical fingerprint encoder** (`internal/runtime/dedupe_fingerprint.go`): map keys sorted alphabetically; array elements sorted by their own encoded bytes (treated as order-insensitive sets); each value type-tagged and length-prefixed so the string `"a,b"` cannot collide with the array `["a","b"]`; whole-number floats normalize to ints so `float64(5.0)` and `int64(5)` round-trip identically (CEL evaluates numeric literals to float64). Full bytes are stored — zero risk of hash collision; SHA-256 hashing is left as a future opt-in.
+
+- **`flow.ParseDuration`** (`internal/flow/duration.go`) — supports day (`"30d"` → 720h) and week (`"2w"` → 336h) suffixes on top of the stdlib units. Malformed inputs error explicitly instead of silently falling back to zero (the symptom that contradicted the documented "30-day baseline" for dedupe TTLs and would have caused Redis to grow unbounded). The HCL parser validates `dedupe.ttl` at parse time so misconfigured TTLs fail the deploy rather than degrading at runtime.
+
+### Tests
+
+- 11 fingerprint encoder unit tests (deterministic output, key/array order independence, type-tag collision prevention, number normalization, length-prefix boundary cases, real Mercury-shape projection).
+- 8 runtime integration tests covering same-message-twice-is-dropped, different-content-both-pass, write-failure-skips-commit (so retries actually re-attempt), 20-goroutine race on the same fingerprint (only one downstream call), per-key parallelism (workers with distinct keys do not serialize on each other), zero-overhead when unconfigured, `on_duplicate` policy round-trip.
+- 4 parser tests including a rejected-`30days` regression guard and a canonical-`30d`-accepted lock.
+- Functional end-to-end via `tests/integration/run.sh::test-dedupe.sh`: 5 POSTs through `REST → dedupe → mock-server`, the mock receives exactly 3 (POSTs 1, 3, 4 — POSTs 2 and 5 deduped). 143/0 in the full suite.
+
+### Documentation
+
+- `examples/dedupe/` — runnable example (RabbitMQ → dedupe → Magento HTTP, memory cache for local, redis for prod). Includes a prominent caveat about array order-insensitivity in `fingerprint {}` and how to reshape order-sensitive arrays in `transform` before dedupe sees them.
+
 ## [2.0.0] - 2026-05-18
 
 ### ⚠️ BREAKING CHANGE
