@@ -437,6 +437,8 @@ connector "rabbit" {
 3. If retries < max_retries, the message is republished to the same queue with the updated retry header, and the original is acked
 4. If retries >= max_retries, the message is rejected with `Reject(false)` — RabbitMQ then either routes it to the DLX (if the queue carries `x-dead-letter-exchange`) or discards it
 
+**Strict-by-default queue declaration (since v2.0.0):** when the queue named in `consumer.queue` does **not** exist on the broker, Mycel fails at startup with a clear error instead of silently auto-creating an empty queue. To opt back to auto-create (useful for dev/demo environments where Mycel owns the topology), set `create_if_missing = true` on the `consumer {}` or `queue {}` block. The same flag exists on `exchange {}`. See the v2.0.0 entry in the CHANGELOG for migration details.
+
 **Shared queue compatibility (passive-first declare):** When the queue named in `consumer.queue` already exists, Mycel preserves its topology and does not redeclare it. The retry counting in step 3 works unchanged, but step 4 will only route to a DLQ if the queue's `x-dead-letter-exchange` arg was set externally (e.g. via a RabbitMQ `set_policy`). If `dlq.enabled = true` and the queue pre-existed without DLX args, Mycel emits a WARN at startup explaining that retries still work but final rejection discards instead of routing.
 
 When the queue does not exist yet, Mycel declares it with `x-dead-letter-exchange` (and creates the DLX exchange + DLQ queue automatically) — full DLQ-for-inspection behavior is preserved for greenfield deployments.

@@ -75,6 +75,7 @@ PORT_DEFS=(
   PORT_ADMIN:9090
   PORT_COSMO:5000
   PORT_MOCK:8888
+  PORT_RABBIT:5672
 )
 
 echo "Checking ports..."
@@ -129,6 +130,7 @@ else
     scripts/test-soap.sh
     scripts/test-cache.sh
     scripts/test-rabbitmq.sh
+    scripts/test-rabbitmq-strict-declare.sh
     scripts/test-kafka.sh
     scripts/test-elasticsearch.sh
     scripts/test-s3.sh

@@ -104,12 +104,13 @@ func buildRabbitMQConfig(cfg *connector.Config) *rabbitmq.Config {
 	// Queue configuration
 	if queueCfg := getMap(cfg.Properties, "queue"); queueCfg != nil {
 		config.Queue = &rabbitmq.QueueConfig{
-			Name:       getString(queueCfg, "name", ""),
-			Durable:    getBool(queueCfg, "durable", true),
-			AutoDelete: getBool(queueCfg, "auto_delete", false),
-			Exclusive:  getBool(queueCfg, "exclusive", false),
-			NoWait:     getBool(queueCfg, "no_wait", false),
-			Args:       getMap(queueCfg, "args"),
+			Name:            getString(queueCfg, "name", ""),
+			Durable:         getBool(queueCfg, "durable", true),
+			AutoDelete:      getBool(queueCfg, "auto_delete", false),
+			Exclusive:       getBool(queueCfg, "exclusive", false),
+			NoWait:          getBool(queueCfg, "no_wait", false),
+			Args:            getMap(queueCfg, "args"),
+			CreateIfMissing: getBool(queueCfg, "create_if_missing", false),
 		}
 	}
 
@@ -117,15 +118,16 @@ func buildRabbitMQConfig(cfg *connector.Config) *rabbitmq.Config {
 	if exchangeCfg := getMap(cfg.Properties, "exchange"); exchangeCfg != nil {
 		exchangeType := getString(exchangeCfg, "type", "direct")
 		config.Exchange = &rabbitmq.ExchangeConfig{
-			Name:       getString(exchangeCfg, "name", ""),
-			Type:       rabbitmq.ExchangeType(exchangeType),
-			Durable:    getBool(exchangeCfg, "durable", true),
-			AutoDelete: getBool(exchangeCfg, "auto_delete", false),
-			Internal:   getBool(exchangeCfg, "internal", false),
-			NoWait:     getBool(exchangeCfg, "no_wait", false),
-			RoutingKey: getString(exchangeCfg, "routing_key", ""),
-			Args:       getMap(exchangeCfg, "args"),
-			BindArgs:   getMap(exchangeCfg, "bind_args"),
+			Name:            getString(exchangeCfg, "name", ""),
+			Type:            rabbitmq.ExchangeType(exchangeType),
+			Durable:         getBool(exchangeCfg, "durable", true),
+			AutoDelete:      getBool(exchangeCfg, "auto_delete", false),
+			Internal:        getBool(exchangeCfg, "internal", false),
+			NoWait:          getBool(exchangeCfg, "no_wait", false),
+			RoutingKey:      getString(exchangeCfg, "routing_key", ""),
+			Args:            getMap(exchangeCfg, "args"),
+			BindArgs:        getMap(exchangeCfg, "bind_args"),
+			CreateIfMissing: getBool(exchangeCfg, "create_if_missing", false),
 		}
 	}
 
@@ -147,11 +149,15 @@ func buildRabbitMQConfig(cfg *connector.Config) *rabbitmq.Config {
 			Args:        getMap(consumerCfg, "args"),
 		}
 
-		// Allow queue name as shorthand inside consumer block
+		// Allow queue name as shorthand inside consumer block. The
+		// create_if_missing flag on the consumer block applies to the
+		// shorthand-created queue so users do not have to switch to a full
+		// queue{} block just to opt into auto-creation.
 		if queueName := getString(consumerCfg, "queue", ""); queueName != "" && config.Queue == nil {
 			config.Queue = &rabbitmq.QueueConfig{
-				Name:    queueName,
-				Durable: true,
+				Name:            queueName,
+				Durable:         true,
+				CreateIfMissing: getBool(consumerCfg, "create_if_missing", false),
 			}
 		}
 

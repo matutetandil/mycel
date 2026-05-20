@@ -41,6 +41,7 @@ func (RabbitMQSchema) ConnectorSchema() schema.Block {
 				{Name: "auto_delete", Doc: "Delete when last consumer disconnects", Type: schema.TypeBool},
 				{Name: "exclusive", Doc: "Only this connection can access", Type: schema.TypeBool},
 				{Name: "no_wait", Doc: "Do not wait for server confirmation", Type: schema.TypeBool},
+				{Name: "create_if_missing", Doc: "Declare the queue when it does not exist on the broker. Default false since v2.0.0: a missing queue fails at startup so typos and missing infra are caught at deploy time", Type: schema.TypeBool},
 			}},
 			{Type: "exchange", Doc: "Exchange declaration", Attrs: []schema.Attr{
 				{Name: "name", Doc: "Exchange name", Type: schema.TypeString},
@@ -48,6 +49,7 @@ func (RabbitMQSchema) ConnectorSchema() schema.Block {
 				{Name: "durable", Doc: "Survives broker restart", Type: schema.TypeBool},
 				{Name: "auto_delete", Doc: "Delete when no queues bound", Type: schema.TypeBool},
 				{Name: "routing_key", Doc: "Routing key for bindings", Type: schema.TypeString},
+				{Name: "create_if_missing", Doc: "Declare the exchange when it does not exist on the broker. Default false since v2.0.0", Type: schema.TypeBool},
 			}},
 			{Type: "consumer", Doc: "Consumer settings", Attrs: []schema.Attr{
 				{Name: "queue", Doc: "Queue name (shorthand)", Type: schema.TypeString},
@@ -59,6 +61,7 @@ func (RabbitMQSchema) ConnectorSchema() schema.Block {
 				{Name: "concurrency", Doc: "Number of concurrent consumers", Type: schema.TypeNumber},
 				{Name: "workers", Doc: "Alias for concurrency", Type: schema.TypeNumber},
 				{Name: "prefetch", Doc: "Prefetch count", Type: schema.TypeNumber},
+				{Name: "create_if_missing", Doc: "When using the queue shorthand, declare the queue if missing. Default false since v2.0.0", Type: schema.TypeBool},
 			}, Children: []schema.Block{
 				{Type: "dlq", Doc: "Dead letter queue", Attrs: []schema.Attr{
 					{Name: "enabled", Doc: "Enable DLQ processing", Type: schema.TypeBool},

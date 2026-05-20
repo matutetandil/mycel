@@ -65,6 +65,13 @@ type QueueConfig struct {
 	Exclusive  bool
 	NoWait     bool
 	Args       map[string]interface{}
+
+	// CreateIfMissing controls what happens when the queue does not exist
+	// on the broker. When false (default since v2.0.0), the connector fails
+	// at startup with a clear error so typos and missing infra are caught at
+	// deploy time. When true, the connector falls back to an active declare
+	// and creates the queue with the configured args.
+	CreateIfMissing bool
 }
 
 // ExchangeConfig holds exchange declaration and binding options.
@@ -80,6 +87,12 @@ type ExchangeConfig struct {
 	// Binding configuration
 	RoutingKey string
 	BindArgs   map[string]interface{}
+
+	// CreateIfMissing controls what happens when the exchange does not exist
+	// on the broker. When false (default since v2.0.0), the connector fails
+	// at startup. When true, the connector declares the exchange with the
+	// configured type and args.
+	CreateIfMissing bool
 }
 
 // ConsumerConfig holds consumer options.
