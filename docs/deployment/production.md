@@ -101,10 +101,15 @@ flow "process_payment" {
   }
 
   dedupe {
-    storage      = "connector.redis"
-    key          = "input.payment_id"
+    cache        = "redis"
+    key          = "'payment:' + input.payment_id"
     ttl          = "24h"
-    on_duplicate = "skip"
+    on_duplicate = "ack"
+    fingerprint {
+      payment_id = "input.payment_id"
+      amount     = "input.amount"
+      account_id = "input.account_id"
+    }
   }
 
   error_handling {

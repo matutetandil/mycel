@@ -734,14 +734,26 @@ after {
 
 ### dedupe block
 
+Content-based, biphasic deduplication (since v2.1.0). Compares a canonical fingerprint of the projection against the last stored fingerprint for the same key and drops byte-for-byte matches before reaching `to`. Phase B stores the new fingerprint **only on `to` success**, so a failed-then-retried message does not self-discard. The primitive self-locks per key (in-process via memory-backed `SyncManager`) so concurrent workers cannot double-call the downstream with identical content.
+
 ```hcl
 dedupe {
-  storage      = "redis_cache"         # Required
-  key          = "input.payment_id"    # Required: CEL expression
-  ttl          = "24h"
-  on_duplicate = "skip"                # "skip" or "error"
+  cache        = "redis_cache"                                   # Required: name of a connector { type = "cache" }
+  key          = "'sku_fp:' + input.body.payload.productItemId"  # Required: CEL expression for the per-resource key
+  ttl          = "30d"                                           # Optional: supports "d" / "w" plus stdlib units; malformed values fail the parse
+  on_duplicate = "ack"                                           # Optional: "ack" (default), "reject", "requeue"
+
+  fingerprint {                                                   # Required: at least one named CEL expression
+    name   = "output.name"                                        # Both input.* and output.* (transform result) are in scope
+    prices = "output.prices"
+    # ... one entry per persisted field — omitting one would silently drop real changes
+  }
 }
 ```
+
+**Pipeline order:** `dedupe` runs **after** `transform` because the fingerprint expressions reference `output.*`. Earlier versions (≤ 2.0.0) ran a key-based dedupe before transform; see CHANGELOG v2.1.0 for migration.
+
+**Canonical encoding rules:** map keys sorted alphabetically; array elements sorted by their encoded bytes (treated as order-insensitive sets); each value type-tagged and length-prefixed so `"a,b"` cannot collide with `["a","b"]`; whole-number floats normalize to ints.
 
 ### idempotency block
 

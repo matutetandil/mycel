@@ -243,7 +243,7 @@ All core features are implemented and production-ready. The roadmap below reflec
 - ✅ **on_error with retry + DLQ**: exponential backoff, dead letter queues
 - ✅ **merge / omit / pick**: object manipulation helpers in transforms
 - ✅ **multi-to**: fan-out to multiple targets
-- ✅ **dedupe**: deduplication with storage backend, TTL, and `on_duplicate` policy
+- ✅ **dedupe**: content-based biphasic deduplication (since v2.1.0). Compares a canonical fingerprint of the persisted projection against the last stored fingerprint for the same key; drops no-ops before reaching the downstream. `cache` connector, `fingerprint {}` projection, `on_duplicate` policy (`ack`/`reject`/`requeue`), self-locking per key
 
 ### Phase 8 - GraphQL Query Optimization (Complete)
 - ✅ **Field Analyzer**: parses incoming queries to determine requested fields
