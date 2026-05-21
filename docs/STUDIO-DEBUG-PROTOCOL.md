@@ -1179,7 +1179,7 @@ These are the `trace.Stage` constants that can be used in breakpoints:
 | `sanitize` | `StageSanitize` | Input sanitization (XSS, injection prevention) |
 | `filter` | `StageFilter` | `from.filter` CEL condition evaluation |
 | `accept` | `StageAccept` | `accept` gate — business-level condition |
-| `dedupe` | `StageDedupe` | Deduplication check |
+| `dedupe` | `StageDedupe` | Content-based deduplication check (since v2.1.0: runs after transform, compares canonical fingerprint of the projection against the last stored value for the key) |
 | `validate_input` | `StageValidateIn` | Input type validation |
 | `enrich` | `StageEnrich` | Data enrichment from external sources |
 | `transform` | `StageTransform` | CEL transformation rules |
@@ -1195,10 +1195,12 @@ These are the `trace.Stage` constants that can be used in breakpoints:
 A typical flow executes stages in this order:
 
 ```
-input → sanitize → filter → accept → dedupe → validate_input → enrich → transform → step(s) → validate_output → write/read → response
+input → sanitize → filter → accept → validate_input → enrich → step(s) → transform → dedupe → validate_output → write/read → response
 ```
 
 Not all stages are present in every flow. Stages are skipped if not configured (e.g., no `validate` block → skip `validate_input`).
+
+**Note:** since v2.1.0 the `dedupe` stage runs **after** `transform` — the content-based primitive needs the transformed payload (`output.*`) to compute the fingerprint. Earlier versions ran the (key-based) dedupe before transform.
 
 ---
 

@@ -373,15 +373,7 @@ flow "critical_payment" {
     operation = "payments"
   }
 
-  # Deduplicate first
-  dedupe {
-    storage      = "connector.redis"
-    key          = "input.payment_id"
-    ttl          = "24h"
-    on_duplicate = "skip"
-  }
-
-  # Then lock the account
+  # Lock the account
   lock {
     storage {
       driver = "redis"
@@ -400,6 +392,29 @@ flow "critical_payment" {
     key     = "'payment_gateway'"
     limit   = 10
     timeout = "10s"
+  }
+
+  # Canonical projection of what the downstream sees. Required for dedupe
+  # below since the fingerprint is computed over `output.*`.
+  transform {
+    payment_id = "input.payment_id"
+    account_id = "input.account_id"
+    amount     = "input.amount"
+  }
+
+  # Drop re-deliveries whose persisted projection equals the last one
+  # processed for this payment. Self-locks per key, so even without the
+  # outer `lock {}` two workers cannot double-charge.
+  dedupe {
+    cache        = "redis_cache"
+    key          = "'payment:' + input.payment_id"
+    ttl          = "24h"
+    on_duplicate = "ack"
+    fingerprint {
+      payment_id = "output.payment_id"
+      account_id = "output.account_id"
+      amount     = "output.amount"
+    }
   }
 
   to {
@@ -446,7 +461,7 @@ Both forms (`url` and `host`/`port`) work for `lock`, `semaphore`, `coordinate`,
 
 ## Sequence Guard (Monotonic Dedup)
 
-A `sequence_guard` block rejects messages whose monotonic sequence number is not strictly greater than the last one observed for the same key. The classic use case: an MQ source that may redeliver — under retry, fan-out, requeue policies, or just multi-worker shuffling — and would otherwise let an older update overwrite a newer one already applied. This is **comparative** dedup, not the boolean "have I seen this exact key" of `dedupe` and `idempotency`.
+A `sequence_guard` block rejects messages whose monotonic sequence number is not strictly greater than the last one observed for the same key. The classic use case: an MQ source that may redeliver — under retry, fan-out, requeue policies, or just multi-worker shuffling — and would otherwise let an older update overwrite a newer one already applied. This is **comparative** dedup by ordering: a message is rejected because something *newer* was already processed, regardless of content. Contrast with `dedupe` (since v2.1.0), which is **content-based**: a message is rejected because its persisted projection is byte-identical to the last one processed, regardless of order. The two compose cleanly — `sequence_guard` drops out-of-order replays, `dedupe` then drops content-identical no-ops.
 
 ```hcl
 flow "style_update" {

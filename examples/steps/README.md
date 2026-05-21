@@ -323,9 +323,11 @@ flow "process_order" {
 | `target` | Destination (table, topic, exchange, etc.) (required) |
 | `include_error` | Include error details in fallback message |
 
-## Message Deduplication
+## Content-Based Deduplication (v2.1.0+)
 
-Prevent duplicate message processing using cache-based deduplication. This is essential for message queue consumers that may receive the same message twice due to at-least-once delivery semantics.
+Drop **no-op** messages whose persisted projection is byte-identical to the last one processed for the same key. Useful for MQ consumers where the upstream re-sends update messages even when nothing relevant changed: every redelivery hits a slow downstream and burns capacity for no gain.
+
+The primitive runs in two phases. Phase A (after `transform`, before `to`) computes a canonical fingerprint over the projection the operator declares and compares it to the stored fingerprint for the same key. On match the message is dropped without invoking `to`. Phase B (after `to` succeeds) stores the new fingerprint — a failed-then-retried message does NOT self-discard. The primitive self-locks per key so two workers cannot both pass Phase A with identical fingerprints and double-call the downstream.
 
 ```hcl
 flow "process_order_with_dedupe" {
@@ -334,14 +336,23 @@ flow "process_order_with_dedupe" {
     operation = "orders.new"
   }
 
-  dedupe {
-    storage      = "redis_cache"           # Cache connector for dedup keys
-    key          = "'order:' + input.order_id"  # CEL expression for unique key
-    ttl          = "24h"                   # How long to remember keys
-    on_duplicate = "skip"                  # "skip" (silent) or "fail" (error)
+  transform {
+    order_id   = "input.order_id"
+    product_id = "input.product_id"
+    quantity   = "input.quantity"
   }
 
-  # ... steps and transform ...
+  dedupe {
+    cache        = "redis_cache"
+    key          = "'order:' + input.order_id"
+    ttl          = "24h"
+    on_duplicate = "ack"
+    fingerprint {
+      order_id   = "output.order_id"
+      product_id = "output.product_id"
+      quantity   = "output.quantity"
+    }
+  }
 
   to {
     connector = "orders_db"
@@ -354,26 +365,34 @@ flow "process_order_with_dedupe" {
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `storage` | Cache connector name (required) | - |
-| `key` | CEL expression for the dedup key (required) | - |
-| `ttl` | How long to remember keys | `1h` |
-| `on_duplicate` | What to do on duplicate: `skip` or `fail` | `skip` |
+| `cache` | Cache-typed connector name for storing fingerprints (required) | — |
+| `key` | CEL expression for the per-resource key (required) | — |
+| `fingerprint {}` | Named CEL expressions whose values form the projection (required, ≥1 entry). Lists every field that counts toward "did anything change" | — |
+| `ttl` | How long to keep stored fingerprints. Supports `"30d"` and `"2w"` plus stdlib units | no expiry |
+| `on_duplicate` | Behavior on fingerprint match: `"ack"`, `"reject"`, `"requeue"` | `"ack"` |
 
 ### Use Cases
 
-- **Idempotent API Endpoints**: Use request ID or idempotency key as dedup key
-- **Message Queue Processing**: Prevent reprocessing on redelivery
-- **Event Sourcing**: Ensure events are processed exactly once
-- **Payment Processing**: Prevent double-charging with idempotency keys
+- **MQ consumers with chatty upstreams**: drop product update re-sends that contain no actual changes
+- **Event sourcing**: skip events whose persisted shape was already applied
+- **Idempotent API endpoints**: combine with `idempotency {}` (key-based) for layered protection
+- **Payment processing**: ensure the same (account, amount, idempotency_key) is not double-charged
 
 ### How It Works
 
-1. When a message arrives, the `key` expression is evaluated
-2. If the key exists in cache → duplicate detected
-   - `on_duplicate = "skip"`: Return silently (no error)
-   - `on_duplicate = "fail"`: Return error to caller
-3. If key doesn't exist → store key with TTL and process message
-4. On cache errors, flow continues (fail-open for availability)
+1. Message arrives; `transform` produces the canonical projection (`output.*`)
+2. Phase A acquires the in-process lock for the `key` value
+3. Phase A evaluates each `fingerprint.{name}` CEL expression against `input.*` and `output.*`, encodes the result canonically (sorted map keys, sorted array elements, type-tagged, length-prefixed), and `GET`s the stored fingerprint for `key`
+4. **Match** (`stored == new`): release the lock, return `FilteredResultWithPolicy{Policy: on_duplicate, Reason: "dedupe_match"}`. The MQ consumer handles it per the policy. `to` is NOT invoked.
+5. **No match**: invoke `to` (still holding the lock)
+6. **Phase B (only if `to` succeeded)**: `SET` the new fingerprint with the configured TTL, release the lock
+7. **`to` failed**: skip Phase B, release the lock. A retry will re-attempt the write — no self-discard.
+
+Cache errors fail open: a broken Redis processes the message anyway rather than silently swallowing traffic. Phase B failures log a WARN but do not fail the flow.
+
+### Pipeline order vs the old (≤ 2.0.0) dedupe
+
+The block name is the same but the semantics changed in v2.1.0. The old key-based dedupe ran before `transform`; the new content-based dedupe runs **after** `transform` because the fingerprint references `output.*`. The old `storage =` / `on_duplicate = "skip"` syntax is rejected at parse time; see CHANGELOG v2.1.0 for migration.
 
 ## Examples in This Directory
 

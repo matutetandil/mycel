@@ -1,6 +1,6 @@
 # Caching
 
-Mycel provides two flow-level caching mechanisms: **cache** for avoiding repeated calls by storing results, and **dedupe** for preventing duplicate processing of the same message or request.
+Mycel provides two flow-level caching mechanisms: **cache** for avoiding repeated reads by storing results, and **dedupe** (since v2.1.0) for dropping **no-op** writes whose persisted projection is byte-identical to the last one processed for the same key.
 
 ## Cache Setup
 
@@ -171,20 +171,40 @@ flow "update_product" {
 
 ## Deduplication
 
-The `dedupe` block prevents processing the same message or request more than once. Essential for message queue consumers where messages can be delivered more than once.
+Since v2.1.0 the `dedupe` block is **content-based** and runs in two phases. Phase A (after `transform`, before `to`) computes a canonical fingerprint over the projection the operator declares and compares it byte-for-byte to the stored fingerprint for the same key; on match the message is dropped according to `on_duplicate` without invoking `to`. Phase B (after `to` succeeds) stores the new fingerprint, so a failed-then-retried message will not self-discard.
+
+The primitive self-locks per key (in-process via the memory-backed `SyncManager`) so two workers cannot both pass Phase A with identical fingerprints and double-call the downstream. For cross-process serialization across multiple Mycel pods, compose with an outer `lock {}` block on the same resource key.
+
+The typical use case is an MQ consumer where the upstream re-sends "update" messages even when nothing relevant changed: every redelivery hits a slow downstream and the queue accumulates. With dedupe, only messages whose persisted projection actually differs reach the downstream.
 
 ```hcl
+connector "fp_cache" {
+  type   = "cache"
+  driver = "redis"   # or "memory" for tests / single-pod
+}
+
 flow "process_payment" {
   from {
     connector = "rabbit"
     operation = "payments"
   }
 
+  transform {
+    payment_id = "input.payment_id"
+    account_id = "input.account_id"
+    amount     = "input.amount"
+  }
+
   dedupe {
-    storage      = "redis_cache"
-    key          = "input.payment_id"
+    cache        = "fp_cache"
+    key          = "'payment:' + input.payment_id"
     ttl          = "24h"
-    on_duplicate = "skip"
+    on_duplicate = "ack"
+    fingerprint {
+      payment_id = "output.payment_id"
+      account_id = "output.account_id"
+      amount     = "output.amount"
+    }
   }
 
   to {
@@ -198,19 +218,27 @@ flow "process_payment" {
 
 | Attribute | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `storage` | string | yes | — | Cache connector name |
-| `key` | string | yes | — | CEL expression to compute the unique message key |
-| `ttl` | string | no | — | How long to remember processed message IDs |
-| `on_duplicate` | string | no | `"skip"` | What to do with duplicates: `"skip"` or `"error"` |
+| `cache` | string | yes | — | Name of a `connector { type = "cache" }`. The connector pool is initialized once at startup; the hot path does not pay a registry lookup per message |
+| `key` | string | yes | — | CEL expression for the per-resource fingerprint key (evaluated against `input.*`) |
+| `fingerprint {}` | block | yes | — | Named CEL expressions whose values form the projection. Both `input.*` and `output.*` (transform result) are in scope. Must list every persisted field — omitting one would silently drop real changes |
+| `ttl` | string | no | — | How long to keep stored fingerprints. Supports `"30d"` and `"2w"` plus stdlib units (`s`/`m`/`h`); malformed values fail the parse |
+| `on_duplicate` | string | no | `"ack"` | Behavior on fingerprint match: `"ack"`, `"reject"`, `"requeue"`. Matches the `sequence_guard` vocabulary so MQ consumers handle it uniformly |
 
-### Dedupe with Complex Keys
+### Pipeline order
+
+The `dedupe` block runs **after** `transform`. The fingerprint expressions reference `output.*` (the transformed payload), so transform must run first. Earlier versions (≤ 2.0.0) had a key-based dedupe block that ran before transform; see CHANGELOG v2.1.0 for migration.
+
+### Array order-insensitivity
+
+The canonical encoder sorts array elements before serialization, treating them as **order-insensitive sets**. This is appropriate for projections like "list of attribute values" or "set of website flags," but **lossy** for fields where order is semantically meaningful (e.g. a ranked list where position encodes priority).
+
+For order-sensitive arrays, reshape them in `transform` before dedupe sees them — join with a delimiter into a single string:
 
 ```hcl
-dedupe {
-  storage      = "redis_cache"
-  key          = "'order:' + input.order_id + ':' + input.event_type"
-  ttl          = "1h"
-  on_duplicate = "skip"
+transform {
+  # Bad: ranked_tags as an array would lose order in the fingerprint.
+  # Good: join into a string so order is part of the encoded value.
+  ranked_tags = "input.ranked_tags.map(t, t).join(',')"
 }
 ```
 
@@ -218,11 +246,12 @@ dedupe {
 
 | | Cache | Dedupe |
 |--|-------|--------|
-| Purpose | Avoid redundant reads | Prevent duplicate processing |
+| Purpose | Avoid redundant downstream reads | Drop no-op writes |
 | Applies to | Read flows | Write flows (especially MQ consumers) |
-| Cache miss | Execute `to` block, cache result | Process normally |
-| Cache hit | Return cached value immediately | Skip the flow execution |
-| Key source | Request parameters | Message content |
+| Cache miss | Execute `to`, cache result | Process normally; store fingerprint after `to` success |
+| Cache hit | Return cached value immediately | Drop without invoking `to` |
+| Compares | Key only | Canonical content fingerprint |
+| Pipeline position | Before `to` (read path) | After `transform`, before `to` |
 
 ## Production Considerations
 
@@ -280,18 +309,29 @@ flow "update_product" {
   }
 }
 
-# Deduplicate webhook events
+# Deduplicate no-op inventory updates by content
 flow "handle_inventory_update" {
   from {
     connector = "rabbit"
     operation = "inventory.updated"
   }
 
+  transform {
+    product_id  = "input.product_id"
+    stock_qty   = "input.stock_qty"
+    reorder_at  = "input.reorder_at"
+  }
+
   dedupe {
-    storage      = "redis_cache"
-    key          = "input.event_id"
+    cache        = "redis_cache"
+    key          = "'inv_fp:' + input.product_id"
     ttl          = "1h"
-    on_duplicate = "skip"
+    on_duplicate = "ack"
+    fingerprint {
+      product_id = "output.product_id"
+      stock_qty  = "output.stock_qty"
+      reorder_at = "output.reorder_at"
+    }
   }
 
   to {

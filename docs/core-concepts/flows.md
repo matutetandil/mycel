@@ -145,8 +145,10 @@ flow "handle_type_b2" {
 ### Pipeline position
 
 ```
-from → filter → accept → dedupe → validate → enrich/steps → transform → to
+from → filter → accept → validate → enrich/steps → transform → dedupe → to
 ```
+
+Since v2.1.0 the `dedupe` block runs **after** `transform` — the content-based primitive needs the transformed payload (`output.*`) to compute its fingerprint. Earlier versions ran the (key-based) dedupe before transform.
 
 ## The `to` Block
 
@@ -613,20 +615,38 @@ flow "update_product" {
 
 ## Dedupe Block
 
-Prevent processing duplicate events (useful for message queues):
+Drop **no-op** messages before reaching the downstream by comparing a canonical fingerprint of the persisted projection against the last stored fingerprint for the same key. Phase A runs after `transform` and before `to`; Phase B stores the new fingerprint only if `to` succeeds, so a failed-then-retried message does not self-discard. The primitive self-locks per key so two workers cannot double-call the downstream with identical content.
+
+Useful for MQ consumers where the upstream re-sends update messages even when nothing relevant changed.
 
 ```hcl
+connector "fp_cache" {
+  type   = "cache"
+  driver = "redis"   # or "memory" for tests
+}
+
 flow "process_payment" {
   from {
     connector = "rabbit"
     operation = "payments"
   }
 
+  transform {
+    payment_id = "input.payment_id"
+    account_id = "input.account_id"
+    amount     = "input.amount"
+  }
+
   dedupe {
-    storage      = "redis_cache"
-    key          = "input.payment_id"
+    cache        = "fp_cache"
+    key          = "'payment:' + input.payment_id"
     ttl          = "24h"
-    on_duplicate = "skip"  # "skip" or "error"
+    on_duplicate = "ack"      # ack | reject | requeue (sequence_guard vocabulary)
+    fingerprint {
+      payment_id = "output.payment_id"
+      account_id = "output.account_id"
+      amount     = "output.amount"
+    }
   }
 
   to {
@@ -635,6 +655,18 @@ flow "process_payment" {
   }
 }
 ```
+
+| Attribute | Required | Description |
+|---|---|---|
+| `cache` | yes | Name of a `connector { type = "cache" }` used to store fingerprints. Pool is initialized once at startup; the hot path does not pay a registry lookup per message |
+| `key` | yes | CEL expression for the per-resource fingerprint key (evaluated against `input.*`) |
+| `fingerprint {}` | yes | Block of named CEL expressions whose values form the projection; must list every persisted field — omitting one would silently drop real changes |
+| `ttl` | no | How long to keep stored fingerprints. Supports `"30d"` and `"2w"` plus stdlib units; malformed values fail the parse |
+| `on_duplicate` | no | Behavior on match: `"ack"` (default), `"reject"`, `"requeue"` |
+
+**Pipeline order:** `dedupe` runs **after** `transform` because the fingerprint references `output.*` (the transformed payload). Earlier versions ran the (key-based) dedupe before transform — see CHANGELOG v2.1.0 for migration.
+
+**Array order-insensitivity:** the canonical encoder sorts array elements before serialization, treating them as order-insensitive sets. Reshape order-sensitive arrays into delimited strings in `transform` before dedupe sees them.
 
 ## Error Handling Block
 

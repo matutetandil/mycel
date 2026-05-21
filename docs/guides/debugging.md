@@ -227,11 +227,11 @@ $ mycel trace create_user --input '{"email":"TEST@X.COM","name":"Test"}' --break
 | `input` | Raw input data as received |
 | `sanitize` | After input sanitization (XSS, injection protection) |
 | `filter` | Filter expression evaluation (accept/reject) |
-| `dedupe` | Deduplication check |
 | `validate` | Input validation against type schema |
 | `enrich` | Data enrichment from other connectors |
-| `transform` | CEL transformation (the most common breakpoint) |
 | `step` | Individual step execution in multi-step flows |
+| `transform` | CEL transformation (the most common breakpoint) |
+| `dedupe` | Content-based deduplication check (since v2.1.0: runs **after** transform, compares the fingerprint of the projection) |
 | `read` | Database/API read operation |
 | `write` | Database/API write operation |
 
@@ -706,8 +706,8 @@ Flags:
   --dry-run           Simulate write operations without executing them
   --breakpoints       Pause at every pipeline stage for interactive debugging (dev only)
   --break-at string   Pause at specific stages (dev only, comma-separated)
-                      Valid stages: input, sanitize, filter, accept, dedupe, validate,
-                      transform, step, read, write
+                      Valid stages: input, sanitize, filter, accept, validate,
+                      enrich, step, transform, dedupe, read, write
   --dap int           Start DAP server on this port for IDE debugging (dev only)
   --list              List all available flows
 
