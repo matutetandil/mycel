@@ -26,5 +26,5 @@ connector "github_auth" {
 connector "db" {
   type   = "database"
   driver = "sqlite"
-  dsn    = "users.db"
+  database = "users.db"
 }

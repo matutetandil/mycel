@@ -2527,7 +2527,7 @@ type Operation struct {
 // and write to the destination (message queues, CDC, file watchers).
 func isEventDrivenSource(sourceType string) bool {
 	switch sourceType {
-	case "mq", "mqtt", "cdc", "file":
+	case "mq", "mqtt", "cdc", "file", "websocket", "sse", "tcp":
 		return true
 	}
 	return false

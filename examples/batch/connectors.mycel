@@ -5,14 +5,14 @@ connector "api" {
 
 connector "old_db" {
   type   = "database"
-  driver = "sqlite"
-  dsn    = "old.db"
+  driver   = "sqlite"
+  database = "old.db"
 }
 
 connector "new_db" {
-  type   = "database"
-  driver = "sqlite"
-  dsn    = "new.db"
+  type     = "database"
+  driver   = "sqlite"
+  database = "new.db"
 }
 
 connector "es" {
