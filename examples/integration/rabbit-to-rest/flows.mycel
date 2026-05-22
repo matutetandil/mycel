@@ -45,7 +45,9 @@ flow "notify_order_status" {
 # Pattern 3: With semaphore for rate-limited external API
 flow "sync_to_crm" {
   semaphore {
-    storage     = "memory"
+    storage {
+      driver = "memory"
+    }
     key         = "'crm_api'"
     max_permits = 5
     timeout     = "30s"

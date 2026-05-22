@@ -30,7 +30,9 @@ flow "process_data" {
 # Pattern 3: Image processing with semaphore
 flow "process_image" {
   semaphore {
-    storage     = "memory"
+    storage {
+      driver = "memory"
+    }
     key         = "'image_processing'"
     max_permits = 3
     timeout     = "5m"
@@ -50,7 +52,9 @@ flow "process_image" {
 # Pattern 4: Video transcoding with lock
 flow "transcode_video" {
   lock {
-    storage = "memory"
+    storage {
+      driver = "memory"
+    }
     key     = "'video:' + input.body.video_id"
     timeout = "30m"
     wait    = false

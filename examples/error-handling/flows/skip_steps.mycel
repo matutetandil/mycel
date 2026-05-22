@@ -45,14 +45,14 @@ flow "get_order_details" {
   }
 
   transform {
-    output.id             = "step.order.id"
-    output.product_id     = "step.order.product_id"
-    output.quantity        = "step.order.quantity"
-    output.status         = "step.order.status"
-    output.customer_name  = "step.customer.name"
-    output.customer_email = "step.customer.email"
-    output.shipping_days  = "step.shipping.estimated_days"
-    output.carrier        = "step.shipping.carrier"
-    output.loyalty_points = "step.loyalty.points"
+    id             = "step.order.id"
+    product_id     = "step.order.product_id"
+    quantity       = "step.order.quantity"
+    status         = "step.order.status"
+    customer_name  = "step.customer.name"
+    customer_email = "step.customer.email"
+    shipping_days  = "step.shipping.estimated_days"
+    carrier        = "step.shipping.carrier"
+    loyalty_points = "step.loyalty.points"
   }
 }

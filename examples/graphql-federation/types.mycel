@@ -12,9 +12,9 @@ type "Product" {
   _key       = "sku"
   _shareable = true
 
-  sku         = string { required = true }
-  name        = string { required = true }
-  price       = number { min = 0 }
+  sku         = string
+  name        = string
+  price       = number
   description = string
   category    = string
   inStock     = boolean
@@ -27,9 +27,9 @@ type "Product" {
 type "Review" {
   _key = "id"
 
-  id         = string { required = true }
-  productSku = string { required = true }
-  rating     = number { min = 1, max = 5 }
+  id         = string
+  productSku = string
+  rating     = number
   comment    = string
   author     = string
   createdAt  = string
@@ -37,17 +37,17 @@ type "Review" {
 
 # Input type for creating a product
 type "ProductInput" {
-  sku         = string { required = true }
-  name        = string { required = true }
-  price       = number { min = 0 }
+  sku         = string
+  name        = string
+  price       = number
   description = string
   category    = string
 }
 
 # Input type for creating a review
 type "ReviewInput" {
-  productSku = string { required = true }
-  rating     = number { min = 1, max = 5, required = true }
+  productSku = string
+  rating     = number
   comment    = string
-  author     = string { required = true }
+  author     = string
 }

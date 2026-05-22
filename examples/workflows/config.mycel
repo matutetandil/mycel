@@ -4,9 +4,8 @@ service {
 
   # Enable long-running workflow persistence.
   # Workflows survive restarts and support delay/await steps.
+  # storage references the connector used to persist workflow state.
   workflow {
-    storage      = "db"
-    connector    = "postgres"
-    auto_create  = true
+    storage = "postgres"
   }
 }

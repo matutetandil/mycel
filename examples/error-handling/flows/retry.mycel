@@ -15,11 +15,11 @@ flow "create_order" {
   }
 
   transform {
-    output.product_id = "input.product_id"
-    output.quantity   = "input.quantity"
-    output.email      = "input.email.lowerAscii()"
-    output.status     = "'pending'"
-    output.created_at = "now()"
+    product_id = "input.product_id"
+    quantity   = "input.quantity"
+    email      = "input.email.lowerAscii()"
+    status     = "'pending'"
+    created_at = "now()"
   }
 
   to {
@@ -42,9 +42,9 @@ flow "create_order" {
       include_error = true
 
       transform {
-        output.original_payload = "input"
-        output.flow             = "'create_order'"
-        output.failed_at        = "now()"
+        original_payload = "input"
+        flow             = "'create_order'"
+        failed_at        = "now()"
       }
     }
   }

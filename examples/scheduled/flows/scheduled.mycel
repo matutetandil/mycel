@@ -17,8 +17,8 @@ flow "health_ping" {
   when = "@every 5m"
 
   transform {
-    output.service = "scheduled-jobs-service"
-    output.status  = "alive"
+    service = "'scheduled-jobs-service'"
+    status  = "'alive'"
   }
 
   to {
@@ -38,10 +38,10 @@ flow "weekly_report" {
   }
 
   transform {
-    output.total_logs   = input.total_logs
-    output.period_start = input.period_start
-    output.period_end   = input.period_end
-    output.generated_at = now()
+    total_logs   = "input.total_logs"
+    period_start = "input.period_start"
+    period_end   = "input.period_end"
+    generated_at = "now()"
   }
 
   to {
