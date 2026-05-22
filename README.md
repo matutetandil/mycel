@@ -165,6 +165,7 @@ That's it. REST API + database, zero code.
 | [Plugins](examples/plugin) | Extend Mycel with WASM plugins ([docs](docs/advanced/plugins.md)) |
 | [Exec](examples/exec) | Execute shell commands from flows |
 | [Error Handling](examples/error-handling) | Retry, DLQ, circuit breaker, custom error responses, on_error aspects ([docs](docs/guides/error-handling.md)) |
+| [Resilience & Failure Recovery](docs/guides/resilience.md) | What survives a crash: availability vs durability, broker redelivery, sync vs async ingestion, idempotency, locks with TTL |
 | [Security](examples/security) | Secure-by-default input sanitization, XXE/injection protection, WASM sanitizers ([docs](docs/guides/security.md)) |
 | [Scheduled Jobs](examples/scheduled) | Cron expressions and interval-based flow triggers |
 | Hot Reload | Apply HCL changes without restart |
@@ -294,6 +295,7 @@ Full documentation is at [docs/index.md](docs/index.md). Quick links:
 
 **Guides**
 - [Error Handling](docs/guides/error-handling.md) — Retry, DLQ, circuit breaker, fallback
+- [Resilience & Failure Recovery](docs/guides/resilience.md) — Availability vs durability, broker redelivery, sync vs async ingestion, idempotency
 - [Auth](docs/guides/auth.md) — JWT, MFA, SSO
 - [Security](docs/guides/security.md) — Sanitization, XXE protection, WASM sanitizers
 - [Real-Time](docs/guides/real-time.md) — WebSocket, SSE, CDC, GraphQL subscriptions

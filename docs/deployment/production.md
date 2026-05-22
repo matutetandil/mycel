@@ -187,4 +187,5 @@ scrape_configs:
 - [Kubernetes Deployment](kubernetes.md)
 - [Security Guide](../guides/security.md)
 - [Error Handling Guide](../guides/error-handling.md)
+- [Resilience & Failure Recovery](../guides/resilience.md)
 - [Observability](../reference/api-endpoints.md)

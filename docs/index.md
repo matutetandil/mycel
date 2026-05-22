@@ -55,6 +55,7 @@ Step-by-step guides for specific features and patterns.
 | [Auth](guides/auth.md) | JWT authentication, presets, MFA (TOTP, WebAuthn), and SSO/social login |
 | [Security](guides/security.md) | Secure-by-default sanitization, XXE protection, SQL injection prevention, and WASM sanitizers |
 | [Error Handling](guides/error-handling.md) | Retry with backoff, dead letter queues, circuit breakers, custom error responses, and on_error aspects |
+| [Resilience & Failure Recovery](guides/resilience.md) | What survives a crash or power cut: availability vs durability, broker redelivery, sync vs async ingestion, idempotency, and the resilience toolbox |
 | [Format System](guides/format-system.md) | Multi-format support (JSON, XML) at connector, flow, and step level |
 | [Extending Mycel](guides/extending.md) | Custom validators, WASM functions, mocks for testing, and aspect patterns |
 | [Debugging](guides/debugging.md) | Trace flows step-by-step, interactive breakpoints, dry-run, DAP server for IDE debugging (VS Code, IntelliJ, Neovim) |
