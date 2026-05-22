@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-05-22
+
+### Fixed
+
+- **Connector attribute parser out of sync with schemas.** The connector parser validated attributes against a hardcoded allow-list that was missing attributes already defined in several connector schemas, so valid configs failed with `Unsupported argument`. Added the missing attributes for CDC (`slot_name`, `publication`), WebSocket (`ping_interval`, `pong_timeout`), SSE (`heartbeat_interval`, `origins`), Elasticsearch (`nodes`, `index`), and OAuth (`client_secret`, `redirect_uri`, `scopes`, `issuer_url`, `auth_url`, `token_url`, `userinfo_url`).
+- **Event-driven sources wrote to databases as `SELECT` instead of `INSERT`.** A flow sourced from WebSocket, SSE, or TCP that wrote to a database kept the default `GET` method and ran a read query, silently discarding the inbound payload. WebSocket/SSE/TCP are now treated as event-driven sources, so such flows correctly write. Verified end-to-end (WebSocket chat message persisted; REST→WebSocket broadcast and REST→SSE push delivered to clients).
+- **Example configurations.** Fixed 14 example projects that no longer validated against the current parser: outdated database connection attributes (`source`/`dsn` → `database`), inline type constraints that the type parser does not accept, dotted `output.` transform keys (now flat keys), the `workflow {}` block (only `storage` is supported), `lock`/`semaphore` inline storage (now a `storage {}` block), and an invalid `to { response }` (now a `response {}` block). All example configs now validate.
+
+### Documentation
+
+- Added the [Resilience & Failure Recovery guide](docs/guides/resilience.md): availability vs. durability, broker redelivery, synchronous vs. event-driven ingestion, and idempotency.
+
 ## [2.1.0] - 2026-05-20
 
 ### ⚠️ BREAKING — `dedupe {}` block replaced

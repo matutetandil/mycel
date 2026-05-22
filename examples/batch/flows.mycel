@@ -12,9 +12,9 @@ flow "migrate_users" {
     on_error   = "continue"
 
     transform {
-      output.email       = "input.email.lowerAscii()"
-      output.name        = "input.name"
-      output.migrated    = "true"
+      email       = "input.email.lowerAscii()"
+      name        = "input.name"
+      migrated    = "true"
     }
 
     to {

@@ -6,10 +6,10 @@ flow "on_user_created" {
   }
 
   transform {
-    output.event      = "'user.created'"
-    output.user_id    = "input.new.id"
-    output.email      = "input.new.email"
-    output.created_at = "input.timestamp"
+    event      = "'user.created'"
+    user_id    = "input.new.id"
+    email      = "input.new.email"
+    created_at = "input.timestamp"
   }
 
   to {
@@ -27,11 +27,11 @@ flow "on_order_updated" {
   }
 
   transform {
-    output.event      = "'order.status_changed'"
-    output.order_id   = "input.new.id"
-    output.old_status = "input.old.status"
-    output.new_status = "input.new.status"
-    output.changed_at = "input.timestamp"
+    event      = "'order.status_changed'"
+    order_id   = "input.new.id"
+    old_status = "input.old.status"
+    new_status = "input.new.status"
+    changed_at = "input.timestamp"
   }
 
   to {
@@ -48,9 +48,9 @@ flow "on_session_deleted" {
   }
 
   transform {
-    output.event   = "'session.ended'"
-    output.user_id = "input.old.user_id"
-    output.token   = "input.old.token"
+    event   = "'session.ended'"
+    user_id = "input.old.user_id"
+    token   = "input.old.token"
   }
 
   to {
@@ -67,8 +67,8 @@ flow "on_product_change" {
   }
 
   transform {
-    output.event = "'product.' + lower(input.trigger)"
-    output.data  = "input.new != null ? input.new : input.old"
+    event = "'product.' + lower(input.trigger)"
+    data  = "input.new != null ? input.new : input.old"
   }
 
   to {

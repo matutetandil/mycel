@@ -19,11 +19,9 @@ flow "search_products" {
     }
   }
 
-  transform {
-    output.results = "step.results"
+  response {
+    results = "step.results"
   }
-
-  to { response }
 }
 
 # Get single product by ID

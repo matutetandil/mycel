@@ -33,8 +33,8 @@ flow "create_payment" {
         "Retry-After" = "30"
       }
       body {
-        output.error   = "'service_unavailable'"
-        output.message = "'Payment service is temporarily unavailable. Please retry later.'"
+        error   = "'service_unavailable'"
+        message = "'Payment service is temporarily unavailable. Please retry later.'"
       }
     }
   }
@@ -56,8 +56,8 @@ flow "get_order" {
     error_response {
       status = 404
       body {
-        output.error   = "'not_found'"
-        output.message = "'The requested order was not found.'"
+        error   = "'not_found'"
+        message = "'The requested order was not found.'"
       }
     }
   }

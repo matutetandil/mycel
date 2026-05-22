@@ -28,11 +28,11 @@ flow "google_callback" {
   }
 
   transform {
-    output.email       = "step.auth.email"
-    output.name        = "step.auth.name"
-    output.picture     = "step.auth.picture"
-    output.provider    = "'google'"
-    output.provider_id = "step.auth.provider_id"
+    email       = "step.auth.email"
+    name        = "step.auth.name"
+    picture     = "step.auth.picture"
+    provider    = "'google'"
+    provider_id = "step.auth.provider_id"
   }
 
   to {
@@ -71,11 +71,11 @@ flow "github_callback" {
   }
 
   transform {
-    output.email       = "step.auth.email"
-    output.name        = "step.auth.name"
-    output.picture     = "step.auth.picture"
-    output.provider    = "'github'"
-    output.provider_id = "step.auth.provider_id"
+    email       = "step.auth.email"
+    name        = "step.auth.name"
+    picture     = "step.auth.picture"
+    provider    = "'github'"
+    provider_id = "step.auth.provider_id"
   }
 
   to {

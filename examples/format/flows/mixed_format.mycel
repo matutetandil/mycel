@@ -23,10 +23,10 @@ flow "enrich_product" {
 
   # Step 3: Merge and return as JSON (default)
   transform {
-    output.id          = step.save.id
-    output.name        = step.save.name
-    output.price       = step.save.price
-    output.legacy_code = step.get_legacy_info.product_code
-    output.warehouse   = step.get_legacy_info.warehouse
+    id          = "step.save.id"
+    name        = "step.save.name"
+    price       = "step.save.price"
+    legacy_code = "step.get_legacy_info.product_code"
+    warehouse   = "step.get_legacy_info.warehouse"
   }
 }

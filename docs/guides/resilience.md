@@ -74,12 +74,32 @@ This is the crux. Whether in-flight work survives a crash depends entirely on **
 
 When the source is a message broker, Mycel uses standard **at-least-once** delivery semantics. The broker holds the message until Mycel explicitly acknowledges it *after* the flow completes successfully.
 
+The queue lives on the connector; a flow consumes by referencing that connector and matching a routing key in its `operation`:
+
 ```hcl
+connector "orders_queue" {
+  type   = "mq"
+  driver = "rabbitmq"
+
+  host     = env("RABBITMQ_HOST", "localhost")
+  port     = 5672
+  username = env("RABBITMQ_USER", "guest")
+  password = env("RABBITMQ_PASS", "guest")
+
+  queue {
+    name    = "orders"
+    durable = true
+  }
+
+  consumer {
+    auto_ack = false   # ack only after the flow succeeds — this is what makes it durable
+  }
+}
+
 flow "ingest_order" {
   from {
-    connector = "rabbit"
-    operation = "consume"
-    queue     = "orders"
+    connector = "orders_queue"
+    operation = "order.*"        # routing key pattern
   }
   to {
     connector = "db"
@@ -148,14 +168,26 @@ If you need a synchronous API but durable recovery, the standard pattern is to *
 ```hcl
 # Front door: accept and enqueue durably, return immediately
 flow "accept_order" {
-  from { connector = "api",    operation = "POST /orders" }
-  to   { connector = "rabbit", target    = "orders" }
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+  to {
+    connector = "orders_queue"
+    target    = "order.created"   # routing key
+  }
 }
 
 # Worker: durable, redelivered on crash
 flow "process_order" {
-  from { connector = "rabbit", operation = "consume", queue = "orders" }
-  to   { connector = "db",     target    = "orders" }
+  from {
+    connector = "orders_queue"
+    operation = "order.*"
+  }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
 }
 ```
 
@@ -167,8 +199,14 @@ Because at-least-once delivery and client retries both create duplicates, the an
 
 ```hcl
 flow "charge_payment" {
-  from { connector = "api", operation = "POST /payments" }
-  to   { connector = "db",  target    = "payments" }
+  from {
+    connector = "api"
+    operation = "POST /payments"
+  }
+  to {
+    connector = "db"
+    target    = "payments"
+  }
 
   idempotency {
     storage = "redis_cache"

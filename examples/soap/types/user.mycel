@@ -1,12 +1,6 @@
 # User input validation schema
+# Fields declared in a type are required by default.
 type "user" {
-  email = string {
-    format   = "email"
-    required = true
-  }
-
-  name = string {
-    min_length = 1
-    required   = true
-  }
+  email = string
+  name  = string
 }

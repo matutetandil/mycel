@@ -4,9 +4,9 @@ connector "api" {
 }
 
 connector "orders_db" {
-  type   = "database"
-  driver = "sqlite"
-  source = ":memory:"
+  type     = "database"
+  driver   = "sqlite"
+  database = ":memory:"
 }
 
 connector "payments_api" {

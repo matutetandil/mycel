@@ -1,7 +1,12 @@
 connector "postgres" {
-  type   = "database"
-  driver = "postgres"
-  source = env("DATABASE_URL", "postgres://mycel:mycel@localhost:5432/orders?sslmode=disable")
+  type     = "database"
+  driver   = "postgres"
+  host     = env("DB_HOST", "localhost")
+  port     = 5432
+  database = env("DB_NAME", "orders")
+  user     = env("DB_USER", "mycel")
+  password = env("DB_PASSWORD", "mycel")
+  sslmode  = "disable"
 }
 
 connector "shipping_api" {

@@ -61,3 +61,6 @@ benchmark/
 
 # MkDocs build output
 site/
+
+# Marketing / article drafts (not part of the codebase)
+/articles/

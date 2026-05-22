@@ -6,10 +6,10 @@ flow "handle_chat" {
   }
 
   transform {
-    output.id         = "uuid()"
-    output.text       = "input.text"
-    output.room       = "input.room"
-    output.created_at = "now()"
+    id         = "uuid()"
+    text       = "input.text"
+    room       = "input.room"
+    created_at = "now()"
   }
 
   to {

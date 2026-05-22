@@ -196,6 +196,31 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "channels"}, // Channels to subscribe to
 			{Name: "patterns"}, // Glob patterns for PSUBSCRIBE
 			{Name: "db"},       // Redis database number
+
+			// CDC specific (Change Data Capture)
+			{Name: "slot_name"},   // PostgreSQL logical replication slot
+			{Name: "publication"}, // PostgreSQL publication name
+
+			// WebSocket specific
+			{Name: "ping_interval"}, // Ping frame interval
+			{Name: "pong_timeout"},  // Pong response timeout
+
+			// SSE specific (Server-Sent Events)
+			{Name: "heartbeat_interval"}, // Heartbeat comment interval
+			{Name: "origins"},            // Allowed origins (SSE/WebSocket)
+
+			// Elasticsearch specific
+			{Name: "nodes"}, // Cluster node URLs
+			{Name: "index"}, // Default index name
+
+			// OAuth specific
+			{Name: "client_secret"}, // OAuth client secret
+			{Name: "redirect_uri"},  // OAuth redirect URI
+			{Name: "scopes"},        // Requested OAuth scopes
+			{Name: "issuer_url"},    // OIDC issuer URL
+			{Name: "auth_url"},      // Authorization endpoint
+			{Name: "token_url"},     // Token endpoint
+			{Name: "userinfo_url"},  // Userinfo endpoint
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "pool"},
