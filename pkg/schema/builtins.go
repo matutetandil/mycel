@@ -335,6 +335,12 @@ func ErrorHandlingSchema() Block {
 			{Type: "error_response", Doc: "Custom HTTP error response", Open: true, Attrs: []Attr{
 				{Name: "status", Doc: "HTTP status code", Type: TypeNumber},
 			}},
+			{Type: "on_timeout", Doc: "Disposition for timeout / deadline-exceeded failures (overrides default retry)", Attrs: []Attr{
+				{Name: "action", Doc: "Broker disposition", Type: TypeString, Required: true, Values: []string{"ack", "retry", "requeue", "reject"}},
+			}},
+			{Type: "on_error", Doc: "Disposition for transient, non-timeout, non-permanent failures", Attrs: []Attr{
+				{Name: "action", Doc: "Broker disposition", Type: TypeString, Required: true, Values: []string{"ack", "retry", "requeue", "reject"}},
+			}},
 		},
 	}
 }

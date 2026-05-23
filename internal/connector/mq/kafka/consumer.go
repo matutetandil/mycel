@@ -199,6 +199,38 @@ func (c *Connector) handleMessage(ctx context.Context, msg kafka.Message) error 
 			"topic", msg.Topic,
 			"error", err,
 		)
+		// Explicit disposition chosen by the flow's error_handling
+		// (on_timeout / on_error). Takes precedence over the IsPermanent
+		// inference below. Kafka has no per-message nack, so dispositions map
+		// onto offset semantics: ack/reject commit the offset (skip), and
+		// reject additionally republishes to <topic>.dlq; requeue returns the
+		// error so the offset is not committed and the message is re-consumed.
+		if disp, ok := connector.GetDisposition(err); ok {
+			switch disp {
+			case connector.DispositionAck:
+				c.logger.Warn("flow disposition: ack (commit/skip)",
+					"topic", msg.Topic,
+					"partition", msg.Partition,
+					"offset", msg.Offset,
+					"action", "commit",
+					"error", err,
+				)
+				return nil
+			case connector.DispositionReject:
+				dlqTopic := msg.Topic + ".dlq"
+				c.logger.Warn("flow disposition: reject (→ DLQ topic)",
+					"topic", msg.Topic,
+					"dlq_topic", dlqTopic,
+					"partition", msg.Partition,
+					"offset", msg.Offset,
+					"action", "republish_dlq",
+					"error", err,
+				)
+				return c.republishMessage(ctx, dlqTopic, msg)
+			case connector.DispositionRequeue:
+				return err
+			}
+		}
 		// Permanent failures (HTTP 4xx etc.) cannot be fixed by replaying.
 		// Return nil so the offset commits and the message is not
 		// re-consumed (Kafka offset semantics — equivalent to ack on

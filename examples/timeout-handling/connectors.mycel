@@ -1,0 +1,28 @@
+# RabbitMQ consumer: items to push to the backend.
+connector "queue" {
+  type   = "mq"
+  driver = "rabbitmq"
+
+  host     = env("RABBITMQ_HOST", "localhost")
+  port     = 5672
+  username = env("RABBITMQ_USER", "guest")
+  password = env("RABBITMQ_PASS", "guest")
+
+  queue {
+    name    = "items.push"
+    durable = true
+  }
+
+  consumer {
+    auto_ack = false
+  }
+}
+
+# Backend HTTP API (e.g. Magento). When a request takes longer than `timeout`,
+# the HTTP client abandons it with a deadline-exceeded error — but the backend
+# keeps processing the original request.
+connector "backend" {
+  type     = "http"
+  base_url = env("BACKEND_URL", "http://localhost:8080")
+  timeout  = "60s"
+}
