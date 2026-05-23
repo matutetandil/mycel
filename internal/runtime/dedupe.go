@@ -7,9 +7,13 @@
 //	    compare byte-for-byte. On match the message is dropped according
 //	    to on_duplicate without invoking `to`.
 //
-//	Phase B (after `to` ONLY on success): SET the new fingerprint for the
-//	    key. Writing earlier would let a failed+retried message
-//	    self-discard and lose a real change.
+//	Phase B (after `to`): SET the new fingerprint for the key when the
+//	    message's final disposition is terminal-as-processed — i.e. on a
+//	    successful write, or when the write failed but error_handling will
+//	    ack it (e.g. on_timeout {action="ack"}). Writing on any other
+//	    failure (no class handler, or requeue/reject) would let a
+//	    failed+retried message self-discard and lose a real change, so it
+//	    is skipped.
 //
 // Both phases run under an in-process lock keyed on the dedupe.key, so two
 // workers in the same process cannot both pass Phase A with identical
@@ -127,21 +131,36 @@ func (h *FlowHandler) dedupeAwareWrite(
 		// Not a duplicate — run the actual write.
 		result, writeErr := write()
 		if writeErr != nil {
-			// Phase B intentionally skipped: a failed write must not poison
-			// the fingerprint cache. The next retry will re-attempt.
-			return result, writeErr
+			// Phase B runs after a failed write ONLY when the flow's
+			// error_handling will ack this failure (e.g. on_timeout
+			// {action="ack"}). "ack" means "treat this as processed/
+			// terminal": the local call was abandoned but we assume the
+			// effect was applied (idempotent work, remote still finishing),
+			// so the duplicate the upstream redelivers must be filtered —
+			// not reprocessed into a concurrent second operation.
+			//
+			// For any other failure — no class handler, or requeue/reject —
+			// Phase B is skipped so a failed write does not poison the cache
+			// and the message is reprocessed cleanly on the next delivery.
+			if action, ok := h.errorClassAction(writeErr); !ok || action != "ack" {
+				return result, writeErr
+			}
+			// Fall through to commit the fingerprint, then still return the
+			// original error so error_handling applies the ack disposition.
 		}
 
-		// Phase B: SET the new fingerprint. Best-effort — a failure here
-		// just means the next identical message will not be deduped; the
-		// current message already succeeded downstream.
+		// Phase B: SET the new fingerprint. Runs on a successful write, or on
+		// an ack-disposition failure (see above). Best-effort — a failure
+		// here just means the next identical message will not be deduped.
 		if setErr := h.DedupeCache.Set(ctx, storageKey, fp, ttl); setErr != nil {
 			slog.Warn("dedupe commit failed; next identical message will not be filtered",
 				"flow", h.Config.Name,
 				"key", key,
 				"error", setErr)
 		}
-		return result, nil
+		// writeErr is nil on success, or the original error on the ack path;
+		// returning it preserves the error_handling disposition either way.
+		return result, writeErr
 	})
 }
 
