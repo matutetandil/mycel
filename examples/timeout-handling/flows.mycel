@@ -1,0 +1,41 @@
+# Consume an item from the queue and POST it to the backend.
+#
+# If the backend takes longer than the connector timeout (60s), the HTTP client
+# aborts with a deadline-exceeded error — but the backend is still processing
+# the original request. Retrying would fire a second, concurrent POST for the
+# same resource and race the first one (deadlock / FK violation / loop).
+#
+# The request is idempotent and the upstream redelivers duplicates, so on
+# timeout we ACK (drop) instead of retrying or requeueing. Non-timeout
+# transient errors still use the retry budget and then requeue.
+flow "push_item" {
+  from {
+    connector = "queue"
+    operation = "items.push"
+  }
+
+  to {
+    connector = "backend"
+    operation = "POST /rest/V1/items"
+  }
+
+  error_handling {
+    retry {
+      attempts  = 3
+      delay     = "2s"
+      max_delay = "30s"
+      backoff   = "exponential"
+    }
+
+    # Timeout → ack-and-drop (no retry, no requeue): the backend is still
+    # working and the upstream will redeliver if needed.
+    on_timeout {
+      action = "ack"
+    }
+
+    # Other transient (non-timeout, non-permanent) errors → requeue.
+    on_error {
+      action = "requeue"
+    }
+  }
+}

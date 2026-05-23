@@ -208,6 +208,35 @@ func (c *Connector) handleDelivery(ctx context.Context, delivery amqp.Delivery) 
 			"routing_key", delivery.RoutingKey,
 			"error", err,
 		)
+		// Explicit disposition chosen by the flow's error_handling
+		// (on_timeout / on_error). Takes precedence over the IsPermanent
+		// inference below: the flow author decided what to do with this
+		// class of failure, so honor it directly.
+		if disp, ok := connector.GetDisposition(err); ok {
+			switch disp {
+			case connector.DispositionAck:
+				c.logger.Warn("flow disposition: ack (drop)",
+					"routing_key", delivery.RoutingKey,
+					"delivery_tag", delivery.DeliveryTag,
+					"message_id", delivery.MessageId,
+					"action", "ack",
+					"error", err,
+				)
+				return delivery.Ack(false)
+			case connector.DispositionReject:
+				c.logger.Warn("flow disposition: reject (→ DLQ)",
+					"routing_key", delivery.RoutingKey,
+					"delivery_tag", delivery.DeliveryTag,
+					"message_id", delivery.MessageId,
+					"action", "nack",
+					"requeue", false,
+					"error", err,
+				)
+				return delivery.Nack(false, false)
+			case connector.DispositionRequeue:
+				return c.handleRetry(delivery, err)
+			}
+		}
 		// Permanent failures (HTTP 4xx etc.) cannot be fixed by retrying
 		// — replaying the same payload would produce the same response.
 		// Ack-and-drop so the broker stops redelivering. Without this

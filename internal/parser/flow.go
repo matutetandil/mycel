@@ -950,6 +950,8 @@ func parseErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Erro
 			{Type: "retry"},
 			{Type: "fallback"},
 			{Type: "error_response"},
+			{Type: "on_timeout"},
+			{Type: "on_error"},
 		},
 	}
 
@@ -980,10 +982,52 @@ func parseErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Erro
 				return nil, fmt.Errorf("error_response block error: %w", err)
 			}
 			eh.ErrorResponse = errResp
+		case "on_timeout":
+			handler, err := parseErrorClassHandlerBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("on_timeout block error: %w", err)
+			}
+			eh.OnTimeout = handler
+		case "on_error":
+			handler, err := parseErrorClassHandlerBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("on_error block error: %w", err)
+			}
+			eh.OnError = handler
 		}
 	}
 
 	return eh, nil
+}
+
+// parseErrorClassHandlerBlock parses an on_timeout / on_error block, which maps
+// a class of failure to a broker disposition action.
+func parseErrorClassHandlerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ErrorClassHandler, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "action", Required: true},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("content error: %s", diags.Error())
+	}
+
+	val, diags := content.Attributes["action"].Expr.Value(ctx)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("action error: %s", diags.Error())
+	}
+
+	action := val.AsString()
+	switch action {
+	case "ack", "retry", "requeue", "reject":
+		// valid
+	default:
+		return nil, fmt.Errorf("invalid action %q (must be one of: ack, retry, requeue, reject)", action)
+	}
+
+	return &flow.ErrorClassHandler{Action: action}, nil
 }
 
 // parseRetryConfigBlock parses a retry block within error_handling.

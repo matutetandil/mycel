@@ -552,6 +552,28 @@ type ErrorHandlingConfig struct {
 
 	// ErrorResponse defines a custom error response for HTTP connectors.
 	ErrorResponse *ErrorResponseConfig
+
+	// OnTimeout, when set, decides the broker disposition for timeout /
+	// context-deadline-exceeded failures, overriding the default
+	// transient-retry behavior for that class. The driving case: a POST that
+	// the local client abandons on timeout while the remote keeps processing
+	// — retrying would trigger a concurrent duplicate, so `action = "ack"`
+	// drops it instead.
+	OnTimeout *ErrorClassHandler
+
+	// OnError, when set, decides the broker disposition for transient,
+	// non-timeout, non-permanent failures. Permanent errors (HTTP 4xx) keep
+	// their existing ack-and-drop behavior and are not routed here.
+	OnError *ErrorClassHandler
+}
+
+// ErrorClassHandler maps a class of failure to a broker disposition action.
+// Used by the optional on_timeout / on_error blocks inside error_handling.
+type ErrorClassHandler struct {
+	// Action is the disposition to apply: one of "ack" (acknowledge/drop),
+	// "retry" (use the retry {} budget), "requeue" (nack with requeue), or
+	// "reject" (nack without requeue → DLQ).
+	Action string
 }
 
 // ErrorResponseConfig defines a custom HTTP error response.

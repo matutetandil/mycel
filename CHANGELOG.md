@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-05-23
+
+### Added
+
+- **Per-class error dispositions: `on_timeout` and `on_error` blocks inside `error_handling`.** Beyond the existing `retry {}`, a flow can now declare what broker disposition to apply per **class** of failure:
+
+  ```hcl
+  error_handling {
+    retry { attempts = 3, delay = "2s", max_delay = "30s", backoff = "exponential" }
+    on_timeout { action = "ack" }      # timeout → drop, no retry, no requeue
+    on_error   { action = "requeue" }  # other transient errors → requeue
+  }
+  ```
+
+  `action` is one of `ack` (acknowledge/drop), `retry` (use the `retry {}` budget), `requeue` (nack with requeue), or `reject` (nack without requeue → DLQ). `on_timeout` matches timeout / `context.DeadlineExceeded` failures; `on_error` matches transient, non-timeout, non-permanent failures. Permanent errors (HTTP 4xx) are never routed here and keep their ack-and-drop behavior.
+
+  The motivating case: a consumer `POST`ing to a backend with a timeout. When the backend takes longer than the timeout, the HTTP client aborts but the backend keeps processing — so retrying fires a concurrent duplicate request. `on_timeout { action = "ack" }` drops the timed-out (idempotent) message instead of replaying it. See `examples/timeout-handling`.
+
+  **Backward compatible:** flows without `on_timeout` / `on_error` behave exactly as before (a timeout stays transient → retry budget → requeue). Implemented via a `DispositionError` that MQ consumers (RabbitMQ, Kafka) honor explicitly, falling back to the existing permanent-vs-transient inference when no disposition is set.
+
 ## [2.1.1] - 2026-05-22
 
 ### Fixed

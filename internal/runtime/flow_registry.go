@@ -437,6 +437,32 @@ func classifyFlowError(err error) string {
 	}
 }
 
+// errorClassAction returns the disposition action configured for the class of
+// err, if a matching per-class handler is set. on_timeout matches timeout /
+// deadline-exceeded errors; on_error matches transient (non-timeout,
+// non-permanent) errors. Permanent errors (HTTP 4xx) are never routed here —
+// they keep their existing ack-and-drop behavior. The boolean reports whether
+// a handler matched.
+func (h *FlowHandler) errorClassAction(err error) (string, bool) {
+	eh := h.Config.ErrorHandling
+	if eh == nil {
+		return "", false
+	}
+	if connector.IsTimeoutError(err) {
+		if eh.OnTimeout != nil {
+			return eh.OnTimeout.Action, true
+		}
+		// No on_timeout handler → preserve the existing behavior for timeouts
+		// (transient → retry budget → requeue). Do NOT fall through to
+		// on_error: a timeout is its own class.
+		return "", false
+	}
+	if eh.OnError != nil && !connector.IsPermanent(err) {
+		return eh.OnError.Action, true
+	}
+	return "", false
+}
+
 // executeWithRetry executes the flow with retry and fallback handling.
 func (h *FlowHandler) executeWithRetry(ctx context.Context, input map[string]interface{}, executeFn func() (interface{}, error)) (interface{}, error) {
 	eh := h.Config.ErrorHandling
@@ -480,6 +506,26 @@ func (h *FlowHandler) executeWithRetry(ctx context.Context, input map[string]int
 		// Don't retry if context is cancelled
 		if ctx.Err() != nil {
 			break
+		}
+
+		// Per-class failure handler (on_timeout / on_error). When a handler
+		// matches the error's class, it decides the broker disposition
+		// immediately and short-circuits the retry budget — except
+		// action="retry", which falls through to the budget below. This is
+		// what lets `on_timeout { action = "ack" }` drop a timed-out (but
+		// idempotent) request instead of replaying it into a concurrent
+		// duplicate on the remote side.
+		if action, ok := h.errorClassAction(err); ok {
+			switch action {
+			case "ack":
+				return nil, connector.NewDispositionError(err, connector.DispositionAck)
+			case "requeue":
+				return nil, connector.NewDispositionError(err, connector.DispositionRequeue)
+			case "reject":
+				return nil, connector.NewDispositionError(err, connector.DispositionReject)
+			case "retry":
+				// fall through to the retry budget
+			}
 		}
 
 		// Don't retry on permanent HTTP errors. A 4xx response means the
