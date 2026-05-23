@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-05-23
+
+### Changed
+
+- **Dedupe now commits the fingerprint when a failed write's disposition is `ack`.** The biphasic dedupe primitive persists the fingerprint in Phase B not only after a successful write, but also when the write failed and the flow's `error_handling` will ack it (e.g. `on_timeout { action = "ack" }`). Rationale: `ack` means "treat this as processed/terminal", so the duplicate the upstream redelivers must be filtered — not reprocessed into a concurrent second operation on the backend.
+
+  This closes the gap left by v2.2.0's `on_timeout { action = "ack" }`: previously a timed-out (but still-processing) backend POST was acked, but because the write "failed" the fingerprint was not stored, so the redelivered duplicate slipped past Phase A and was reprocessed concurrently. Now the fingerprint is committed on the ack path.
+
+  **Backward compatible:** a failed write with no class handler — or with `requeue`/`reject` — still skips Phase B exactly as before, so the message is reprocessed cleanly on redelivery. Only the `ack` disposition commits.
+
 ## [2.2.0] - 2026-05-23
 
 ### Added
