@@ -5,6 +5,69 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-05-26
+
+### Added
+
+- **Transactional, iterative, multi-statement write primitive: `to { transaction { } }`.** A flow destination can now run an ordered list of SQL statements inside a single pinned database connection wrapped in one `BEGIN`/`COMMIT` — all-or-nothing. This makes a complex aggregate write (clean previous rows, insert a parent and capture its autoincrement id, insert N children that reference it, route attributes by type) expressible declaratively, which the single-statement `to` write could not do.
+
+  ```hcl
+  to {
+    connector = "db"            # must be a database connector
+
+    transaction {
+      exec {
+        query  = "DELETE FROM child WHERE owner_id = :owner"
+        params = { owner = "output.owner_id" }
+        when   = "output.owner_id > 0"      # optional CEL gate; false = skip
+      }
+
+      exec {
+        query   = "INSERT INTO parent (owner_id, name) VALUES (:owner, :name)"
+        params  = { owner = "output.owner_id", name = "output.name" }
+        capture = "parent_id"               # INSERT → captured.parent_id = last insert id
+      }
+
+      each "child" in "output.children" {   # iterate a list from the payload
+        exec {
+          query   = "INSERT INTO child (parent_id, label, position) VALUES (:pid, :label, :pos)"
+          params  = {
+            pid   = "captured.parent_id"     # value captured above
+            label = "child.label"            # current element
+            pos   = "child_index"            # 0-based each index
+          }
+          capture = "child_id"
+        }
+
+        each "store" in "child.stores" {     # each is nestable
+          exec {
+            query  = "INSERT INTO child_value (child_id, store_id, val) VALUES (:cid, :sid, :v)"
+            params = { cid = "captured.child_id", sid = "store.id", v = "store.value" }
+          }
+        }
+      }
+
+      exec {
+        query   = "SELECT option_id FROM lookup WHERE code = :c LIMIT 1"
+        params  = { c = "output.code" }
+        capture = "option_id"               # SELECT → first column of first row (null if 0 rows)
+      }
+    }
+  }
+  ```
+
+  **Semantics:**
+  - **Pinned connection + transaction.** All statements run on one connection inside one transaction, so `LAST_INSERT_ID()`/`last_insert_rowid()` and captured `SELECT`s are coherent across statements. Commit on success; rollback on any error (a failed statement, an unresolved `when`/param CEL, or a panic), then the error propagates to the flow's `error_handling` (retry/ack/requeue/etc.) exactly like a failed classic write.
+  - **`exec`** runs one statement with `:named` params resolved from CEL. `capture` stores the last insert id for `INSERT/UPDATE/DELETE`, or the first column of the first row for `SELECT` (`null` when no rows).
+  - **`each "<var>" in "<listExpr>"`** evaluates a CEL list and runs its body per element, binding the element to `<var>` and its 0-based index to `<var>_index`. A non-list or empty result runs nothing. Nestable.
+  - **CEL scope:** `input`, `output` (transform result), `step`, `captured` (values captured so far), plus active `each` bindings.
+  - **Driver-agnostic:** the runtime depends only on a `connector.TxRunner` interface; MySQL/MariaDB and SQLite implement it today, and the interface leaves room for Postgres `RETURNING`.
+  - **Wrapped by the standard envelope:** dedupe, `after`/`on_error` aspects, and `error_handling` (retry, `on_timeout`/`on_error` dispositions) wrap the transaction just like any other `to` write.
+
+  **Validation (`mycel validate`):** rejects `transaction` combined with `query`/`target`/`operation`/`envelope` in the same `to`; requires the `to` connector to be of type `database`; requires each `exec` to have a non-empty `query`; requires `each` to be written as `each "<var>" in "<listExpr>"`.
+
+  **Backward compatible:** purely additive. Flows without a `transaction` block are unchanged.
+
 ## [2.3.0] - 2026-05-23
 
 ### Changed

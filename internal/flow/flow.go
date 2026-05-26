@@ -441,6 +441,12 @@ type ToConfig struct {
 	// `{ "<paramName>": { ...body... } }`. Empty means no wrapping.
 	Envelope string
 
+	// Transaction, when set, makes this destination a transactional,
+	// multi-statement, iterative write over a pinned database connection.
+	// Mutually exclusive with query/target/operation/envelope (the parser
+	// rejects the combination); the connector must be of type "database".
+	Transaction *TransactionConfig
+
 	// ConnectorParams holds all connector-specific parameters.
 	// Populated by the parser from the HCL block attributes.
 	// Access via getter methods (GetTarget, GetOperation, etc.).

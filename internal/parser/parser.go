@@ -165,6 +165,30 @@ func (c *Configuration) Merge(other *Configuration) {
 	}
 }
 
+// ValidateTransactionTargets verifies that every flow whose `to` block uses a
+// transaction references a connector of type "database". The transaction
+// primitive pins a SQL connection and opens a BEGIN/COMMIT, so it only makes
+// sense for database connectors.
+func (c *Configuration) ValidateTransactionTargets() error {
+	typeByName := make(map[string]string, len(c.Connectors))
+	for _, conn := range c.Connectors {
+		typeByName[conn.Name] = conn.Type
+	}
+	for _, f := range c.Flows {
+		if f.To == nil || f.To.Transaction == nil {
+			continue
+		}
+		connType, known := typeByName[f.To.Connector]
+		if !known {
+			return fmt.Errorf("flow %q: transaction references unknown connector %q", f.Name, f.To.Connector)
+		}
+		if connType != "database" {
+			return fmt.Errorf("flow %q: transaction requires a database connector, but %q is of type %q", f.Name, f.To.Connector, connType)
+		}
+	}
+	return nil
+}
+
 // ValidateUniqueNames checks that no two items of the same type share a name.
 // Returns an error if duplicates are found, with file paths for both definitions.
 func (c *Configuration) ValidateUniqueNames() error {
@@ -360,6 +384,11 @@ func (p *HCLParser) Parse(ctx context.Context, configDir string) (*Configuration
 
 	// Validate that no two items of the same type share a name
 	if err := config.ValidateUniqueNames(); err != nil {
+		return nil, err
+	}
+
+	// Validate that transaction writes target a database connector
+	if err := config.ValidateTransactionTargets(); err != nil {
 		return nil, err
 	}
 

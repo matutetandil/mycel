@@ -207,6 +207,87 @@ to {
 }
 ```
 
+### Transactional write (`transaction`)
+
+For a database connector, a `transaction` block runs an **ordered list of SQL
+statements inside a single pinned connection wrapped in one `BEGIN`/`COMMIT`** —
+all-or-nothing. Use it when one logical write spans several statements that must
+be atomic and need to pass values between them (a captured `LAST_INSERT_ID`, a
+looked-up id), which a single-statement `to` write cannot express.
+
+```hcl
+to {
+  connector = "db"            # must be a database connector
+
+  transaction {
+    exec {
+      query  = "DELETE FROM child WHERE owner_id = :owner"
+      params = { owner = "output.owner_id" }
+      when   = "output.owner_id > 0"        # optional CEL gate; false = skip
+    }
+
+    exec {
+      query   = "INSERT INTO parent (owner_id, name) VALUES (:owner, :name)"
+      params  = { owner = "output.owner_id", name = "output.name" }
+      capture = "parent_id"                 # INSERT → captured.parent_id = last insert id
+    }
+
+    each "child" in "output.children" {     # iterate a list from the payload
+      exec {
+        query   = "INSERT INTO child (parent_id, label, position) VALUES (:pid, :label, :pos)"
+        params  = {
+          pid   = "captured.parent_id"       # value captured above
+          label = "child.label"              # current element
+          pos   = "child_index"              # 0-based each index
+        }
+        capture = "child_id"
+      }
+
+      each "store" in "child.stores" {       # each is nestable
+        exec {
+          query  = "INSERT INTO child_value (child_id, store_id) VALUES (:cid, :sid)"
+          params = { cid = "captured.child_id", sid = "store.id" }
+        }
+      }
+    }
+
+    exec {
+      query   = "SELECT option_id FROM lookup WHERE code = :c LIMIT 1"
+      params  = { c = "output.code" }
+      capture = "option_id"                 # SELECT → first column of first row (null if 0 rows)
+    }
+  }
+}
+```
+
+**Statements (textual order is significant — captured values flow forward):**
+
+- **`exec`** runs one SQL statement.
+  - `query` — SQL with `:named` placeholders. *(required)*
+  - `params` — map of placeholder name → CEL expression.
+  - `when` — optional CEL gate; the statement is skipped (not an error) when false.
+  - `capture` — optional name stored under `captured.<name>`: the **last insert id**
+    for `INSERT`/`UPDATE`/`DELETE`, or the **first column of the first row** for a
+    `SELECT` (`null` when there are no rows).
+- **`each "<var>" in "<listExpr>"`** evaluates a CEL list and runs its body once
+  per element, binding the element to `<var>` and its 0-based index to
+  `<var>_index`. A non-list or empty result runs nothing. Nestable.
+
+**CEL scope inside a transaction:** `input`, `output` (the transform result),
+`step`, `captured` (values captured so far), plus the active `each` bindings.
+
+**Atomicity & error handling:** commit on success; any error — a failing
+statement, an unresolved `when`/param expression, or a panic — rolls back the
+**entire** transaction. The error then propagates to the flow's
+`error_handling` (retry / `on_timeout` / `on_error` dispositions) exactly like a
+failed single-statement write. The transaction is also wrapped by `dedupe` and
+`after`/`on_error` aspects as a single unit.
+
+**Rules:** the `to` connector must be of type `database`; `transaction` is
+mutually exclusive with `query` / `target` / `operation` / `envelope` in the
+same `to` block (`mycel validate` enforces both). See the
+[transactional-write example](https://github.com/matutetandil/mycel/tree/main/examples/transactional-write).
+
 ### Multi-to (fan-out)
 
 Write to multiple targets by declaring multiple `to` blocks:

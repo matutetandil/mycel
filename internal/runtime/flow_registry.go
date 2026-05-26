@@ -172,6 +172,14 @@ type FlowHandler struct {
 	// transformerOnce ensures the CEL transformer is initialized only once (thread-safe).
 	transformerOnce sync.Once
 	transformerErr  error
+
+	// txEvalOnce guards the scoped CEL transformer used by the to{transaction}
+	// executor, which declares `captured` plus each loop variables on top of
+	// the standard scope. Built once per handler (it rebuilds the whole CEL
+	// env) and reused across deliveries.
+	txEvalOnce sync.Once
+	txEval     *transform.CELTransformer
+	txEvalErr  error
 }
 
 // FilteredResult is returned when a request is filtered out by the from.filter expression.
@@ -1663,6 +1671,13 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 		return h.handleSubscriptionPublish(ctx, input)
 	}
 
+	// Transactional multi-statement write: runs as "the write" of the flow,
+	// regardless of the derived operation method, so it is wrapped by the same
+	// dedupe / aspects / error_handling envelope as a classic to-write.
+	if h.Config.To != nil && h.Config.To.Transaction != nil {
+		return h.handleTransaction(ctx, input)
+	}
+
 	// For flows with steps, execute steps + transform instead of reading from destination
 	// This supports orchestration flows where data comes from multiple sources
 	if len(h.Config.Steps) > 0 && operation.Method == "GET" {
@@ -3106,10 +3121,21 @@ func (h *FlowHandler) applyResponseTransform(ctx context.Context, input map[stri
 	return transformed, nil
 }
 
+// applyTransforms applies the flow transform (and its steps/enrichments) and
+// returns the resulting payload. It is the common path for to-writes.
 func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	payload, _, err := h.applyTransformsWithSteps(ctx, input)
+	return payload, err
+}
+
+// applyTransformsWithSteps is applyTransforms plus the intermediate step
+// results, which the transaction executor exposes in its CEL scope as `step`.
+// Steps run exactly once here (they are side-effecting), so this is the single
+// place that both the payload and the step results are produced.
+func (h *FlowHandler) applyTransformsWithSteps(ctx context.Context, input map[string]interface{}) (map[string]interface{}, map[string]interface{}, error) {
 	// No transform configured and no steps - return input as-is
 	if h.Config.Transform == nil && len(h.Config.Enrichments) == 0 && len(h.Config.Steps) == 0 {
-		return input, nil
+		return input, nil, nil
 	}
 
 	// Initialize CEL transformer if needed (thread-safe for concurrent async flows)
@@ -3118,13 +3144,13 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 		h.Transformer, h.transformerErr = transform.NewCELTransformerWithOptions(celOptions...)
 	})
 	if h.transformerErr != nil {
-		return nil, fmt.Errorf("failed to create CEL transformer: %w", h.transformerErr)
+		return nil, nil, fmt.Errorf("failed to create CEL transformer: %w", h.transformerErr)
 	}
 
 	// Execute steps first (their results are available in transforms)
 	stepResults, err := h.executeSteps(ctx, input)
 	if err != nil {
-		return nil, fmt.Errorf("step execution failed: %w", err)
+		return nil, nil, fmt.Errorf("step execution failed: %w", err)
 	}
 
 	// Collect all enrichments (flow-level + transform-level)
@@ -3155,12 +3181,12 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 	// Execute enrichments
 	enriched, err := h.executeEnrichments(ctx, input, allEnrichments)
 	if err != nil {
-		return nil, fmt.Errorf("enrichment failed: %w", err)
+		return nil, nil, fmt.Errorf("enrichment failed: %w", err)
 	}
 
 	// No transform configured, just return input (steps and enrichments were for side effects)
 	if h.Config.Transform == nil {
-		return input, nil
+		return input, stepResults, nil
 	}
 
 	// Build transform rules from config
@@ -3170,7 +3196,7 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 	if h.Config.Transform.Use != "" {
 		named, ok := h.NamedTransforms[h.Config.Transform.Use]
 		if !ok {
-			return nil, fmt.Errorf("named transform not found: %s", h.Config.Transform.Use)
+			return nil, nil, fmt.Errorf("named transform not found: %s", h.Config.Transform.Use)
 		}
 		for target, expr := range named.Mappings {
 			rules = append(rules, transform.Rule{
@@ -3190,7 +3216,7 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 
 	// No rules to apply
 	if len(rules) == 0 {
-		return input, nil
+		return input, stepResults, nil
 	}
 
 	// Apply transforms using CEL with enriched data and step results
@@ -3198,7 +3224,7 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 		return h.Transformer.TransformWithSteps(ctx, input, enriched, stepResults, rules)
 	})
 	if transformErr != nil {
-		return nil, transformErr
+		return nil, nil, transformErr
 	}
 	if m, ok := transformResult.(map[string]interface{}); ok {
 		// Capture for downstream consumers (coordinate.signal.emit needs
@@ -3206,9 +3232,9 @@ func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]inte
 		if slot := flow.TransformOutputFromContext(ctx); slot != nil {
 			slot.Set(m)
 		}
-		return m, nil
+		return m, stepResults, nil
 	}
-	return nil, fmt.Errorf("transform returned unexpected type")
+	return nil, nil, fmt.Errorf("transform returned unexpected type")
 }
 
 // resolveValidatorRefs adds custom validator constraints to fields that reference

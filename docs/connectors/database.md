@@ -99,6 +99,14 @@ connector "mongo" {
 | `DELETE` | write | Delete rows |
 | target name (table) | read/write | Auto-detect from flow context |
 
+## Transactional writes
+
+To write several statements **atomically** on a single pinned connection (with
+`LAST_INSERT_ID` / `SELECT` capture and per-element iteration), use the
+`to { transaction { } }` block instead of a single `query`/`target`. See
+[Flows → Transactional write](../core-concepts/flows.md#transactional-write-transaction)
+and the [transactional-write example](../../examples/transactional-write/).
+
 ## Example
 
 ```hcl
