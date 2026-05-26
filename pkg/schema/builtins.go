@@ -109,6 +109,46 @@ func ToSchema() Block {
 			{Name: "format", Doc: "Output format", Type: TypeString, Values: []string{"json", "xml", "csv", "tsv"}},
 			{Name: "filter", Doc: "Per-user filter (WebSocket, SSE, subscriptions)", Type: TypeString},
 		},
+		Children: []Block{
+			TransactionSchema(),
+		},
+	}
+}
+
+// TransactionSchema describes the to{transaction} multi-statement write: an
+// ordered list of exec/each statements run in a single database transaction.
+func TransactionSchema() Block {
+	return Block{
+		Type: "transaction",
+		Doc:  "Multi-statement, iterative write run atomically in one DB transaction (database connectors only). Mutually exclusive with query/target/operation/envelope.",
+		Children: []Block{
+			TxExecSchema(),
+			TxEachSchema(),
+		},
+	}
+}
+
+func TxExecSchema() Block {
+	return Block{
+		Type: "exec",
+		Doc:  "A single SQL statement inside a transaction.",
+		Attrs: []Attr{
+			{Name: "query", Doc: "SQL with :named placeholders", Type: TypeString, Required: true},
+			{Name: "params", Doc: "Map of placeholder name -> CEL expression (scope: input, output, step, captured, each vars)", Type: TypeMap},
+			{Name: "when", Doc: "CEL gate — statement is skipped when false", Type: TypeString},
+			{Name: "capture", Doc: "Store the result under captured.<name>: last insert id for INSERT/UPDATE/DELETE, first column of first row for SELECT", Type: TypeString},
+		},
+	}
+}
+
+func TxEachSchema() Block {
+	return Block{
+		Type:   "each",
+		Doc:    `Iterate a CEL list, running nested statements per element. Written as: each "<var>" in "<listExpr>" { ... }. The element binds to <var> and its index to <var>_index.`,
+		Labels: 3, // <var> in <listExpr>
+		Children: []Block{
+			TxExecSchema(),
+		},
 	}
 }
 

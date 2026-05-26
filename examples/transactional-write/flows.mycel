@@ -1,0 +1,56 @@
+# Persist a product aggregate atomically:
+#   1. clear the product's existing options (idempotent re-write)
+#   2. insert the product, capturing its autoincrement id
+#   3. for each option, insert a row referencing that id and capture its id
+#   4. for each value of the option, insert a row referencing the option id
+#
+# Everything runs in one transaction over one pinned connection: a failure at
+# any step rolls back the whole aggregate, and the captured ids are coherent
+# because all statements share the connection.
+flow "save_product" {
+  from {
+    connector = "api"
+    operation = "POST /products"
+  }
+
+  to {
+    connector = "db"
+
+    transaction {
+      exec {
+        query  = "DELETE FROM product_option WHERE product_id = :pid"
+        params = { pid = "input.id" }
+        when   = "input.id > 0"
+      }
+
+      exec {
+        query   = "INSERT INTO product (sku, name) VALUES (:sku, :name)"
+        params  = { sku = "input.sku", name = "input.name" }
+        capture = "product_id"
+      }
+
+      each "option" in "input.options" {
+        exec {
+          query   = "INSERT INTO product_option (product_id, code, position) VALUES (:pid, :code, :pos)"
+          params  = {
+            pid  = "captured.product_id"
+            code = "option.code"
+            pos  = "option_index"
+          }
+          capture = "option_id"
+        }
+
+        each "value" in "option.values" {
+          exec {
+            query  = "INSERT INTO option_value (option_id, label, price) VALUES (:oid, :label, :price)"
+            params = {
+              oid   = "captured.option_id"
+              label = "value.label"
+              price = "value.price"
+            }
+          }
+        }
+      }
+    }
+  }
+}

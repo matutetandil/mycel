@@ -482,6 +482,7 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "transform"},
+			{Type: "transaction"},
 		},
 	}
 
@@ -530,14 +531,21 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		to.Envelope = val.AsString()
 	}
 
-	// Parse nested transform block
+	// Parse nested transform / transaction blocks
 	for _, nestedBlock := range content.Blocks {
-		if nestedBlock.Type == "transform" {
+		switch nestedBlock.Type {
+		case "transform":
 			transformMappings, err := parseTransformMappings(nestedBlock, ctx)
 			if err != nil {
 				return nil, fmt.Errorf("to transform error: %w", err)
 			}
 			to.Transform = transformMappings
+		case "transaction":
+			tx, err := parseTransactionBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("to transaction error: %w", err)
+			}
+			to.Transaction = tx
 		}
 	}
 
@@ -546,6 +554,19 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 
 	if to.Connector == "" {
 		return nil, fmt.Errorf("to block must specify a connector")
+	}
+
+	// transaction is mutually exclusive with the single-statement write
+	// attributes — they describe two different write modes.
+	if to.Transaction != nil {
+		for _, attr := range []string{"query", "target", "operation", "envelope"} {
+			if _, clash := to.ConnectorParams[attr]; clash {
+				return nil, fmt.Errorf("to block cannot combine transaction with %q (transaction is a multi-statement write; remove %q)", attr, attr)
+			}
+		}
+		if to.Envelope != "" {
+			return nil, fmt.Errorf("to block cannot combine transaction with envelope")
+		}
 	}
 
 	return to, nil

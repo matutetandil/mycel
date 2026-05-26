@@ -886,6 +886,27 @@ func (t *CELTransformer) Evaluate(ctx context.Context, expr string, input map[st
 	return CELValueToNative(result), nil
 }
 
+// EvaluateWith compiles expr and evaluates it against the provided activation
+// map directly, returning the result as a native Go value. Unlike Evaluate,
+// the caller supplies the full activation, so every variable the expression
+// references must be present and declared in this transformer's environment.
+//
+// It exists for the transaction executor, whose scope (captured values plus
+// dynamically-named each loop bindings) is only known at runtime: construct a
+// transformer via NewCELTransformerWithOptions declaring those extra variables,
+// then evaluate each expression with EvaluateWith.
+func (t *CELTransformer) EvaluateWith(ctx context.Context, expr string, activation map[string]interface{}) (interface{}, error) {
+	prog, err := t.Compile(expr)
+	if err != nil {
+		return nil, err
+	}
+	result, _, err := prog.Eval(activation)
+	if err != nil {
+		return nil, fmt.Errorf("CEL eval error: %w", err)
+	}
+	return CELValueToNative(result), nil
+}
+
 // Transform applies transformation rules to input data using CEL.
 func (t *CELTransformer) Transform(ctx context.Context, input map[string]interface{}, rules []Rule) (map[string]interface{}, error) {
 	output := make(map[string]interface{})

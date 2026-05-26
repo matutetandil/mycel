@@ -1,0 +1,13 @@
+# REST entry point: receive an aggregate to persist.
+connector "api" {
+  type = "rest"
+  port = 8080
+}
+
+# Local SQLite database. The transaction primitive works with any database
+# connector (SQLite, MySQL/MariaDB); swap the driver/dsn to point at MySQL.
+connector "db" {
+  type   = "database"
+  driver = "sqlite"
+  path   = "./catalog.db"
+}

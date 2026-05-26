@@ -139,6 +139,7 @@ That's it. REST API + database, zero code.
 | [Elasticsearch](examples/elasticsearch) | Full-text search and analytics over Elasticsearch REST API ([docs](docs/connectors/elasticsearch.md)) |
 | [OAuth (Social Login)](examples/oauth) | Declarative social login: Google, GitHub, Apple, OIDC, custom ([docs](docs/connectors/oauth.md)) |
 | [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([docs](docs/guides/batch-processing.md)) |
+| [Transactional Writes](examples/transactional-write) | Atomic, iterative, multi-statement DB writes: `to { transaction { } }` with `exec`/`each`, `LAST_INSERT_ID`/SELECT capture, all-or-nothing commit |
 | [Sagas](examples/saga) | Distributed transactions with automatic compensation, delay/await steps, workflow persistence ([docs](docs/guides/sagas.md)) |
 | [State Machines](examples/state-machine) | Entity lifecycle with guards, actions, final states ([docs](docs/guides/sagas.md#state-machines)) |
 | [Long-Running Workflows](examples/workflows) | Persistent workflows with delay timers, await/signal events, timeout enforcement, REST API ([docs](docs/guides/sagas.md#long-running-workflows)) |
