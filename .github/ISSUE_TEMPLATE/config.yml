@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/matutetandil/mycel/discussions
+    about: Ask how to do something, share an idea, or get help with your config.
+  - name: Documentation
+    url: https://github.com/matutetandil/mycel/tree/main/docs
+    about: Guides and connector references — many "how do I…" questions are answered here.
+  - name: Report a security vulnerability
+    url: https://github.com/matutetandil/mycel/security/policy
+    about: Please report vulnerabilities privately, not as a public issue.

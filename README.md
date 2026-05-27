@@ -349,8 +349,10 @@ If you find this project useful, consider supporting its development:
 
 ## Contributing
 
-Contributions are welcome! Please read the contributing guidelines before submitting a pull request.
+Contributions are welcome! Please read the [contributing guidelines](CONTRIBUTING.md)
+and our [Code of Conduct](CODE_OF_CONDUCT.md) before submitting a pull request.
+For security issues, see the [security policy](SECURITY.md).
 
 ## License
 
-MIT
+Released under the [MIT License](LICENSE).
