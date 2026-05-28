@@ -685,6 +685,17 @@ func NewFlowError(err error, status int, body map[string]interface{}, headers ma
 // is the only one who knows which fields actually count; the primitive
 // cannot infer it.
 type DedupeConfig struct {
+	// Name is set when the block is declared top-level (e.g.
+	// `dedupe "standard" { ... }`) and registered as reusable. Empty for
+	// inline blocks defined directly inside a flow.
+	Name string
+
+	// Use names a top-level dedupe block whose fields are pulled in as the
+	// base. Inline fields on this block override the corresponding fields
+	// of the named base, attribute by attribute. Empty when no reuse is
+	// requested.
+	Use string
+
 	// Cache is the name of a cache-typed connector used to store
 	// fingerprints. Driver-agnostic: works with "memory" (unit tests) or
 	// "redis" (production). The connector's pool is initialized once at

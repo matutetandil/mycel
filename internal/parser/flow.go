@@ -1250,16 +1250,48 @@ func parseTransformMappings(block *hcl.Block, ctx *hcl.EvalContext) (map[string]
 // Example:
 //
 //	dedupe {
-//	  storage      = "redis"
+//	  cache        = "redis"
 //	  key          = "input.message_id"
 //	  ttl          = "1h"
-//	  on_duplicate = "skip"
+//	  on_duplicate = "ack"
+//	  fingerprint { id = "input.body.id" }
 //	}
+//
+// When `use = "dedupe.<name>"` is present, the block becomes a reference to
+// a top-level reusable dedupe block (see parseNamedDedupeBlock). All other
+// fields are optional in that case and act as attribute-level overrides on
+// top of the named base; runtime resolves the merge.
 func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfig, error) {
+	return parseDedupeBody(block, ctx, false)
+}
+
+// parseNamedDedupeBlock parses a top-level `dedupe "<name>" { ... }` block.
+// All fields are required because there is no base to merge against. The
+// resulting DedupeConfig is registered in Configuration.NamedDedupes and
+// can be referenced from flow-level dedupe blocks via `use = "dedupe.<name>"`.
+func parseNamedDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("dedupe block requires a name label when declared at top level")
+	}
+	dedupe, err := parseDedupeBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	dedupe.Name = block.Labels[0]
+	return dedupe, nil
+}
+
+// parseDedupeBody is the shared implementation used by inline and named
+// dedupe blocks. When strict is true (named top-level), all the structural
+// requirements (cache, key, fingerprint block) are enforced. When strict is
+// false (inline), they are optional so the block can act as a pure reference
+// (`use = "dedupe.foo"`) or a partial override on top of one.
+func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.DedupeConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "cache", Required: true},
-			{Name: "key", Required: true},
+			{Name: "use"},
+			{Name: "cache"},
+			{Name: "key"},
 			{Name: "ttl"},
 			{Name: "on_duplicate"},
 		},
@@ -1273,8 +1305,14 @@ func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfi
 		return nil, fmt.Errorf("dedupe block content error: %s", diags.Error())
 	}
 
-	dedupe := &flow.DedupeConfig{
-		OnDuplicate: "ack", // sequence_guard-style default
+	dedupe := &flow.DedupeConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("dedupe use error: %s", diags.Error())
+		}
+		dedupe.Use = parseRefName("dedupe", val.AsString())
 	}
 
 	if attr, ok := content.Attributes["cache"]; ok {
@@ -1318,10 +1356,10 @@ func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfi
 		dedupe.OnDuplicate = val.AsString()
 	}
 
-	// Parse the (required) fingerprint block — named CEL expressions, same
-	// shape as a transform block. Each entry contributes to the canonical
-	// projection. The author must list every persisted field; the runtime
-	// cannot infer which fields count.
+	// Parse the fingerprint block — named CEL expressions, same shape as a
+	// transform block. Required in strict mode and when the block stands on
+	// its own; optional when this block is a reference (use != "") because
+	// the named base may already supply it.
 	var fingerprintBlock *hcl.Block
 	for _, b := range content.Blocks {
 		if b.Type == "fingerprint" {
@@ -1331,43 +1369,64 @@ func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfi
 			fingerprintBlock = b
 		}
 	}
-	if fingerprintBlock == nil {
-		return nil, fmt.Errorf("dedupe block must contain a fingerprint block")
-	}
-
-	fpAttrs, diags := fingerprintBlock.Body.JustAttributes()
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("dedupe fingerprint block error: %s", diags.Error())
-	}
-	if len(fpAttrs) == 0 {
-		return nil, fmt.Errorf("dedupe fingerprint block must define at least one named expression")
-	}
-
-	dedupe.Fingerprint = make(map[string]string, len(fpAttrs))
-	for name, attr := range fpAttrs {
-		val, diags := attr.Expr.Value(ctx)
+	if fingerprintBlock != nil {
+		fpAttrs, diags := fingerprintBlock.Body.JustAttributes()
 		if diags.HasErrors() {
-			// CEL expression — extract raw text to be evaluated at runtime
-			dedupe.Fingerprint[name] = extractExpressionText(attr.Expr)
-			continue
+			return nil, fmt.Errorf("dedupe fingerprint block error: %s", diags.Error())
 		}
-		// Literal values are accepted too: treat them as constant projections
-		dedupe.Fingerprint[name] = val.AsString()
+		if len(fpAttrs) == 0 {
+			return nil, fmt.Errorf("dedupe fingerprint block must define at least one named expression")
+		}
+		dedupe.Fingerprint = make(map[string]string, len(fpAttrs))
+		for name, attr := range fpAttrs {
+			val, diags := attr.Expr.Value(ctx)
+			if diags.HasErrors() {
+				// CEL expression — extract raw text to be evaluated at runtime
+				dedupe.Fingerprint[name] = extractExpressionText(attr.Expr)
+				continue
+			}
+			// Literal values are accepted too: treat them as constant projections
+			dedupe.Fingerprint[name] = val.AsString()
+		}
 	}
 
-	if dedupe.Cache == "" {
-		return nil, fmt.Errorf("dedupe block must specify a cache connector")
+	if strict {
+		if dedupe.Use != "" {
+			return nil, fmt.Errorf("top-level dedupe %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if dedupe.Cache == "" {
+			return nil, fmt.Errorf("dedupe block must specify a cache connector")
+		}
+		if dedupe.Key == "" {
+			return nil, fmt.Errorf("dedupe block must specify a key expression")
+		}
+		if fingerprintBlock == nil {
+			return nil, fmt.Errorf("dedupe block must contain a fingerprint block")
+		}
+	} else if dedupe.Use == "" {
+		// Inline dedupe without `use` must be self-contained (current behavior).
+		if dedupe.Cache == "" {
+			return nil, fmt.Errorf("dedupe block must specify a cache connector (or `use` a named one)")
+		}
+		if dedupe.Key == "" {
+			return nil, fmt.Errorf("dedupe block must specify a key expression (or `use` a named one)")
+		}
+		if fingerprintBlock == nil {
+			return nil, fmt.Errorf("dedupe block must contain a fingerprint block (or `use` a named one)")
+		}
 	}
 
-	if dedupe.Key == "" {
-		return nil, fmt.Errorf("dedupe block must specify a key expression")
-	}
-
-	switch dedupe.OnDuplicate {
-	case "ack", "reject", "requeue":
-		// ok
-	default:
-		return nil, fmt.Errorf("dedupe on_duplicate must be 'ack', 'reject', or 'requeue', got %q", dedupe.OnDuplicate)
+	if dedupe.OnDuplicate != "" {
+		switch dedupe.OnDuplicate {
+		case "ack", "reject", "requeue":
+			// ok
+		default:
+			return nil, fmt.Errorf("dedupe on_duplicate must be 'ack', 'reject', or 'requeue', got %q", dedupe.OnDuplicate)
+		}
+	} else if strict || dedupe.Use == "" {
+		// Default for self-contained blocks (no reference): ack.
+		// Reference-mode blocks leave this empty so the named base wins.
+		dedupe.OnDuplicate = "ack"
 	}
 
 	return dedupe, nil

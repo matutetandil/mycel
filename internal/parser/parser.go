@@ -54,6 +54,10 @@ type Configuration struct {
 	// NamedCaches are reusable cache configurations.
 	NamedCaches []*flow.NamedCacheConfig
 
+	// NamedDedupes are reusable dedupe configurations. Referenced from
+	// flow-level dedupe blocks via `use = "dedupe.<name>"`.
+	NamedDedupes []*flow.DedupeConfig
+
 	// Aspects are cross-cutting concern configurations.
 	Aspects []*aspect.Config
 
@@ -128,6 +132,7 @@ func NewConfiguration() *Configuration {
 		Types:         make([]*validate.TypeSchema, 0),
 		Transforms:    make([]*transform.Config, 0),
 		NamedCaches:   make([]*flow.NamedCacheConfig, 0),
+		NamedDedupes:  make([]*flow.DedupeConfig, 0),
 		Aspects:       make([]*aspect.Config, 0),
 		Validators:    make([]*validator.Config, 0),
 		Functions:     make([]*functions.Config, 0),
@@ -145,6 +150,7 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.Types = append(c.Types, other.Types...)
 	c.Transforms = append(c.Transforms, other.Transforms...)
 	c.NamedCaches = append(c.NamedCaches, other.NamedCaches...)
+	c.NamedDedupes = append(c.NamedDedupes, other.NamedDedupes...)
 	c.Aspects = append(c.Aspects, other.Aspects...)
 	c.Validators = append(c.Validators, other.Validators...)
 	c.Functions = append(c.Functions, other.Functions...)
@@ -236,6 +242,13 @@ func (c *Configuration) ValidateUniqueNames() error {
 			keys := make([]string, len(c.Validators))
 			for i, v := range c.Validators {
 				keys[i] = "validator:" + v.Name
+			}
+			return keys
+		}},
+		{"dedupe", func() []string {
+			keys := make([]string, len(c.NamedDedupes))
+			for i, d := range c.NamedDedupes {
+				keys[i] = "dedupe:" + d.Name
 			}
 			return keys
 		}},
@@ -387,6 +400,14 @@ func (p *HCLParser) Parse(ctx context.Context, configDir string) (*Configuration
 		return nil, err
 	}
 
+	// Resolve reusable-block references (e.g. flow.dedupe.use → named dedupe).
+	// Validation of the reference (target exists) and the merge happen in one
+	// pass; after this, runtime sees fully self-contained blocks regardless
+	// of whether they were declared inline or referenced.
+	if err := config.ResolveReferences(); err != nil {
+		return nil, err
+	}
+
 	// Validate that transaction writes target a database connector
 	if err := config.ValidateTransactionTargets(); err != nil {
 		return nil, err
@@ -452,6 +473,14 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 				return nil, fmt.Errorf("cache parse error: %w", err)
 			}
 			config.NamedCaches = append(config.NamedCaches, cache)
+
+		case "dedupe":
+			dedupe, err := parseNamedDedupeBlock(block, p.evalCtx)
+			if err != nil {
+				return nil, fmt.Errorf("dedupe parse error: %w", err)
+			}
+			config.NamedDedupes = append(config.NamedDedupes, dedupe)
+			config.SourceFiles["dedupe:"+dedupe.Name] = append(config.SourceFiles["dedupe:"+dedupe.Name], path)
 
 		case "aspect":
 			asp, err := parseAspectBlock(block, p.evalCtx)
@@ -539,6 +568,7 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "type", LabelNames: []string{"name"}},
 			{Type: "transform", LabelNames: []string{"name"}},
 			{Type: "cache", LabelNames: []string{"name"}},
+			{Type: "dedupe", LabelNames: []string{"name"}},
 			{Type: "aspect", LabelNames: []string{"name"}},
 			{Type: "validator", LabelNames: []string{"name"}},
 			{Type: "functions", LabelNames: []string{"name"}},
