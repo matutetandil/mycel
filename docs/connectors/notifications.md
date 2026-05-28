@@ -94,6 +94,70 @@ flow "alert_slack" {
 }
 ```
 
+### Message batching (since v2.5.0)
+
+Slack's `chat.postMessage` and Incoming Webhooks are rate-limited to roughly
+**1 message per second per channel**. Above that, Slack does not return an
+error — it silently hides messages with a banner:
+
+> *"Due to a high volume of activity, we are not displaying some messages sent by this application."*
+
+To stay under that limit, the Slack connector **coalesces high-rate writes
+into a single summary message per window, enabled by default**. Low-rate
+traffic is unaffected: when a window contains only one message it is sent
+as-is.
+
+**Defaults** (no `batch { }` block needed):
+
+- `window = "3s"` — first message in a bucket arms a 3-second timer
+- `max_size = 50` — flush early if the bucket reaches this many messages
+- `group_by = "channel"` — one bucket per Slack channel
+- built-in summary: `📨 *N events:*\n• …\n• …`
+
+**Tuning:**
+
+```hcl
+connector "slack_alerts" {
+  type        = "slack"
+  webhook_url = env("SLACK_WEBHOOK_URL")
+  channel     = "#alerts"
+
+  batch {
+    window   = "5s"
+    max_size = 100
+    group_by = "channel"   # or "global"
+    # Optional CEL summary. Vars: messages, count, channel, window.
+    summary  = <<-CEL
+      "🔔 *" + string(count) + " alerts in the last " + window + "*\n" +
+      messages.map(m, "• " + m.text).join("\n")
+    CEL
+  }
+}
+```
+
+**Opting out** (restores the pre-v2.5.0 immediate-send behavior):
+
+```hcl
+connector "slack" {
+  type        = "slack"
+  webhook_url = env("SLACK_WEBHOOK_URL")
+
+  batch {
+    enabled = false
+  }
+}
+```
+
+**Trade-offs to know about:**
+
+- Latency adds up to `window` seconds (3s by default). For
+  every-message-immediate use cases, opt out.
+- Messages with `blocks` or `attachments`, or thread replies (`thread_ts`),
+  bypass batching automatically — collapsing them would lose structure or
+  thread context.
+- Batching is in-process: a hard crash drops the buffered messages. Graceful
+  shutdown (`Close()`) drains every bucket before exiting.
+
 ---
 
 ## Discord

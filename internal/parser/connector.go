@@ -249,6 +249,8 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			// Kafka blocks
 			{Type: "sasl"},            // Kafka SASL authentication
 			{Type: "schema_registry"}, // Kafka Schema Registry config
+			// Notification connectors
+			{Type: "batch"}, // Slack batching: window/max_size/group_by/summary
 			// Named operations
 			{Type: "operation", LabelNames: []string{"name"}}, // Named operations for flows
 		},
@@ -468,6 +470,13 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 				return nil, fmt.Errorf("schema_registry block error: %w", err)
 			}
 			config.Properties["schema_registry"] = schemaRegistry
+
+		case "batch":
+			batch, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("batch block error: %w", err)
+			}
+			config.Properties["batch"] = batch
 
 		// Named operations
 		case "operation":

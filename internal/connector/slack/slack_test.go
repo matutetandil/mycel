@@ -130,6 +130,10 @@ func TestConnector_SendViaWebhook_Error(t *testing.T) {
 	cfg := &Config{
 		Name:       "test",
 		WebhookURL: server.URL,
+		// Disable batching so the webhook error surfaces synchronously on Send
+		// (the default-on batcher queues and dispatches asynchronously, which
+		// is covered by the batcher tests).
+		Batch: &BatchConfig{Enabled: false},
 	}
 
 	conn := NewConnector("test", cfg)

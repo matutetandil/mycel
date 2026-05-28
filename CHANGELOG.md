@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-05-28
+
+### Changed
+
+- **Slack connector batches messages by default to stay under Slack's per-channel rate limit.** Slack's `chat.postMessage` and Incoming Webhooks are limited to roughly 1 msg/sec per channel; above that Slack does not return an error — it silently hides messages with a "high volume of activity" banner. To fix that for everyone on upgrade, the Slack connector now **coalesces high-rate writes into a single summary message per window**, enabled by default.
+
+  Defaults (no config needed):
+  - `window = "3s"` — first message in a bucket arms a 3-second tumbling-window timer.
+  - `max_size = 50` — flush early if the bucket reaches this many messages.
+  - `group_by = "channel"` — one bucket per Slack channel (matching the per-channel rate limit).
+  - Built-in summary: `📨 *N events:*` + a bullet line per message.
+
+  **Single-message bypass:** when a window contains only one message it is sent **as-is** (no bullet wrapper) — low-rate notifications look identical to v2.4.0 with up to `window` seconds of added latency.
+
+  **Tuning:**
+
+  ```hcl
+  connector "slack" {
+    type        = "slack"
+    webhook_url = env("SLACK_WEBHOOK_URL")
+
+    batch {
+      window   = "5s"
+      max_size = 100
+      group_by = "channel"           # or "global"
+      summary  = <<-CEL
+        "🔔 " + string(count) + " alerts in " + window + ":\n" +
+        messages.map(m, "• " + m.text).join("\n")
+      CEL
+    }
+  }
+  ```
+
+  CEL scope inside `summary`: `messages` (list of `{text, channel, username}`), `count` (int), `channel` (string), `window` (string). Default is the built-in bullet list when `summary` is omitted.
+
+  **Opting out** restores the pre-v2.5.0 immediate-send behavior:
+
+  ```hcl
+  connector "slack" {
+    type        = "slack"
+    webhook_url = env("SLACK_WEBHOOK_URL")
+    batch { enabled = false }
+  }
+  ```
+
+  **Safety:**
+  - Messages with `blocks`, `attachments`, or a `thread_ts` bypass batching automatically — collapsing them would lose structure or land the summary in the wrong thread.
+  - `Close()` drains every pending bucket before exiting, so graceful shutdown loses nothing. A hard crash drops the in-memory buffer; for must-not-lose audit-style notifications, opt out.
+  - A rendered summary above ~38 KB is truncated with a marker rather than silently dropped.
+
+  **Behavior change to call out for upgraders:** existing flows that send many Slack notifications per second now coalesce them into one summary per 3-second window. This is a strict improvement when you were already hitting Slack's banner; for code that relied on every message arriving individually within 3s, set `batch { enabled = false }`.
+
 ## [2.4.0] - 2026-05-26
 
 ### Added
