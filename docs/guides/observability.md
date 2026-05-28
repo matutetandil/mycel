@@ -283,6 +283,177 @@ MYCEL_LOG_LEVEL=debug MYCEL_LOG_FORMAT=json mycel start
 {"time":"2024-01-15T10:30:00.002Z","level":"INFO","msg":"REST server listening","port":3000}
 ```
 
+### Choosing a format
+
+| Format | Use for | Why |
+|---|---|---|
+| `text` | Local `tail` / development | Pretty, human-friendly, colored when supported. |
+| `json` | **Production / log pipelines** | Each log line is a queryable object — `level`, `flow`, `connector`, `error_type` etc. become first-class fields in Loki / Elastic / Datadog. The difference between string-search and structured queries. |
+
+If you ship logs to a backend (next section), **always pick `json`**. The text format works too, but every downstream tool either re-parses it (extra cost, fragile) or limits you to substring matching.
+
+### Shipping logs to a backend
+
+Mycel logs to **stdout / stderr** — and that's where you should keep them. The recommended pattern across every Mycel deployment is the same one that's been the cloud-native default for the last decade:
+
+> **The app logs to stdout. A collector outside the app ships those logs to the backend of your choice.**
+
+Why not push from inside Mycel directly?
+
+- The runtime stays focused on flows; it doesn't carry retry / batching / back-pressure logic for an external log API.
+- A failing log backend cannot stall your request path.
+- You can swap Loki for Datadog for Elastic without redeploying Mycel — just reconfigure the collector.
+- Containers, k8s, and most PaaS already capture stdout for free.
+
+A handful of well-known collectors covers every realistic backend. Pick one — they all consume Mycel's JSON logs cleanly. Run `mycel start --log-format json` (or `MYCEL_LOG_FORMAT=json`) and point the collector at the container's stdout.
+
+#### Promtail → Grafana Loki
+
+The Grafana-stack default. Tails container stdout, ships to Loki, queryable from Grafana.
+
+```yaml
+# promtail.yaml
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: mycel
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: mycel
+          service: my-consumer
+          __path__: /var/log/containers/mycel-*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            msg:   msg
+            flow:  flow
+            error: error
+      - labels:
+          level:
+          flow:
+      - timestamp:
+          source: time
+          format: RFC3339
+```
+
+In Grafana the JSON unlocks LogQL queries that wouldn't work over plain text:
+
+```logql
+# All error logs from a specific flow
+{job="mycel", service="my-consumer"} | json | flow="item_create" | level="error"
+
+# Rate of timeout errors per flow over 5 minutes
+sum by (flow) (rate({job="mycel"} | json | error_type="timeout" [5m]))
+
+# Filter by any structured field the runtime emits
+{job="mycel"} | json | connector="rabbit" |~ "deadline"
+```
+
+#### Vector → any backend
+
+Vector is the most flexible option: one config can fan out the same logs to several backends (Loki + S3 + a webhook, for example) with transforms in between. Good when you don't want to commit to one ecosystem.
+
+```toml
+# vector.toml
+[sources.mycel]
+type = "docker_logs"
+include_containers = ["mycel"]
+
+[transforms.parse]
+type   = "remap"
+inputs = ["mycel"]
+source = '''
+  . = parse_json!(.message)
+'''
+
+[sinks.loki]
+type     = "loki"
+inputs   = ["parse"]
+endpoint = "http://loki:3100"
+labels   = { job = "mycel", level = "{{ level }}", flow = "{{ flow }}" }
+encoding = { codec = "json" }
+```
+
+Swap `[sinks.loki]` for `[sinks.elasticsearch]`, `[sinks.datadog_logs]`, `[sinks.http]`, etc. — Vector supports ~40 sinks out of the box.
+
+#### Fluent Bit → Kubernetes daemonset
+
+The default in many k8s clusters. Lightweight, written in C, ships as a DaemonSet that tails every pod's stdout.
+
+```ini
+# fluent-bit.conf
+[INPUT]
+    Name              tail
+    Path              /var/log/containers/mycel-*.log
+    Parser            docker
+    Tag               mycel.*
+    Refresh_Interval  5
+
+[FILTER]
+    Name    parser
+    Match   mycel.*
+    Key_Name log
+    Parser  json
+
+[OUTPUT]
+    Name        loki
+    Match       mycel.*
+    Host        loki
+    Port        3100
+    Labels      job=mycel
+    Label_Keys  $level, $flow, $service
+```
+
+Most clusters already have Fluent Bit installed — check before adding another collector.
+
+#### OpenTelemetry Collector → any OTLP backend
+
+The vendor-neutral standard. One collector config can route to Loki, Datadog, New Relic, Honeycomb, Elastic, Splunk, Grafana Cloud — every major vendor speaks OTLP.
+
+```yaml
+# otel-collector.yaml
+receivers:
+  filelog:
+    include: [/var/log/containers/mycel-*.log]
+    operators:
+      - type: json_parser
+        timestamp:
+          parse_from: attributes.time
+          layout_type: gotime
+          layout: '2006-01-02T15:04:05.000Z07:00'
+        severity:
+          parse_from: attributes.level
+
+exporters:
+  otlphttp:
+    endpoint: ${OTEL_LOGS_ENDPOINT}
+    headers:
+      "x-api-key": ${OTEL_API_KEY}
+
+service:
+  pipelines:
+    logs:
+      receivers:  [filelog]
+      exporters:  [otlphttp]
+```
+
+This is the safest long-term bet — if you change vendor in 2 years, only the `exporters:` block changes.
+
+### Deploying the collector
+
+- **Docker Compose:** add the collector as another service alongside Mycel; share the log volume or use the Docker log driver.
+- **Kubernetes:** run Fluent Bit / Vector / OTel Collector as a DaemonSet (one per node) tailing `/var/log/containers/*.log`, OR as a sidecar in the Mycel pod. DaemonSet is cheaper at scale; sidecar gives you per-pod isolation.
+- **VM / bare metal:** run the collector as a systemd unit alongside Mycel; point it at journald or at Mycel's log file if you redirect stdout.
+
+The bundled local monitoring stack at [`monitoring/`](https://github.com/matutetandil/mycel/tree/main/monitoring) (Prometheus + Grafana) does not include a log collector by default — for local dev `docker compose logs mycel` is enough. Add Promtail/Vector to that stack when you want LogQL queries locally.
+
+### In-process shipping (future)
+
+Mycel does **not** ship logs over the network from inside the process. There's a fair case for adding a built-in OTLP sink (`logging { sink "otlp" { } }` declared in HCL alongside connectors) for deployments without a collector — small VPS, edge — and it fits Mycel's "configuration, not code" ethos. It's not on the roadmap today; open an issue or a discussion if you have a concrete use case.
+
 ## Grafana Dashboard
 
 ### Import Dashboard
