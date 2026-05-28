@@ -1,11 +1,11 @@
 package slack
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -41,6 +41,11 @@ type Config struct {
 
 	// Timeout for requests
 	Timeout time.Duration
+
+	// Batch configures the connector's message-batching behavior. When nil,
+	// DefaultBatchConfig() is applied (batching enabled). See BatchConfig for
+	// the knobs; opt out with `batch { enabled = false }` in HCL.
+	Batch *BatchConfig
 }
 
 // Message represents a Slack message
@@ -142,9 +147,18 @@ type Connector struct {
 	name       string
 	config     *Config
 	httpClient *http.Client
+	logger     *slog.Logger
+
+	// batcher is non-nil when batching is enabled (the default). When set, the
+	// Write/WriteData/Send path routes through it instead of calling the
+	// webhook/API per message.
+	batcher *batcher
 }
 
-// NewConnector creates a new Slack connector
+// NewConnector creates a new Slack connector. When config.Batch is nil the
+// default-on batcher (window=3s, max_size=50, per-channel) is installed; pass
+// a BatchConfig with Enabled=false to restore the pre-v2.5.0 immediate-send
+// behavior.
 func NewConnector(name string, config *Config) *Connector {
 	if config.Timeout == 0 {
 		config.Timeout = 30 * time.Second
@@ -156,14 +170,36 @@ func NewConnector(name string, config *Config) *Connector {
 	if len(config.APIURL) > 0 && config.APIURL[len(config.APIURL)-1] == '/' {
 		config.APIURL = config.APIURL[:len(config.APIURL)-1]
 	}
+	if config.Batch == nil {
+		config.Batch = DefaultBatchConfig()
+	}
 
-	return &Connector{
+	c := &Connector{
 		name:   name,
 		config: config,
 		httpClient: &http.Client{
 			Timeout: config.Timeout,
 		},
+		logger: slog.Default(),
 	}
+
+	if config.Batch.Enabled {
+		// rawSend is the unbuffered code path the batcher calls when it
+		// flushes. Connector.Send (the public method) routes new traffic
+		// through the batcher instead, so a direct call to rawSend is the only
+		// way out of the batching layer.
+		b, err := newBatcher(config.Batch, c.rawSend, c.logger)
+		if err != nil {
+			// A misconfigured batcher must not silently lose messages; fall
+			// back to immediate sends and tell the operator.
+			c.logger.Warn("slack: failed to init batcher, falling back to direct send",
+				"connector", name,
+				"error", err)
+		} else {
+			c.batcher = b
+		}
+	}
+	return c
 }
 
 // Name returns the connector name
@@ -184,9 +220,37 @@ func (c *Connector) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Send sends a message to Slack
+// Send sends a message to Slack. When batching is enabled (the default), the
+// message is queued and a synthetic Success result is returned immediately;
+// the batcher flushes a single collapsed message per window. When batching is
+// disabled it falls through to rawSend, the pre-v2.5.0 behavior.
 func (c *Connector) Send(ctx context.Context, msg *Message) (*SendResult, error) {
-	// Apply defaults
+	c.applyDefaults(msg)
+	if c.batcher != nil {
+		if err := c.batcher.Submit(ctx, msg); err != nil {
+			return &SendResult{Success: false, Error: err.Error()}, err
+		}
+		return &SendResult{Success: true}, nil
+	}
+	return c.rawSend(ctx, msg)
+}
+
+// rawSend dispatches a message immediately, picking the webhook or Web API
+// path. It is the unbatched code path; both the batcher's flush callback and
+// the disabled-batch Send fall through here.
+func (c *Connector) rawSend(ctx context.Context, msg *Message) (*SendResult, error) {
+	c.applyDefaults(msg)
+	if c.config.WebhookURL != "" {
+		return c.sendViaWebhook(ctx, msg)
+	}
+	return c.sendViaAPI(ctx, msg)
+}
+
+// applyDefaults fills in connector-level defaults for fields the message left
+// blank. Safe to call multiple times — Send and rawSend both invoke it so a
+// message dispatched directly through rawSend (e.g. from the batcher) still
+// gets the per-connector username/icon.
+func (c *Connector) applyDefaults(msg *Message) {
 	if msg.Channel == "" {
 		msg.Channel = c.config.DefaultChannel
 	}
@@ -199,12 +263,6 @@ func (c *Connector) Send(ctx context.Context, msg *Message) (*SendResult, error)
 	if msg.IconURL == "" {
 		msg.IconURL = c.config.IconURL
 	}
-
-	// Use webhook or API based on config
-	if c.config.WebhookURL != "" {
-		return c.sendViaWebhook(ctx, msg)
-	}
-	return c.sendViaAPI(ctx, msg)
 }
 
 func (c *Connector) sendViaWebhook(ctx context.Context, msg *Message) (*SendResult, error) {
@@ -213,13 +271,8 @@ func (c *Connector) sendViaWebhook(ctx context.Context, msg *Message) (*SendResu
 		return &SendResult{Success: false, Error: err.Error()}, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.config.WebhookURL, bytes.NewReader(body))
-	if err != nil {
-		return &SendResult{Success: false, Error: err.Error()}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doWithRateLimitRetry(ctx, "POST", c.config.WebhookURL,
+		map[string]string{"Content-Type": "application/json"}, body)
 	if err != nil {
 		return &SendResult{Success: false, Error: err.Error()}, err
 	}
@@ -251,15 +304,12 @@ func (c *Connector) sendViaAPI(ctx context.Context, msg *Message) (*SendResult, 
 		return &SendResult{Success: false, Error: err.Error()}, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST",
-		c.config.APIURL+"/chat.postMessage", bytes.NewReader(body))
-	if err != nil {
-		return &SendResult{Success: false, Error: err.Error()}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.config.Token)
-
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doWithRateLimitRetry(ctx, "POST",
+		c.config.APIURL+"/chat.postMessage",
+		map[string]string{
+			"Content-Type":  "application/json",
+			"Authorization": "Bearer " + c.config.Token,
+		}, body)
 	if err != nil {
 		return &SendResult{Success: false, Error: err.Error()}, err
 	}
@@ -366,8 +416,16 @@ func (c *Connector) Health(ctx context.Context) error {
 	return nil
 }
 
-// Close closes the connector
+// Close drains the batcher (flushing any pending buckets so a graceful
+// shutdown does not lose queued notifications) and releases HTTP resources.
 func (c *Connector) Close(ctx context.Context) error {
+	if c.batcher != nil {
+		if err := c.batcher.Drain(ctx); err != nil {
+			c.logger.Warn("slack: batcher drain failed during close",
+				"connector", c.name,
+				"error", err)
+		}
+	}
 	c.httpClient.CloseIdleConnections()
 	return nil
 }
@@ -402,6 +460,14 @@ func (f *Factory) Create(ctx context.Context, config *connector.Config) (connect
 		IconURL:        getString(props, "icon_url", ""),
 		Timeout:        getDuration(props, "timeout", 30*time.Second),
 	}
+
+	// `batch { ... }` block — the parser stores it under Properties["batch"].
+	// Absent → DefaultBatchConfig (enabled).
+	batchCfg, err := parseBatchConfig(props["batch"])
+	if err != nil {
+		return nil, fmt.Errorf("slack connector %q: %w", config.Name, err)
+	}
+	cfg.Batch = batchCfg
 
 	return NewConnector(config.Name, cfg), nil
 }
