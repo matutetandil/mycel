@@ -57,6 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   **Behavior change to call out for upgraders:** existing flows that send many Slack notifications per second now coalesce them into one summary per 3-second window. This is a strict improvement when you were already hitting Slack's banner; for code that relied on every message arriving individually within 3s, set `batch { enabled = false }`.
 
+### Added
+
+- **Slack connector handles HTTP 429 from Slack with `Retry-After` backoff.** When `chat.postMessage` or the webhook responds with `429 Too Many Requests`, the connector now parses `Retry-After` (seconds or HTTP-date) and retries once after that delay. The wait is clamped to a 30-second cap so a malicious or buggy server cannot stall the connector indefinitely, and is interrupted by `context.Context` cancellation. This complements the new batching: batching keeps you under Slack's soft "high volume" suppression, and the 429 handler covers the rare burst that still trips the hard rate limit.
+
 ## [2.4.0] - 2026-05-26
 
 ### Added

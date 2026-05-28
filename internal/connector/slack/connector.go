@@ -1,7 +1,6 @@
 package slack
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -272,13 +271,8 @@ func (c *Connector) sendViaWebhook(ctx context.Context, msg *Message) (*SendResu
 		return &SendResult{Success: false, Error: err.Error()}, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.config.WebhookURL, bytes.NewReader(body))
-	if err != nil {
-		return &SendResult{Success: false, Error: err.Error()}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doWithRateLimitRetry(ctx, "POST", c.config.WebhookURL,
+		map[string]string{"Content-Type": "application/json"}, body)
 	if err != nil {
 		return &SendResult{Success: false, Error: err.Error()}, err
 	}
@@ -310,15 +304,12 @@ func (c *Connector) sendViaAPI(ctx context.Context, msg *Message) (*SendResult, 
 		return &SendResult{Success: false, Error: err.Error()}, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST",
-		c.config.APIURL+"/chat.postMessage", bytes.NewReader(body))
-	if err != nil {
-		return &SendResult{Success: false, Error: err.Error()}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.config.Token)
-
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doWithRateLimitRetry(ctx, "POST",
+		c.config.APIURL+"/chat.postMessage",
+		map[string]string{
+			"Content-Type":  "application/json",
+			"Authorization": "Bearer " + c.config.Token,
+		}, body)
 	if err != nil {
 		return &SendResult{Success: false, Error: err.Error()}, err
 	}

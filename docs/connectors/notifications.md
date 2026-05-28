@@ -157,6 +157,11 @@ connector "slack" {
   thread context.
 - Batching is in-process: a hard crash drops the buffered messages. Graceful
   shutdown (`Close()`) drains every bucket before exiting.
+- A `429 Too Many Requests` response from Slack is retried once after the
+  `Retry-After` delay (seconds or HTTP-date), capped at 30 seconds and
+  honoring the request context. This complements batching: batching keeps you
+  under Slack's soft "high volume" suppression; the 429 handler recovers the
+  rare burst that still trips the hard rate limit.
 
 ---
 
