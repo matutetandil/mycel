@@ -107,6 +107,10 @@ func TestConnector_SendViaWebhook(t *testing.T) {
 	cfg := &Config{
 		Name:       "test",
 		WebhookURL: server.URL,
+		// Disable batching: this test verifies the synchronous webhook path,
+		// asserts on the request the server sees. Default-on batching would
+		// return success before any HTTP call happens, defeating the test.
+		Batch: &BatchConfig{Enabled: false},
 	}
 
 	conn := NewConnector("test", cfg)
