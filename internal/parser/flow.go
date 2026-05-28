@@ -851,12 +851,10 @@ func parseTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Transfor
 	return transform, nil
 }
 
-// parseTransformReference parses a transform reference.
+// parseTransformReference parses a transform reference like "transform.foo" → "foo".
+// Kept as a thin wrapper around parseRefName for symmetry with other callers.
 func parseTransformReference(ref string) string {
-	if strings.HasPrefix(ref, "transform.") {
-		return strings.TrimPrefix(ref, "transform.")
-	}
-	return ref
+	return parseRefName("transform", ref)
 }
 
 // extractExpressionText extracts the raw text from an HCL expression.
@@ -1698,11 +1696,9 @@ func ctyValueToInterface(val cty.Value) interface{} {
 }
 
 // parseCacheReference parses a cache reference (e.g., "cache.products" -> "products").
+// Kept as a thin wrapper around parseRefName for symmetry with other callers.
 func parseCacheReference(ref string) string {
-	if strings.HasPrefix(ref, "cache.") {
-		return strings.TrimPrefix(ref, "cache.")
-	}
-	return ref
+	return parseRefName("cache", ref)
 }
 
 // parseCacheBlock parses a cache block in a flow.
