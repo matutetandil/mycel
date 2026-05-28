@@ -1,0 +1,83 @@
+name: Bug report
+description: Report something that isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill in the details below.
+        For **security vulnerabilities**, do not file a public issue — see
+        [SECURITY.md](../../security/policy).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Minimal config to reproduce
+      description: The smallest `.mycel` config (connectors + flow) that triggers the issue. Redact any secrets.
+      render: hcl
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How you triggered it (the request, message, or command).
+      placeholder: |
+        1. `mycel start --config ./...`
+        2. `curl -X POST localhost:8080/...`
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Mycel version
+      description: Output of `mycel version` (or the Docker image tag).
+      placeholder: "2.4.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: connector
+    attributes:
+      label: Connector(s) involved
+      description: Which connector type(s) are part of the flow, if any.
+      multiple: true
+      options:
+        - REST / HTTP
+        - Database (SQLite/PostgreSQL/MySQL)
+        - MongoDB
+        - GraphQL
+        - gRPC
+        - Message queue (RabbitMQ/Kafka/Redis)
+        - MQTT
+        - TCP
+        - Files / S3 / FTP
+        - WebSocket / SSE / CDC
+        - Cache
+        - Notifications
+        - WASM plugin
+        - Other / not connector-specific
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / output
+      description: Relevant logs, stack traces, or error output (secrets redacted).
+      render: shell
+    validations:
+      required: false
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, architecture, and how you run Mycel (binary, Docker, k8s/Helm).
+      placeholder: "macOS arm64, Docker mdenda/mycel:2.4.0"
+    validations:
+      required: false

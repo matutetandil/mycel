@@ -1,0 +1,49 @@
+name: Feature request
+description: Suggest a new capability or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! Mycel is *configuration, not code* — please frame
+        the request in terms of what you'd declare in HCL and what the runtime
+        should do with it.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: The use case or pain point. What can't you express today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would the config look like, and how should the runtime behave?
+      render: hcl
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you tried (existing connectors, transforms, steps, aspects, WASM plugins).
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - New connector
+        - Existing connector enhancement
+        - Flow / orchestration
+        - Transforms / CEL
+        - Auth / security
+        - Observability (metrics/health/tracing)
+        - Plugins / WASM
+        - CLI / tooling
+        - Docs
+        - Other
+    validations:
+      required: false
