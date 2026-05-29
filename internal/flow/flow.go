@@ -846,6 +846,18 @@ type SyncStorageConfig struct {
 
 // LockConfig holds mutex lock configuration for a flow.
 type LockConfig struct {
+	// Name is set when the block is declared top-level (e.g.
+	// `lock "user_mutex" { ... }`) and registered as reusable. Empty for
+	// inline blocks defined directly inside a flow.
+	Name string
+
+	// Use names a top-level lock block whose fields are pulled in as the
+	// base. Inline fields on this block override the corresponding fields
+	// of the named base, attribute by attribute. An inline storage block
+	// replaces the named base's storage block wholesale (no deep merge).
+	// Empty when no reuse is requested.
+	Use string
+
 	// Storage defines the storage backend for this lock.
 	Storage *SyncStorageConfig
 

@@ -28,6 +28,7 @@ import (
 func (c *Configuration) ResolveReferences() error {
 	namedDedupes := indexByName(c.NamedDedupes, func(d *flow.DedupeConfig) string { return d.Name })
 	namedRetries := indexByName(c.NamedRetries, func(r *flow.RetryConfig) string { return r.Name })
+	namedLocks := indexByName(c.NamedLocks, func(l *flow.LockConfig) string { return l.Name })
 
 	for _, f := range c.Flows {
 		if f.Dedupe != nil && f.Dedupe.Use != "" {
@@ -43,6 +44,13 @@ func (c *Configuration) ResolveReferences() error {
 				return fmt.Errorf("flow %q: %w", f.Name, err)
 			}
 			f.ErrorHandling.Retry = merged
+		}
+		if f.Lock != nil && f.Lock.Use != "" {
+			merged, err := resolveLock(f.Lock, namedLocks)
+			if err != nil {
+				return fmt.Errorf("flow %q: %w", f.Name, err)
+			}
+			f.Lock = merged
 		}
 	}
 	return nil
@@ -134,6 +142,44 @@ func resolveRetry(inline *flow.RetryConfig, named map[string]*flow.RetryConfig) 
 	}
 	if inline.Backoff != "" {
 		merged.Backoff = inline.Backoff
+	}
+	return &merged, nil
+}
+
+// resolveLock overlays an inline lock block (with `use` set) on top of the
+// named base it references. String attributes override when non-empty. The
+// storage sub-block is replaced wholesale when the inline block defines one
+// (no deep merge — see the v2.6 plan: sub-blocks replace, attributes overlay).
+//
+// Caveat for `wait`: a bool cannot distinguish "unset" from "false", so an
+// inline `wait = true` overrides the base but an inline `wait = false` (or an
+// omitted wait) inherits the base value. To force no-wait against a base that
+// waits, define a separate named lock or inline the block fully. (The upcoming
+// table-driven refactor can resolve this generically via presence tracking.)
+func resolveLock(inline *flow.LockConfig, named map[string]*flow.LockConfig) (*flow.LockConfig, error) {
+	base, ok := named[inline.Use]
+	if !ok {
+		return nil, fmt.Errorf("lock references unknown name %q (available: %s)", inline.Use, availableNames(named))
+	}
+
+	merged := *base
+	merged.Name = ""        // inline blocks have no name
+	merged.Use = inline.Use // preserve the reference for tracing/debugging
+
+	if inline.Key != "" {
+		merged.Key = inline.Key
+	}
+	if inline.Timeout != "" {
+		merged.Timeout = inline.Timeout
+	}
+	if inline.Retry != "" {
+		merged.Retry = inline.Retry
+	}
+	if inline.Wait {
+		merged.Wait = true
+	}
+	if inline.Storage != nil {
+		merged.Storage = inline.Storage
 	}
 	return &merged, nil
 }

@@ -2066,10 +2066,41 @@ func parseNamedCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.NamedCa
 //	  wait    = true
 //	  retry   = "100ms"
 //	}
+//
+// When `use = "lock.<name>"` is present, the block becomes a reference to a
+// top-level reusable lock block (see parseNamedLockBlock). All other fields
+// are optional in that case and act as attribute-level overrides on top of
+// the named base; the reference is folded in by ResolveReferences.
 func parseLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, error) {
+	return parseLockBody(block, ctx, false)
+}
+
+// parseNamedLockBlock parses a top-level `lock "<name>" { ... }` block. It
+// must specify a key because there is no base to merge against. The resulting
+// LockConfig is registered in Configuration.NamedLocks and can be referenced
+// from flow-level lock blocks via `use = "lock.<name>"`.
+func parseNamedLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("lock block requires a name label when declared at top level")
+	}
+	lock, err := parseLockBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	lock.Name = block.Labels[0]
+	return lock, nil
+}
+
+// parseLockBody is the shared implementation used by inline and named lock
+// blocks. When strict is true (named top-level) the block must specify a key
+// and cannot carry a `use`. When strict is false (inline) the key is optional
+// only when this block references a named base (`use != ""`); a self-contained
+// inline lock still requires a key.
+func parseLockBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.LockConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "key", Required: true},
+			{Name: "use"},
+			{Name: "key"},
 			{Name: "timeout"},
 			{Name: "wait"},
 			{Name: "retry"},
@@ -2085,6 +2116,14 @@ func parseLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, e
 	}
 
 	lock := &flow.LockConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("lock use error: %s", diags.Error())
+		}
+		lock.Use = parseRefName("lock", val.AsString())
+	}
 
 	for _, nestedBlock := range content.Blocks {
 		if nestedBlock.Type == "storage" {
@@ -2126,6 +2165,18 @@ func parseLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, e
 			return nil, fmt.Errorf("lock retry error: %s", diags.Error())
 		}
 		lock.Retry = val.AsString()
+	}
+
+	if strict {
+		if lock.Use != "" {
+			return nil, fmt.Errorf("top-level lock %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if lock.Key == "" {
+			return nil, fmt.Errorf("top-level lock %q must specify a key expression", block.Labels[0])
+		}
+	} else if lock.Use == "" && lock.Key == "" {
+		// Inline lock without `use` must be self-contained (current behavior).
+		return nil, fmt.Errorf("lock block must specify a key expression (or `use` a named one)")
 	}
 
 	return lock, nil

@@ -62,6 +62,10 @@ type Configuration struct {
 	// error_handling.retry blocks via `use = "retry.<name>"`.
 	NamedRetries []*flow.RetryConfig
 
+	// NamedLocks are reusable lock configurations. Referenced from
+	// flow-level lock blocks via `use = "lock.<name>"`.
+	NamedLocks []*flow.LockConfig
+
 	// Aspects are cross-cutting concern configurations.
 	Aspects []*aspect.Config
 
@@ -138,6 +142,7 @@ func NewConfiguration() *Configuration {
 		NamedCaches:   make([]*flow.NamedCacheConfig, 0),
 		NamedDedupes:  make([]*flow.DedupeConfig, 0),
 		NamedRetries:  make([]*flow.RetryConfig, 0),
+		NamedLocks:    make([]*flow.LockConfig, 0),
 		Aspects:       make([]*aspect.Config, 0),
 		Validators:    make([]*validator.Config, 0),
 		Functions:     make([]*functions.Config, 0),
@@ -157,6 +162,7 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.NamedCaches = append(c.NamedCaches, other.NamedCaches...)
 	c.NamedDedupes = append(c.NamedDedupes, other.NamedDedupes...)
 	c.NamedRetries = append(c.NamedRetries, other.NamedRetries...)
+	c.NamedLocks = append(c.NamedLocks, other.NamedLocks...)
 	c.Aspects = append(c.Aspects, other.Aspects...)
 	c.Validators = append(c.Validators, other.Validators...)
 	c.Functions = append(c.Functions, other.Functions...)
@@ -262,6 +268,13 @@ func (c *Configuration) ValidateUniqueNames() error {
 			keys := make([]string, len(c.NamedRetries))
 			for i, r := range c.NamedRetries {
 				keys[i] = "retry:" + r.Name
+			}
+			return keys
+		}},
+		{"lock", func() []string {
+			keys := make([]string, len(c.NamedLocks))
+			for i, l := range c.NamedLocks {
+				keys[i] = "lock:" + l.Name
 			}
 			return keys
 		}},
@@ -503,6 +516,14 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 			config.NamedRetries = append(config.NamedRetries, retry)
 			config.SourceFiles["retry:"+retry.Name] = append(config.SourceFiles["retry:"+retry.Name], path)
 
+		case "lock":
+			lock, err := parseNamedLockBlock(block, p.evalCtx)
+			if err != nil {
+				return nil, fmt.Errorf("lock parse error: %w", err)
+			}
+			config.NamedLocks = append(config.NamedLocks, lock)
+			config.SourceFiles["lock:"+lock.Name] = append(config.SourceFiles["lock:"+lock.Name], path)
+
 		case "aspect":
 			asp, err := parseAspectBlock(block, p.evalCtx)
 			if err != nil {
@@ -591,6 +612,7 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "cache", LabelNames: []string{"name"}},
 			{Type: "dedupe", LabelNames: []string{"name"}},
 			{Type: "retry", LabelNames: []string{"name"}},
+			{Type: "lock", LabelNames: []string{"name"}},
 			{Type: "aspect", LabelNames: []string{"name"}},
 			{Type: "validator", LabelNames: []string{"name"}},
 			{Type: "functions", LabelNames: []string{"name"}},
