@@ -10,6 +10,12 @@ package flow
 // attributes are unused (the parser rejects that combination), and the `to`
 // connector must be of type "database".
 type TransactionConfig struct {
+	// Reusable carries the Name/Use fields. A named transaction is declared
+	// top-level and referenced from a `to { transaction { use = ... } }`
+	// block. Override is wholesale: if the referencing block lists its own
+	// statements they replace the named base's entirely.
+	Reusable
+
 	// Statements is the ordered list of exec/each entries. Order is textual
 	// (the order the blocks appear in the HCL file) and is significant:
 	// LAST_INSERT_ID / captured SELECT values flow forward to later statements.

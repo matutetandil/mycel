@@ -963,8 +963,37 @@ func parseRequireBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RequireCon
 }
 
 // parseErrorHandlingBlock parses an error_handling block.
+//
+// When `use = "error_handling.<name>"` is present, the block references a
+// top-level reusable error_handling block and every sub-block is an optional
+// override that replaces the corresponding named sub-block wholesale.
 func parseErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ErrorHandlingConfig, error) {
+	return parseErrorHandlingBody(block, ctx, false)
+}
+
+// parseNamedErrorHandlingBlock parses a top-level
+// `error_handling "<name>" { ... }` block, registered in
+// Configuration.NamedErrorHandlings and referenced via
+// use = "error_handling.<name>".
+func parseNamedErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ErrorHandlingConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("error_handling block requires a name label when declared at top level")
+	}
+	eh, err := parseErrorHandlingBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	eh.Name = block.Labels[0]
+	return eh, nil
+}
+
+// parseErrorHandlingBody is shared by inline and named error_handling blocks.
+// Strict (named top-level) requires at least one sub-block and forbids `use`.
+func parseErrorHandlingBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.ErrorHandlingConfig, error) {
 	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "use"},
+		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "retry"},
 			{Type: "fallback"},
@@ -980,6 +1009,14 @@ func parseErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Erro
 	}
 
 	eh := &flow.ErrorHandlingConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("error_handling use error: %s", diags.Error())
+		}
+		eh.Use = parseRefName("error_handling", val.AsString())
+	}
 
 	for _, nestedBlock := range content.Blocks {
 		switch nestedBlock.Type {
@@ -1013,6 +1050,15 @@ func parseErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Erro
 				return nil, fmt.Errorf("on_error block error: %w", err)
 			}
 			eh.OnError = handler
+		}
+	}
+
+	if strict {
+		if eh.Use != "" {
+			return nil, fmt.Errorf("top-level error_handling %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if eh.Retry == nil && eh.Fallback == nil && eh.ErrorResponse == nil && eh.OnTimeout == nil && eh.OnError == nil {
+			return nil, fmt.Errorf("top-level error_handling %q must define at least one of retry/fallback/error_response/on_timeout/on_error", block.Labels[0])
 		}
 	}
 
@@ -2485,8 +2531,30 @@ func parseSemaphoreBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*f
 //	  }
 //	}
 func parseCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CoordinateConfig, error) {
+	return parseCoordinateBody(block, ctx, false)
+}
+
+// parseNamedCoordinateBlock parses a top-level `coordinate "<name>" { ... }`
+// block, registered in Configuration.NamedCoordinates and referenced via
+// use = "coordinate.<name>".
+func parseNamedCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CoordinateConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("coordinate block requires a name label when declared at top level")
+	}
+	coord, err := parseCoordinateBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	coord.Name = block.Labels[0]
+	return coord, nil
+}
+
+// parseCoordinateBody is shared by inline and named coordinate blocks. Strict
+// (named top-level) requires a storage block and forbids `use`.
+func parseCoordinateBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.CoordinateConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
+			{Name: "use"},
 			{Name: "timeout"},
 			{Name: "on_timeout"},
 			{Name: "max_retries"},
@@ -2506,6 +2574,14 @@ func parseCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Coordin
 	}
 
 	coord := &flow.CoordinateConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("coordinate use error: %s", diags.Error())
+		}
+		coord.Use = parseRefName("coordinate", val.AsString())
+	}
 
 	if attr, ok := content.Attributes["timeout"]; ok {
 		val, diags := attr.Expr.Value(ctx)
@@ -2576,6 +2652,15 @@ func parseCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Coordin
 				return nil, fmt.Errorf("preflight block error: %w", err)
 			}
 			coord.Preflight = preflight
+		}
+	}
+
+	if strict {
+		if coord.Use != "" {
+			return nil, fmt.Errorf("top-level coordinate %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if coord.Storage == nil {
+			return nil, fmt.Errorf("top-level coordinate %q requires a storage block", block.Labels[0])
 		}
 	}
 

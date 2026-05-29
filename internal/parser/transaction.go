@@ -14,15 +14,77 @@ import (
 // it iterates the native hclsyntax body's Blocks directly rather than going
 // through a schema, which would not preserve textual order across a
 // heterogeneous exec/each mix.
+//
+// When the block carries `use = "transaction.<name>"` it references a top-level
+// reusable transaction; statements become optional (a reference with no
+// statements pulls in the named base; statements, if present, replace it
+// wholesale — resolved by ResolveReferences).
 func parseTransactionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.TransactionConfig, error) {
+	return parseTransactionBody(block, ctx, false)
+}
+
+// parseNamedTransactionBlock parses a top-level `transaction "<name>" { ... }`
+// block, registered in Configuration.NamedTransactions and referenced from a
+// `to` block via use = "transaction.<name>".
+func parseNamedTransactionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.TransactionConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("transaction block requires a name label when declared at top level")
+	}
+	tx, err := parseTransactionBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	tx.Name = block.Labels[0]
+	return tx, nil
+}
+
+// parseTransactionBody is shared by inline and named transaction blocks. Strict
+// (named top-level) requires at least one statement and forbids `use`. Inline
+// blocks require a statement only when they are not a reference.
+func parseTransactionBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.TransactionConfig, error) {
+	use, err := parseTxUse(block.Body, ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	stmts, err := parseTxStatements(block.Body, ctx)
 	if err != nil {
 		return nil, err
 	}
-	if len(stmts) == 0 {
-		return nil, fmt.Errorf("transaction block must contain at least one exec or each")
+
+	if strict {
+		if use != "" {
+			return nil, fmt.Errorf("top-level transaction %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if len(stmts) == 0 {
+			return nil, fmt.Errorf("top-level transaction %q must contain at least one exec or each", block.Labels[0])
+		}
+	} else if use == "" && len(stmts) == 0 {
+		return nil, fmt.Errorf("transaction block must contain at least one exec or each (or `use` a named one)")
 	}
-	return &flow.TransactionConfig{Statements: stmts}, nil
+
+	tx := &flow.TransactionConfig{Statements: stmts}
+	tx.Use = use
+	return tx, nil
+}
+
+// parseTxUse reads an optional `use` attribute from a transaction body. The
+// body is iterated as native hclsyntax (same as the statements) so the
+// attribute can coexist with the ordered exec/each blocks.
+func parseTxUse(body hcl.Body, ctx *hcl.EvalContext) (string, error) {
+	syntaxBody, ok := body.(*hclsyntax.Body)
+	if !ok {
+		return "", nil
+	}
+	attr, ok := syntaxBody.Attributes["use"]
+	if !ok {
+		return "", nil
+	}
+	val, diags := attr.Expr.Value(ctx)
+	if diags.HasErrors() {
+		return "", fmt.Errorf("transaction use error: %s", diags.Error())
+	}
+	return parseRefName("transaction", val.AsString()), nil
 }
 
 // parseTxStatements reads the ordered exec/each children of a transaction (or

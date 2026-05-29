@@ -40,8 +40,12 @@ type reusableKind struct {
 	newResolver func(cfg *Configuration) func(f *flow.Config) error
 }
 
-// reusableKinds is the registry. Order only affects the deterministic order of
-// rootSchema entries and validation passes; it has no semantic effect.
+// reusableKinds is the registry. Order is mostly cosmetic (it sets the order of
+// rootSchema entries and validation passes), with ONE semantic constraint:
+// error_handling must come before retry. A reused error_handling can pull in a
+// retry that itself carries `use = "retry.<name>"`; ResolveReferences materializes
+// the error_handling first so the later retry pass sees and folds that retry.
+// Hence retry is intentionally last.
 var reusableKinds = []reusableKind{
 	{
 		typeName: "dedupe",
@@ -68,35 +72,6 @@ var reusableKinds = []reusableKind{
 					return err
 				}
 				f.Dedupe = merged
-				return nil
-			}
-		},
-	},
-	{
-		typeName: "retry",
-		parseRegister: func(p *HCLParser, block *hcl.Block, cfg *Configuration, path string) error {
-			r, err := parseNamedRetryBlock(block, p.evalCtx)
-			if err != nil {
-				return fmt.Errorf("retry parse error: %w", err)
-			}
-			cfg.NamedRetries = append(cfg.NamedRetries, r)
-			cfg.recordSource("retry", r.Name, path)
-			return nil
-		},
-		uniqueKeys: func(cfg *Configuration) []string {
-			return nameKeys("retry", cfg.NamedRetries, func(r *flow.RetryConfig) string { return r.Name })
-		},
-		newResolver: func(cfg *Configuration) func(f *flow.Config) error {
-			idx := indexByName(cfg.NamedRetries, func(r *flow.RetryConfig) string { return r.Name })
-			return func(f *flow.Config) error {
-				if f.ErrorHandling == nil || f.ErrorHandling.Retry == nil || f.ErrorHandling.Retry.Use == "" {
-					return nil
-				}
-				merged, err := resolveRef("retry", f.ErrorHandling.Retry.Use, f.ErrorHandling.Retry, idx, mergeRetry)
-				if err != nil {
-					return err
-				}
-				f.ErrorHandling.Retry = merged
 				return nil
 			}
 		},
@@ -184,6 +159,138 @@ var reusableKinds = []reusableKind{
 					return err
 				}
 				f.SequenceGuard = merged
+				return nil
+			}
+		},
+	},
+	{
+		typeName: "coordinate",
+		parseRegister: func(p *HCLParser, block *hcl.Block, cfg *Configuration, path string) error {
+			c, err := parseNamedCoordinateBlock(block, p.evalCtx)
+			if err != nil {
+				return fmt.Errorf("coordinate parse error: %w", err)
+			}
+			cfg.NamedCoordinates = append(cfg.NamedCoordinates, c)
+			cfg.recordSource("coordinate", c.Name, path)
+			return nil
+		},
+		uniqueKeys: func(cfg *Configuration) []string {
+			return nameKeys("coordinate", cfg.NamedCoordinates, func(c *flow.CoordinateConfig) string { return c.Name })
+		},
+		newResolver: func(cfg *Configuration) func(f *flow.Config) error {
+			idx := indexByName(cfg.NamedCoordinates, func(c *flow.CoordinateConfig) string { return c.Name })
+			return func(f *flow.Config) error {
+				if f.Coordinate == nil || f.Coordinate.Use == "" {
+					return nil
+				}
+				merged, err := resolveRef("coordinate", f.Coordinate.Use, f.Coordinate, idx, mergeCoordinate)
+				if err != nil {
+					return err
+				}
+				f.Coordinate = merged
+				return nil
+			}
+		},
+	},
+	{
+		typeName: "transaction",
+		parseRegister: func(p *HCLParser, block *hcl.Block, cfg *Configuration, path string) error {
+			tx, err := parseNamedTransactionBlock(block, p.evalCtx)
+			if err != nil {
+				return fmt.Errorf("transaction parse error: %w", err)
+			}
+			cfg.NamedTransactions = append(cfg.NamedTransactions, tx)
+			cfg.recordSource("transaction", tx.Name, path)
+			return nil
+		},
+		uniqueKeys: func(cfg *Configuration) []string {
+			return nameKeys("transaction", cfg.NamedTransactions, func(tx *flow.TransactionConfig) string { return tx.Name })
+		},
+		newResolver: func(cfg *Configuration) func(f *flow.Config) error {
+			idx := indexByName(cfg.NamedTransactions, func(tx *flow.TransactionConfig) string { return tx.Name })
+			resolveTo := func(to *flow.ToConfig) error {
+				if to == nil || to.Transaction == nil || to.Transaction.Use == "" {
+					return nil
+				}
+				merged, err := resolveRef("transaction", to.Transaction.Use, to.Transaction, idx, mergeTransaction)
+				if err != nil {
+					return err
+				}
+				to.Transaction = merged
+				return nil
+			}
+			return func(f *flow.Config) error {
+				// Transactions can live in the single `to` and in every
+				// fan-out `to` (MultiTo); resolve them all.
+				if err := resolveTo(f.To); err != nil {
+					return err
+				}
+				for _, to := range f.MultiTo {
+					if err := resolveTo(to); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+		},
+	},
+	{
+		typeName: "error_handling",
+		parseRegister: func(p *HCLParser, block *hcl.Block, cfg *Configuration, path string) error {
+			eh, err := parseNamedErrorHandlingBlock(block, p.evalCtx)
+			if err != nil {
+				return fmt.Errorf("error_handling parse error: %w", err)
+			}
+			cfg.NamedErrorHandlings = append(cfg.NamedErrorHandlings, eh)
+			cfg.recordSource("error_handling", eh.Name, path)
+			return nil
+		},
+		uniqueKeys: func(cfg *Configuration) []string {
+			return nameKeys("error_handling", cfg.NamedErrorHandlings, func(eh *flow.ErrorHandlingConfig) string { return eh.Name })
+		},
+		newResolver: func(cfg *Configuration) func(f *flow.Config) error {
+			idx := indexByName(cfg.NamedErrorHandlings, func(eh *flow.ErrorHandlingConfig) string { return eh.Name })
+			return func(f *flow.Config) error {
+				if f.ErrorHandling == nil || f.ErrorHandling.Use == "" {
+					return nil
+				}
+				merged, err := resolveRef("error_handling", f.ErrorHandling.Use, f.ErrorHandling, idx, mergeErrorHandling)
+				if err != nil {
+					return err
+				}
+				f.ErrorHandling = merged
+				return nil
+			}
+		},
+	},
+	{
+		// retry is intentionally LAST — see the ordering note above. A retry
+		// materialized onto a flow by the error_handling pass (carrying its
+		// own `use`) is folded here.
+		typeName: "retry",
+		parseRegister: func(p *HCLParser, block *hcl.Block, cfg *Configuration, path string) error {
+			r, err := parseNamedRetryBlock(block, p.evalCtx)
+			if err != nil {
+				return fmt.Errorf("retry parse error: %w", err)
+			}
+			cfg.NamedRetries = append(cfg.NamedRetries, r)
+			cfg.recordSource("retry", r.Name, path)
+			return nil
+		},
+		uniqueKeys: func(cfg *Configuration) []string {
+			return nameKeys("retry", cfg.NamedRetries, func(r *flow.RetryConfig) string { return r.Name })
+		},
+		newResolver: func(cfg *Configuration) func(f *flow.Config) error {
+			idx := indexByName(cfg.NamedRetries, func(r *flow.RetryConfig) string { return r.Name })
+			return func(f *flow.Config) error {
+				if f.ErrorHandling == nil || f.ErrorHandling.Retry == nil || f.ErrorHandling.Retry.Use == "" {
+					return nil
+				}
+				merged, err := resolveRef("retry", f.ErrorHandling.Retry.Use, f.ErrorHandling.Retry, idx, mergeRetry)
+				if err != nil {
+					return err
+				}
+				f.ErrorHandling.Retry = merged
 				return nil
 			}
 		},

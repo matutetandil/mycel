@@ -178,6 +178,84 @@ func mergeSemaphore(base, inline *flow.SemaphoreConfig) *flow.SemaphoreConfig {
 	return &merged
 }
 
+// mergeCoordinate overlays an inline coordinate block on top of the named
+// base. Scalars override when non-zero; each sub-block (storage/wait/signal/
+// preflight) is replaced wholesale when the inline block defines it.
+func mergeCoordinate(base, inline *flow.CoordinateConfig) *flow.CoordinateConfig {
+	merged := *base
+	merged.Name = ""
+	merged.Use = inline.Use
+
+	if inline.Timeout != "" {
+		merged.Timeout = inline.Timeout
+	}
+	if inline.OnTimeout != "" {
+		merged.OnTimeout = inline.OnTimeout
+	}
+	if inline.MaxRetries != 0 {
+		merged.MaxRetries = inline.MaxRetries
+	}
+	if inline.MaxConcurrentWaits != 0 {
+		merged.MaxConcurrentWaits = inline.MaxConcurrentWaits
+	}
+	if inline.Storage != nil {
+		merged.Storage = inline.Storage
+	}
+	if inline.Wait != nil {
+		merged.Wait = inline.Wait
+	}
+	if inline.Signal != nil {
+		merged.Signal = inline.Signal
+	}
+	if inline.Preflight != nil {
+		merged.Preflight = inline.Preflight
+	}
+	return &merged
+}
+
+// mergeTransaction overlays an inline transaction reference on top of the named
+// base. A transaction has no scalar fields to overlay: if the referencing block
+// lists its own statements they replace the named base's wholesale, otherwise
+// the base's statements are used as-is.
+func mergeTransaction(base, inline *flow.TransactionConfig) *flow.TransactionConfig {
+	merged := *base
+	merged.Name = ""
+	merged.Use = inline.Use
+
+	if len(inline.Statements) > 0 {
+		merged.Statements = inline.Statements
+	}
+	return &merged
+}
+
+// mergeErrorHandling overlays an inline error_handling block on top of the
+// named base. Every member is a sub-block, so each is replaced wholesale when
+// the inline block defines it. A retry pulled in here that itself carries a
+// `use` is resolved by the retry pass, which runs after this one (see the
+// reusableKinds registry ordering).
+func mergeErrorHandling(base, inline *flow.ErrorHandlingConfig) *flow.ErrorHandlingConfig {
+	merged := *base
+	merged.Name = ""
+	merged.Use = inline.Use
+
+	if inline.Retry != nil {
+		merged.Retry = inline.Retry
+	}
+	if inline.Fallback != nil {
+		merged.Fallback = inline.Fallback
+	}
+	if inline.ErrorResponse != nil {
+		merged.ErrorResponse = inline.ErrorResponse
+	}
+	if inline.OnTimeout != nil {
+		merged.OnTimeout = inline.OnTimeout
+	}
+	if inline.OnError != nil {
+		merged.OnError = inline.OnError
+	}
+	return &merged
+}
+
 // mergeSequenceGuard overlays an inline sequence_guard block on top of the
 // named base. Scalars override when non-empty; the storage sub-block is
 // replaced wholesale.

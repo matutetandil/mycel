@@ -550,6 +550,14 @@ type RequireConfig struct {
 
 // ErrorHandlingConfig holds error handling settings.
 type ErrorHandlingConfig struct {
+	// Reusable carries the Name/Use fields. A named error_handling block is
+	// referenced from a flow via use = "error_handling.<name>". Inline
+	// sub-blocks (retry/fallback/error_response/on_timeout/on_error) replace
+	// the named base's wholesale. A retry pulled in this way that itself
+	// carries use = "retry.<name>" is resolved afterwards (error_handling is
+	// resolved before retry — see the reusableKinds registry).
+	Reusable
+
 	// Retry settings for automatic retries on failure.
 	Retry *RetryConfig
 
@@ -941,6 +949,12 @@ type SequenceGuardConfig struct {
 
 // CoordinateConfig holds coordination configuration for a flow.
 type CoordinateConfig struct {
+	// Reusable carries the Name/Use fields. A named coordinate is referenced
+	// from a flow-level coordinate block via use = "coordinate.<name>".
+	// Inline sub-blocks (storage/wait/signal/preflight) replace the named
+	// base's wholesale; scalars override individually.
+	Reusable
+
 	// Storage defines the storage backend for this coordinator.
 	Storage *SyncStorageConfig
 

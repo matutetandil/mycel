@@ -75,6 +75,19 @@ type Configuration struct {
 	// `use = "sequence_guard.<name>"`.
 	NamedSequenceGuards []*flow.SequenceGuardConfig
 
+	// NamedCoordinates are reusable coordinate configurations. Referenced
+	// from flow-level coordinate blocks via `use = "coordinate.<name>"`.
+	NamedCoordinates []*flow.CoordinateConfig
+
+	// NamedTransactions are reusable transaction configurations. Referenced
+	// from `to { transaction { use = "transaction.<name>" } }`.
+	NamedTransactions []*flow.TransactionConfig
+
+	// NamedErrorHandlings are reusable error_handling configurations.
+	// Referenced from flow-level error_handling blocks via
+	// `use = "error_handling.<name>"`.
+	NamedErrorHandlings []*flow.ErrorHandlingConfig
+
 	// Aspects are cross-cutting concern configurations.
 	Aspects []*aspect.Config
 
@@ -154,6 +167,9 @@ func NewConfiguration() *Configuration {
 		NamedLocks:          make([]*flow.LockConfig, 0),
 		NamedSemaphores:     make([]*flow.SemaphoreConfig, 0),
 		NamedSequenceGuards: make([]*flow.SequenceGuardConfig, 0),
+		NamedCoordinates:    make([]*flow.CoordinateConfig, 0),
+		NamedTransactions:   make([]*flow.TransactionConfig, 0),
+		NamedErrorHandlings: make([]*flow.ErrorHandlingConfig, 0),
 		Aspects:             make([]*aspect.Config, 0),
 		Validators:          make([]*validator.Config, 0),
 		Functions:           make([]*functions.Config, 0),
@@ -176,6 +192,9 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.NamedLocks = append(c.NamedLocks, other.NamedLocks...)
 	c.NamedSemaphores = append(c.NamedSemaphores, other.NamedSemaphores...)
 	c.NamedSequenceGuards = append(c.NamedSequenceGuards, other.NamedSequenceGuards...)
+	c.NamedCoordinates = append(c.NamedCoordinates, other.NamedCoordinates...)
+	c.NamedTransactions = append(c.NamedTransactions, other.NamedTransactions...)
+	c.NamedErrorHandlings = append(c.NamedErrorHandlings, other.NamedErrorHandlings...)
 	c.Aspects = append(c.Aspects, other.Aspects...)
 	c.Validators = append(c.Validators, other.Validators...)
 	c.Functions = append(c.Functions, other.Functions...)
