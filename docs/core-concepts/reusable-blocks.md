@@ -1,17 +1,25 @@
-# Reusable Inline Blocks
+# Reusable Blocks
 
 > Since v2.6.0
 
-Many flows share the same deduplication policy, the same retry/error strategy,
-the same lock backend, the same response envelope. Instead of copy-pasting those
-blocks into every flow, declare each one **once** at the top level with a name,
-then **reference** it from any flow with `use = "<kind>.<name>"`.
+Think of an inline block as an **anonymous function** and a named block as a
+**named function**. Writing a `dedupe`/`retry`/`lock`/`response`/… block
+directly inside a flow is the anonymous form: quick, local, fine for a genuine
+one-off. The moment the same policy shows up in a second flow, you're
+copy-pasting an anonymous function — and you should give it a name instead.
 
-This is the same mechanism `transform` and `cache` already used — now extended
-to every inline block.
+**Naming reusable blocks is the recommended way to write Mycel configs.**
+Declare the block **once** at the top level with a name, then **reference** it
+from any flow with `use = "<kind>.<name>"`. One definition becomes the single
+source of truth: change the retry budget or the dedupe key once and every flow
+that references it follows. It also makes each flow read as intent ("dedupe with
+the standard policy") instead of a wall of repeated configuration.
+
+This is the same mechanism `transform` and `cache` always used — now available
+for every inline block.
 
 ```hcl
-# Declare once, top level:
+# Declare once, top level — the "named function":
 dedupe "standard" {
   cache = "fingerprints"
   key   = "'item:' + input.id"
@@ -22,13 +30,25 @@ dedupe "standard" {
   }
 }
 
-# Reference from any number of flows:
+# Reference it from any number of flows:
 flow "ingest_products" {
   # ...
   dedupe { use = "dedupe.standard" }
   # ...
 }
 ```
+
+## When to name, when to inline
+
+| Use a **named** block (recommended) | Inline (anonymous) is fine |
+|---|---|
+| The policy is, or might be, shared by more than one flow | A genuinely one-off block used by a single flow |
+| You want one place to tune retries / TTLs / lock keys | A throwaway value while prototyping |
+| You want flows to read as intent, not configuration | |
+
+A good rule of thumb: **if you copy-paste a block, name it instead.** There is
+no runtime cost — references are resolved once at config load into the same
+self-contained block the runtime would have seen inline.
 
 ## Overriding
 

@@ -1,8 +1,11 @@
-# Reusable Inline Blocks
+# Reusable Blocks
 
-Demonstrates declaring inline blocks **once** at the top level and referencing
-them from multiple flows with `use = "<kind>.<name>"`, with optional inline
-overrides. Introduced in Mycel v2.6.0.
+Demonstrates the **recommended** way to write Mycel configs: declare a block
+**once** at the top level with a name and reference it from multiple flows with
+`use = "<kind>.<name>"` (with optional inline overrides), instead of
+copy-pasting the same block into every flow. Think named vs anonymous functions
+— inline is fine for a one-off, but the moment a policy is shared, name it.
+Introduced in Mycel v2.6.0.
 
 ## Files
 
