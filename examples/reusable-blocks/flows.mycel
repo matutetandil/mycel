@@ -1,0 +1,78 @@
+# Flows that reuse the named blocks from reusable.mycel.
+
+# Ingest products: reuses the standard dedupe, the resilient error policy, the
+# tenant gate, and the response envelope — all by reference, no copy-paste.
+flow "ingest_products" {
+  from {
+    connector = "api"
+    operation = "POST /products"
+  }
+
+  accept {
+    use = "accept.mine"
+  }
+
+  transform {
+    id    = "input.id"
+    name  = "input.name"
+    price = "input.price"
+  }
+
+  dedupe {
+    use = "dedupe.standard"
+  }
+
+  error_handling {
+    use = "error_handling.resilient"
+  }
+
+  to {
+    connector = "downstream"
+    target    = "/products"
+    operation = "POST"
+  }
+
+  response {
+    use = "response.envelope"
+  }
+}
+
+# Ingest orders: same building blocks, but this flow overrides a couple of
+# attributes inline. The override wins; everything else is inherited.
+flow "ingest_orders" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+
+  transform {
+    id    = "input.id"
+    name  = "input.customer"
+    price = "input.total"
+  }
+
+  dedupe {
+    use = "dedupe.standard"
+    key = "'order:' + input.id" # override just the key; cache/ttl/fingerprint inherited
+    ttl = "7d"                  # shorter retention for orders
+  }
+
+  error_handling {
+    use = "error_handling.resilient"
+    retry {
+      attempts = 2 # this flow tolerates fewer retries; delay/backoff inherited
+      backoff  = "linear"
+    }
+  }
+
+  to {
+    connector = "downstream"
+    target    = "/orders"
+    operation = "POST"
+  }
+
+  response {
+    use    = "response.envelope"
+    status = "'created'" # override the status; id inherited
+  }
+}

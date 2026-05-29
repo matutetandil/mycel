@@ -46,12 +46,12 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			{Type: "require"},
 			{Type: "after"},
 			{Type: "error_handling"},
-			{Type: "dedupe"},            // Deduplication
-			{Type: "idempotency"},       // Idempotency keys
-			{Type: "async"},             // Async execution (202 + polling)
-		{Type: "accept"},           // Accept gate (business-level filter)
-		{Type: "batch"},            // Batch processing
-		{Type: "state_transition"}, // State machine transition
+			{Type: "dedupe"},           // Deduplication
+			{Type: "idempotency"},      // Idempotency keys
+			{Type: "async"},            // Async execution (202 + polling)
+			{Type: "accept"},           // Accept gate (business-level filter)
+			{Type: "batch"},            // Batch processing
+			{Type: "state_transition"}, // State machine transition
 		},
 	}
 
@@ -188,6 +188,15 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			mappings, err := parseTransformMappings(nestedBlock, ctx)
 			if err != nil {
 				return nil, fmt.Errorf("response block error: %w", err)
+			}
+			// A `use = "response.<name>"` entry turns this into a reference to a
+			// top-level reusable response. Pull it out of the mappings (it is not
+			// an output field) into the ResponseUse marker; the remaining entries
+			// stay as inline overrides, folded over the named base by
+			// ResolveReferences. Runtime only ever reads Response.
+			if ref, ok := mappings["use"]; ok {
+				config.ResponseUse = parseRefName("response", ref)
+				delete(mappings, "use")
 			}
 			config.Response = mappings
 
@@ -408,10 +417,37 @@ func parseFilterBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FilterConfi
 
 // parseAcceptBlock parses an accept block from a flow.
 // Accept is a business-level gate that runs after filter but before transform.
+// parseAcceptBlock parses an inline accept gate.
+//
+// When `use = "accept.<name>"` is present, the block references a top-level
+// reusable accept block and the other fields are optional overrides.
 func parseAcceptBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.AcceptConfig, error) {
+	return parseAcceptBody(block, ctx, false)
+}
+
+// parseNamedAcceptBlock parses a top-level `accept "<name>" { ... }` block,
+// registered in Configuration.NamedAccepts and referenced via
+// use = "accept.<name>".
+func parseNamedAcceptBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.AcceptConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("accept block requires a name label when declared at top level")
+	}
+	cfg, err := parseAcceptBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Name = block.Labels[0]
+	return cfg, nil
+}
+
+// parseAcceptBody is shared by inline and named accept blocks. Strict (named
+// top-level) requires a `when` expression and forbids `use`. A self-contained
+// inline block also requires `when`; a reference does not.
+func parseAcceptBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.AcceptConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "when", Required: true},
+			{Name: "use"},
+			{Name: "when"},
 			{Name: "on_reject"},
 		},
 	}
@@ -421,8 +457,14 @@ func parseAcceptBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.AcceptConfi
 		return nil, fmt.Errorf("accept block content error: %s", diags.Error())
 	}
 
-	cfg := &flow.AcceptConfig{
-		OnReject: "ack",
+	cfg := &flow.AcceptConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("accept use error: %s", diags.Error())
+		}
+		cfg.Use = parseRefName("accept", val.AsString())
 	}
 
 	if attr, ok := content.Attributes["when"]; ok {
@@ -447,10 +489,47 @@ func parseAcceptBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.AcceptConfi
 		}
 	}
 
-	if cfg.When == "" {
-		return nil, fmt.Errorf("accept block must specify a when expression")
+	if strict {
+		if cfg.Use != "" {
+			return nil, fmt.Errorf("top-level accept %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if cfg.When == "" {
+			return nil, fmt.Errorf("top-level accept %q must specify a when expression", block.Labels[0])
+		}
+	} else if cfg.Use == "" && cfg.When == "" {
+		return nil, fmt.Errorf("accept block must specify a when expression (or `use` a named one)")
 	}
 
+	// Default disposition for self-contained blocks. Reference-mode blocks
+	// leave this empty so the named base wins unless explicitly overridden.
+	if cfg.OnReject == "" && (strict || cfg.Use == "") {
+		cfg.OnReject = "ack"
+	}
+
+	return cfg, nil
+}
+
+// parseNamedResponseBlock parses a top-level `response "<name>" { field = "expr" }`
+// block into a ResponseConfig, registered in Configuration.NamedResponses and
+// referenced from a flow via `response { use = "response.<name>" }`. It uses the
+// same mapping shape as an inline response/transform; a `use` key is rejected
+// because a named block has no base to reference.
+func parseNamedResponseBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ResponseConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("response block requires a name label when declared at top level")
+	}
+	mappings, err := parseTransformMappings(block, ctx)
+	if err != nil {
+		return nil, fmt.Errorf("response %q error: %w", block.Labels[0], err)
+	}
+	if _, ok := mappings["use"]; ok {
+		return nil, fmt.Errorf("top-level response %q cannot use `use` — that's for inline references", block.Labels[0])
+	}
+	if len(mappings) == 0 {
+		return nil, fmt.Errorf("top-level response %q must define at least one field mapping", block.Labels[0])
+	}
+	cfg := &flow.ResponseConfig{Mappings: mappings}
+	cfg.Name = block.Labels[0]
 	return cfg, nil
 }
 
@@ -851,12 +930,10 @@ func parseTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Transfor
 	return transform, nil
 }
 
-// parseTransformReference parses a transform reference.
+// parseTransformReference parses a transform reference like "transform.foo" → "foo".
+// Kept as a thin wrapper around parseRefName for symmetry with other callers.
 func parseTransformReference(ref string) string {
-	if strings.HasPrefix(ref, "transform.") {
-		return strings.TrimPrefix(ref, "transform.")
-	}
-	return ref
+	return parseRefName("transform", ref)
 }
 
 // extractExpressionText extracts the raw text from an HCL expression.
@@ -965,8 +1042,37 @@ func parseRequireBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RequireCon
 }
 
 // parseErrorHandlingBlock parses an error_handling block.
+//
+// When `use = "error_handling.<name>"` is present, the block references a
+// top-level reusable error_handling block and every sub-block is an optional
+// override that replaces the corresponding named sub-block wholesale.
 func parseErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ErrorHandlingConfig, error) {
+	return parseErrorHandlingBody(block, ctx, false)
+}
+
+// parseNamedErrorHandlingBlock parses a top-level
+// `error_handling "<name>" { ... }` block, registered in
+// Configuration.NamedErrorHandlings and referenced via
+// use = "error_handling.<name>".
+func parseNamedErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ErrorHandlingConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("error_handling block requires a name label when declared at top level")
+	}
+	eh, err := parseErrorHandlingBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	eh.Name = block.Labels[0]
+	return eh, nil
+}
+
+// parseErrorHandlingBody is shared by inline and named error_handling blocks.
+// Strict (named top-level) requires at least one sub-block and forbids `use`.
+func parseErrorHandlingBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.ErrorHandlingConfig, error) {
 	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "use"},
+		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "retry"},
 			{Type: "fallback"},
@@ -982,6 +1088,14 @@ func parseErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Erro
 	}
 
 	eh := &flow.ErrorHandlingConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("error_handling use error: %s", diags.Error())
+		}
+		eh.Use = parseRefName("error_handling", val.AsString())
+	}
 
 	for _, nestedBlock := range content.Blocks {
 		switch nestedBlock.Type {
@@ -1015,6 +1129,15 @@ func parseErrorHandlingBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Erro
 				return nil, fmt.Errorf("on_error block error: %w", err)
 			}
 			eh.OnError = handler
+		}
+	}
+
+	if strict {
+		if eh.Use != "" {
+			return nil, fmt.Errorf("top-level error_handling %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if eh.Retry == nil && eh.Fallback == nil && eh.ErrorResponse == nil && eh.OnTimeout == nil && eh.OnError == nil {
+			return nil, fmt.Errorf("top-level error_handling %q must define at least one of retry/fallback/error_response/on_timeout/on_error", block.Labels[0])
 		}
 	}
 
@@ -1052,9 +1175,40 @@ func parseErrorClassHandlerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.
 }
 
 // parseRetryConfigBlock parses a retry block within error_handling.
+//
+// When `use = "retry.<name>"` is present, the block becomes a reference to a
+// top-level reusable retry block (see parseNamedRetryBlock). All other fields
+// are optional in that case and act as attribute-level overrides on top of
+// the named base; the reference is folded in by ResolveReferences.
 func parseRetryConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryConfig, error) {
+	return parseRetryBody(block, ctx, false)
+}
+
+// parseNamedRetryBlock parses a top-level `retry "<name>" { ... }` block. It
+// must define at least one attempt because there is no base to merge against.
+// The resulting RetryConfig is registered in Configuration.NamedRetries and
+// can be referenced from error_handling.retry blocks via `use = "retry.<name>"`.
+func parseNamedRetryBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("retry block requires a name label when declared at top level")
+	}
+	retry, err := parseRetryBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	retry.Name = block.Labels[0]
+	return retry, nil
+}
+
+// parseRetryBody is the shared implementation used by inline and named retry
+// blocks. When strict is true (named top-level) the block must define at
+// least one attempt and cannot carry a `use`. When strict is false (inline)
+// every field is optional so the block can act as a pure reference
+// (`use = "retry.foo"`) or a partial override on top of one.
+func parseRetryBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.RetryConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
+			{Name: "use"},
 			{Name: "attempts"},
 			{Name: "delay"},
 			{Name: "max_delay"},
@@ -1068,6 +1222,14 @@ func parseRetryConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryC
 	}
 
 	retry := &flow.RetryConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("retry use error: %s", diags.Error())
+		}
+		retry.Use = parseRefName("retry", val.AsString())
+	}
 
 	if attr, ok := content.Attributes["attempts"]; ok {
 		val, diags := attr.Expr.Value(ctx)
@@ -1103,6 +1265,15 @@ func parseRetryConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryC
 			return nil, fmt.Errorf("retry backoff error: %s", diags.Error())
 		}
 		retry.Backoff = val.AsString()
+	}
+
+	if strict {
+		if retry.Use != "" {
+			return nil, fmt.Errorf("top-level retry %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if retry.Attempts <= 0 {
+			return nil, fmt.Errorf("top-level retry %q must specify a positive attempts value", block.Labels[0])
+		}
 	}
 
 	return retry, nil
@@ -1252,16 +1423,48 @@ func parseTransformMappings(block *hcl.Block, ctx *hcl.EvalContext) (map[string]
 // Example:
 //
 //	dedupe {
-//	  storage      = "redis"
+//	  cache        = "redis"
 //	  key          = "input.message_id"
 //	  ttl          = "1h"
-//	  on_duplicate = "skip"
+//	  on_duplicate = "ack"
+//	  fingerprint { id = "input.body.id" }
 //	}
+//
+// When `use = "dedupe.<name>"` is present, the block becomes a reference to
+// a top-level reusable dedupe block (see parseNamedDedupeBlock). All other
+// fields are optional in that case and act as attribute-level overrides on
+// top of the named base; runtime resolves the merge.
 func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfig, error) {
+	return parseDedupeBody(block, ctx, false)
+}
+
+// parseNamedDedupeBlock parses a top-level `dedupe "<name>" { ... }` block.
+// All fields are required because there is no base to merge against. The
+// resulting DedupeConfig is registered in Configuration.NamedDedupes and
+// can be referenced from flow-level dedupe blocks via `use = "dedupe.<name>"`.
+func parseNamedDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("dedupe block requires a name label when declared at top level")
+	}
+	dedupe, err := parseDedupeBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	dedupe.Name = block.Labels[0]
+	return dedupe, nil
+}
+
+// parseDedupeBody is the shared implementation used by inline and named
+// dedupe blocks. When strict is true (named top-level), all the structural
+// requirements (cache, key, fingerprint block) are enforced. When strict is
+// false (inline), they are optional so the block can act as a pure reference
+// (`use = "dedupe.foo"`) or a partial override on top of one.
+func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.DedupeConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "cache", Required: true},
-			{Name: "key", Required: true},
+			{Name: "use"},
+			{Name: "cache"},
+			{Name: "key"},
 			{Name: "ttl"},
 			{Name: "on_duplicate"},
 		},
@@ -1275,8 +1478,14 @@ func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfi
 		return nil, fmt.Errorf("dedupe block content error: %s", diags.Error())
 	}
 
-	dedupe := &flow.DedupeConfig{
-		OnDuplicate: "ack", // sequence_guard-style default
+	dedupe := &flow.DedupeConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("dedupe use error: %s", diags.Error())
+		}
+		dedupe.Use = parseRefName("dedupe", val.AsString())
 	}
 
 	if attr, ok := content.Attributes["cache"]; ok {
@@ -1320,10 +1529,10 @@ func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfi
 		dedupe.OnDuplicate = val.AsString()
 	}
 
-	// Parse the (required) fingerprint block — named CEL expressions, same
-	// shape as a transform block. Each entry contributes to the canonical
-	// projection. The author must list every persisted field; the runtime
-	// cannot infer which fields count.
+	// Parse the fingerprint block — named CEL expressions, same shape as a
+	// transform block. Required in strict mode and when the block stands on
+	// its own; optional when this block is a reference (use != "") because
+	// the named base may already supply it.
 	var fingerprintBlock *hcl.Block
 	for _, b := range content.Blocks {
 		if b.Type == "fingerprint" {
@@ -1333,43 +1542,64 @@ func parseDedupeBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.DedupeConfi
 			fingerprintBlock = b
 		}
 	}
-	if fingerprintBlock == nil {
-		return nil, fmt.Errorf("dedupe block must contain a fingerprint block")
-	}
-
-	fpAttrs, diags := fingerprintBlock.Body.JustAttributes()
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("dedupe fingerprint block error: %s", diags.Error())
-	}
-	if len(fpAttrs) == 0 {
-		return nil, fmt.Errorf("dedupe fingerprint block must define at least one named expression")
-	}
-
-	dedupe.Fingerprint = make(map[string]string, len(fpAttrs))
-	for name, attr := range fpAttrs {
-		val, diags := attr.Expr.Value(ctx)
+	if fingerprintBlock != nil {
+		fpAttrs, diags := fingerprintBlock.Body.JustAttributes()
 		if diags.HasErrors() {
-			// CEL expression — extract raw text to be evaluated at runtime
-			dedupe.Fingerprint[name] = extractExpressionText(attr.Expr)
-			continue
+			return nil, fmt.Errorf("dedupe fingerprint block error: %s", diags.Error())
 		}
-		// Literal values are accepted too: treat them as constant projections
-		dedupe.Fingerprint[name] = val.AsString()
+		if len(fpAttrs) == 0 {
+			return nil, fmt.Errorf("dedupe fingerprint block must define at least one named expression")
+		}
+		dedupe.Fingerprint = make(map[string]string, len(fpAttrs))
+		for name, attr := range fpAttrs {
+			val, diags := attr.Expr.Value(ctx)
+			if diags.HasErrors() {
+				// CEL expression — extract raw text to be evaluated at runtime
+				dedupe.Fingerprint[name] = extractExpressionText(attr.Expr)
+				continue
+			}
+			// Literal values are accepted too: treat them as constant projections
+			dedupe.Fingerprint[name] = val.AsString()
+		}
 	}
 
-	if dedupe.Cache == "" {
-		return nil, fmt.Errorf("dedupe block must specify a cache connector")
+	if strict {
+		if dedupe.Use != "" {
+			return nil, fmt.Errorf("top-level dedupe %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if dedupe.Cache == "" {
+			return nil, fmt.Errorf("dedupe block must specify a cache connector")
+		}
+		if dedupe.Key == "" {
+			return nil, fmt.Errorf("dedupe block must specify a key expression")
+		}
+		if fingerprintBlock == nil {
+			return nil, fmt.Errorf("dedupe block must contain a fingerprint block")
+		}
+	} else if dedupe.Use == "" {
+		// Inline dedupe without `use` must be self-contained (current behavior).
+		if dedupe.Cache == "" {
+			return nil, fmt.Errorf("dedupe block must specify a cache connector (or `use` a named one)")
+		}
+		if dedupe.Key == "" {
+			return nil, fmt.Errorf("dedupe block must specify a key expression (or `use` a named one)")
+		}
+		if fingerprintBlock == nil {
+			return nil, fmt.Errorf("dedupe block must contain a fingerprint block (or `use` a named one)")
+		}
 	}
 
-	if dedupe.Key == "" {
-		return nil, fmt.Errorf("dedupe block must specify a key expression")
-	}
-
-	switch dedupe.OnDuplicate {
-	case "ack", "reject", "requeue":
-		// ok
-	default:
-		return nil, fmt.Errorf("dedupe on_duplicate must be 'ack', 'reject', or 'requeue', got %q", dedupe.OnDuplicate)
+	if dedupe.OnDuplicate != "" {
+		switch dedupe.OnDuplicate {
+		case "ack", "reject", "requeue":
+			// ok
+		default:
+			return nil, fmt.Errorf("dedupe on_duplicate must be 'ack', 'reject', or 'requeue', got %q", dedupe.OnDuplicate)
+		}
+	} else if strict || dedupe.Use == "" {
+		// Default for self-contained blocks (no reference): ack.
+		// Reference-mode blocks leave this empty so the named base wins.
+		dedupe.OnDuplicate = "ack"
 	}
 
 	return dedupe, nil
@@ -1698,11 +1928,9 @@ func ctyValueToInterface(val cty.Value) interface{} {
 }
 
 // parseCacheReference parses a cache reference (e.g., "cache.products" -> "products").
+// Kept as a thin wrapper around parseRefName for symmetry with other callers.
 func parseCacheReference(ref string) string {
-	if strings.HasPrefix(ref, "cache.") {
-		return strings.TrimPrefix(ref, "cache.")
-	}
-	return ref
+	return parseRefName("cache", ref)
 }
 
 // parseCacheBlock parses a cache block in a flow.
@@ -1963,10 +2191,41 @@ func parseNamedCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.NamedCa
 //	  wait    = true
 //	  retry   = "100ms"
 //	}
+//
+// When `use = "lock.<name>"` is present, the block becomes a reference to a
+// top-level reusable lock block (see parseNamedLockBlock). All other fields
+// are optional in that case and act as attribute-level overrides on top of
+// the named base; the reference is folded in by ResolveReferences.
 func parseLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, error) {
+	return parseLockBody(block, ctx, false)
+}
+
+// parseNamedLockBlock parses a top-level `lock "<name>" { ... }` block. It
+// must specify a key because there is no base to merge against. The resulting
+// LockConfig is registered in Configuration.NamedLocks and can be referenced
+// from flow-level lock blocks via `use = "lock.<name>"`.
+func parseNamedLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("lock block requires a name label when declared at top level")
+	}
+	lock, err := parseLockBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	lock.Name = block.Labels[0]
+	return lock, nil
+}
+
+// parseLockBody is the shared implementation used by inline and named lock
+// blocks. When strict is true (named top-level) the block must specify a key
+// and cannot carry a `use`. When strict is false (inline) the key is optional
+// only when this block references a named base (`use != ""`); a self-contained
+// inline lock still requires a key.
+func parseLockBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.LockConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "key", Required: true},
+			{Name: "use"},
+			{Name: "key"},
 			{Name: "timeout"},
 			{Name: "wait"},
 			{Name: "retry"},
@@ -1982,6 +2241,14 @@ func parseLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, e
 	}
 
 	lock := &flow.LockConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("lock use error: %s", diags.Error())
+		}
+		lock.Use = parseRefName("lock", val.AsString())
+	}
 
 	for _, nestedBlock := range content.Blocks {
 		if nestedBlock.Type == "storage" {
@@ -2025,6 +2292,18 @@ func parseLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, e
 		lock.Retry = val.AsString()
 	}
 
+	if strict {
+		if lock.Use != "" {
+			return nil, fmt.Errorf("top-level lock %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if lock.Key == "" {
+			return nil, fmt.Errorf("top-level lock %q must specify a key expression", block.Labels[0])
+		}
+	} else if lock.Use == "" && lock.Key == "" {
+		// Inline lock without `use` must be self-contained (current behavior).
+		return nil, fmt.Errorf("lock block must specify a key expression (or `use` a named one)")
+	}
+
 	return lock, nil
 }
 
@@ -2041,11 +2320,39 @@ func parseLockBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.LockConfig, e
 //	  on_older = "ack"
 //	  ttl      = "30d"
 //	}
+//
+// When `use = "sequence_guard.<name>"` is present, the block references a
+// top-level reusable sequence_guard block and every other field is an optional
+// override.
 func parseSequenceGuardBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SequenceGuardConfig, error) {
+	return parseSequenceGuardBody(block, ctx, false)
+}
+
+// parseNamedSequenceGuardBlock parses a top-level
+// `sequence_guard "<name>" { ... }` block, registered in
+// Configuration.NamedSequenceGuards and referenced via
+// use = "sequence_guard.<name>".
+func parseNamedSequenceGuardBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SequenceGuardConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("sequence_guard block requires a name label when declared at top level")
+	}
+	sg, err := parseSequenceGuardBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	sg.Name = block.Labels[0]
+	return sg, nil
+}
+
+// parseSequenceGuardBody is shared by inline and named sequence_guard blocks.
+// Strict (named top-level) requires key + sequence + storage and forbids
+// `use`. Inline blocks require the same unless they reference a named base.
+func parseSequenceGuardBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.SequenceGuardConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "key", Required: true},
-			{Name: "sequence", Required: true},
+			{Name: "use"},
+			{Name: "key"},
+			{Name: "sequence"},
 			{Name: "on_older"},
 			{Name: "ttl"},
 		},
@@ -2060,6 +2367,14 @@ func parseSequenceGuardBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Sequ
 	}
 
 	sg := &flow.SequenceGuardConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("sequence_guard use error: %s", diags.Error())
+		}
+		sg.Use = parseRefName("sequence_guard", val.AsString())
+	}
 
 	for _, nestedBlock := range content.Blocks {
 		if nestedBlock.Type == "storage" {
@@ -2109,19 +2424,68 @@ func parseSequenceGuardBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Sequ
 		sg.TTL = val.AsString()
 	}
 
-	if sg.Storage == nil {
-		return nil, fmt.Errorf("sequence_guard requires a storage block")
+	if strict {
+		if sg.Use != "" {
+			return nil, fmt.Errorf("top-level sequence_guard %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if sg.Key == "" {
+			return nil, fmt.Errorf("top-level sequence_guard %q must specify a key expression", block.Labels[0])
+		}
+		if sg.Sequence == "" {
+			return nil, fmt.Errorf("top-level sequence_guard %q must specify a sequence expression", block.Labels[0])
+		}
+		if sg.Storage == nil {
+			return nil, fmt.Errorf("top-level sequence_guard %q requires a storage block", block.Labels[0])
+		}
+	} else if sg.Use == "" {
+		// Self-contained inline sequence_guard (current behavior): key +
+		// sequence + storage all required.
+		if sg.Key == "" {
+			return nil, fmt.Errorf("sequence_guard block must specify a key expression (or `use` a named one)")
+		}
+		if sg.Sequence == "" {
+			return nil, fmt.Errorf("sequence_guard block must specify a sequence expression (or `use` a named one)")
+		}
+		if sg.Storage == nil {
+			return nil, fmt.Errorf("sequence_guard requires a storage block (or `use` a named one)")
+		}
 	}
 
 	return sg, nil
 }
 
 // parseSemaphoreBlock parses a semaphore block in a flow.
+//
+// When `use = "semaphore.<name>"` is present, the block references a top-level
+// reusable semaphore block and every other field is an optional override.
 func parseSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SemaphoreConfig, error) {
+	return parseSemaphoreBody(block, ctx, false)
+}
+
+// parseNamedSemaphoreBlock parses a top-level `semaphore "<name>" { ... }`
+// block, registered in Configuration.NamedSemaphores and referenced via
+// use = "semaphore.<name>".
+func parseNamedSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SemaphoreConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("semaphore block requires a name label when declared at top level")
+	}
+	sem, err := parseSemaphoreBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	sem.Name = block.Labels[0]
+	return sem, nil
+}
+
+// parseSemaphoreBody is shared by inline and named semaphore blocks. Strict
+// (named top-level) requires key + a positive max_permits and forbids `use`.
+// Inline blocks require the same unless they reference a named base.
+func parseSemaphoreBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.SemaphoreConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "key", Required: true},
-			{Name: "max_permits", Required: true},
+			{Name: "use"},
+			{Name: "key"},
+			{Name: "max_permits"},
 			{Name: "timeout"},
 			{Name: "lease"},
 		},
@@ -2136,6 +2500,14 @@ func parseSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Semaphor
 	}
 
 	sem := &flow.SemaphoreConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("semaphore use error: %s", diags.Error())
+		}
+		sem.Use = parseRefName("semaphore", val.AsString())
+	}
 
 	for _, nestedBlock := range content.Blocks {
 		if nestedBlock.Type == "storage" {
@@ -2183,6 +2555,26 @@ func parseSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Semaphor
 		sem.Lease = val.AsString()
 	}
 
+	if strict {
+		if sem.Use != "" {
+			return nil, fmt.Errorf("top-level semaphore %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if sem.Key == "" {
+			return nil, fmt.Errorf("top-level semaphore %q must specify a key expression", block.Labels[0])
+		}
+		if sem.MaxPermits <= 0 {
+			return nil, fmt.Errorf("top-level semaphore %q must specify a positive max_permits", block.Labels[0])
+		}
+	} else if sem.Use == "" {
+		// Self-contained inline semaphore (current behavior): key + max_permits required.
+		if sem.Key == "" {
+			return nil, fmt.Errorf("semaphore block must specify a key expression (or `use` a named one)")
+		}
+		if sem.MaxPermits <= 0 {
+			return nil, fmt.Errorf("semaphore block must specify a positive max_permits (or `use` a named one)")
+		}
+	}
+
 	return sem, nil
 }
 
@@ -2218,8 +2610,30 @@ func parseSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Semaphor
 //	  }
 //	}
 func parseCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CoordinateConfig, error) {
+	return parseCoordinateBody(block, ctx, false)
+}
+
+// parseNamedCoordinateBlock parses a top-level `coordinate "<name>" { ... }`
+// block, registered in Configuration.NamedCoordinates and referenced via
+// use = "coordinate.<name>".
+func parseNamedCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CoordinateConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("coordinate block requires a name label when declared at top level")
+	}
+	coord, err := parseCoordinateBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	coord.Name = block.Labels[0]
+	return coord, nil
+}
+
+// parseCoordinateBody is shared by inline and named coordinate blocks. Strict
+// (named top-level) requires a storage block and forbids `use`.
+func parseCoordinateBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.CoordinateConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
+			{Name: "use"},
 			{Name: "timeout"},
 			{Name: "on_timeout"},
 			{Name: "max_retries"},
@@ -2239,6 +2653,14 @@ func parseCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Coordin
 	}
 
 	coord := &flow.CoordinateConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("coordinate use error: %s", diags.Error())
+		}
+		coord.Use = parseRefName("coordinate", val.AsString())
+	}
 
 	if attr, ok := content.Attributes["timeout"]; ok {
 		val, diags := attr.Expr.Value(ctx)
@@ -2309,6 +2731,15 @@ func parseCoordinateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Coordin
 				return nil, fmt.Errorf("preflight block error: %w", err)
 			}
 			coord.Preflight = preflight
+		}
+	}
+
+	if strict {
+		if coord.Use != "" {
+			return nil, fmt.Errorf("top-level coordinate %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if coord.Storage == nil {
+			return nil, fmt.Errorf("top-level coordinate %q requires a storage block", block.Labels[0])
 		}
 	}
 

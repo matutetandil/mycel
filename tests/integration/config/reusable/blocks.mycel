@@ -1,0 +1,97 @@
+# Reusable inline blocks — one named definition per kind (v2.6.0).
+#
+# Each block here is referenced from a flow in flows/reusable-blocks.mycel via
+# use = "<kind>.<name>". Because the parser resolves every reference at config
+# load, the integration container simply STARTING with this file proves that
+# all ten kinds resolve end-to-end in the real binary; the bash test then
+# asserts the runtime behaviour for the cleanly-observable ones.
+
+# --- Category A (flat) ---
+
+dedupe "ru_dedupe" {
+  cache        = "dedupe_cache"
+  key          = "'ru:' + input.sku"
+  ttl          = "30d"
+  on_duplicate = "ack"
+  fingerprint {
+    sku   = "output.sku"
+    price = "output.price"
+  }
+}
+
+retry "ru_retry" {
+  attempts = 3
+  delay    = "100ms"
+  backoff  = "constant"
+}
+
+lock "ru_lock" {
+  storage {
+    driver = "memory"
+  }
+  key     = "'ru-lock:' + input.id"
+  timeout = "5s"
+}
+
+semaphore "ru_sem" {
+  storage {
+    driver = "memory"
+  }
+  key         = "'ru-sem'"
+  max_permits = 2
+  timeout     = "5s"
+}
+
+sequence_guard "ru_seq" {
+  storage {
+    driver = "memory"
+  }
+  key      = "'ru-seq:' + input.id"
+  sequence = "input.seq"
+  on_older = "ack"
+}
+
+# --- Category B (sub-blocks) ---
+
+coordinate "ru_coord" {
+  storage {
+    driver = "memory"
+  }
+  timeout = "2s"
+  signal {
+    when = "true"
+    emit = "'ru:' + input.id + ':done'"
+    ttl  = "30s"
+  }
+}
+
+transaction "ru_tx" {
+  exec {
+    query  = "INSERT INTO ru_tx_results (name) VALUES (:name)"
+    params = { name = "input.name" }
+  }
+}
+
+# error_handling whose retry itself references a named retry — proves the
+# nested-reference ordering (error_handling resolves before retry) in the
+# real binary.
+error_handling "ru_eh" {
+  retry {
+    use = "retry.ru_retry"
+  }
+  on_timeout {
+    action = "ack"
+  }
+}
+
+# --- Category C (mapping) ---
+
+accept "ru_accept" {
+  when      = "input.region == 'us-east'"
+  on_reject = "ack"
+}
+
+response "ru_response" {
+  ok     = "true"
+  source = "'reusable'"
+}

@@ -54,6 +54,48 @@ type Configuration struct {
 	// NamedCaches are reusable cache configurations.
 	NamedCaches []*flow.NamedCacheConfig
 
+	// NamedDedupes are reusable dedupe configurations. Referenced from
+	// flow-level dedupe blocks via `use = "dedupe.<name>"`.
+	NamedDedupes []*flow.DedupeConfig
+
+	// NamedRetries are reusable retry configurations. Referenced from
+	// error_handling.retry blocks via `use = "retry.<name>"`.
+	NamedRetries []*flow.RetryConfig
+
+	// NamedLocks are reusable lock configurations. Referenced from
+	// flow-level lock blocks via `use = "lock.<name>"`.
+	NamedLocks []*flow.LockConfig
+
+	// NamedSemaphores are reusable semaphore configurations. Referenced from
+	// flow-level semaphore blocks via `use = "semaphore.<name>"`.
+	NamedSemaphores []*flow.SemaphoreConfig
+
+	// NamedSequenceGuards are reusable sequence_guard configurations.
+	// Referenced from flow-level sequence_guard blocks via
+	// `use = "sequence_guard.<name>"`.
+	NamedSequenceGuards []*flow.SequenceGuardConfig
+
+	// NamedCoordinates are reusable coordinate configurations. Referenced
+	// from flow-level coordinate blocks via `use = "coordinate.<name>"`.
+	NamedCoordinates []*flow.CoordinateConfig
+
+	// NamedTransactions are reusable transaction configurations. Referenced
+	// from `to { transaction { use = "transaction.<name>" } }`.
+	NamedTransactions []*flow.TransactionConfig
+
+	// NamedErrorHandlings are reusable error_handling configurations.
+	// Referenced from flow-level error_handling blocks via
+	// `use = "error_handling.<name>"`.
+	NamedErrorHandlings []*flow.ErrorHandlingConfig
+
+	// NamedAccepts are reusable accept gates. Referenced from flow-level
+	// accept blocks via `use = "accept.<name>"`.
+	NamedAccepts []*flow.AcceptConfig
+
+	// NamedResponses are reusable response mappings. Referenced from
+	// flow-level response blocks via `use = "response.<name>"`.
+	NamedResponses []*flow.ResponseConfig
+
 	// Aspects are cross-cutting concern configurations.
 	Aspects []*aspect.Config
 
@@ -123,18 +165,28 @@ type RateLimitConfig struct {
 // NewConfiguration creates an empty configuration.
 func NewConfiguration() *Configuration {
 	return &Configuration{
-		Connectors:    make([]*connector.Config, 0),
-		Flows:         make([]*flow.Config, 0),
-		Types:         make([]*validate.TypeSchema, 0),
-		Transforms:    make([]*transform.Config, 0),
-		NamedCaches:   make([]*flow.NamedCacheConfig, 0),
-		Aspects:       make([]*aspect.Config, 0),
-		Validators:    make([]*validator.Config, 0),
-		Functions:     make([]*functions.Config, 0),
-		Plugins:       make([]*plugin.PluginDeclaration, 0),
-		Sagas:         make([]*saga.Config, 0),
-		StateMachines: make([]*statemachine.Config, 0),
-		SourceFiles:   make(map[string][]string),
+		Connectors:          make([]*connector.Config, 0),
+		Flows:               make([]*flow.Config, 0),
+		Types:               make([]*validate.TypeSchema, 0),
+		Transforms:          make([]*transform.Config, 0),
+		NamedCaches:         make([]*flow.NamedCacheConfig, 0),
+		NamedDedupes:        make([]*flow.DedupeConfig, 0),
+		NamedRetries:        make([]*flow.RetryConfig, 0),
+		NamedLocks:          make([]*flow.LockConfig, 0),
+		NamedSemaphores:     make([]*flow.SemaphoreConfig, 0),
+		NamedSequenceGuards: make([]*flow.SequenceGuardConfig, 0),
+		NamedCoordinates:    make([]*flow.CoordinateConfig, 0),
+		NamedTransactions:   make([]*flow.TransactionConfig, 0),
+		NamedErrorHandlings: make([]*flow.ErrorHandlingConfig, 0),
+		NamedAccepts:        make([]*flow.AcceptConfig, 0),
+		NamedResponses:      make([]*flow.ResponseConfig, 0),
+		Aspects:             make([]*aspect.Config, 0),
+		Validators:          make([]*validator.Config, 0),
+		Functions:           make([]*functions.Config, 0),
+		Plugins:             make([]*plugin.PluginDeclaration, 0),
+		Sagas:               make([]*saga.Config, 0),
+		StateMachines:       make([]*statemachine.Config, 0),
+		SourceFiles:         make(map[string][]string),
 	}
 }
 
@@ -145,6 +197,16 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.Types = append(c.Types, other.Types...)
 	c.Transforms = append(c.Transforms, other.Transforms...)
 	c.NamedCaches = append(c.NamedCaches, other.NamedCaches...)
+	c.NamedDedupes = append(c.NamedDedupes, other.NamedDedupes...)
+	c.NamedRetries = append(c.NamedRetries, other.NamedRetries...)
+	c.NamedLocks = append(c.NamedLocks, other.NamedLocks...)
+	c.NamedSemaphores = append(c.NamedSemaphores, other.NamedSemaphores...)
+	c.NamedSequenceGuards = append(c.NamedSequenceGuards, other.NamedSequenceGuards...)
+	c.NamedCoordinates = append(c.NamedCoordinates, other.NamedCoordinates...)
+	c.NamedTransactions = append(c.NamedTransactions, other.NamedTransactions...)
+	c.NamedErrorHandlings = append(c.NamedErrorHandlings, other.NamedErrorHandlings...)
+	c.NamedAccepts = append(c.NamedAccepts, other.NamedAccepts...)
+	c.NamedResponses = append(c.NamedResponses, other.NamedResponses...)
 	c.Aspects = append(c.Aspects, other.Aspects...)
 	c.Validators = append(c.Validators, other.Validators...)
 	c.Functions = append(c.Functions, other.Functions...)
@@ -193,10 +255,11 @@ func (c *Configuration) ValidateTransactionTargets() error {
 // Returns an error if duplicates are found, with file paths for both definitions.
 func (c *Configuration) ValidateUniqueNames() error {
 	// Check each category using the SourceFiles map which tracks all files per key
-	categories := []struct {
+	type uniqueNameCategory struct {
 		itemType string
 		key      func() []string // returns keys like "connector:name"
-	}{
+	}
+	categories := []uniqueNameCategory{
 		{"connector", func() []string {
 			keys := make([]string, len(c.Connectors))
 			for i, conn := range c.Connectors {
@@ -239,6 +302,15 @@ func (c *Configuration) ValidateUniqueNames() error {
 			}
 			return keys
 		}},
+	}
+
+	// Reusable inline blocks (dedupe, retry, lock, ...) contribute their
+	// uniqueness categories from the registry — no per-kind code here.
+	for _, k := range reusableKinds {
+		k := k
+		categories = append(categories, uniqueNameCategory{k.typeName, func() []string {
+			return k.uniqueKeys(c)
+		}})
 	}
 
 	for _, cat := range categories {
@@ -387,6 +459,14 @@ func (p *HCLParser) Parse(ctx context.Context, configDir string) (*Configuration
 		return nil, err
 	}
 
+	// Resolve reusable-block references (e.g. flow.dedupe.use → named dedupe).
+	// Validation of the reference (target exists) and the merge happen in one
+	// pass; after this, runtime sees fully self-contained blocks regardless
+	// of whether they were declared inline or referenced.
+	if err := config.ResolveReferences(); err != nil {
+		return nil, err
+	}
+
 	// Validate that transaction writes target a database connector
 	if err := config.ValidateTransactionTargets(); err != nil {
 		return nil, err
@@ -412,6 +492,15 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 
 	// Process each block type
 	for _, block := range content.Blocks {
+		// Reusable inline blocks (dedupe, retry, lock, ...) are dispatched
+		// through the registry so this loop never grows per kind.
+		if kind, ok := reusableKindByName[block.Type]; ok {
+			if err := kind.parseRegister(p, block, config, path); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
 		switch block.Type {
 		case "connector":
 			conn, err := parseConnectorBlock(block, p.evalCtx)
@@ -530,9 +619,11 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 	return config, nil
 }
 
-// rootSchema returns the top-level HCL schema.
+// rootSchema returns the top-level HCL schema. The reusable inline blocks
+// (dedupe, retry, lock, ...) are appended from the reusableKinds registry so a
+// new kind needs no edit here.
 func rootSchema() *hcl.BodySchema {
-	return &hcl.BodySchema{
+	schema := &hcl.BodySchema{
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "connector", LabelNames: []string{"name"}},
 			{Type: "flow", LabelNames: []string{"name"}},
@@ -551,6 +642,13 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "security"},
 		},
 	}
+	for _, k := range reusableKinds {
+		schema.Blocks = append(schema.Blocks, hcl.BlockHeaderSchema{
+			Type:       k.typeName,
+			LabelNames: []string{"name"},
+		})
+	}
+	return schema
 }
 
 // parseServiceBlock parses a service block.

@@ -146,6 +146,14 @@ type Config struct {
 	// For echo flows (no "to" block), only input is available.
 	Response map[string]string
 
+	// ResponseUse, when set, names a top-level reusable response block whose
+	// mappings form the base for Response. The flow's own Response entries (if
+	// any) override the named base key by key, same as transform. It is a
+	// parse-time marker resolved by the parser's ResolveReferences pass into a
+	// fully materialized Response map; the runtime only ever reads Response and
+	// ignores this field. Kept after resolution for tracing/debugging.
+	ResponseUse string
+
 	// Require defines authorization requirements.
 	Require *RequireConfig
 
@@ -303,9 +311,27 @@ func (f *FromConfig) FilterCondition() string {
 }
 
 // AcceptConfig holds the accept gate configuration.
+// ResponseConfig is a top-level, reusable response mapping. Only the named
+// form uses this struct; an inline flow-level `response {}` is still parsed
+// straight into Flow.Config.Response (a map). A flow references one via
+// `response { use = "response.<name>" }`, and the parser folds Mappings into
+// the flow's Response map (inline entries override key by key, like transform).
+type ResponseConfig struct {
+	// Reusable carries the Name/Use fields. Use is unused on the named form.
+	Reusable
+
+	// Mappings holds the field = "<celExpr>" pairs, same shape as a flow's
+	// inline response block.
+	Mappings map[string]string
+}
+
 // Accept runs after filter but before transform, for business-level decisions.
 // Example: "this message is my type, but is it specifically for me?"
 type AcceptConfig struct {
+	// Reusable carries the Name/Use fields. A named accept is referenced from
+	// a flow-level accept block via use = "accept.<name>".
+	Reusable
+
 	// When is the CEL expression to evaluate. Must return true to proceed.
 	When string
 
@@ -550,6 +576,14 @@ type RequireConfig struct {
 
 // ErrorHandlingConfig holds error handling settings.
 type ErrorHandlingConfig struct {
+	// Reusable carries the Name/Use fields. A named error_handling block is
+	// referenced from a flow via use = "error_handling.<name>". Inline
+	// sub-blocks (retry/fallback/error_response/on_timeout/on_error) replace
+	// the named base's wholesale. A retry pulled in this way that itself
+	// carries use = "retry.<name>" is resolved afterwards (error_handling is
+	// resolved before retry — see the reusableKinds registry).
+	Reusable
+
 	// Retry settings for automatic retries on failure.
 	Retry *RetryConfig
 
@@ -596,6 +630,10 @@ type ErrorResponseConfig struct {
 
 // RetryConfig holds retry settings.
 type RetryConfig struct {
+	// Reusable carries the Name/Use fields. A named retry is referenced from
+	// an error_handling.retry block via use = "retry.<name>".
+	Reusable
+
 	// Attempts is the maximum number of retry attempts.
 	Attempts int
 
@@ -663,6 +701,24 @@ func NewFlowError(err error, status int, body map[string]interface{}, headers ma
 	}
 }
 
+// Reusable is embedded in config structs (dedupe, retry, lock, semaphore,
+// sequence_guard, ...) that can be declared top-level with a name and then
+// referenced from a flow via use = "<kind>.<name>". It holds the two
+// cross-cutting fields the parser registers on and the reference-resolution
+// pass folds against; embedding keeps them identical across every kind.
+type Reusable struct {
+	// Name is set when the block is declared top-level (e.g.
+	// `dedupe "standard" { ... }`) and registered as reusable. Empty for
+	// inline blocks defined directly inside a flow.
+	Name string
+
+	// Use names a top-level block of the same kind whose fields are pulled
+	// in as the base. Inline fields on the referencing block override the
+	// corresponding fields of the named base, attribute by attribute. Empty
+	// when no reuse is requested.
+	Use string
+}
+
 // DedupeConfig holds content-based, biphasic deduplication for a flow.
 //
 // Semantics (since v2.1.0):
@@ -685,6 +741,10 @@ func NewFlowError(err error, status int, body map[string]interface{}, headers ma
 // is the only one who knows which fields actually count; the primitive
 // cannot infer it.
 type DedupeConfig struct {
+	// Reusable carries the Name/Use fields shared by every nameable +
+	// referenceable inline block. See the Reusable type doc.
+	Reusable
+
 	// Cache is the name of a cache-typed connector used to store
 	// fingerprints. Driver-agnostic: works with "memory" (unit tests) or
 	// "redis" (production). The connector's pool is initialized once at
@@ -824,6 +884,12 @@ type SyncStorageConfig struct {
 
 // LockConfig holds mutex lock configuration for a flow.
 type LockConfig struct {
+	// Reusable carries the Name/Use fields. A named lock is referenced from a
+	// flow-level lock block via use = "lock.<name>". When overriding, an
+	// inline storage block replaces the named base's storage wholesale (no
+	// deep merge) — see mergeLock.
+	Reusable
+
 	// Storage defines the storage backend for this lock.
 	Storage *SyncStorageConfig
 
@@ -843,6 +909,11 @@ type LockConfig struct {
 
 // SemaphoreConfig holds semaphore configuration for a flow.
 type SemaphoreConfig struct {
+	// Reusable carries the Name/Use fields. A named semaphore is referenced
+	// from a flow-level semaphore block via use = "semaphore.<name>". An
+	// inline storage block replaces the named base's storage wholesale.
+	Reusable
+
 	// Storage defines the storage backend for this semaphore.
 	Storage *SyncStorageConfig
 
@@ -871,6 +942,12 @@ type SemaphoreConfig struct {
 // outer lock guarantees the read-decide-write pattern is atomic across
 // concurrent workers without explicit CAS.
 type SequenceGuardConfig struct {
+	// Reusable carries the Name/Use fields. A named sequence_guard is
+	// referenced from a flow-level sequence_guard block via
+	// use = "sequence_guard.<name>". An inline storage block replaces the
+	// named base's storage wholesale.
+	Reusable
+
 	// Storage defines the storage backend (Redis or in-memory). Same shape
 	// as LockConfig / CoordinateConfig — accepts either a `url` or
 	// `host`/`port`/`password`/`db`.
@@ -898,6 +975,12 @@ type SequenceGuardConfig struct {
 
 // CoordinateConfig holds coordination configuration for a flow.
 type CoordinateConfig struct {
+	// Reusable carries the Name/Use fields. A named coordinate is referenced
+	// from a flow-level coordinate block via use = "coordinate.<name>".
+	// Inline sub-blocks (storage/wait/signal/preflight) replace the named
+	// base's wholesale; scalars override individually.
+	Reusable
+
 	// Storage defines the storage backend for this coordinator.
 	Storage *SyncStorageConfig
 
