@@ -211,10 +211,11 @@ func (c *Configuration) ValidateTransactionTargets() error {
 // Returns an error if duplicates are found, with file paths for both definitions.
 func (c *Configuration) ValidateUniqueNames() error {
 	// Check each category using the SourceFiles map which tracks all files per key
-	categories := []struct {
+	type uniqueNameCategory struct {
 		itemType string
 		key      func() []string // returns keys like "connector:name"
-	}{
+	}
+	categories := []uniqueNameCategory{
 		{"connector", func() []string {
 			keys := make([]string, len(c.Connectors))
 			for i, conn := range c.Connectors {
@@ -257,27 +258,15 @@ func (c *Configuration) ValidateUniqueNames() error {
 			}
 			return keys
 		}},
-		{"dedupe", func() []string {
-			keys := make([]string, len(c.NamedDedupes))
-			for i, d := range c.NamedDedupes {
-				keys[i] = "dedupe:" + d.Name
-			}
-			return keys
-		}},
-		{"retry", func() []string {
-			keys := make([]string, len(c.NamedRetries))
-			for i, r := range c.NamedRetries {
-				keys[i] = "retry:" + r.Name
-			}
-			return keys
-		}},
-		{"lock", func() []string {
-			keys := make([]string, len(c.NamedLocks))
-			for i, l := range c.NamedLocks {
-				keys[i] = "lock:" + l.Name
-			}
-			return keys
-		}},
+	}
+
+	// Reusable inline blocks (dedupe, retry, lock, ...) contribute their
+	// uniqueness categories from the registry — no per-kind code here.
+	for _, k := range reusableKinds {
+		k := k
+		categories = append(categories, uniqueNameCategory{k.typeName, func() []string {
+			return k.uniqueKeys(c)
+		}})
 	}
 
 	for _, cat := range categories {
@@ -459,6 +448,15 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 
 	// Process each block type
 	for _, block := range content.Blocks {
+		// Reusable inline blocks (dedupe, retry, lock, ...) are dispatched
+		// through the registry so this loop never grows per kind.
+		if kind, ok := reusableKindByName[block.Type]; ok {
+			if err := kind.parseRegister(p, block, config, path); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
 		switch block.Type {
 		case "connector":
 			conn, err := parseConnectorBlock(block, p.evalCtx)
@@ -499,30 +497,6 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 				return nil, fmt.Errorf("cache parse error: %w", err)
 			}
 			config.NamedCaches = append(config.NamedCaches, cache)
-
-		case "dedupe":
-			dedupe, err := parseNamedDedupeBlock(block, p.evalCtx)
-			if err != nil {
-				return nil, fmt.Errorf("dedupe parse error: %w", err)
-			}
-			config.NamedDedupes = append(config.NamedDedupes, dedupe)
-			config.SourceFiles["dedupe:"+dedupe.Name] = append(config.SourceFiles["dedupe:"+dedupe.Name], path)
-
-		case "retry":
-			retry, err := parseNamedRetryBlock(block, p.evalCtx)
-			if err != nil {
-				return nil, fmt.Errorf("retry parse error: %w", err)
-			}
-			config.NamedRetries = append(config.NamedRetries, retry)
-			config.SourceFiles["retry:"+retry.Name] = append(config.SourceFiles["retry:"+retry.Name], path)
-
-		case "lock":
-			lock, err := parseNamedLockBlock(block, p.evalCtx)
-			if err != nil {
-				return nil, fmt.Errorf("lock parse error: %w", err)
-			}
-			config.NamedLocks = append(config.NamedLocks, lock)
-			config.SourceFiles["lock:"+lock.Name] = append(config.SourceFiles["lock:"+lock.Name], path)
 
 		case "aspect":
 			asp, err := parseAspectBlock(block, p.evalCtx)
@@ -601,18 +575,17 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 	return config, nil
 }
 
-// rootSchema returns the top-level HCL schema.
+// rootSchema returns the top-level HCL schema. The reusable inline blocks
+// (dedupe, retry, lock, ...) are appended from the reusableKinds registry so a
+// new kind needs no edit here.
 func rootSchema() *hcl.BodySchema {
-	return &hcl.BodySchema{
+	schema := &hcl.BodySchema{
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "connector", LabelNames: []string{"name"}},
 			{Type: "flow", LabelNames: []string{"name"}},
 			{Type: "type", LabelNames: []string{"name"}},
 			{Type: "transform", LabelNames: []string{"name"}},
 			{Type: "cache", LabelNames: []string{"name"}},
-			{Type: "dedupe", LabelNames: []string{"name"}},
-			{Type: "retry", LabelNames: []string{"name"}},
-			{Type: "lock", LabelNames: []string{"name"}},
 			{Type: "aspect", LabelNames: []string{"name"}},
 			{Type: "validator", LabelNames: []string{"name"}},
 			{Type: "functions", LabelNames: []string{"name"}},
@@ -625,6 +598,13 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "security"},
 		},
 	}
+	for _, k := range reusableKinds {
+		schema.Blocks = append(schema.Blocks, hcl.BlockHeaderSchema{
+			Type:       k.typeName,
+			LabelNames: []string{"name"},
+		})
+	}
+	return schema
 }
 
 // parseServiceBlock parses a service block.

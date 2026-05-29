@@ -596,16 +596,9 @@ type ErrorResponseConfig struct {
 
 // RetryConfig holds retry settings.
 type RetryConfig struct {
-	// Name is set when the block is declared top-level (e.g.
-	// `retry "aggressive" { ... }`) and registered as reusable. Empty for
-	// inline blocks defined directly inside an error_handling block.
-	Name string
-
-	// Use names a top-level retry block whose fields are pulled in as the
-	// base. Inline fields on this block override the corresponding fields
-	// of the named base, attribute by attribute. Empty when no reuse is
-	// requested.
-	Use string
+	// Reusable carries the Name/Use fields. A named retry is referenced from
+	// an error_handling.retry block via use = "retry.<name>".
+	Reusable
 
 	// Attempts is the maximum number of retry attempts.
 	Attempts int
@@ -674,6 +667,24 @@ func NewFlowError(err error, status int, body map[string]interface{}, headers ma
 	}
 }
 
+// Reusable is embedded in config structs (dedupe, retry, lock, semaphore,
+// sequence_guard, ...) that can be declared top-level with a name and then
+// referenced from a flow via use = "<kind>.<name>". It holds the two
+// cross-cutting fields the parser registers on and the reference-resolution
+// pass folds against; embedding keeps them identical across every kind.
+type Reusable struct {
+	// Name is set when the block is declared top-level (e.g.
+	// `dedupe "standard" { ... }`) and registered as reusable. Empty for
+	// inline blocks defined directly inside a flow.
+	Name string
+
+	// Use names a top-level block of the same kind whose fields are pulled
+	// in as the base. Inline fields on the referencing block override the
+	// corresponding fields of the named base, attribute by attribute. Empty
+	// when no reuse is requested.
+	Use string
+}
+
 // DedupeConfig holds content-based, biphasic deduplication for a flow.
 //
 // Semantics (since v2.1.0):
@@ -696,16 +707,9 @@ func NewFlowError(err error, status int, body map[string]interface{}, headers ma
 // is the only one who knows which fields actually count; the primitive
 // cannot infer it.
 type DedupeConfig struct {
-	// Name is set when the block is declared top-level (e.g.
-	// `dedupe "standard" { ... }`) and registered as reusable. Empty for
-	// inline blocks defined directly inside a flow.
-	Name string
-
-	// Use names a top-level dedupe block whose fields are pulled in as the
-	// base. Inline fields on this block override the corresponding fields
-	// of the named base, attribute by attribute. Empty when no reuse is
-	// requested.
-	Use string
+	// Reusable carries the Name/Use fields shared by every nameable +
+	// referenceable inline block. See the Reusable type doc.
+	Reusable
 
 	// Cache is the name of a cache-typed connector used to store
 	// fingerprints. Driver-agnostic: works with "memory" (unit tests) or
@@ -846,17 +850,11 @@ type SyncStorageConfig struct {
 
 // LockConfig holds mutex lock configuration for a flow.
 type LockConfig struct {
-	// Name is set when the block is declared top-level (e.g.
-	// `lock "user_mutex" { ... }`) and registered as reusable. Empty for
-	// inline blocks defined directly inside a flow.
-	Name string
-
-	// Use names a top-level lock block whose fields are pulled in as the
-	// base. Inline fields on this block override the corresponding fields
-	// of the named base, attribute by attribute. An inline storage block
-	// replaces the named base's storage block wholesale (no deep merge).
-	// Empty when no reuse is requested.
-	Use string
+	// Reusable carries the Name/Use fields. A named lock is referenced from a
+	// flow-level lock block via use = "lock.<name>". When overriding, an
+	// inline storage block replaces the named base's storage wholesale (no
+	// deep merge) — see mergeLock.
+	Reusable
 
 	// Storage defines the storage backend for this lock.
 	Storage *SyncStorageConfig
