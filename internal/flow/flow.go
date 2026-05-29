@@ -875,6 +875,11 @@ type LockConfig struct {
 
 // SemaphoreConfig holds semaphore configuration for a flow.
 type SemaphoreConfig struct {
+	// Reusable carries the Name/Use fields. A named semaphore is referenced
+	// from a flow-level semaphore block via use = "semaphore.<name>". An
+	// inline storage block replaces the named base's storage wholesale.
+	Reusable
+
 	// Storage defines the storage backend for this semaphore.
 	Storage *SyncStorageConfig
 
@@ -903,6 +908,12 @@ type SemaphoreConfig struct {
 // outer lock guarantees the read-decide-write pattern is atomic across
 // concurrent workers without explicit CAS.
 type SequenceGuardConfig struct {
+	// Reusable carries the Name/Use fields. A named sequence_guard is
+	// referenced from a flow-level sequence_guard block via
+	// use = "sequence_guard.<name>". An inline storage block replaces the
+	// named base's storage wholesale.
+	Reusable
+
 	// Storage defines the storage backend (Redis or in-memory). Same shape
 	// as LockConfig / CoordinateConfig — accepts either a `url` or
 	// `host`/`port`/`password`/`db`.

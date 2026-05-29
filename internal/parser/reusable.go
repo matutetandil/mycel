@@ -130,6 +130,64 @@ var reusableKinds = []reusableKind{
 			}
 		},
 	},
+	{
+		typeName: "semaphore",
+		parseRegister: func(p *HCLParser, block *hcl.Block, cfg *Configuration, path string) error {
+			s, err := parseNamedSemaphoreBlock(block, p.evalCtx)
+			if err != nil {
+				return fmt.Errorf("semaphore parse error: %w", err)
+			}
+			cfg.NamedSemaphores = append(cfg.NamedSemaphores, s)
+			cfg.recordSource("semaphore", s.Name, path)
+			return nil
+		},
+		uniqueKeys: func(cfg *Configuration) []string {
+			return nameKeys("semaphore", cfg.NamedSemaphores, func(s *flow.SemaphoreConfig) string { return s.Name })
+		},
+		newResolver: func(cfg *Configuration) func(f *flow.Config) error {
+			idx := indexByName(cfg.NamedSemaphores, func(s *flow.SemaphoreConfig) string { return s.Name })
+			return func(f *flow.Config) error {
+				if f.Semaphore == nil || f.Semaphore.Use == "" {
+					return nil
+				}
+				merged, err := resolveRef("semaphore", f.Semaphore.Use, f.Semaphore, idx, mergeSemaphore)
+				if err != nil {
+					return err
+				}
+				f.Semaphore = merged
+				return nil
+			}
+		},
+	},
+	{
+		typeName: "sequence_guard",
+		parseRegister: func(p *HCLParser, block *hcl.Block, cfg *Configuration, path string) error {
+			sg, err := parseNamedSequenceGuardBlock(block, p.evalCtx)
+			if err != nil {
+				return fmt.Errorf("sequence_guard parse error: %w", err)
+			}
+			cfg.NamedSequenceGuards = append(cfg.NamedSequenceGuards, sg)
+			cfg.recordSource("sequence_guard", sg.Name, path)
+			return nil
+		},
+		uniqueKeys: func(cfg *Configuration) []string {
+			return nameKeys("sequence_guard", cfg.NamedSequenceGuards, func(sg *flow.SequenceGuardConfig) string { return sg.Name })
+		},
+		newResolver: func(cfg *Configuration) func(f *flow.Config) error {
+			idx := indexByName(cfg.NamedSequenceGuards, func(sg *flow.SequenceGuardConfig) string { return sg.Name })
+			return func(f *flow.Config) error {
+				if f.SequenceGuard == nil || f.SequenceGuard.Use == "" {
+					return nil
+				}
+				merged, err := resolveRef("sequence_guard", f.SequenceGuard.Use, f.SequenceGuard, idx, mergeSequenceGuard)
+				if err != nil {
+					return err
+				}
+				f.SequenceGuard = merged
+				return nil
+			}
+		},
+	},
 }
 
 // reusableKindByName indexes the registry by HCL block type for O(1) dispatch

@@ -152,3 +152,54 @@ func mergeLock(base, inline *flow.LockConfig) *flow.LockConfig {
 	}
 	return &merged
 }
+
+// mergeSemaphore overlays an inline semaphore block on top of the named base.
+// Scalars override when non-zero; the storage sub-block is replaced wholesale.
+func mergeSemaphore(base, inline *flow.SemaphoreConfig) *flow.SemaphoreConfig {
+	merged := *base
+	merged.Name = ""
+	merged.Use = inline.Use
+
+	if inline.Key != "" {
+		merged.Key = inline.Key
+	}
+	if inline.MaxPermits != 0 {
+		merged.MaxPermits = inline.MaxPermits
+	}
+	if inline.Timeout != "" {
+		merged.Timeout = inline.Timeout
+	}
+	if inline.Lease != "" {
+		merged.Lease = inline.Lease
+	}
+	if inline.Storage != nil {
+		merged.Storage = inline.Storage
+	}
+	return &merged
+}
+
+// mergeSequenceGuard overlays an inline sequence_guard block on top of the
+// named base. Scalars override when non-empty; the storage sub-block is
+// replaced wholesale.
+func mergeSequenceGuard(base, inline *flow.SequenceGuardConfig) *flow.SequenceGuardConfig {
+	merged := *base
+	merged.Name = ""
+	merged.Use = inline.Use
+
+	if inline.Key != "" {
+		merged.Key = inline.Key
+	}
+	if inline.Sequence != "" {
+		merged.Sequence = inline.Sequence
+	}
+	if inline.OnOlder != "" {
+		merged.OnOlder = inline.OnOlder
+	}
+	if inline.TTL != "" {
+		merged.TTL = inline.TTL
+	}
+	if inline.Storage != nil {
+		merged.Storage = inline.Storage
+	}
+	return &merged
+}

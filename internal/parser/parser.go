@@ -66,6 +66,15 @@ type Configuration struct {
 	// flow-level lock blocks via `use = "lock.<name>"`.
 	NamedLocks []*flow.LockConfig
 
+	// NamedSemaphores are reusable semaphore configurations. Referenced from
+	// flow-level semaphore blocks via `use = "semaphore.<name>"`.
+	NamedSemaphores []*flow.SemaphoreConfig
+
+	// NamedSequenceGuards are reusable sequence_guard configurations.
+	// Referenced from flow-level sequence_guard blocks via
+	// `use = "sequence_guard.<name>"`.
+	NamedSequenceGuards []*flow.SequenceGuardConfig
+
 	// Aspects are cross-cutting concern configurations.
 	Aspects []*aspect.Config
 
@@ -135,21 +144,23 @@ type RateLimitConfig struct {
 // NewConfiguration creates an empty configuration.
 func NewConfiguration() *Configuration {
 	return &Configuration{
-		Connectors:    make([]*connector.Config, 0),
-		Flows:         make([]*flow.Config, 0),
-		Types:         make([]*validate.TypeSchema, 0),
-		Transforms:    make([]*transform.Config, 0),
-		NamedCaches:   make([]*flow.NamedCacheConfig, 0),
-		NamedDedupes:  make([]*flow.DedupeConfig, 0),
-		NamedRetries:  make([]*flow.RetryConfig, 0),
-		NamedLocks:    make([]*flow.LockConfig, 0),
-		Aspects:       make([]*aspect.Config, 0),
-		Validators:    make([]*validator.Config, 0),
-		Functions:     make([]*functions.Config, 0),
-		Plugins:       make([]*plugin.PluginDeclaration, 0),
-		Sagas:         make([]*saga.Config, 0),
-		StateMachines: make([]*statemachine.Config, 0),
-		SourceFiles:   make(map[string][]string),
+		Connectors:          make([]*connector.Config, 0),
+		Flows:               make([]*flow.Config, 0),
+		Types:               make([]*validate.TypeSchema, 0),
+		Transforms:          make([]*transform.Config, 0),
+		NamedCaches:         make([]*flow.NamedCacheConfig, 0),
+		NamedDedupes:        make([]*flow.DedupeConfig, 0),
+		NamedRetries:        make([]*flow.RetryConfig, 0),
+		NamedLocks:          make([]*flow.LockConfig, 0),
+		NamedSemaphores:     make([]*flow.SemaphoreConfig, 0),
+		NamedSequenceGuards: make([]*flow.SequenceGuardConfig, 0),
+		Aspects:             make([]*aspect.Config, 0),
+		Validators:          make([]*validator.Config, 0),
+		Functions:           make([]*functions.Config, 0),
+		Plugins:             make([]*plugin.PluginDeclaration, 0),
+		Sagas:               make([]*saga.Config, 0),
+		StateMachines:       make([]*statemachine.Config, 0),
+		SourceFiles:         make(map[string][]string),
 	}
 }
 
@@ -163,6 +174,8 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.NamedDedupes = append(c.NamedDedupes, other.NamedDedupes...)
 	c.NamedRetries = append(c.NamedRetries, other.NamedRetries...)
 	c.NamedLocks = append(c.NamedLocks, other.NamedLocks...)
+	c.NamedSemaphores = append(c.NamedSemaphores, other.NamedSemaphores...)
+	c.NamedSequenceGuards = append(c.NamedSequenceGuards, other.NamedSequenceGuards...)
 	c.Aspects = append(c.Aspects, other.Aspects...)
 	c.Validators = append(c.Validators, other.Validators...)
 	c.Functions = append(c.Functions, other.Functions...)

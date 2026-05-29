@@ -46,12 +46,12 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			{Type: "require"},
 			{Type: "after"},
 			{Type: "error_handling"},
-			{Type: "dedupe"},            // Deduplication
-			{Type: "idempotency"},       // Idempotency keys
-			{Type: "async"},             // Async execution (202 + polling)
-		{Type: "accept"},           // Accept gate (business-level filter)
-		{Type: "batch"},            // Batch processing
-		{Type: "state_transition"}, // State machine transition
+			{Type: "dedupe"},           // Deduplication
+			{Type: "idempotency"},      // Idempotency keys
+			{Type: "async"},            // Async execution (202 + polling)
+			{Type: "accept"},           // Accept gate (business-level filter)
+			{Type: "batch"},            // Batch processing
+			{Type: "state_transition"}, // State machine transition
 		},
 	}
 
@@ -2195,11 +2195,39 @@ func parseLockBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.L
 //	  on_older = "ack"
 //	  ttl      = "30d"
 //	}
+//
+// When `use = "sequence_guard.<name>"` is present, the block references a
+// top-level reusable sequence_guard block and every other field is an optional
+// override.
 func parseSequenceGuardBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SequenceGuardConfig, error) {
+	return parseSequenceGuardBody(block, ctx, false)
+}
+
+// parseNamedSequenceGuardBlock parses a top-level
+// `sequence_guard "<name>" { ... }` block, registered in
+// Configuration.NamedSequenceGuards and referenced via
+// use = "sequence_guard.<name>".
+func parseNamedSequenceGuardBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SequenceGuardConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("sequence_guard block requires a name label when declared at top level")
+	}
+	sg, err := parseSequenceGuardBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	sg.Name = block.Labels[0]
+	return sg, nil
+}
+
+// parseSequenceGuardBody is shared by inline and named sequence_guard blocks.
+// Strict (named top-level) requires key + sequence + storage and forbids
+// `use`. Inline blocks require the same unless they reference a named base.
+func parseSequenceGuardBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.SequenceGuardConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "key", Required: true},
-			{Name: "sequence", Required: true},
+			{Name: "use"},
+			{Name: "key"},
+			{Name: "sequence"},
 			{Name: "on_older"},
 			{Name: "ttl"},
 		},
@@ -2214,6 +2242,14 @@ func parseSequenceGuardBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Sequ
 	}
 
 	sg := &flow.SequenceGuardConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("sequence_guard use error: %s", diags.Error())
+		}
+		sg.Use = parseRefName("sequence_guard", val.AsString())
+	}
 
 	for _, nestedBlock := range content.Blocks {
 		if nestedBlock.Type == "storage" {
@@ -2263,19 +2299,68 @@ func parseSequenceGuardBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Sequ
 		sg.TTL = val.AsString()
 	}
 
-	if sg.Storage == nil {
-		return nil, fmt.Errorf("sequence_guard requires a storage block")
+	if strict {
+		if sg.Use != "" {
+			return nil, fmt.Errorf("top-level sequence_guard %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if sg.Key == "" {
+			return nil, fmt.Errorf("top-level sequence_guard %q must specify a key expression", block.Labels[0])
+		}
+		if sg.Sequence == "" {
+			return nil, fmt.Errorf("top-level sequence_guard %q must specify a sequence expression", block.Labels[0])
+		}
+		if sg.Storage == nil {
+			return nil, fmt.Errorf("top-level sequence_guard %q requires a storage block", block.Labels[0])
+		}
+	} else if sg.Use == "" {
+		// Self-contained inline sequence_guard (current behavior): key +
+		// sequence + storage all required.
+		if sg.Key == "" {
+			return nil, fmt.Errorf("sequence_guard block must specify a key expression (or `use` a named one)")
+		}
+		if sg.Sequence == "" {
+			return nil, fmt.Errorf("sequence_guard block must specify a sequence expression (or `use` a named one)")
+		}
+		if sg.Storage == nil {
+			return nil, fmt.Errorf("sequence_guard requires a storage block (or `use` a named one)")
+		}
 	}
 
 	return sg, nil
 }
 
 // parseSemaphoreBlock parses a semaphore block in a flow.
+//
+// When `use = "semaphore.<name>"` is present, the block references a top-level
+// reusable semaphore block and every other field is an optional override.
 func parseSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SemaphoreConfig, error) {
+	return parseSemaphoreBody(block, ctx, false)
+}
+
+// parseNamedSemaphoreBlock parses a top-level `semaphore "<name>" { ... }`
+// block, registered in Configuration.NamedSemaphores and referenced via
+// use = "semaphore.<name>".
+func parseNamedSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SemaphoreConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("semaphore block requires a name label when declared at top level")
+	}
+	sem, err := parseSemaphoreBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	sem.Name = block.Labels[0]
+	return sem, nil
+}
+
+// parseSemaphoreBody is shared by inline and named semaphore blocks. Strict
+// (named top-level) requires key + a positive max_permits and forbids `use`.
+// Inline blocks require the same unless they reference a named base.
+func parseSemaphoreBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.SemaphoreConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "key", Required: true},
-			{Name: "max_permits", Required: true},
+			{Name: "use"},
+			{Name: "key"},
+			{Name: "max_permits"},
 			{Name: "timeout"},
 			{Name: "lease"},
 		},
@@ -2290,6 +2375,14 @@ func parseSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Semaphor
 	}
 
 	sem := &flow.SemaphoreConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("semaphore use error: %s", diags.Error())
+		}
+		sem.Use = parseRefName("semaphore", val.AsString())
+	}
 
 	for _, nestedBlock := range content.Blocks {
 		if nestedBlock.Type == "storage" {
@@ -2335,6 +2428,26 @@ func parseSemaphoreBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Semaphor
 			return nil, fmt.Errorf("semaphore lease error: %s", diags.Error())
 		}
 		sem.Lease = val.AsString()
+	}
+
+	if strict {
+		if sem.Use != "" {
+			return nil, fmt.Errorf("top-level semaphore %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if sem.Key == "" {
+			return nil, fmt.Errorf("top-level semaphore %q must specify a key expression", block.Labels[0])
+		}
+		if sem.MaxPermits <= 0 {
+			return nil, fmt.Errorf("top-level semaphore %q must specify a positive max_permits", block.Labels[0])
+		}
+	} else if sem.Use == "" {
+		// Self-contained inline semaphore (current behavior): key + max_permits required.
+		if sem.Key == "" {
+			return nil, fmt.Errorf("semaphore block must specify a key expression (or `use` a named one)")
+		}
+		if sem.MaxPermits <= 0 {
+			return nil, fmt.Errorf("semaphore block must specify a positive max_permits (or `use` a named one)")
+		}
 	}
 
 	return sem, nil
