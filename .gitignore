@@ -53,8 +53,10 @@ data/
 # Generated WASM test fixtures
 internal/plugin/validator.wasm
 
-# Private local instructions
+# Claude Code instructions and local settings (not part of the codebase)
+CLAUDE.md
 CLAUDE.local.md
+.claude/
 
 # Benchmark / load testing
 benchmark/
