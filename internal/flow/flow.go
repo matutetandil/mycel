@@ -596,6 +596,17 @@ type ErrorResponseConfig struct {
 
 // RetryConfig holds retry settings.
 type RetryConfig struct {
+	// Name is set when the block is declared top-level (e.g.
+	// `retry "aggressive" { ... }`) and registered as reusable. Empty for
+	// inline blocks defined directly inside an error_handling block.
+	Name string
+
+	// Use names a top-level retry block whose fields are pulled in as the
+	// base. Inline fields on this block override the corresponding fields
+	// of the named base, attribute by attribute. Empty when no reuse is
+	// requested.
+	Use string
+
 	// Attempts is the maximum number of retry attempts.
 	Attempts int
 

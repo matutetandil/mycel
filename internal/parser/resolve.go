@@ -27,6 +27,7 @@ import (
 // result because the second pass finds an empty `Use` (cleared after merge).
 func (c *Configuration) ResolveReferences() error {
 	namedDedupes := indexByName(c.NamedDedupes, func(d *flow.DedupeConfig) string { return d.Name })
+	namedRetries := indexByName(c.NamedRetries, func(r *flow.RetryConfig) string { return r.Name })
 
 	for _, f := range c.Flows {
 		if f.Dedupe != nil && f.Dedupe.Use != "" {
@@ -35,6 +36,13 @@ func (c *Configuration) ResolveReferences() error {
 				return fmt.Errorf("flow %q: %w", f.Name, err)
 			}
 			f.Dedupe = merged
+		}
+		if f.ErrorHandling != nil && f.ErrorHandling.Retry != nil && f.ErrorHandling.Retry.Use != "" {
+			merged, err := resolveRetry(f.ErrorHandling.Retry, namedRetries)
+			if err != nil {
+				return fmt.Errorf("flow %q: %w", f.Name, err)
+			}
+			f.ErrorHandling.Retry = merged
 		}
 	}
 	return nil
@@ -97,6 +105,35 @@ func resolveDedupe(inline *flow.DedupeConfig, named map[string]*flow.DedupeConfi
 		for k, v := range inline.Fingerprint {
 			merged.Fingerprint[k] = v
 		}
+	}
+	return &merged, nil
+}
+
+// resolveRetry overlays an inline retry block (with `use` set) on top of the
+// named base it references. Inline non-zero attributes win, attribute by
+// attribute; unset inline fields inherit from the named base. Returns the
+// merged config or an error if the reference does not exist.
+func resolveRetry(inline *flow.RetryConfig, named map[string]*flow.RetryConfig) (*flow.RetryConfig, error) {
+	base, ok := named[inline.Use]
+	if !ok {
+		return nil, fmt.Errorf("retry references unknown name %q (available: %s)", inline.Use, availableNames(named))
+	}
+
+	merged := *base
+	merged.Name = ""        // inline blocks have no name
+	merged.Use = inline.Use // preserve the reference for tracing/debugging
+
+	if inline.Attempts != 0 {
+		merged.Attempts = inline.Attempts
+	}
+	if inline.Delay != "" {
+		merged.Delay = inline.Delay
+	}
+	if inline.MaxDelay != "" {
+		merged.MaxDelay = inline.MaxDelay
+	}
+	if inline.Backoff != "" {
+		merged.Backoff = inline.Backoff
 	}
 	return &merged, nil
 }

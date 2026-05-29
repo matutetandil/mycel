@@ -1050,9 +1050,40 @@ func parseErrorClassHandlerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.
 }
 
 // parseRetryConfigBlock parses a retry block within error_handling.
+//
+// When `use = "retry.<name>"` is present, the block becomes a reference to a
+// top-level reusable retry block (see parseNamedRetryBlock). All other fields
+// are optional in that case and act as attribute-level overrides on top of
+// the named base; the reference is folded in by ResolveReferences.
 func parseRetryConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryConfig, error) {
+	return parseRetryBody(block, ctx, false)
+}
+
+// parseNamedRetryBlock parses a top-level `retry "<name>" { ... }` block. It
+// must define at least one attempt because there is no base to merge against.
+// The resulting RetryConfig is registered in Configuration.NamedRetries and
+// can be referenced from error_handling.retry blocks via `use = "retry.<name>"`.
+func parseNamedRetryBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("retry block requires a name label when declared at top level")
+	}
+	retry, err := parseRetryBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	retry.Name = block.Labels[0]
+	return retry, nil
+}
+
+// parseRetryBody is the shared implementation used by inline and named retry
+// blocks. When strict is true (named top-level) the block must define at
+// least one attempt and cannot carry a `use`. When strict is false (inline)
+// every field is optional so the block can act as a pure reference
+// (`use = "retry.foo"`) or a partial override on top of one.
+func parseRetryBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.RetryConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
+			{Name: "use"},
 			{Name: "attempts"},
 			{Name: "delay"},
 			{Name: "max_delay"},
@@ -1066,6 +1097,14 @@ func parseRetryConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryC
 	}
 
 	retry := &flow.RetryConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("retry use error: %s", diags.Error())
+		}
+		retry.Use = parseRefName("retry", val.AsString())
+	}
 
 	if attr, ok := content.Attributes["attempts"]; ok {
 		val, diags := attr.Expr.Value(ctx)
@@ -1101,6 +1140,15 @@ func parseRetryConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RetryC
 			return nil, fmt.Errorf("retry backoff error: %s", diags.Error())
 		}
 		retry.Backoff = val.AsString()
+	}
+
+	if strict {
+		if retry.Use != "" {
+			return nil, fmt.Errorf("top-level retry %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if retry.Attempts <= 0 {
+			return nil, fmt.Errorf("top-level retry %q must specify a positive attempts value", block.Labels[0])
+		}
 	}
 
 	return retry, nil

@@ -58,6 +58,10 @@ type Configuration struct {
 	// flow-level dedupe blocks via `use = "dedupe.<name>"`.
 	NamedDedupes []*flow.DedupeConfig
 
+	// NamedRetries are reusable retry configurations. Referenced from
+	// error_handling.retry blocks via `use = "retry.<name>"`.
+	NamedRetries []*flow.RetryConfig
+
 	// Aspects are cross-cutting concern configurations.
 	Aspects []*aspect.Config
 
@@ -133,6 +137,7 @@ func NewConfiguration() *Configuration {
 		Transforms:    make([]*transform.Config, 0),
 		NamedCaches:   make([]*flow.NamedCacheConfig, 0),
 		NamedDedupes:  make([]*flow.DedupeConfig, 0),
+		NamedRetries:  make([]*flow.RetryConfig, 0),
 		Aspects:       make([]*aspect.Config, 0),
 		Validators:    make([]*validator.Config, 0),
 		Functions:     make([]*functions.Config, 0),
@@ -151,6 +156,7 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.Transforms = append(c.Transforms, other.Transforms...)
 	c.NamedCaches = append(c.NamedCaches, other.NamedCaches...)
 	c.NamedDedupes = append(c.NamedDedupes, other.NamedDedupes...)
+	c.NamedRetries = append(c.NamedRetries, other.NamedRetries...)
 	c.Aspects = append(c.Aspects, other.Aspects...)
 	c.Validators = append(c.Validators, other.Validators...)
 	c.Functions = append(c.Functions, other.Functions...)
@@ -249,6 +255,13 @@ func (c *Configuration) ValidateUniqueNames() error {
 			keys := make([]string, len(c.NamedDedupes))
 			for i, d := range c.NamedDedupes {
 				keys[i] = "dedupe:" + d.Name
+			}
+			return keys
+		}},
+		{"retry", func() []string {
+			keys := make([]string, len(c.NamedRetries))
+			for i, r := range c.NamedRetries {
+				keys[i] = "retry:" + r.Name
 			}
 			return keys
 		}},
@@ -482,6 +495,14 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 			config.NamedDedupes = append(config.NamedDedupes, dedupe)
 			config.SourceFiles["dedupe:"+dedupe.Name] = append(config.SourceFiles["dedupe:"+dedupe.Name], path)
 
+		case "retry":
+			retry, err := parseNamedRetryBlock(block, p.evalCtx)
+			if err != nil {
+				return nil, fmt.Errorf("retry parse error: %w", err)
+			}
+			config.NamedRetries = append(config.NamedRetries, retry)
+			config.SourceFiles["retry:"+retry.Name] = append(config.SourceFiles["retry:"+retry.Name], path)
+
 		case "aspect":
 			asp, err := parseAspectBlock(block, p.evalCtx)
 			if err != nil {
@@ -569,6 +590,7 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "transform", LabelNames: []string{"name"}},
 			{Type: "cache", LabelNames: []string{"name"}},
 			{Type: "dedupe", LabelNames: []string{"name"}},
+			{Type: "retry", LabelNames: []string{"name"}},
 			{Type: "aspect", LabelNames: []string{"name"}},
 			{Type: "validator", LabelNames: []string{"name"}},
 			{Type: "functions", LabelNames: []string{"name"}},
