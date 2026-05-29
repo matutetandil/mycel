@@ -88,6 +88,14 @@ type Configuration struct {
 	// `use = "error_handling.<name>"`.
 	NamedErrorHandlings []*flow.ErrorHandlingConfig
 
+	// NamedAccepts are reusable accept gates. Referenced from flow-level
+	// accept blocks via `use = "accept.<name>"`.
+	NamedAccepts []*flow.AcceptConfig
+
+	// NamedResponses are reusable response mappings. Referenced from
+	// flow-level response blocks via `use = "response.<name>"`.
+	NamedResponses []*flow.ResponseConfig
+
 	// Aspects are cross-cutting concern configurations.
 	Aspects []*aspect.Config
 
@@ -170,6 +178,8 @@ func NewConfiguration() *Configuration {
 		NamedCoordinates:    make([]*flow.CoordinateConfig, 0),
 		NamedTransactions:   make([]*flow.TransactionConfig, 0),
 		NamedErrorHandlings: make([]*flow.ErrorHandlingConfig, 0),
+		NamedAccepts:        make([]*flow.AcceptConfig, 0),
+		NamedResponses:      make([]*flow.ResponseConfig, 0),
 		Aspects:             make([]*aspect.Config, 0),
 		Validators:          make([]*validator.Config, 0),
 		Functions:           make([]*functions.Config, 0),
@@ -195,6 +205,8 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.NamedCoordinates = append(c.NamedCoordinates, other.NamedCoordinates...)
 	c.NamedTransactions = append(c.NamedTransactions, other.NamedTransactions...)
 	c.NamedErrorHandlings = append(c.NamedErrorHandlings, other.NamedErrorHandlings...)
+	c.NamedAccepts = append(c.NamedAccepts, other.NamedAccepts...)
+	c.NamedResponses = append(c.NamedResponses, other.NamedResponses...)
 	c.Aspects = append(c.Aspects, other.Aspects...)
 	c.Validators = append(c.Validators, other.Validators...)
 	c.Functions = append(c.Functions, other.Functions...)

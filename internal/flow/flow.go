@@ -146,6 +146,14 @@ type Config struct {
 	// For echo flows (no "to" block), only input is available.
 	Response map[string]string
 
+	// ResponseUse, when set, names a top-level reusable response block whose
+	// mappings form the base for Response. The flow's own Response entries (if
+	// any) override the named base key by key, same as transform. It is a
+	// parse-time marker resolved by the parser's ResolveReferences pass into a
+	// fully materialized Response map; the runtime only ever reads Response and
+	// ignores this field. Kept after resolution for tracing/debugging.
+	ResponseUse string
+
 	// Require defines authorization requirements.
 	Require *RequireConfig
 
@@ -303,9 +311,27 @@ func (f *FromConfig) FilterCondition() string {
 }
 
 // AcceptConfig holds the accept gate configuration.
+// ResponseConfig is a top-level, reusable response mapping. Only the named
+// form uses this struct; an inline flow-level `response {}` is still parsed
+// straight into Flow.Config.Response (a map). A flow references one via
+// `response { use = "response.<name>" }`, and the parser folds Mappings into
+// the flow's Response map (inline entries override key by key, like transform).
+type ResponseConfig struct {
+	// Reusable carries the Name/Use fields. Use is unused on the named form.
+	Reusable
+
+	// Mappings holds the field = "<celExpr>" pairs, same shape as a flow's
+	// inline response block.
+	Mappings map[string]string
+}
+
 // Accept runs after filter but before transform, for business-level decisions.
 // Example: "this message is my type, but is it specifically for me?"
 type AcceptConfig struct {
+	// Reusable carries the Name/Use fields. A named accept is referenced from
+	// a flow-level accept block via use = "accept.<name>".
+	Reusable
+
 	// When is the CEL expression to evaluate. Must return true to proceed.
 	When string
 

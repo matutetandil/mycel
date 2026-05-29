@@ -256,6 +256,22 @@ func mergeErrorHandling(base, inline *flow.ErrorHandlingConfig) *flow.ErrorHandl
 	return &merged
 }
 
+// mergeAccept overlays an inline accept block on top of the named base.
+// Scalars (when, on_reject) override when non-empty.
+func mergeAccept(base, inline *flow.AcceptConfig) *flow.AcceptConfig {
+	merged := *base
+	merged.Name = ""
+	merged.Use = inline.Use
+
+	if inline.When != "" {
+		merged.When = inline.When
+	}
+	if inline.OnReject != "" {
+		merged.OnReject = inline.OnReject
+	}
+	return &merged
+}
+
 // mergeSequenceGuard overlays an inline sequence_guard block on top of the
 // named base. Scalars override when non-empty; the storage sub-block is
 // replaced wholesale.

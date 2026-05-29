@@ -264,6 +264,78 @@ var reusableKinds = []reusableKind{
 		},
 	},
 	{
+		typeName: "accept",
+		parseRegister: func(p *HCLParser, block *hcl.Block, cfg *Configuration, path string) error {
+			a, err := parseNamedAcceptBlock(block, p.evalCtx)
+			if err != nil {
+				return fmt.Errorf("accept parse error: %w", err)
+			}
+			cfg.NamedAccepts = append(cfg.NamedAccepts, a)
+			cfg.recordSource("accept", a.Name, path)
+			return nil
+		},
+		uniqueKeys: func(cfg *Configuration) []string {
+			return nameKeys("accept", cfg.NamedAccepts, func(a *flow.AcceptConfig) string { return a.Name })
+		},
+		newResolver: func(cfg *Configuration) func(f *flow.Config) error {
+			idx := indexByName(cfg.NamedAccepts, func(a *flow.AcceptConfig) string { return a.Name })
+			return func(f *flow.Config) error {
+				if f.Accept == nil || f.Accept.Use == "" {
+					return nil
+				}
+				merged, err := resolveRef("accept", f.Accept.Use, f.Accept, idx, mergeAccept)
+				if err != nil {
+					return err
+				}
+				f.Accept = merged
+				return nil
+			}
+		},
+	},
+	{
+		// response is special: the named form is a *ResponseConfig, but a flow's
+		// inline response is a bare map (Flow.Config.Response) with the reference
+		// carried in the ResponseUse marker. So the resolver is bespoke — it
+		// folds the named mappings under the flow's inline overrides — rather
+		// than going through resolveRef.
+		typeName: "response",
+		parseRegister: func(p *HCLParser, block *hcl.Block, cfg *Configuration, path string) error {
+			r, err := parseNamedResponseBlock(block, p.evalCtx)
+			if err != nil {
+				return fmt.Errorf("response parse error: %w", err)
+			}
+			cfg.NamedResponses = append(cfg.NamedResponses, r)
+			cfg.recordSource("response", r.Name, path)
+			return nil
+		},
+		uniqueKeys: func(cfg *Configuration) []string {
+			return nameKeys("response", cfg.NamedResponses, func(r *flow.ResponseConfig) string { return r.Name })
+		},
+		newResolver: func(cfg *Configuration) func(f *flow.Config) error {
+			idx := indexByName(cfg.NamedResponses, func(r *flow.ResponseConfig) string { return r.Name })
+			return func(f *flow.Config) error {
+				if f.ResponseUse == "" {
+					return nil
+				}
+				base, ok := idx[f.ResponseUse]
+				if !ok {
+					return fmt.Errorf("response references unknown name %q (available: %s)", f.ResponseUse, availableNames(idx))
+				}
+				// Named mappings form the base; the flow's inline entries (if
+				// any) override key by key, same as a transform reference.
+				merged := make(map[string]string, len(base.Mappings)+len(f.Response))
+				for k, v := range base.Mappings {
+					merged[k] = v
+				}
+				for k, v := range f.Response {
+					merged[k] = v
+				}
+				f.Response = merged
+				return nil
+			}
+		},
+	},
+	{
 		// retry is intentionally LAST — see the ordering note above. A retry
 		// materialized onto a flow by the error_handling pass (carrying its
 		// own `use`) is folded here.

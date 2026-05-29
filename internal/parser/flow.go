@@ -189,6 +189,15 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			if err != nil {
 				return nil, fmt.Errorf("response block error: %w", err)
 			}
+			// A `use = "response.<name>"` entry turns this into a reference to a
+			// top-level reusable response. Pull it out of the mappings (it is not
+			// an output field) into the ResponseUse marker; the remaining entries
+			// stay as inline overrides, folded over the named base by
+			// ResolveReferences. Runtime only ever reads Response.
+			if ref, ok := mappings["use"]; ok {
+				config.ResponseUse = parseRefName("response", ref)
+				delete(mappings, "use")
+			}
 			config.Response = mappings
 
 		case "require":
@@ -408,10 +417,37 @@ func parseFilterBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FilterConfi
 
 // parseAcceptBlock parses an accept block from a flow.
 // Accept is a business-level gate that runs after filter but before transform.
+// parseAcceptBlock parses an inline accept gate.
+//
+// When `use = "accept.<name>"` is present, the block references a top-level
+// reusable accept block and the other fields are optional overrides.
 func parseAcceptBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.AcceptConfig, error) {
+	return parseAcceptBody(block, ctx, false)
+}
+
+// parseNamedAcceptBlock parses a top-level `accept "<name>" { ... }` block,
+// registered in Configuration.NamedAccepts and referenced via
+// use = "accept.<name>".
+func parseNamedAcceptBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.AcceptConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("accept block requires a name label when declared at top level")
+	}
+	cfg, err := parseAcceptBody(block, ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Name = block.Labels[0]
+	return cfg, nil
+}
+
+// parseAcceptBody is shared by inline and named accept blocks. Strict (named
+// top-level) requires a `when` expression and forbids `use`. A self-contained
+// inline block also requires `when`; a reference does not.
+func parseAcceptBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.AcceptConfig, error) {
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "when", Required: true},
+			{Name: "use"},
+			{Name: "when"},
 			{Name: "on_reject"},
 		},
 	}
@@ -421,8 +457,14 @@ func parseAcceptBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.AcceptConfi
 		return nil, fmt.Errorf("accept block content error: %s", diags.Error())
 	}
 
-	cfg := &flow.AcceptConfig{
-		OnReject: "ack",
+	cfg := &flow.AcceptConfig{}
+
+	if attr, ok := content.Attributes["use"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("accept use error: %s", diags.Error())
+		}
+		cfg.Use = parseRefName("accept", val.AsString())
 	}
 
 	if attr, ok := content.Attributes["when"]; ok {
@@ -447,10 +489,47 @@ func parseAcceptBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.AcceptConfi
 		}
 	}
 
-	if cfg.When == "" {
-		return nil, fmt.Errorf("accept block must specify a when expression")
+	if strict {
+		if cfg.Use != "" {
+			return nil, fmt.Errorf("top-level accept %q cannot use `use` — that's for inline references", block.Labels[0])
+		}
+		if cfg.When == "" {
+			return nil, fmt.Errorf("top-level accept %q must specify a when expression", block.Labels[0])
+		}
+	} else if cfg.Use == "" && cfg.When == "" {
+		return nil, fmt.Errorf("accept block must specify a when expression (or `use` a named one)")
 	}
 
+	// Default disposition for self-contained blocks. Reference-mode blocks
+	// leave this empty so the named base wins unless explicitly overridden.
+	if cfg.OnReject == "" && (strict || cfg.Use == "") {
+		cfg.OnReject = "ack"
+	}
+
+	return cfg, nil
+}
+
+// parseNamedResponseBlock parses a top-level `response "<name>" { field = "expr" }`
+// block into a ResponseConfig, registered in Configuration.NamedResponses and
+// referenced from a flow via `response { use = "response.<name>" }`. It uses the
+// same mapping shape as an inline response/transform; a `use` key is rejected
+// because a named block has no base to reference.
+func parseNamedResponseBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ResponseConfig, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("response block requires a name label when declared at top level")
+	}
+	mappings, err := parseTransformMappings(block, ctx)
+	if err != nil {
+		return nil, fmt.Errorf("response %q error: %w", block.Labels[0], err)
+	}
+	if _, ok := mappings["use"]; ok {
+		return nil, fmt.Errorf("top-level response %q cannot use `use` — that's for inline references", block.Labels[0])
+	}
+	if len(mappings) == 0 {
+		return nil, fmt.Errorf("top-level response %q must define at least one field mapping", block.Labels[0])
+	}
+	cfg := &flow.ResponseConfig{Mappings: mappings}
+	cfg.Name = block.Labels[0]
 	return cfg, nil
 }
 
