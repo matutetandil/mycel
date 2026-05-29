@@ -121,6 +121,9 @@ func TransactionSchema() Block {
 	return Block{
 		Type: "transaction",
 		Doc:  "Multi-statement, iterative write run atomically in one DB transaction (database connectors only). Mutually exclusive with query/target/operation/envelope.",
+		Attrs: []Attr{
+			{Name: "use", Doc: "Reference a named transaction block (use = \"transaction.<name>\"); inline statements replace it wholesale", Type: TypeString, Ref: RefTransaction},
+		},
 		Children: []Block{
 			TxExecSchema(),
 			TxEachSchema(),
@@ -157,7 +160,8 @@ func AcceptSchema() Block {
 		Type: "accept",
 		Doc:  "Business-level gate after filter, before transform. Determines if this flow should process the message.",
 		Attrs: []Attr{
-			{Name: "when", Doc: "CEL expression — must return true to proceed", Type: TypeString, Required: true},
+			{Name: "use", Doc: "Reference a named accept block (use = \"accept.<name>\"); other attrs override it", Type: TypeString, Ref: RefAccept},
+			{Name: "when", Doc: "CEL expression — must return true to proceed", Type: TypeString},
 			{Name: "on_reject", Doc: "What to do when condition is false", Type: TypeString, Values: []string{"ack", "reject", "requeue"}},
 		},
 	}
@@ -198,6 +202,9 @@ func ResponseBlockSchema() Block {
 		Type: "response",
 		Doc:  "Transform output AFTER destination write. Available variables: input, output.",
 		Open: true, // attributes are CEL field mappings
+		Attrs: []Attr{
+			{Name: "use", Doc: "Reference a named response block (use = \"response.<name>\"); inline field mappings override it key by key", Type: TypeString, Ref: RefResponse},
+		},
 	}
 }
 
@@ -245,7 +252,8 @@ func LockSchema() Block {
 		Type: "lock",
 		Doc:  "Mutex lock for this flow",
 		Attrs: []Attr{
-			{Name: "key", Doc: "CEL expression for the lock key", Type: TypeString, Required: true},
+			{Name: "use", Doc: "Reference a named lock block (use = \"lock.<name>\"); other attrs override it", Type: TypeString, Ref: RefLock},
+			{Name: "key", Doc: "CEL expression for the lock key", Type: TypeString},
 			{Name: "timeout", Doc: "Max time to hold the lock", Type: TypeDuration},
 			{Name: "wait", Doc: "Wait for lock or fail immediately", Type: TypeBool},
 			{Name: "retry", Doc: "Retry interval", Type: TypeDuration},
@@ -261,8 +269,9 @@ func SemaphoreSchema() Block {
 		Type: "semaphore",
 		Doc:  "Concurrency limiter for this flow",
 		Attrs: []Attr{
-			{Name: "key", Doc: "CEL expression for the semaphore key", Type: TypeString, Required: true},
-			{Name: "max_permits", Doc: "Maximum concurrent permits", Type: TypeNumber, Required: true},
+			{Name: "use", Doc: "Reference a named semaphore block (use = \"semaphore.<name>\"); other attrs override it", Type: TypeString, Ref: RefSemaphore},
+			{Name: "key", Doc: "CEL expression for the semaphore key", Type: TypeString},
+			{Name: "max_permits", Doc: "Maximum concurrent permits", Type: TypeNumber},
 			{Name: "timeout", Doc: "Max time to wait for a permit", Type: TypeDuration},
 			{Name: "lease", Doc: "Max time to hold a permit", Type: TypeDuration},
 		},
@@ -277,6 +286,7 @@ func CoordinateSchema() Block {
 		Type: "coordinate",
 		Doc:  "Signal/wait coordination between flows",
 		Attrs: []Attr{
+			{Name: "use", Doc: "Reference a named coordinate block (use = \"coordinate.<name>\"); other attrs override it", Type: TypeString, Ref: RefCoordinate},
 			{Name: "timeout", Doc: "Max time to wait", Type: TypeDuration},
 			{Name: "on_timeout", Doc: "Behavior on timeout", Type: TypeString, Values: []string{"fail", "retry", "skip", "pass"}},
 			{Name: "max_retries", Doc: "Max retries when on_timeout is retry", Type: TypeNumber},
@@ -307,8 +317,9 @@ func SequenceGuardSchema() Block {
 		Type: "sequence_guard",
 		Doc:  "Monotonic sequence dedup — rejects messages whose sequence is not strictly greater than the last one stored for the same key. Compose with lock for atomicity.",
 		Attrs: []Attr{
-			{Name: "key", Doc: "CEL expression for the per-resource key (e.g. 'sku:' + input.body.sku)", Type: TypeString, Required: true},
-			{Name: "sequence", Doc: "CEL expression yielding a monotonic numeric sequence (e.g. input.body.jobId)", Type: TypeString, Required: true},
+			{Name: "use", Doc: "Reference a named sequence_guard block (use = \"sequence_guard.<name>\"); other attrs override it", Type: TypeString, Ref: RefSequenceGuard},
+			{Name: "key", Doc: "CEL expression for the per-resource key (e.g. 'sku:' + input.body.sku)", Type: TypeString},
+			{Name: "sequence", Doc: "CEL expression yielding a monotonic numeric sequence (e.g. input.body.jobId)", Type: TypeString},
 			{Name: "on_older", Doc: "What to do when current sequence is not strictly greater than stored", Type: TypeString, Values: []string{"ack", "reject", "requeue"}},
 			{Name: "ttl", Doc: "How long to retain stored sequences after the last update (e.g. 30d)", Type: TypeDuration},
 		},
@@ -360,8 +371,12 @@ func ErrorHandlingSchema() Block {
 	return Block{
 		Type: "error_handling",
 		Doc:  "Error handling with retry, fallback, and custom responses",
+		Attrs: []Attr{
+			{Name: "use", Doc: "Reference a named error_handling block (use = \"error_handling.<name>\"); sub-blocks override it wholesale", Type: TypeString, Ref: RefErrorHandling},
+		},
 		Children: []Block{
 			{Type: "retry", Doc: "Automatic retry on failure", Attrs: []Attr{
+				{Name: "use", Doc: "Reference a named retry block (use = \"retry.<name>\"); other attrs override it", Type: TypeString, Ref: RefRetry},
 				{Name: "attempts", Doc: "Maximum retry attempts", Type: TypeNumber},
 				{Name: "delay", Doc: "Initial delay between retries", Type: TypeDuration},
 				{Name: "max_delay", Doc: "Maximum delay (exponential backoff cap)", Type: TypeDuration},
@@ -390,8 +405,9 @@ func DedupeSchema() Block {
 		Type: "dedupe",
 		Doc:  "Content-based, biphasic deduplication. Compares a canonical fingerprint of a named projection of the message against the previously-stored fingerprint for the same key; on match, drops without invoking `to`. Stores the new fingerprint only after `to` succeeds.",
 		Attrs: []Attr{
-			{Name: "cache", Doc: "Cache-typed connector used to store fingerprints", Type: TypeString, Required: true, Ref: RefConnector},
-			{Name: "key", Doc: "CEL expression for the per-resource fingerprint key (evaluated against input.*)", Type: TypeString, Required: true},
+			{Name: "use", Doc: "Reference a named dedupe block (use = \"dedupe.<name>\"); other attrs override it", Type: TypeString, Ref: RefDedupe},
+			{Name: "cache", Doc: "Cache-typed connector used to store fingerprints", Type: TypeString, Ref: RefConnector},
+			{Name: "key", Doc: "CEL expression for the per-resource fingerprint key (evaluated against input.*)", Type: TypeString},
 			{Name: "ttl", Doc: "How long to keep stored fingerprints after the last update", Type: TypeDuration},
 			{Name: "on_duplicate", Doc: "Behavior on fingerprint match", Type: TypeString, Values: []string{"ack", "reject", "requeue"}},
 		},

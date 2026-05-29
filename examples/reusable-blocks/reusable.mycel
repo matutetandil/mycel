@@ -1,0 +1,50 @@
+# Reusable inline blocks (v2.6.0).
+#
+# Declare a block once at the top level with a name, then reference it from any
+# number of flows with `use = "<kind>.<name>"`. A referencing flow can override
+# individual attributes inline; everything it does not mention is inherited from
+# the named base. This is the same mechanism transform and cache already used,
+# now available for every inline block.
+
+# A standard content-dedup policy shared across ingestion flows.
+dedupe "standard" {
+  cache        = "fingerprints"
+  key          = "'item:' + input.id"
+  ttl          = "30d"
+  on_duplicate = "ack"
+  fingerprint {
+    id    = "output.id"
+    name  = "output.name"
+    price = "output.price"
+  }
+}
+
+# A resilient error policy: a few exponential retries, and on a downstream
+# timeout we acknowledge rather than risk a duplicate write.
+retry "resilient" {
+  attempts  = 5
+  delay     = "500ms"
+  max_delay = "30s"
+  backoff   = "exponential"
+}
+
+error_handling "resilient" {
+  retry {
+    use = "retry.resilient"
+  }
+  on_timeout {
+    action = "ack"
+  }
+}
+
+# A business gate: only process events addressed to this tenant.
+accept "mine" {
+  when      = "input.tenant == 'acme'"
+  on_reject = "ack"
+}
+
+# A standard response envelope returned to callers.
+response "envelope" {
+  id     = "output.id"
+  status = "'ok'"
+}

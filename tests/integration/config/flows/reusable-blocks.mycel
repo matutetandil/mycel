@@ -1,0 +1,180 @@
+# Flows that consume the reusable named blocks via use = "<kind>.<name>".
+# See reusable/blocks.mycel for the definitions and test-reusable-blocks.sh
+# for the assertions.
+
+# --- dedupe (behavioural: duplicates dropped) ---
+flow "ru_dedupe_flow" {
+  from {
+    connector = "api"
+    operation = "POST /test/ru/dedupe"
+  }
+  transform {
+    sku   = "input.sku"
+    price = "input.price"
+  }
+  dedupe {
+    use = "dedupe.ru_dedupe"
+  }
+  to {
+    connector = "external_api"
+    target    = "/ru-dedupe-target"
+    operation = "POST"
+  }
+}
+
+# --- accept (behavioural: gate by region) ---
+flow "ru_accept_flow" {
+  from {
+    connector = "api"
+    operation = "POST /test/ru/accept"
+  }
+  accept {
+    use = "accept.ru_accept"
+  }
+  to {
+    connector = "external_api"
+    target    = "/ru-accept-target"
+    operation = "POST"
+  }
+}
+
+# --- response (behavioural: caller body shaped by named response) ---
+flow "ru_response_flow" {
+  from {
+    connector = "api"
+    operation = "POST /test/ru/response"
+  }
+  response {
+    use = "response.ru_response"
+  }
+  to {
+    connector = "external_api"
+    target    = "/ru-response-target"
+    operation = "POST"
+  }
+}
+
+# --- sequence_guard (behavioural: older sequence dropped) ---
+flow "ru_seq_flow" {
+  from {
+    connector = "api"
+    operation = "POST /test/ru/seq"
+  }
+  sequence_guard {
+    use = "sequence_guard.ru_seq"
+  }
+  to {
+    connector = "external_api"
+    target    = "/ru-seq-target"
+    operation = "POST"
+  }
+}
+
+# --- transaction (behavioural: row inserted via mysql) ---
+# Transactions are supported on mysql/sqlite (not postgres), so this writes to
+# the mysql connector.
+flow "ru_tx_flow" {
+  from {
+    connector = "api"
+    operation = "POST /test/ru/tx"
+  }
+  to {
+    connector = "mysql"
+    transaction {
+      use = "transaction.ru_tx"
+    }
+  }
+}
+
+flow "ru_tx_read" {
+  from {
+    connector = "api"
+    operation = "GET /test/ru/tx/results"
+  }
+  to {
+    connector = "mysql"
+    target    = "ru_tx_results"
+  }
+}
+
+# --- error_handling (resolution + execution; nested retry.use) ---
+flow "ru_eh_flow" {
+  from {
+    connector = "api"
+    operation = "POST /test/ru/eh"
+  }
+  error_handling {
+    use = "error_handling.ru_eh"
+  }
+  to {
+    connector = "external_api"
+    target    = "/ru-eh-target"
+    operation = "POST"
+  }
+}
+
+# --- retry (direct reuse inside an inline error_handling) ---
+flow "ru_retry_flow" {
+  from {
+    connector = "api"
+    operation = "POST /test/ru/retry"
+  }
+  error_handling {
+    retry {
+      use = "retry.ru_retry"
+    }
+  }
+  to {
+    connector = "external_api"
+    target    = "/ru-retry-target"
+    operation = "POST"
+  }
+}
+
+# --- lock (resolution + execution) ---
+flow "ru_lock_flow" {
+  from {
+    connector = "api"
+    operation = "POST /test/ru/lock"
+  }
+  lock {
+    use = "lock.ru_lock"
+  }
+  to {
+    connector = "external_api"
+    target    = "/ru-lock-target"
+    operation = "POST"
+  }
+}
+
+# --- semaphore (resolution + execution) ---
+flow "ru_sem_flow" {
+  from {
+    connector = "api"
+    operation = "POST /test/ru/sem"
+  }
+  semaphore {
+    use = "semaphore.ru_sem"
+  }
+  to {
+    connector = "external_api"
+    target    = "/ru-sem-target"
+    operation = "POST"
+  }
+}
+
+# --- coordinate (resolution + execution; signal-only) ---
+flow "ru_coord_flow" {
+  from {
+    connector = "api"
+    operation = "POST /test/ru/coord"
+  }
+  coordinate {
+    use = "coordinate.ru_coord"
+  }
+  to {
+    connector = "external_api"
+    target    = "/ru-coord-target"
+    operation = "POST"
+  }
+}

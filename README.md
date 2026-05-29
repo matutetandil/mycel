@@ -152,6 +152,7 @@ That's it. REST API + database, zero code.
 | Accept Gate | Business-level message routing with `on_reject` policy (ack/reject/requeue) ([docs](docs/core-concepts/flows.md#the-accept-block)) |
 | Source Fan-Out | Multiple flows from the same connector+operation, concurrent execution ([docs](docs/core-concepts/flows.md#source-fan-out-multiple-flows-from-same-source)) |
 | [Named Operations](examples/named-operations) | Reusable parameterized operations |
+| [Reusable Inline Blocks](examples/reusable-blocks) | Declare dedupe/retry/lock/accept/response/etc. once, reference from many flows with `use = "<kind>.<name>"` ([docs](docs/core-concepts/reusable-blocks.md)) |
 | [Data Enrichment](examples/enrich) | Combine data from multiple sources |
 | [Auth (JWT, MFA, WebAuthn)](examples/auth) | Authentication with presets and MFA ([docs](docs/guides/auth.md)) |
 | [Rate Limiting / Circuit Breaker](examples/rate-limit) | Traffic control and fault tolerance |

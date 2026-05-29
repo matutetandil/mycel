@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-05-29
+
+### Added
+
+- **Reusable inline blocks.** Every inline block that used to be copy-pasted flow after flow can now be declared **once** at the top level with a name and referenced from any number of flows via `use = "<kind>.<name>"`, with optional attribute-level overrides. This extends the mechanism `transform` and `cache` already had to ten more kinds:
+
+  | Category | Kinds |
+  |---|---|
+  | Flat | `dedupe`, `retry`, `lock`, `semaphore`, `sequence_guard` |
+  | Sub-block | `coordinate`, `transaction`, `error_handling` |
+  | Mapping | `accept`, `response` |
+
+  ```hcl
+  dedupe "standard" {
+    cache = "fingerprints"
+    key   = "'item:' + input.id"
+    ttl   = "30d"
+    fingerprint { id = "output.id"  price = "output.price" }
+  }
+
+  flow "ingest_products" {
+    # ...
+    dedupe { use = "dedupe.standard" }
+  }
+
+  flow "ingest_orders" {
+    # ...
+    dedupe {
+      use = "dedupe.standard"
+      key = "'order:' + input.id"   # override just the key
+      ttl = "7d"                    # cache + fingerprint inherited
+    }
+  }
+  ```
+
+  Merge rules: scalars override when set; map fields (dedupe `fingerprint`, `response` mappings) merge key by key; sub-blocks (lock `storage`, error_handling `retry`, …) are replaced wholesale. A named `error_handling` may itself reference a named `retry` (resolved outer-first). References are validated at config load — a `use` pointing at a non-existent name fails `mycel validate` with the list of available names, never at runtime.
+
+  `error_response`, `on_timeout`, and `on_error` are intentionally **not** independently nameable: they live inside `error_handling`, which holds a single one of each, so reusing the whole named `error_handling` already covers them.
+
+  Strictly **additive and backward-compatible**: every existing inline block (written without `use`) behaves exactly as before. Names live in a per-kind namespace. See [`examples/reusable-blocks/`](examples/reusable-blocks/) and [`docs/core-concepts/reusable-blocks.md`](docs/core-concepts/reusable-blocks.md).
+
+### Internal
+
+- Reusable-block plumbing is table-driven: a single `reusableKinds` registry in `internal/parser/reusable.go` drives the top-level parse dispatch, name-uniqueness validation, and reference resolution, so each kind contributes only its parse/merge functions. References are folded into self-contained blocks by a new `ResolveReferences` pass at parse time; the runtime is unchanged.
+
 ## [2.5.0] - 2026-05-28
 
 ### Changed

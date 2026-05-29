@@ -58,8 +58,16 @@ func TestAcceptSchema(t *testing.T) {
 	if when == nil {
 		t.Fatal("accept missing 'when' attribute")
 	}
-	if !when.Required {
-		t.Error("accept.when should be required")
+	// As of v2.6 `when` is no longer schema-required: a reference form
+	// (use = "accept.<name>") inherits it from the named base. The
+	// parser still enforces `when` for self-contained accept blocks.
+	if when.Required {
+		t.Error("accept.when should not be schema-required (use-references inherit it)")
+	}
+
+	use := accept.GetAttr("use")
+	if use == nil || use.Ref != RefAccept {
+		t.Errorf("accept should expose a 'use' attribute referencing RefAccept, got %+v", use)
 	}
 
 	onReject := accept.GetAttr("on_reject")
@@ -237,6 +245,6 @@ type mockProvider struct {
 	connSchema Block
 }
 
-func (m *mockProvider) ConnectorSchema() Block   { return m.connSchema }
-func (m *mockProvider) SourceSchema() *Block      { return nil }
-func (m *mockProvider) TargetSchema() *Block      { return nil }
+func (m *mockProvider) ConnectorSchema() Block { return m.connSchema }
+func (m *mockProvider) SourceSchema() *Block   { return nil }
+func (m *mockProvider) TargetSchema() *Block   { return nil }

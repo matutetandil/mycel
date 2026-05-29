@@ -155,6 +155,7 @@ else
     scripts/test-new-features.sh
     scripts/test-fanout.sh
     scripts/test-dedupe.sh
+    scripts/test-reusable-blocks.sh
   )
 fi
 
@@ -225,7 +226,7 @@ else
       rate-limit)
         SOLO_FILES+=("$test_file")
         ;;
-      http-client|notifications|dedupe)
+      http-client|notifications|dedupe|reusable-blocks)
         MOCK_FILES+=("$test_file")
         ;;
       *)

@@ -1,0 +1,18 @@
+# REST entry point for the demo flows.
+connector "api" {
+  type = "rest"
+  port = 8080
+}
+
+# Downstream the flows write to. Swap for any real target.
+connector "downstream" {
+  type = "rest"
+  url  = "http://localhost:9000"
+}
+
+# Cache backing the dedupe fingerprints (memory keeps the demo self-contained;
+# swap driver = "redis" + url in production).
+connector "fingerprints" {
+  type   = "cache"
+  driver = "memory"
+}

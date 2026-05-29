@@ -32,6 +32,17 @@ const (
 	RefValidator
 	RefFlow
 	RefStateMachine
+	// Reusable inline-block references (v2.6): use = "<kind>.<name>".
+	RefDedupe
+	RefRetry
+	RefLock
+	RefSemaphore
+	RefSequenceGuard
+	RefCoordinate
+	RefTransaction
+	RefErrorHandling
+	RefAccept
+	RefResponse
 )
 
 // Attr describes a single attribute in a block.

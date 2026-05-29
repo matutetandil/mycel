@@ -1,0 +1,4 @@
+service {
+  name    = "reusable-blocks-demo"
+  version = "1.0.0"
+}
