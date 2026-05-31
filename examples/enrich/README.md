@@ -12,10 +12,10 @@ Data enrichment allows you to:
 
 ## Files
 
-- `config.hcl` - Service configuration
-- `connectors.hcl` - Connector definitions (REST API, database, external services)
-- `flows.hcl` - Flow definitions with enrichments
-- `transforms.hcl` - Reusable transforms with built-in enrichments
+- `config.mycel` - Service configuration
+- `connectors.mycel` - Connector definitions (REST API, database, external services)
+- `flows.mycel` - Flow definitions with enrichments
+- `transforms.mycel` - Reusable transforms that read enriched data
 
 ## How It Works
 
@@ -89,19 +89,15 @@ flow "get_product_full" {
 }
 ```
 
-### Reusable Transforms with Enrichment
+### Reusable Transforms over Enriched Data
 
-Put enrichments inside named transforms to reuse them:
+`enrich` blocks live in the flow. A named transform stays a pure set of
+field mappings, but it can read whatever the flow enriched through the
+`enriched.*` namespace — so the mapping logic is reusable across flows:
 
 ```hcl
-# transforms.hcl
+# transforms.mycel
 transform "with_pricing" {
-  enrich "pricing" {
-    connector = "pricing_service"
-    operation = "getPrice"
-    params { product_id = "input.id" }
-  }
-
   id       = "input.id"
   name     = "input.name"
   price    = "enriched.pricing.price"
@@ -109,11 +105,17 @@ transform "with_pricing" {
 }
 ```
 
-Then use in any flow:
+Pair it with a flow-level `enrich` block that produces `enriched.pricing`:
 
 ```hcl
 flow "get_product" {
   from { ... }
+
+  enrich "pricing" {
+    connector = "pricing_service"
+    operation = "getPrice"
+    params { product_id = "input.id" }
+  }
 
   transform {
     use = "transform.with_pricing"

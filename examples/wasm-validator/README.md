@@ -131,7 +131,7 @@ cp target/wasm32-unknown-unknown/release/cuit_validator.wasm ./validators/
 ### 5. Use in Mycel Configuration
 
 ```hcl
-# validators.hcl
+# validators.mycel
 validator "argentina_cuit" {
   type       = "wasm"
   wasm       = "./validators/cuit_validator.wasm"
@@ -139,7 +139,7 @@ validator "argentina_cuit" {
   message    = "Invalid Argentine CUIT"
 }
 
-# types.hcl
+# types.mycel
 type "company" {
   cuit = string { validate = "validator.argentina_cuit" }
 }

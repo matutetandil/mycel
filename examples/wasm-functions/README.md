@@ -227,7 +227,7 @@ cp target/wasm32-unknown-unknown/release/mycel_pricing.wasm ./functions/pricing.
 
 ## Mycel Configuration
 
-### functions.hcl
+### functions.mycel
 
 ```hcl
 functions "pricing" {
@@ -236,7 +236,7 @@ functions "pricing" {
 }
 ```
 
-### flows.hcl
+### flows.mycel
 
 ```hcl
 flow "checkout" {

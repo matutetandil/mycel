@@ -91,18 +91,18 @@ Expected: bell character (`\u0007`) is stripped; `name` stored as `"AliceBell"`.
 
 ```
 security/
-├── config.hcl              # Service name and version
-├── security.hcl            # Custom security thresholds
+├── config.mycel              # Service name and version
+├── security.mycel            # Custom security thresholds
 ├── connectors/
-│   ├── api.hcl             # REST API on port 3000
-│   └── database.hcl        # SQLite database
+│   ├── api.mycel             # REST API on port 3000
+│   └── database.mycel        # SQLite database
 └── flows/
-    └── users.hcl           # User CRUD (security applies automatically)
+    └── users.mycel           # User CRUD (security applies automatically)
 ```
 
 ## Customizing Thresholds
 
-In `security.hcl`:
+In `security.mycel`:
 
 ```hcl
 security {

@@ -18,9 +18,9 @@ If any step fails, compensations run **in reverse order**:
 
 | File | Purpose |
 |------|---------|
-| `config.hcl` | Service configuration |
-| `connectors.hcl` | Database and API connectors |
-| `sagas.hcl` | Saga definition with steps and compensations |
+| `config.mycel` | Service configuration |
+| `connectors.mycel` | Database and API connectors |
+| `sagas.mycel` | Saga definition with steps and compensations |
 
 ## Running
 

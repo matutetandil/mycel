@@ -8,14 +8,14 @@ A Mycel plugin is a directory containing:
 
 ```
 my-plugin/
-├── plugin.hcl          # Plugin manifest (required)
+├── plugin.mycel          # Plugin manifest (required)
 ├── connector.wasm      # WASM connector module (required for connectors)
 └── functions.wasm      # WASM functions module (optional)
 ```
 
-## Plugin Manifest (plugin.hcl)
+## Plugin Manifest (plugin.mycel)
 
-The `plugin.hcl` file describes the plugin and what it provides:
+The `plugin.mycel` file describes the plugin and what it provides:
 
 ```hcl
 plugin {
@@ -59,7 +59,7 @@ provides {
 Declare plugins in your Mycel configuration:
 
 ```hcl
-# plugins.hcl
+# plugins.mycel
 plugin "salesforce" {
   source = "./plugins/salesforce"
 }
@@ -74,7 +74,7 @@ plugin "salesforce" {
 Then use the plugin connector like any built-in connector:
 
 ```hcl
-# connectors/salesforce.hcl
+# connectors/salesforce.mycel
 connector "sf_crm" {
   type = "salesforce"  # Uses the plugin connector type
 
@@ -89,7 +89,7 @@ connector "sf_crm" {
 Use it in flows:
 
 ```hcl
-# flows/get_accounts.hcl
+# flows/get_accounts.mycel
 flow "get_accounts" {
   from {
     connector = "api"

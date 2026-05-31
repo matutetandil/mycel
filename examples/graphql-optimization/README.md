@@ -282,10 +282,10 @@ For each GraphQL request:
 
 ```
 graphql-optimization/
-├── service.hcl     # Service configuration
-├── connectors.hcl  # GraphQL server + databases
-├── flows.hcl       # Flows with optimization examples
-├── types.hcl       # GraphQL type definitions
+├── service.mycel     # Service configuration
+├── connectors.mycel  # GraphQL server + databases
+├── flows.mycel       # Flows with optimization examples
+├── types.mycel       # GraphQL type definitions
 ├── setup.sql       # Database schema + sample data
 └── README.md       # This file
 ```

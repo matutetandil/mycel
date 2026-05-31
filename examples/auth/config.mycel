@@ -1,13 +1,16 @@
 # Authentication Service Example
-# This example demonstrates a complete authentication microservice using Mycel
-# NOTE: The auth block is a planned feature - this is a reference implementation
+#
+# A complete authentication microservice defined entirely in HCL — no code.
+# It exposes register/login/refresh/logout, password hashing (argon2id),
+# brute-force protection, sessions, MFA (TOTP + WebAuthn) and optional
+# social login. See README.md for the full endpoint list and curl examples.
 
 service {
   name    = "auth-service"
   version = "1.0.0"
 }
 
-# Database for user storage
+# Database for user storage and audit log
 connector "postgres" {
   type     = "database"
   driver   = "postgres"
@@ -18,7 +21,7 @@ connector "postgres" {
   password = env("DB_PASSWORD", "postgres")
 }
 
-# REST API connector (exposes auth endpoints)
+# REST API connector — the auth endpoints are mounted here
 connector "api" {
   type = "rest"
   port = 8080
@@ -30,24 +33,110 @@ connector "api" {
   }
 }
 
-# NOTE: The auth block below is a planned feature (Phase 5.1)
-# It is commented out until full implementation is complete
+# Authentication system.
 #
-# auth {
-#   preset = "standard"
-#
-#   users {
-#     connector = "postgres"
-#     table     = "users"
-#   }
-#
-#   jwt {
-#     secret           = env("JWT_SECRET", "change-this-in-production")
-#     access_lifetime  = "1h"
-#     refresh_lifetime = "7d"
-#   }
-#
-#   endpoints {
-#     prefix = "/auth"
-#   }
-# }
+# `preset` picks a security baseline (strict | standard | relaxed | development);
+# every block below overrides only the parts you care about. Anything omitted
+# falls back to the preset's defaults.
+auth {
+  preset = "standard"
+
+  # Where users (and the audit log) live. Omit this block to use the
+  # built-in in-memory stores, handy for local experimentation.
+  users {
+    connector = "postgres"
+    table     = "users"
+  }
+
+  # JWT signing. Use a strong secret in production (env, not a literal).
+  jwt {
+    secret           = env("JWT_SECRET", "change-this-in-production")
+    algorithm        = "HS256"
+    access_lifetime  = "1h"
+    refresh_lifetime = "7d"
+    issuer           = "auth-service"
+    rotation         = true
+  }
+
+  # Password policy. Hashing is always argon2id.
+  password {
+    min_length     = 8
+    require_upper  = true
+    require_lower  = true
+    require_number = true
+    history        = 5
+  }
+
+  # Multi-factor authentication. Optional for users under the `standard`
+  # preset; set `required = "true"` to force enrolment.
+  mfa {
+    required = "optional"
+    methods  = ["totp", "webauthn"]
+
+    totp {
+      issuer = "auth-service"
+      digits = 6
+      period = 30
+    }
+
+    webauthn {
+      rp_name = "Auth Service"
+      rp_id   = "localhost"
+      origins = ["http://localhost:8080"]
+    }
+
+    recovery {
+      enabled    = true
+      code_count = 10
+    }
+  }
+
+  # Account protection.
+  security {
+    brute_force {
+      enabled      = true
+      max_attempts = 5
+      window       = "15m"
+      lockout_time = "30m"
+      track_by     = "ip+user"
+    }
+
+    replay_protection {
+      enabled = true
+      window  = "5m"
+    }
+  }
+
+  # Session lifetimes.
+  sessions {
+    idle_timeout     = "30m"
+    absolute_timeout = "24h"
+  }
+
+  # Optional social login. Providers stay inert until their client
+  # credentials are supplied via environment variables.
+  social {
+    google {
+      client_id     = env("GOOGLE_CLIENT_ID", "")
+      client_secret = env("GOOGLE_CLIENT_SECRET", "")
+      scopes        = ["openid", "email", "profile"]
+    }
+
+    github {
+      client_id     = env("GITHUB_CLIENT_ID", "")
+      client_secret = env("GITHUB_CLIENT_SECRET", "")
+      scopes        = ["user:email"]
+    }
+  }
+
+  # Persist authentication events for auditing.
+  audit {
+    enabled   = true
+    connector = "postgres"
+  }
+
+  # All endpoints are served under this prefix (e.g. POST /auth/login).
+  endpoints {
+    prefix = "/auth"
+  }
+}

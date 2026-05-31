@@ -56,20 +56,20 @@ curl http://localhost:3000/logs
 
 ```
 scheduled/
-├── config.hcl              # Service name and version
+├── config.mycel              # Service name and version
 ├── connectors/
-│   ├── api.hcl             # REST API on port 3000
-│   └── database.hcl        # SQLite database connection
+│   ├── api.mycel             # REST API on port 3000
+│   └── database.mycel        # SQLite database connection
 ├── flows/
-│   ├── scheduled.hcl       # Three scheduled jobs (cron flows)
-│   └── api.hcl             # REST endpoints to query results
+│   ├── scheduled.mycel       # Three scheduled jobs (cron flows)
+│   └── api.mycel             # REST endpoints to query results
 └── data/
     └── app.db              # SQLite database file (created automatically)
 ```
 
 ## Configuration Explained
 
-### Scheduled Flows (`flows/scheduled.hcl`)
+### Scheduled Flows (`flows/scheduled.mycel`)
 
 The `when` attribute turns a flow into a scheduled job. No `from` block is needed -- the scheduler triggers the flow automatically.
 

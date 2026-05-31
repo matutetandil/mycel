@@ -1,15 +1,15 @@
 # Flow Triggers Example - Scheduled Jobs
-# Run jobs on cron or interval schedules
-# NOTE: Scheduled triggers (when attribute) are a planned feature
+#
+# A flow with a `when` attribute becomes a scheduled job: the scheduler
+# triggers it on a cron expression ("0 3 * * *") or an interval
+# ("@every 5m"), so no `from` block is needed. Locks compose on top to keep
+# overlapping runs (or multiple replicas) from executing the same job twice.
 
-# Daily cleanup
+# Daily cleanup at 3:00 AM
 flow "daily_cleanup" {
-  from {
-    connector = "api"
-    operation = "POST /jobs/cleanup"
-  }
+  when = "0 3 * * *"
 
-  # Prevent concurrent runs with a lock
+  # Prevent concurrent runs across replicas with a distributed lock
   lock {
     storage {
       driver = "redis"
@@ -22,29 +22,23 @@ flow "daily_cleanup" {
 
   to {
     connector = "postgres"
-    operation = "DELETE FROM logs WHERE created_at < now() - interval '30 days'"
+    query     = "DELETE FROM logs WHERE created_at < now() - interval '30 days'"
   }
 }
 
-# Health check endpoint
+# Heartbeat every 5 minutes
 flow "health_ping" {
-  from {
-    connector = "api"
-    operation = "GET /health"
-  }
+  when = "@every 5m"
 
   to {
     connector = "monitoring"
-    operation = "POST /post"
+    target    = "POST /ping"
   }
 }
 
-# Manual stats aggregation trigger
+# Hourly stats aggregation
 flow "aggregate_stats" {
-  from {
-    connector = "api"
-    operation = "POST /jobs/stats"
-  }
+  when = "@every 1h"
 
   lock {
     storage {
@@ -58,6 +52,6 @@ flow "aggregate_stats" {
 
   to {
     connector = "postgres"
-    operation = "INSERT INTO hourly_stats (hour, total_requests) VALUES (now(), 0)"
+    query     = "INSERT INTO hourly_stats (hour, total_requests) VALUES (now(), 0)"
   }
 }

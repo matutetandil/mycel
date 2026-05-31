@@ -6,9 +6,9 @@ This example demonstrates how to use Mycel's mock system for testing without ext
 
 ```
 mocks/
-├── config.hcl           # Service config with mocks enabled
-├── connectors.hcl       # REST API + SQLite connectors
-├── flows.hcl            # User CRUD flows
+├── config.mycel           # Service config with mocks enabled
+├── connectors.mycel       # REST API + SQLite connectors
+├── flows.mycel            # User CRUD flows
 ├── mocks/
 │   └── connectors/
 │       └── db/
@@ -52,7 +52,7 @@ Mock files are JSON with two formats:
 ## Running
 
 ```bash
-# With mocks from config.hcl
+# With mocks from config.mycel
 mycel start --config ./examples/mocks
 
 # Override via CLI - mock specific connectors

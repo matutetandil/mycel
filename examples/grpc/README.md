@@ -12,7 +12,7 @@ This example demonstrates gRPC server and client functionality.
 
 ## Files
 
-- `config.hcl` - Complete configuration with server, client, and flows
+- `config.mycel` - Complete configuration with server, client, and flows
 
 ## Usage
 

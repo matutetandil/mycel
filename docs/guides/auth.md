@@ -23,7 +23,7 @@ auth {
   }
 
   users {
-    connector = connector.postgres
+    connector = "postgres"
     table     = "users"
   }
 }
@@ -239,7 +239,7 @@ oidc "auth0" {
 
 ```hcl
 users {
-  connector = connector.postgres
+  connector = "postgres"
   table     = "users"
 
   # Field mappings (if different from defaults)
@@ -276,7 +276,7 @@ storage {
 ```hcl
 audit {
   enabled   = true
-  connector = connector.postgres
+  connector = "postgres"
   table     = "auth_audit_log"
   events    = [
     "login",

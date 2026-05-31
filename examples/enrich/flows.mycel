@@ -1,7 +1,6 @@
 # Flow configurations
-# NOTE: enrich blocks are a planned feature (not yet implemented)
 
-# Example: Get product
+# Plain flow, no enrichment
 flow "get_product" {
   from {
     connector = "api"
@@ -19,17 +18,92 @@ flow "get_product" {
   }
 }
 
-# Example: Get product with transform
-flow "get_product_with_transform" {
+# Flow-level enrichment: fetch the price from an external pricing
+# microservice and expose it through `enriched.pricing` in the transform.
+flow "get_product_with_price" {
+  from {
+    connector = "api"
+    operation = "GET /products/:id/price"
+  }
+
+  enrich "pricing" {
+    connector = "pricing_service"
+    operation = "getPrice"
+    params {
+      product_id = "input.id"
+    }
+  }
+
+  transform {
+    id       = "input.id"
+    name     = "input.name"
+    price    = "enriched.pricing.price"
+    currency = "enriched.pricing.currency"
+  }
+
+  to {
+    connector = "products_db"
+    operation = "products"
+  }
+}
+
+# Multiple enrichments from independent services in a single flow.
+flow "get_product_full" {
+  from {
+    connector = "api"
+    operation = "GET /products/:id/full"
+  }
+
+  enrich "pricing" {
+    connector = "pricing_service"
+    operation = "getPrice"
+    params {
+      product_id = "input.id"
+    }
+  }
+
+  enrich "inventory" {
+    connector = "inventory_service"
+    operation = "GET /stock"
+    params {
+      sku = "input.sku"
+    }
+  }
+
+  transform {
+    id              = "input.id"
+    name            = "input.name"
+    price           = "enriched.pricing.price"
+    stock_available = "enriched.inventory.available"
+    in_stock        = "enriched.inventory.available > 0"
+  }
+
+  to {
+    connector = "products_db"
+    operation = "products"
+  }
+}
+
+# Flow-level enrich paired with a reusable named transform that reads the
+# enriched data (see `transform "with_pricing"` in transforms.mycel).
+flow "get_product_reusable" {
   from {
     connector = "api"
     operation = "GET /products/:id/v2"
   }
 
-  transform {
-    use = "transform.normalize_product"
+  enrich "pricing" {
+    connector = "pricing_service"
+    operation = "getPrice"
+    params {
+      product_id = "input.id"
+    }
+  }
 
-    # Additional inline mappings
+  transform {
+    use = "transform.with_pricing"
+
+    # Additional inline mappings merge on top of the reusable transform
     fetched_at = "now()"
   }
 
