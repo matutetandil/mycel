@@ -346,6 +346,8 @@ Variants and integration patterns beyond the individual features above:
 
 If you find this project useful, consider supporting its development:
 
+<a href="https://github.com/sponsors/matutetandil" target="_blank"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white&style=for-the-badge" alt="GitHub Sponsors" height="42"></a>
+&nbsp;
 <a href="https://buymeacoffee.com/matutetandil" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="200"></a>
 
 ## Contributing
