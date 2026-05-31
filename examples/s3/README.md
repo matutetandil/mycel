@@ -12,8 +12,8 @@ This example demonstrates S3 and S3-compatible storage (MinIO) operations.
 
 ## Files
 
-- `config.hcl` - S3 and MinIO connector configuration
-- `flows.hcl` - File operation flows
+- `config.mycel` - S3 and MinIO connector configuration
+- `flows.mycel` - File operation flows
 
 ## Environment Variables
 

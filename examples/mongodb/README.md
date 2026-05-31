@@ -12,8 +12,8 @@ This example demonstrates MongoDB NoSQL operations.
 
 ## Files
 
-- `config.hcl` - MongoDB connector configuration
-- `flows.hcl` - CRUD and query flows
+- `config.mycel` - MongoDB connector configuration
+- `flows.mycel` - CRUD and query flows
 
 ## Environment Variables
 

@@ -11,8 +11,8 @@ This example demonstrates local file system operations.
 
 ## Files
 
-- `config.hcl` - Connectors configuration
-- `flows.hcl` - File operation flows
+- `config.mycel` - Connectors configuration
+- `flows.mycel` - File operation flows
 
 ## Usage
 

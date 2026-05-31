@@ -261,7 +261,7 @@ CREATE INDEX idx_linked_provider ON linked_accounts(provider, provider_id);
 
 ### Enterprise OIDC (Okta, Azure AD, Auth0)
 
-Configure your identity provider and add to config.hcl:
+Configure your identity provider and add to config.mycel:
 
 ```hcl
 oidc "okta" {

@@ -11,9 +11,9 @@ Both approaches produce the same result: a fully typed GraphQL API.
 
 ```
 graphql/
-├── config.hcl          # Service configuration
-├── connectors.hcl      # GraphQL server + SQLite database
-├── flows.hcl           # GraphQL operations (Query/Mutation)
+├── config.mycel          # Service configuration
+├── connectors.mycel      # GraphQL server + SQLite database
+├── flows.mycel           # GraphQL operations (Query/Mutation)
 ├── schema.graphql      # SDL schema (for schema-first approach)
 └── README.md           # This file
 ```
@@ -107,7 +107,7 @@ flow "get_users" {
 
 Define your types in HCL files, and Mycel automatically generates the GraphQL schema. Use the `returns` attribute to specify the return type.
 
-### Type Definition (types/user.hcl)
+### Type Definition (types/user.mycel)
 
 ```hcl
 type "User" {

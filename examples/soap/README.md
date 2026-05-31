@@ -105,15 +105,15 @@ Note the differences from SOAP 1.1:
 
 ```
 soap/
-├── config.hcl              # Service name and version
+├── config.mycel              # Service name and version
 ├── connectors/
-│   ├── soap_server.hcl     # SOAP endpoint configuration
-│   └── database.hcl        # SQLite database connection
+│   ├── soap_server.mycel     # SOAP endpoint configuration
+│   └── database.mycel        # SQLite database connection
 ├── flows/
-│   ├── get_user.hcl        # GetUser operation
-│   └── create_user.hcl     # CreateUser operation
+│   ├── get_user.mycel        # GetUser operation
+│   └── create_user.mycel     # CreateUser operation
 ├── types/
-│   └── user.hcl            # User input validation schema
+│   └── user.mycel            # User input validation schema
 ├── data/
 │   └── app.db              # SQLite database file (created automatically)
 └── setup.sql               # Initial database schema

@@ -1,5 +1,8 @@
 // Example Plugin Manifest
-// NOTE: The plugin system is a planned feature
+//
+// The WASM plugin system is implemented (local and git sources). This is an
+// illustrative manifest; actually loading the connector requires a compiled
+// connector.wasm in this directory (see ../../README.md).
 
 plugin "example" {
   source  = "./plugins/example-plugin"

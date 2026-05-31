@@ -56,10 +56,10 @@ sqlite3 audit_logs.db "SELECT * FROM audit_logs"
 
 ## Files
 
-- `config.hcl` - Service configuration
-- `connectors.hcl` - Database and cache connectors
-- `flows.hcl` - API flows (CRUD operations)
-- `aspects.hcl` - Cross-cutting concerns
+- `config.mycel` - Service configuration
+- `connectors.mycel` - Database and cache connectors
+- `flows.mycel` - API flows (CRUD operations)
+- `aspects.mycel` - Cross-cutting concerns
 
 ## Aspect Configuration Reference
 

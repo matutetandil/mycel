@@ -28,7 +28,7 @@ docker run \
 
 ## Error Handling Layers
 
-### 1. Retry with Exponential Backoff + DLQ (`flows/retry.hcl`)
+### 1. Retry with Exponential Backoff + DLQ (`flows/retry.mycel`)
 
 ```hcl
 error_handling {
@@ -49,7 +49,7 @@ error_handling {
 
 If `POST /orders` fails, Mycel retries 5 times (1s, 2s, 4s, 8s, 16s capped at 30s). After exhaustion, the message goes to RabbitMQ `dead_letters` exchange with the original payload and error details.
 
-### 2. Custom Error Responses (`flows/custom_errors.hcl`)
+### 2. Custom Error Responses (`flows/custom_errors.mycel`)
 
 ```hcl
 error_handling {
@@ -66,7 +66,7 @@ error_handling {
 
 Returns structured error responses with specific HTTP status codes instead of generic 500 errors.
 
-### 3. Step-Level Error Handling (`flows/skip_steps.hcl`)
+### 3. Step-Level Error Handling (`flows/skip_steps.mycel`)
 
 ```hcl
 step "customer" {
@@ -87,7 +87,7 @@ step "shipping" {
 
 Three modes: `fail` (abort flow), `skip` (continue without data), `default` (use fallback values).
 
-### 4. Circuit Breaker (`aspects/circuit_breaker.hcl`)
+### 4. Circuit Breaker (`aspects/circuit_breaker.mycel`)
 
 ```hcl
 aspect "db_circuit_breaker" {
@@ -104,7 +104,7 @@ aspect "db_circuit_breaker" {
 
 After 5 consecutive failures, the circuit opens and requests fail fast for 30s. After timeout, allows 1 request through; if it succeeds 2 times, the circuit closes.
 
-### 5. Rate Limiting (`config.hcl`)
+### 5. Rate Limiting (`config.mycel`)
 
 ```hcl
 service {
@@ -123,19 +123,19 @@ Token bucket rate limiting per client IP. Returns `429 Too Many Requests` with `
 
 ```
 error-handling/
-├── config.hcl                     # Service config with rate limiting
+├── config.mycel                     # Service config with rate limiting
 ├── connectors/
-│   ├── api.hcl                    # REST API on port 3000
-│   ├── database.hcl               # PostgreSQL connection
-│   └── queue.hcl                  # RabbitMQ for DLQ
+│   ├── api.mycel                    # REST API on port 3000
+│   ├── database.mycel               # PostgreSQL connection
+│   └── queue.mycel                  # RabbitMQ for DLQ
 ├── flows/
-│   ├── retry.hcl                  # Retry + backoff + DLQ
-│   ├── custom_errors.hcl          # Custom HTTP error responses
-│   └── skip_steps.hcl             # Step-level skip/default
+│   ├── retry.mycel                  # Retry + backoff + DLQ
+│   ├── custom_errors.mycel          # Custom HTTP error responses
+│   └── skip_steps.mycel             # Step-level skip/default
 ├── types/
-│   └── order.hcl                  # Order validation schema
+│   └── order.mycel                  # Order validation schema
 ├── aspects/
-│   └── circuit_breaker.hcl        # Circuit breaker for all flows
+│   └── circuit_breaker.mycel        # Circuit breaker for all flows
 └── README.md
 ```
 

@@ -16,10 +16,10 @@ This example demonstrates caching with Mycel using both in-memory and Redis cach
 
 | File | Description |
 |------|-------------|
-| `config.hcl` | Service configuration |
-| `connectors.hcl` | REST API, SQLite, and Cache connectors |
-| `caches.hcl` | Named cache definitions (reusable) |
-| `flows.hcl` | Flow definitions with various caching patterns |
+| `config.mycel` | Service configuration |
+| `connectors.mycel` | REST API, SQLite, and Cache connectors |
+| `caches.mycel` | Named cache definitions (reusable) |
+| `flows.mycel` | Flow definitions with various caching patterns |
 
 ## Quick Start
 
@@ -60,14 +60,14 @@ flow "get_product" {
 Define once, use everywhere:
 
 ```hcl
-# In caches.hcl
+# In caches.mycel
 cache "products" {
   storage = "memory_cache"
   ttl     = "10m"
   prefix  = "products"
 }
 
-# In flows.hcl
+# In flows.mycel
 flow "get_product" {
   from { ... }
   to   { ... }
@@ -156,7 +156,7 @@ cache {
 
 For production deployments, use Redis for distributed caching:
 
-1. Uncomment the Redis connector in `connectors.hcl`:
+1. Uncomment the Redis connector in `connectors.mycel`:
 
 ```hcl
 connector "redis_cache" {

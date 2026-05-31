@@ -12,8 +12,8 @@ This example demonstrates rate limiting configuration.
 
 ## Files
 
-- `config.hcl` - Service configuration with rate limiting
-- `flows.hcl` - Sample API flows
+- `config.mycel` - Service configuration with rate limiting
+- `flows.mycel` - Sample API flows
 
 ## Usage
 

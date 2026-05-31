@@ -13,11 +13,11 @@ This example demonstrates how to use Mycel's notification connectors to send mes
 
 ## Configuration
 
-Copy `service.example.hcl` to `service.hcl` and fill in your credentials:
+Copy `service.example.mycel` to `service.mycel` and fill in your credentials:
 
 ```bash
-cp service.example.hcl service.hcl
-# Edit service.hcl with your actual credentials
+cp service.example.mycel service.mycel
+# Edit service.mycel with your actual credentials
 ```
 
 ## Running

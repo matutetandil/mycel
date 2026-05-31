@@ -85,14 +85,14 @@ Expected response (validation error):
 
 ```
 basic/
-├── config.hcl              # Service name and version
+├── config.mycel              # Service name and version
 ├── connectors/
-│   ├── api.hcl             # REST API configuration
-│   └── database.hcl        # SQLite database connection
+│   ├── api.mycel             # REST API configuration
+│   └── database.mycel        # SQLite database connection
 ├── flows/
-│   └── users.hcl           # User CRUD operations
+│   └── users.mycel           # User CRUD operations
 ├── types/
-│   └── user.hcl            # User input validation schema
+│   └── user.mycel            # User input validation schema
 ├── data/
 │   └── app.db              # SQLite database file (created automatically)
 └── setup.sql               # Initial database schema
@@ -100,7 +100,7 @@ basic/
 
 ## Configuration Explained
 
-### Service (`config.hcl`)
+### Service (`config.mycel`)
 
 ```hcl
 service {
@@ -109,7 +109,7 @@ service {
 }
 ```
 
-### REST API (`connectors/api.hcl`)
+### REST API (`connectors/api.mycel`)
 
 ```hcl
 connector "api" {
@@ -123,7 +123,7 @@ connector "api" {
 }
 ```
 
-### Database (`connectors/database.hcl`)
+### Database (`connectors/database.mycel`)
 
 ```hcl
 connector "sqlite" {
@@ -133,7 +133,7 @@ connector "sqlite" {
 }
 ```
 
-### Flows (`flows/users.hcl`)
+### Flows (`flows/users.mycel`)
 
 ```hcl
 # GET /users - List all users
@@ -191,7 +191,7 @@ mkdir -p examples/basic/data
 
 ### "Port 3000 already in use"
 
-Another service is using port 3000. Either stop it or change the port in `connectors/api.hcl`:
+Another service is using port 3000. Either stop it or change the port in `connectors/api.mycel`:
 
 ```hcl
 connector "api" {

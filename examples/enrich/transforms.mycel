@@ -1,11 +1,23 @@
 # Reusable transforms
-# NOTE: enrich blocks are a planned feature (not yet implemented)
+#
+# Note: named (top-level) transforms hold field mappings only. Enrichment
+# lives in the flow itself via `enrich` blocks (see flows.mycel) — a named
+# transform then reads the results through the `enriched.*` namespace.
 
 # Simple transform without enrichment
 transform "normalize_product" {
   id       = "input.id"
   name     = "upper(input.name)"
   sku      = "input.sku"
+}
+
+# Transform that reads enriched data produced by a flow-level enrich block.
+# Pair it with `enrich "pricing" { ... }` in the flow that uses it.
+transform "with_pricing" {
+  id       = "input.id"
+  name     = "input.name"
+  price    = "enriched.pricing.price"
+  currency = "enriched.pricing.currency"
 }
 
 # Transform with calculated fields

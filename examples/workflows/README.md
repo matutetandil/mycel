@@ -18,10 +18,10 @@ The entire workflow has a 24-hour timeout. Workflow state is persisted to Postgr
 
 | File | Purpose |
 |------|---------|
-| `config.hcl` | Service config with workflow persistence |
-| `connectors/api.hcl` | REST API on port 3000 |
-| `connectors/database.hcl` | PostgreSQL, shipping API, notifications |
-| `sagas/order_fulfillment.hcl` | Workflow with delay and await steps |
+| `config.mycel` | Service config with workflow persistence |
+| `connectors/api.mycel` | REST API on port 3000 |
+| `connectors/database.mycel` | PostgreSQL, shipping API, notifications |
+| `sagas/order_fulfillment.mycel` | Workflow with delay and await steps |
 
 ## Running
 
@@ -162,7 +162,7 @@ step "wait_for_approval" {
 
 ### Workflow Persistence
 
-Enable in `config.hcl` to persist workflow state across restarts:
+Enable in `config.mycel` to persist workflow state across restarts:
 
 ```hcl
 service {

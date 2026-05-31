@@ -6,7 +6,7 @@ plugin "example" {
   source = "./plugins/example-plugin"
 }
 
-// Git-hosted plugin (future feature)
+// Git-hosted plugin (supported; the URL below is illustrative)
 // plugin "salesforce" {
 //   source  = "github.com/acme/mycel-salesforce"
 //   version = "~> 1.0"

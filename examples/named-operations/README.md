@@ -40,8 +40,8 @@ flow "get_users" {
 
 ```
 named-operations/
-├── connectors.hcl  # Connector definitions with named operations
-├── flows.hcl       # Flows referencing operations by name
+├── connectors.mycel  # Connector definitions with named operations
+├── flows.mycel       # Flows referencing operations by name
 └── README.md       # This file
 ```
 

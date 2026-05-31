@@ -29,10 +29,10 @@ curl -X POST localhost:3000/orders/1/status \
 
 | File | Purpose |
 |------|---------|
-| `config.hcl` | Service configuration |
-| `connectors.hcl` | REST API and database connectors |
-| `machines.hcl` | State machine definition |
-| `flows.hcl` | Flow that triggers state transitions |
+| `config.mycel` | Service configuration |
+| `connectors.mycel` | REST API and database connectors |
+| `machines.mycel` | State machine definition |
+| `flows.mycel` | Flow that triggers state transitions |
 
 ## Running
 
