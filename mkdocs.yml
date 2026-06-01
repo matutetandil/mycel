@@ -59,6 +59,7 @@ nav:
       - Flows: core-concepts/flows.md
       - Transforms: core-concepts/transforms.md
       - Types: core-concepts/types.md
+      - Aspects: core-concepts/aspects.md
       - Environments: core-concepts/environments.md
   - Connectors:
       - Overview: connectors/README.md
@@ -88,7 +89,7 @@ nav:
       - Caching: guides/caching.md
       - Debugging: guides/debugging.md
       - Error Handling: guides/error-handling.md
-      - Extending (Aspects): guides/extending.md
+      - Extending: guides/extending.md
       - Format System: guides/format-system.md
       - Multi-Step Flows: guides/multi-step-flows.md
       - Notifications: guides/notifications.md

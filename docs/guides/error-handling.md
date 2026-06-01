@@ -248,7 +248,7 @@ flow "migrate_users" {
 
 ## Circuit Breaker
 
-Circuit breakers prevent cascading failures by stopping calls to a failing service. Applied via [aspects](extending.md#aspects) using pattern matching.
+Circuit breakers prevent cascading failures by stopping calls to a failing service. Applied via [aspects](../core-concepts/aspects.md) using pattern matching.
 
 ```hcl
 aspect "protect_magento" {
