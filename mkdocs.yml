@@ -1,5 +1,5 @@
 site_name: Mycel
-site_description: Declarative microservices through configuration, not code.
+site_description: Mycel is a declarative microservice runtime — you describe what connects to what, and it runs the service.
 site_url: https://matutetandil.github.io/mycel
 repo_url: https://github.com/matutetandil/mycel
 repo_name: matutetandil/mycel

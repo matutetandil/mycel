@@ -6,13 +6,13 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io%2Fmatutetandil%2Fmycel-blue?logo=docker)](https://ghcr.io/matutetandil/mycel)
 
-**Declarative microservices through configuration, not code.**
+**Mycel is a declarative microservice runtime — you describe what connects to what, and it runs the service.**
 
-Define [HCL2](https://github.com/hashicorp/hcl) files. Run Mycel. Get a production-ready microservice.
+Point Mycel at the things you want to connect — an API, a database, a queue, a gRPC service, a file store — and it runs the microservice that moves data between them. The plumbing every service repeats (HTTP server, connection pools, marshalling, retries, reconnection) is Mycel's job. The only logic you ever write is your service's own — a transform, a validation rule — and only when it actually needs it. You describe it in [HCL2](https://github.com/hashicorp/hcl) config files; Mycel runs it as a real, production-ready microservice. Pure Go, a single binary, standard protocols on the wire — from the outside, indistinguishable from one you'd hand-write.
 
 ## How It Works
 
-Mycel is a single binary runtime (like nginx). Same binary, different configuration = different microservice.
+Mycel is a single binary runtime. The same binary runs every service — only the configuration changes.
 
 Mycel has two core building blocks: **connectors** and **flows**. Everything else builds on top of them.
 
@@ -35,13 +35,13 @@ That's the whole model. Everything else is configuration. Learn more in [Core Co
 Create a directory with three `.mycel` files — that's your entire microservice:
 
 ```bash
-mkdir my-api && cd my-api
+mkdir orders-intake && cd orders-intake
 ```
 
 **`config.mycel`** — Name and version your service:
 ```hcl
 service {
-  name    = "users-api"
+  name    = "orders-intake"
   version = "1.0.0"
 }
 ```
@@ -60,34 +60,47 @@ connector "db" {
 }
 ```
 
-**`flows.mycel`** — Wire them together:
+**`flows.mycel`** — Wire them together. An order arrives over HTTP, gets reshaped in flight, and lands in the database:
 ```hcl
-flow "list_users" {
+flow "create_order" {
   from {
     connector = "api"
-    operation = "GET /users"
-  }
-  to {
-    connector = "db"
-    target    = "users"
-  }
-}
-
-flow "create_user" {
-  from {
-    connector = "api"
-    operation = "POST /users"
+    operation = "POST /orders"
   }
   transform {
     id         = "uuid()"
-    email      = "lower(input.email)"
+    customer   = "lower(trim(input.customer))"
+    total      = "input.total"
     created_at = "now()"
   }
   to {
     connector = "db"
-    target    = "users"
+    target    = "orders"
   }
 }
+
+flow "list_orders" {
+  from {
+    connector = "api"
+    operation = "GET /orders"
+  }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+```
+
+Mycel serves the schema you give it, so create the table first:
+
+```bash
+mkdir -p data
+sqlite3 data/app.db 'CREATE TABLE orders (
+  id         TEXT PRIMARY KEY,
+  customer   TEXT,
+  total      REAL,
+  created_at TEXT
+);'
 ```
 
 Now run it — Mycel reads the directory and starts the service:
@@ -96,30 +109,37 @@ Now run it — Mycel reads the directory and starts the service:
 docker run -v $(pwd):/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
 ```
 
-Test it:
+Test it — send a messy order, get a normalized one back:
 
 ```bash
-curl -X POST http://localhost:3000/users \
+curl -X POST http://localhost:3000/orders \
   -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","name":"Test"}'
+  -d '{"customer":"  ADA@EXAMPLE.COM  ","total":42.5}'
 
-curl http://localhost:3000/users
+curl http://localhost:3000/orders
+# [{"created_at":"2026-06-01T...","customer":"ada@example.com","id":"870339c1-...","total":42.5}]
 ```
 
-That's it. REST API + database, zero code.
+That's an HTTP intake service — validation-ready transforms and a database write — with no plumbing of your own to maintain. The flow is the stable part; the edges are pluggable. Swap the `from` to a RabbitMQ queue and the same flow becomes a durable event consumer. Swap the `to` to another REST API and it's a protocol bridge. You changed what connects to what; Mycel rebuilt the machinery underneath.
 
 > See the [Quick Start Guide](docs/getting-started/quick-start.md) for a complete tutorial, or explore the [full documentation](#documentation).
 
 ## Purpose
 
-- **What:** An open-source runtime that reads HCL configuration and exposes microservices. Same binary, different config = different service.
+- **What:** An open-source runtime that reads HCL configuration and runs it as a microservice. Same binary, different config = different service.
 - **Why:** Most microservice code is plumbing — routing, database queries, data transformations, protocol translation, error handling, retries. It's the same patterns repeated across every service, in every team, in every company. Mycel extracts that into configuration so teams can focus on what's actually unique to their service.
-- **Who:** Backend teams building CRUD APIs, event processors, integrations, or protocol bridges.
+- **Who:** Backend teams building microservices of any kind — APIs, integrations, event processors, protocol bridges — who'd rather declare the service than rewrite its plumbing.
 
 ## Features
 
-| Feature | Description |
-|---------|-------------|
+The simple case is trivial — connect A to B, like above. The list below is the complexity that's *there when you need it*: a transform, a lock, a cache, a saga, a circuit breaker, a new protocol. Each one is a block of configuration you declare inside a flow, never machinery you have to build. You don't need any of it to start; you reach for it the day your service does.
+
+### Connectors — the systems you wire together
+
+The A's and B's of any flow. Use any as a source, a target, or both.
+
+| Connector | Description |
+|-----------|-------------|
 | [REST API](examples/basic) | Expose and consume REST endpoints |
 | [SQLite / PostgreSQL / MySQL](examples/basic) | Relational database connectors |
 | [MongoDB](examples/mongodb) | NoSQL document database |
@@ -132,44 +152,84 @@ That's it. REST API + database, zero code.
 | [gRPC Load Balancing](examples/grpc-loadbalancing) | Round-robin and weighted balancing |
 | [RabbitMQ / Kafka / Redis Pub/Sub](examples/mq) | Message queue producers and consumers |
 | [MQTT](examples/mqtt) | IoT messaging protocol (QoS 0/1/2, TLS, auto-reconnect) ([docs](docs/connectors/mqtt.md)) |
-| [FTP / SFTP](examples/ftp) | Remote file transfer (FTP, FTPS, SFTP with key auth) ([docs](docs/connectors/ftp.md)) |
 | [WebSocket](examples/websocket) | Bidirectional real-time communication with rooms and per-user targeting ([docs](docs/connectors/websocket.md)) |
-| [CDC (Change Data Capture)](examples/cdc) | Real-time database change streaming with wildcard matching ([docs](docs/connectors/cdc.md)) |
 | [SSE (Server-Sent Events)](examples/sse) | Unidirectional HTTP push with rooms and per-user targeting ([docs](docs/connectors/sse.md)) |
+| [CDC (Change Data Capture)](examples/cdc) | Real-time database change streaming with wildcard matching ([docs](docs/connectors/cdc.md)) |
 | [Elasticsearch](examples/elasticsearch) | Full-text search and analytics over Elasticsearch REST API ([docs](docs/connectors/elasticsearch.md)) |
-| [OAuth (Social Login)](examples/oauth) | Declarative social login: Google, GitHub, Apple, OIDC, custom ([docs](docs/connectors/oauth.md)) |
-| [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([docs](docs/guides/batch-processing.md)) |
+| [SOAP](examples/soap) | Call or expose SOAP/XML web services (SOAP 1.1/1.2) ([docs](docs/connectors/soap.md)) |
+| [TCP Server & Client](examples/tcp) | JSON, msgpack, and NestJS protocols |
+| [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
+| [FTP / SFTP](examples/ftp) | Remote file transfer (FTP, FTPS, SFTP with key auth) ([docs](docs/connectors/ftp.md)) |
+| [Notifications](examples/notifications) | Email, Slack, Discord, SMS, Push, Webhook ([docs](docs/guides/notifications.md)) |
+
+### Shaping & validating data
+
+What happens to the payload between `from` and `to`.
+
+| Capability | Description |
+|------------|-------------|
+| [Format Declarations](examples/format) | Multi-format support (JSON, XML) at connector, flow, and step level ([docs](docs/guides/format-system.md)) |
+| [Data Enrichment](examples/enrich) | Combine data from multiple sources |
+| [Validators](examples/validators) | Regex, CEL, and custom validation rules ([docs](docs/guides/extending.md#validators)) |
+
+### Orchestration & flow control
+
+For when one `from → to` isn't enough: multiple steps, routing, reuse, long-running work.
+
+| Capability | Description |
+|------------|-------------|
+| [Multi-step Flow Orchestration](examples/steps) | Sequential and conditional step execution ([docs](docs/guides/multi-step-flows.md)) |
+| [Reusable Blocks](examples/reusable-blocks) | **Recommended:** declare dedupe/retry/lock/accept/response/etc. once with a name, reference from many flows with `use = "<kind>.<name>"` — named vs anonymous, like functions ([docs](docs/core-concepts/reusable-blocks.md)) |
+| Accept Gate | Business-level message routing with `on_reject` policy (ack/reject/requeue) ([docs](docs/core-concepts/flows.md#the-accept-block)) |
+| Source Fan-Out | Multiple flows from the same connector+operation, concurrent execution ([docs](docs/core-concepts/flows.md#source-fan-out-multiple-flows-from-same-source)) |
+| [Named Operations](examples/named-operations) | Reusable parameterized operations |
 | [Transactional Writes](examples/transactional-write) | Atomic, iterative, multi-statement DB writes: `to { transaction { } }` with `exec`/`each`, `LAST_INSERT_ID`/SELECT capture, all-or-nothing commit |
 | [Sagas](examples/saga) | Distributed transactions with automatic compensation, delay/await steps, workflow persistence ([docs](docs/guides/sagas.md)) |
 | [State Machines](examples/state-machine) | Entity lifecycle with guards, actions, final states ([docs](docs/guides/sagas.md#state-machines)) |
 | [Long-Running Workflows](examples/workflows) | Persistent workflows with delay timers, await/signal events, timeout enforcement, REST API ([docs](docs/guides/sagas.md#long-running-workflows)) |
-| [SOAP](examples/soap) | Call or expose SOAP/XML web services (SOAP 1.1/1.2) ([docs](docs/connectors/soap.md)) |
-| [Format Declarations](examples/format) | Multi-format support (JSON, XML) at connector, flow, and step level ([docs](docs/guides/format-system.md)) |
-| [TCP Server & Client](examples/tcp) | JSON, msgpack, and NestJS protocols |
-| [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
-| [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching ([docs](docs/guides/caching.md)) |
-| [Multi-step Flow Orchestration](examples/steps) | Sequential and conditional step execution ([docs](docs/guides/multi-step-flows.md)) |
-| Accept Gate | Business-level message routing with `on_reject` policy (ack/reject/requeue) ([docs](docs/core-concepts/flows.md#the-accept-block)) |
-| Source Fan-Out | Multiple flows from the same connector+operation, concurrent execution ([docs](docs/core-concepts/flows.md#source-fan-out-multiple-flows-from-same-source)) |
-| [Named Operations](examples/named-operations) | Reusable parameterized operations |
-| [Reusable Blocks](examples/reusable-blocks) | **Recommended:** declare dedupe/retry/lock/accept/response/etc. once with a name, reference from many flows with `use = "<kind>.<name>"` — named vs anonymous, like functions ([docs](docs/core-concepts/reusable-blocks.md)) |
-| [Data Enrichment](examples/enrich) | Combine data from multiple sources |
-| [Auth (JWT, MFA, WebAuthn)](examples/auth) | Authentication with presets and MFA ([docs](docs/guides/auth.md)) |
-| [Rate Limiting / Circuit Breaker](examples/rate-limit) | Traffic control and fault tolerance |
-| [Connector Profiles](examples/profiles) | Multiple backends with fallback |
-| [Read Replicas](examples/read-replicas) | Route reads to replica databases |
-| [Synchronization](examples/sync) | Distributed locks, semaphores, coordination ([docs](docs/guides/synchronization.md)) |
-| [Notifications](examples/notifications) | Email, Slack, Discord, SMS, Push, Webhook ([docs](docs/guides/notifications.md)) |
-| [Aspects (AOP)](examples/aspects) | Cross-cutting concerns via pattern matching ([docs](docs/guides/extending.md#aspects)) |
-| [Validators](examples/validators) | Regex, CEL, and custom validation rules ([docs](docs/guides/extending.md#validators)) |
-| [WASM](examples/wasm-functions) | Custom functions and validators via WebAssembly ([docs](docs/advanced/wasm.md)) |
-| [Mocks](examples/mocks) | Mock data for development and testing ([docs](docs/guides/extending.md#mocks)) |
-| [Plugins](examples/plugin) | Extend Mycel with WASM plugins ([docs](docs/advanced/plugins.md)) |
-| [Exec](examples/exec) | Execute shell commands from flows |
+| [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([docs](docs/guides/batch-processing.md)) |
+| [Scheduled Jobs](examples/scheduled) | Cron expressions and interval-based flow triggers |
+
+### Reliability & performance
+
+What keeps the service standing when a downstream misbehaves or traffic spikes.
+
+| Capability | Description |
+|------------|-------------|
 | [Error Handling](examples/error-handling) | Retry, DLQ, circuit breaker, custom error responses, on_error aspects ([docs](docs/guides/error-handling.md)) |
 | [Resilience & Failure Recovery](docs/guides/resilience.md) | What survives a crash: availability vs durability, broker redelivery, sync vs async ingestion, idempotency, locks with TTL |
+| [Rate Limiting / Circuit Breaker](examples/rate-limit) | Traffic control and fault tolerance |
+| [Synchronization](examples/sync) | Distributed locks, semaphores, coordination ([docs](docs/guides/synchronization.md)) |
+| [Connector Profiles](examples/profiles) | Multiple backends with fallback |
+| [Read Replicas](examples/read-replicas) | Route reads to replica databases |
+| [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching ([docs](docs/guides/caching.md)) |
+
+### Security & auth
+
+| Capability | Description |
+|------------|-------------|
+| [Auth (JWT, MFA, WebAuthn)](examples/auth) | Authentication with presets and MFA ([docs](docs/guides/auth.md)) |
+| [OAuth (Social Login)](examples/oauth) | Declarative social login: Google, GitHub, Apple, OIDC, custom ([docs](docs/connectors/oauth.md)) |
 | [Security](examples/security) | Secure-by-default input sanitization, XXE/injection protection, WASM sanitizers ([docs](docs/guides/security.md)) |
-| [Scheduled Jobs](examples/scheduled) | Cron expressions and interval-based flow triggers |
+
+### Extending Mycel
+
+When a connector or transform doesn't express what you need, drop down to your own code — and only that code.
+
+| Capability | Description |
+|------------|-------------|
+| [WASM](examples/wasm-functions) | Custom functions and validators via WebAssembly ([docs](docs/advanced/wasm.md)) |
+| [Plugins](examples/plugin) | Extend Mycel with WASM plugins ([docs](docs/advanced/plugins.md)) |
+| [Aspects (AOP)](examples/aspects) | Cross-cutting concerns via pattern matching ([docs](docs/guides/extending.md#aspects)) |
+| [Exec](examples/exec) | Execute shell commands from flows |
+| [Mocks](examples/mocks) | Mock data for development and testing ([docs](docs/guides/extending.md#mocks)) |
+
+### Built in — no config needed
+
+Every Mycel service gets these for free.
+
+| Capability | Description |
+|------------|-------------|
 | Hot Reload | Apply HCL changes without restart |
 | Health Checks / Prometheus | `/health`, `/metrics` endpoints |
 | [Debugging](docs/guides/debugging.md) | Trace flows, interactive breakpoints, dry-run, IDE integration (VS Code, IntelliJ, Neovim) |
