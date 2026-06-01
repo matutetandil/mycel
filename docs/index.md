@@ -34,6 +34,7 @@ The foundational building blocks of every Mycel service.
 | [Flows](core-concepts/flows.md) | The unit of work — wiring connectors together with transforms, validation, caching, and error handling |
 | [Transforms](core-concepts/transforms.md) | CEL-based data transformations and the complete built-in function reference |
 | [Types](core-concepts/types.md) | Schema validation with field constraints, custom validators, and federation directives |
+| [Aspects](core-concepts/aspects.md) | Cross-cutting concerns (AOP) — audit, metrics, alerting, response enrichment — applied across flows by name pattern |
 | [Environments](core-concepts/environments.md) | Environment variables, `.env` files, and per-environment configuration overlays |
 
 ---
@@ -57,7 +58,7 @@ Step-by-step guides for specific features and patterns.
 | [Error Handling](guides/error-handling.md) | Retry with backoff, dead letter queues, circuit breakers, custom error responses, and on_error aspects |
 | [Resilience & Failure Recovery](guides/resilience.md) | What survives a crash or power cut: availability vs durability, broker redelivery, sync vs async ingestion, idempotency, and the resilience toolbox |
 | [Format System](guides/format-system.md) | Multi-format support (JSON, XML) at connector, flow, and step level |
-| [Extending Mycel](guides/extending.md) | Custom validators, WASM functions, mocks for testing, and aspect patterns |
+| [Extending Mycel](guides/extending.md) | Custom validators, WASM functions, mocks for testing, and plugins |
 | [Debugging](guides/debugging.md) | Trace flows step-by-step, interactive breakpoints, dry-run, DAP server for IDE debugging (VS Code, IntelliJ, Neovim) |
 | [Observability](guides/observability.md) | Prometheus metrics, Grafana dashboards, alerting rules, and monitoring setup |
 | [Troubleshooting](guides/troubleshooting.md) | Common errors, diagnosis steps, and solutions for startup, database, flow, and deployment issues |

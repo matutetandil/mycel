@@ -220,4 +220,4 @@ connector "slack_test" {
 ## See Also
 
 - [Connector Reference: Notifications](../connectors/notifications.md) — complete field reference
-- [Concepts: Aspects](../guides/extending.md#aspects) — applying notifications as cross-cutting concerns
+- [Concepts: Aspects](../core-concepts/aspects.md) — applying notifications as cross-cutting concerns

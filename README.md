@@ -24,7 +24,7 @@ A **flow** wires two connectors together, moving data from one to the other:
 Connector (source) ──→ Flow ──→ Connector (target)
 ```
 
-On top of this, you can add [transforms](docs/core-concepts/transforms.md) (reshape data), [types](docs/core-concepts/types.md) (validate schemas), [steps](docs/guides/multi-step-flows.md) (multi-step orchestration), [sagas](docs/guides/sagas.md) (distributed transactions), [auth](docs/guides/auth.md), [aspects](docs/guides/extending.md#aspects), [security](docs/guides/security.md), and [more](#features). But every feature ultimately serves the same pattern: data enters through a connector, optionally gets transformed, and exits through another connector.
+On top of this, you can add [transforms](docs/core-concepts/transforms.md) (reshape data), [types](docs/core-concepts/types.md) (validate schemas), [steps](docs/guides/multi-step-flows.md) (multi-step orchestration), [sagas](docs/guides/sagas.md) (distributed transactions), [auth](docs/guides/auth.md), [aspects](docs/core-concepts/aspects.md), [security](docs/guides/security.md), and [more](#features). But every feature ultimately serves the same pattern: data enters through a connector, optionally gets transformed, and exits through another connector.
 
 Every Mycel service automatically includes health checks (`/health`, `/health/live`, `/health/ready`), Prometheus metrics (`/metrics`), and hot reload — no configuration needed. Change a `.mycel` file and the service reloads with zero downtime.
 
@@ -189,6 +189,7 @@ For when one `from → to` isn't enough: multiple steps, routing, reuse, long-ru
 | [Long-Running Workflows](examples/workflows) | Persistent workflows with delay timers, await/signal events, timeout enforcement, REST API ([docs](docs/guides/sagas.md#long-running-workflows)) |
 | [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([docs](docs/guides/batch-processing.md)) |
 | [Scheduled Jobs](examples/scheduled) | Cron expressions and interval-based flow triggers |
+| [Aspects (AOP)](examples/aspects) | Cross-cutting concerns (audit, metrics, alerting) applied across flows by name pattern ([docs](docs/core-concepts/aspects.md)) |
 
 ### Reliability & performance
 
@@ -220,7 +221,6 @@ When a connector or transform doesn't express what you need, drop down to your o
 |------------|-------------|
 | [WASM](examples/wasm-functions) | Custom functions and validators via WebAssembly ([docs](docs/advanced/wasm.md)) |
 | [Plugins](examples/plugin) | Extend Mycel with WASM plugins ([docs](docs/advanced/plugins.md)) |
-| [Aspects (AOP)](examples/aspects) | Cross-cutting concerns via pattern matching ([docs](docs/guides/extending.md#aspects)) |
 | [Exec](examples/exec) | Execute shell commands from flows |
 | [Mocks](examples/mocks) | Mock data for development and testing ([docs](docs/guides/extending.md#mocks)) |
 
@@ -353,6 +353,7 @@ Full documentation is at [docs/index.md](docs/index.md). Quick links:
 - [Flows](docs/core-concepts/flows.md) — Complete flow reference
 - [Transforms](docs/core-concepts/transforms.md) — CEL functions and expressions
 - [Types](docs/core-concepts/types.md) — Schema validation and field constraints
+- [Aspects](docs/core-concepts/aspects.md) — Cross-cutting concerns (AOP) applied across flows by pattern
 - [Environments](docs/core-concepts/environments.md) — Environment variables and overlays
 
 **Guides**
@@ -366,7 +367,7 @@ Full documentation is at [docs/index.md](docs/index.md). Quick links:
 - [Caching](docs/guides/caching.md) — In-memory and Redis caching
 - [Synchronization](docs/guides/synchronization.md) — Distributed locks and semaphores
 - [Batch Processing](docs/guides/batch-processing.md) — ETL and data migrations
-- [Extending Mycel](docs/guides/extending.md) — Validators, WASM functions, mocks, aspects
+- [Extending Mycel](docs/guides/extending.md) — Validators, WASM functions, mocks, plugins
 
 **Reference**
 - [Configuration Reference](docs/reference/configuration.md) — Complete HCL syntax
