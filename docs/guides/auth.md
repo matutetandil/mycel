@@ -235,6 +235,59 @@ oidc "auth0" {
 }
 ```
 
+### External Identity Providers
+
+A `provider` block validates an incoming credential (typically an API key or
+opaque bearer token) against an external HTTP endpoint at request time, rather
+than against local JWTs or a static list. Use it for dynamic API keys, an
+upstream introspection service, or any "is this token valid, and who is it?"
+backend.
+
+```hcl
+auth {
+  secret = env("AUTH_SECRET")
+
+  provider "api_keys" {
+    type     = "http"                                  # only "http" is supported
+    validate = env("KEYS_VALIDATE_URL")                # URL; supports {token}
+
+    # Headers sent to the validate URL. {token} is replaced with the credential.
+    request = {
+      Authorization = "Bearer {token}"
+    }
+
+    # Response mapping. Each value is a CEL expression evaluated over:
+    #   status — the HTTP status code (int)
+    #   body   — the parsed JSON response (object)
+    response {
+      success = "status == 200 && body.active == true"  # required; must be truthy
+      user_id = "body.user_id"
+      email   = "body.email"
+      roles   = "body.roles"        # list<string>, or a comma-separated string
+      token   = "body.session_id"   # optional; stored on the claims
+    }
+  }
+}
+```
+
+**Behavior**
+
+- **Order:** local JWT validation runs first. Providers are tried only when the
+  credential is not a valid JWT, in declaration order; the first whose `success`
+  expression is truthy wins.
+- **Auth context:** the full response `body` is exposed to flows as
+  `auth.claims.*` (so any field is reachable, not just the mapped ones), and the
+  mapped `user_id` is available as `auth.user_id`.
+- **Provider unavailable:** a timeout or transport error is treated as a
+  validation failure (the request is rejected), never a 5xx from your service.
+- **Fail-fast:** an unsupported `type`, a missing `validate`/`success`, or an
+  invalid CEL expression fails at startup, not silently at runtime.
+
+**Not yet implemented:** response caching (every request hits the provider) and
+`sync_to` (parsed, but setting it only logs a warning today).
+
+See the [`dynamic-api-key` example](../../examples/dynamic-api-key) for a complete setup.
+
 ### User Storage
 
 ```hcl

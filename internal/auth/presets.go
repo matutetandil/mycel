@@ -58,6 +58,7 @@ func strictPreset() *Config {
 			KeyLength:      32,
 		},
 		MFA: &MFAConfig{
+			Enabled:     true,
 			Required:    "true",
 			Methods:     []string{"totp", "webauthn"},
 			GracePeriod: "7d",
@@ -143,6 +144,7 @@ func standardPreset() *Config {
 			KeyLength:      32,
 		},
 		MFA: &MFAConfig{
+			Enabled:     true,
 			Required:    "optional",
 			Methods:     []string{"totp", "webauthn"},
 			GracePeriod: "14d",
@@ -217,6 +219,7 @@ func relaxedPreset() *Config {
 			KeyLength:      32,
 		},
 		MFA: &MFAConfig{
+			Enabled:  true,
 			Required: "false",
 			Methods:  []string{"totp"},
 		},

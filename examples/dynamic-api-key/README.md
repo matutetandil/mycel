@@ -1,71 +1,74 @@
 # Dynamic API Key Validation Example
 
-This example demonstrates how to validate API keys dynamically against a database instead of using static configuration.
+This example validates each request's API key **at request time** against an
+external HTTP introspection endpoint, instead of a static list baked into the
+config. The provider owns the keys (in a database, a secrets manager, an SSO
+system — whatever it is); Mycel just asks it "is this credential valid, and who
+is it?" on every request.
 
 ## Use Case
 
 When you need to:
-- Store API keys in a database for management
-- Associate keys with users, tenants, or metadata
-- Support key expiration and revocation
-- Track API key usage and permissions
 
-## Configuration
+- Manage API keys outside the service (issue, rotate, revoke without a redeploy)
+- Associate keys with users, tenants, roles, or arbitrary metadata
+- Support expiration and immediate revocation
+- Keep the validation logic (and the key store) in one central place
 
-### Database Schema
+## How It Works
 
-```sql
-CREATE TABLE api_keys (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    key_hash VARCHAR(64) NOT NULL UNIQUE,  -- SHA256 hash of the key
-    user_id UUID NOT NULL REFERENCES users(id),
-    metadata JSONB DEFAULT '{}',
-    active BOOLEAN DEFAULT true,
-    expires_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW()
-);
+1. The client sends a request with an `Authorization: Bearer <key>` header.
+2. The key is not a local JWT, so Mycel falls through to the configured
+   `provider`, calling its `validate` URL with the key.
+3. The provider responds with JSON; Mycel evaluates the `response` CEL
+   expressions over `status` (the HTTP code) and `body` (the parsed JSON).
+4. If `success` is true, the mapped fields populate the auth context, available
+   to every flow as `auth.user_id` and `auth.claims.*`.
 
-CREATE INDEX idx_api_keys_hash ON api_keys(key_hash) WHERE active = true;
-```
-
-### Dynamic Validation Block
+## The provider block
 
 ```hcl
-connector "api" {
-  type = "rest"
-  port = 8080
+auth {
+  secret = env("AUTH_SECRET", "change-me-in-production")
 
-  auth {
-    type = "api_key"
+  provider "api_keys" {
+    type     = "http"
+    validate = env("KEYS_VALIDATE_URL", "http://localhost:9100/introspect")
 
-    api_key {
-      header = "X-API-Key"
+    # {token} is replaced with the incoming credential.
+    request = {
+      Authorization = "Bearer {token}"
+    }
 
-      # Dynamic validation against database
-      validate {
-        connector = "connector.keys_db"
-        query     = "SELECT user_id, metadata FROM api_keys WHERE key_hash = :key AND active = true"
-      }
+    # CEL expressions over `status` (HTTP code) and `body` (parsed JSON).
+    response {
+      success = "status == 200 && body.active == true"
+      user_id = "body.user_id"
+      email   = "body.email"
+      roles   = "body.roles"
+      # token = "body.session_id"   # optional, stored on the claims
     }
   }
 }
 ```
 
-## How It Works
+A successful introspection response might look like:
 
-1. Client sends request with `X-API-Key` header
-2. Mycel extracts the key and queries the database
-3. If found and active, the `user_id` and `metadata` are added to auth context
-4. Flows can access this via `auth.user_id` and `auth.claims`
+```json
+{ "active": true, "user_id": "u_123", "email": "ada@example.com",
+  "roles": ["admin"], "tenant_id": "acme" }
+```
 
-## Auth Context
+The whole body is exposed as `auth.claims.*`, so `tenant_id` above is reachable
+as `auth.claims.tenant_id` even though it isn't one of the explicitly mapped
+fields.
 
-After validation, flows have access to:
+## Auth context in flows
 
 ```hcl
 transform {
-  user_id   = "auth.user_id"        # From query result
-  tenant_id = "auth.claims.tenant_id"  # From metadata JSON
+  user_id   = "auth.user_id"           # mapped from response.user_id
+  tenant_id = "auth.claims.tenant_id"  # any field from the response body
   role      = "auth.claims.role"
 }
 ```
@@ -73,33 +76,42 @@ transform {
 ## Running
 
 ```bash
-# Set environment variables
-export DB_HOST=localhost
-export DB_USER=mycel
-export DB_PASSWORD=secret
-export DB_NAME=api_keys
+# Point at your introspection endpoint
+export KEYS_VALIDATE_URL=https://auth.internal/introspect
+export AUTH_SECRET=...
 
-# Start the service
+# Application database used by the flows
+export DB_HOST=localhost DB_USER=mycel DB_PASSWORD=secret DB_NAME=api_keys
+
 mycel start --config ./examples/dynamic-api-key
 
-# Test with API key
-curl -H "X-API-Key: your-api-key-here" http://localhost:8080/me
+curl -H "Authorization: Bearer your-api-key" http://localhost:8080/me
 ```
 
-## Comparison: Static vs Dynamic
+## Notes & limits
 
-| Feature | Static Keys | Dynamic Keys |
-|---------|-------------|--------------|
-| Configuration | In HCL file | In database |
-| Key rotation | Requires restart | Immediate |
-| User association | Not supported | Full support |
-| Expiration | Not supported | Supported |
-| Metadata/Claims | Not supported | Full support |
-| Audit trail | Not supported | Can be added |
+- **Order:** local JWT validation runs first; providers are tried only when the
+  credential isn't a valid JWT. Multiple providers are tried in declaration order.
+- **Provider down:** a timeout or transport error is treated as a validation
+  failure (the request is rejected), not a 5xx from your API.
+- **No caching (yet):** every request hits the provider. A TTL cache is a planned
+  addition.
+- **`sync_to` is parsed but not executed yet** — setting it logs a warning. The
+  field is reserved for mirroring the validated identity into a local store.
 
-## Security Notes
+## Comparison: static vs dynamic keys
 
-- Store only key hashes, never plain text keys
-- Use SHA256 or bcrypt for hashing
-- Add rate limiting to prevent brute force
-- Consider key prefix for identification (e.g., `mk_live_xxx`)
+| Feature          | Static keys     | Dynamic (provider) |
+|------------------|-----------------|--------------------|
+| Where keys live  | In the HCL file | In the provider    |
+| Rotation/revoke  | Requires redeploy | Immediate        |
+| User association | Not supported   | Full support       |
+| Expiration       | Not supported   | Provider-side      |
+| Metadata/claims  | Not supported   | Full support       |
+
+## Security notes
+
+- Send the key in a header (`request = { Authorization = "Bearer {token}" }`),
+  not in the URL.
+- Put the introspection endpoint behind TLS.
+- Add rate limiting to blunt brute-force attempts against the endpoint.

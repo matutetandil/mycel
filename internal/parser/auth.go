@@ -210,10 +210,13 @@ func (p *HCLParser) parseAuthPasswordBlock(block *hcl.Block) (*auth.PasswordConf
 }
 
 func (p *HCLParser) parseAuthMFABlock(block *hcl.Block) (*auth.MFAConfig, error) {
-	config := &auth.MFAConfig{}
+	// The presence of an `mfa` block opts MFA in by default; an explicit
+	// `enabled = false` can still disable it without removing the block.
+	config := &auth.MFAConfig{Enabled: true}
 
 	content, diags := block.Body.Content(&hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
+			{Name: "enabled"},
 			{Name: "required"},
 			{Name: "methods"},
 			{Name: "require_for"},
@@ -235,6 +238,13 @@ func (p *HCLParser) parseAuthMFABlock(block *hcl.Block) (*auth.MFAConfig, error)
 	}
 
 	// Parse attributes
+	if attr, exists := content.Attributes["enabled"]; exists {
+		val, diags := attr.Expr.Value(p.evalCtx)
+		if !diags.HasErrors() {
+			config.Enabled = val.True()
+		}
+	}
+
 	if attr, exists := content.Attributes["required"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
