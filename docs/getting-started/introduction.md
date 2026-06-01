@@ -1,10 +1,8 @@
 # Introduction to Mycel
 
-Mycel is a **declarative microservice framework**. Instead of writing code, you write HCL2 configuration files that describe what data sources to connect, how data flows between them, and what transformations to apply. Mycel runs as a binary that interprets those files — the same binary for every service, only the configuration differs.
+Mycel is a **declarative microservice runtime**. You describe what your service connects to and how data flows between those connections; Mycel runs it as a real microservice. The plumbing every service repeats — HTTP server, connection pools, marshalling, retries, reconnection — is Mycel's job. The only logic you write is your service's own, and only when it needs it. The same binary runs every service; only the configuration changes — the way one nginx binary serves countless sites from different config files.
 
 Mycel uses [HCL2](https://github.com/hashicorp/hcl) (HashiCorp Configuration Language v2), the same configuration language used by Terraform, Nomad, and other HashiCorp tools. HCL2 is designed for humans: it's more readable than JSON/YAML, supports expressions and functions, and catches syntax errors at parse time.
-
-Think of it like nginx: one binary, different configuration files for different services.
 
 ## The Problem Mycel Solves
 
@@ -92,7 +90,7 @@ flow "create_user" {
 }
 ```
 
-That is a complete REST API with a PostgreSQL backend. No code. No HTTP handlers. No SQL boilerplate.
+That is a complete REST API with a PostgreSQL backend. No HTTP handlers, no connection pool, no SQL boilerplate — none of the machinery, just the flow.
 
 Run it:
 

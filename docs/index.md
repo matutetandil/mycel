@@ -1,8 +1,8 @@
 # Mycel Documentation
 
-**Declarative microservices through configuration, not code.**
+**Mycel is a declarative microservice runtime — you describe what connects to what, and it runs the service.**
 
-Mycel is a single binary runtime that reads HCL configuration files and exposes production-ready microservices. Same binary, different configuration = different service. No code required.
+You point Mycel at the things you want to connect — an API, a database, a queue, a gRPC service — and it runs the microservice that moves data between them. The plumbing every service repeats (HTTP server, connection pools, marshalling, retries) is Mycel's job; the only logic you write is your service's own, and only when it needs it. Same binary for every service — only the configuration changes.
 
 ```
 Connector (source) ──> Flow ──> Connector (target)
