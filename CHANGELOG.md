@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.7.0] - 2026-06-01
+
+### Added
+
+- **External HTTP identity providers.** The `provider` block under `auth` is now wired end-to-end: it validates an incoming credential (an API key or opaque bearer token) against an external HTTP endpoint at request time, instead of against local JWTs or a static list. Local JWT validation runs first; providers are tried only when the credential isn't a valid JWT, in declaration order, and the first whose `success` expression is truthy wins.
+
+  ```hcl
+  auth {
+    provider "api_keys" {
+      type     = "http"
+      validate = env("KEYS_VALIDATE_URL")        # URL; {token} is templated in
+      request  = { Authorization = "Bearer {token}" }
+      response {
+        success = "status == 200 && body.active == true"  # CEL over status + body
+        user_id = "body.user_id"
+        email   = "body.email"
+        roles   = "body.roles"                            # list<string> or CSV
+      }
+    }
+  }
+  ```
+
+  The full response `body` is exposed to flows as `auth.claims.*`, and `user_id` as `auth.user_id`. A provider timeout or transport error is treated as a rejection (not a `5xx` from your service). CEL expressions are compiled at startup, so an unsupported `type`, a missing `validate`/`success`, or an invalid expression fails fast. Response caching and `sync_to` are not implemented yet (`sync_to` logs a warning when set). See the [`dynamic-api-key` example](examples/dynamic-api-key) and the [auth guide](docs/guides/auth.md#external-identity-providers).
+
+### Fixed
+
+- **MFA could never be turned on via config.** `parseAuthMFABlock` left `enabled` out of its schema, so `mfa { enabled = true }` was a parse error; and no preset set the top-level `MFAConfig.Enabled`, so the `NewManager` gate was effectively always false and the MFA service never initialized. The `mfa` block now parses `enabled` (and defaults it to `true` when the block is present; explicit `enabled = false` still disables it), and the strict/standard/relaxed presets enable MFA.
+
 ## [2.6.0] - 2026-05-29
 
 ### Added
