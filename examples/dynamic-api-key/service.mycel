@@ -1,13 +1,13 @@
 # Dynamic API Key Validation Example
-# Validates API keys against a database instead of static configuration
-# NOTE: Dynamic API key validation is a planned feature
+# Validates incoming API keys at request time against an external HTTP
+# introspection endpoint, instead of a static list baked into the config.
 
 service {
   name    = "api-with-dynamic-keys"
   version = "1.0.0"
 }
 
-# Database storing API keys
+# Application database (business data the validated identity reads/writes).
 connector "keys_db" {
   type     = "database"
   driver   = "postgres"
@@ -26,6 +26,31 @@ connector "api" {
   cors {
     origins = ["*"]
     methods = ["GET", "POST", "PUT", "DELETE"]
+  }
+}
+
+# Auth: validate each request's bearer credential against an external HTTP
+# provider. The provider receives the key and returns the identity it maps to;
+# the mapped fields populate the auth context (auth.user_id, auth.claims.*).
+auth {
+  secret = env("AUTH_SECRET", "change-me-in-production")
+
+  provider "api_keys" {
+    type     = "http"
+    validate = env("KEYS_VALIDATE_URL", "http://localhost:9100/introspect")
+
+    # {token} is replaced with the incoming credential.
+    request = {
+      Authorization = "Bearer {token}"
+    }
+
+    # CEL expressions over `status` (HTTP code) and `body` (parsed JSON).
+    response {
+      success = "status == 200 && body.active == true"
+      user_id = "body.user_id"
+      email   = "body.email"
+      roles   = "body.roles"
+    }
   }
 }
 

@@ -27,6 +27,7 @@ type Manager struct {
 	passwordHasher    *PasswordHasher
 	passwordValidator *PasswordValidator
 	mfaService        *MFAService
+	providerValidator *ProviderValidator
 
 	logger *slog.Logger
 }
@@ -134,6 +135,16 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 			m.mfaStore = NewMemoryMFAStore()
 		}
 		m.mfaService = NewMFAService(config.MFA, m.mfaStore)
+	}
+
+	// Initialize external identity providers if configured. A bad provider
+	// (unsupported type, invalid CEL, missing validate/success) fails startup.
+	if len(config.Providers) > 0 {
+		pv, err := NewProviderValidator(config.Providers, nil, m.logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize auth providers: %w", err)
+		}
+		m.providerValidator = pv
 	}
 
 	return m, nil
@@ -380,6 +391,13 @@ func (m *Manager) ValidateToken(ctx context.Context, accessToken string) (*User,
 	// Validate access token
 	claims, err := m.tokenManager.ValidateAccessToken(accessToken)
 	if err != nil {
+		// Not a valid local JWT — fall back to external identity providers,
+		// which validate the raw credential (e.g. an API key) over HTTP.
+		if m.providerValidator.HasProviders() {
+			if user, pClaims, pErr := m.providerValidator.Validate(ctx, accessToken); pErr == nil {
+				return user, pClaims, nil
+			}
+		}
 		return nil, nil, ErrInvalidToken
 	}
 
