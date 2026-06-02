@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.0] - 2026-06-02
+
+### Fixed
+
+- **Goroutine leak in redis-backed `coordinate`.** A flow with a redis `coordinate` block leaked ~2-3 goroutines and a pooled Redis connection on **every message processed** — goroutines (and RSS) climbed linearly under load toward an eventual OOM, flat only when idle. `Manager.GetCoordinator` returned a fresh coordinator on every call, and `ExecuteWithCoordinate` calls it once per message (even when the preflight skips the wait); each coordinator `PSubscribe`s and spawns a listener goroutine that was never closed. The coordinator is now cached and shared (it is a long-lived Pub/Sub hub by design), with an idempotent `stop()` that releases the subscription on shutdown. Lock heartbeats and the other redis primitives were not affected.
+
+### Added
+
+- **Optional `pprof` profiling on the admin server.** Set `MYCEL_PPROF` to a truthy value to mount the Go `net/http/pprof` endpoints under `/debug/pprof/` on the admin server (`:9090`). Off by default (pprof exposes runtime internals and the profile/trace endpoints are CPU-heavy), but safe to enable in any environment — including production — because the admin port is internal (reach it with `kubectl port-forward`). For diagnosing goroutine leaks, heap growth, and CPU hotspots on a live process.
+
+  ```bash
+  MYCEL_PPROF=true mycel start
+  # then, after port-forwarding the admin port:
+  go tool pprof http://localhost:9090/debug/pprof/goroutine
+  ```
+
 ## [2.7.0] - 2026-06-01
 
 ### Added
