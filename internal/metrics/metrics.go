@@ -14,7 +14,7 @@ import (
 var (
 	// Default metrics registry
 	defaultRegistry *Registry
-	initOnce        sync.Once
+	defaultMu       sync.Mutex
 )
 
 // Registry holds all Mycel metrics.
@@ -32,9 +32,9 @@ type Registry struct {
 	ConnectorLatency    *prometheus.HistogramVec
 
 	// Flow metrics
-	FlowExecutions   *prometheus.CounterVec
-	FlowDuration     *prometheus.HistogramVec
-	FlowErrors       *prometheus.CounterVec
+	FlowExecutions *prometheus.CounterVec
+	FlowDuration   *prometheus.HistogramVec
+	FlowErrors     *prometheus.CounterVec
 
 	// Cache metrics
 	CacheHits   *prometheus.CounterVec
@@ -56,23 +56,23 @@ type Registry struct {
 	SemaphoreAvailable   *prometheus.GaugeVec
 
 	// Coordinate metrics
-	CoordinateSignal      *prometheus.CounterVec
-	CoordinateWait        *prometheus.CounterVec
-	CoordinateWaitSeconds *prometheus.HistogramVec
-	CoordinateTimeout     *prometheus.CounterVec
+	CoordinateSignal       *prometheus.CounterVec
+	CoordinateWait         *prometheus.CounterVec
+	CoordinateWaitSeconds  *prometheus.HistogramVec
+	CoordinateTimeout      *prometheus.CounterVec
 	CoordinatePreflightHit *prometheus.CounterVec
-	CoordinateActiveWaits *prometheus.GaugeVec
+	CoordinateActiveWaits  *prometheus.GaugeVec
 
 	// Scheduler metrics
 	ScheduledFlows   *prometheus.GaugeVec
 	ScheduleExecuted *prometheus.CounterVec
 
 	// Profile metrics
-	ProfileActive    *prometheus.GaugeVec
-	ProfileRequests  *prometheus.CounterVec
-	ProfileErrors    *prometheus.CounterVec
-	ProfileFallback  *prometheus.CounterVec
-	ProfileLatency   *prometheus.HistogramVec
+	ProfileActive   *prometheus.GaugeVec
+	ProfileRequests *prometheus.CounterVec
+	ProfileErrors   *prometheus.CounterVec
+	ProfileFallback *prometheus.CounterVec
+	ProfileLatency  *prometheus.HistogramVec
 
 	// Runtime metrics
 	UptimeSeconds *prometheus.GaugeVec
@@ -591,16 +591,28 @@ func (r *Registry) SetGoRoutines(count int) {
 	r.GoRoutines.Set(float64(count))
 }
 
-// Default returns the default metrics registry.
-// Creates one with default settings if not already initialized.
+// Default returns the default metrics registry, lazily creating a fallback one
+// only if SetDefault was never called. Recorders (RecordFlowExecution, etc.)
+// route through here, so it MUST return the same registry the runtime serves.
+//
+// Previously this used a sync.Once to lazy-init, which clobbered the registry
+// SetDefault had assigned: the first Default() call fired the Once and replaced
+// the runtime's registry with a throwaway "unknown" one that nothing serves —
+// so flow/connector metrics were recorded but never exposed at /metrics.
 func Default() *Registry {
-	initOnce.Do(func() {
+	defaultMu.Lock()
+	defer defaultMu.Unlock()
+	if defaultRegistry == nil {
 		defaultRegistry = NewRegistry("mycel", "unknown", "unknown", "unknown")
-	})
+	}
 	return defaultRegistry
 }
 
-// SetDefault sets the default metrics registry.
+// SetDefault sets the default metrics registry. The runtime calls this during
+// startup so every recorder writes into the same registry the admin/REST
+// endpoint serves.
 func SetDefault(r *Registry) {
+	defaultMu.Lock()
+	defer defaultMu.Unlock()
 	defaultRegistry = r
 }
