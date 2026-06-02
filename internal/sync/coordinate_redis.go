@@ -18,8 +18,9 @@ type RedisCoordinator struct {
 	mu      sync.RWMutex
 	waiters map[string][]chan struct{} // signal -> waiting channels
 
-	sub  *redis.PubSub
-	done chan struct{}
+	sub      *redis.PubSub
+	done     chan struct{}
+	stopOnce sync.Once
 }
 
 // RedisCoordinatorConfig holds configuration for RedisCoordinator.
@@ -222,30 +223,43 @@ func (c *RedisCoordinator) Exists(ctx context.Context, signal string) (bool, err
 	return exists > 0, nil
 }
 
-// Close closes the Redis client and pub/sub.
-func (c *RedisCoordinator) Close() error {
-	close(c.done)
+// stop releases the coordinator's hub resources — the Pub/Sub subscription
+// and its listener goroutine — and unblocks any waiters, WITHOUT closing the
+// Redis client. The client may be shared (coordinators created via
+// NewRedisCoordinatorFromClient reuse the manager's cached client), so its
+// lifecycle is owned elsewhere. Idempotent and safe to call repeatedly.
+func (c *RedisCoordinator) stop() {
+	c.stopOnce.Do(func() {
+		close(c.done)
 
-	// Close pub/sub
-	if c.sub != nil {
-		c.sub.Close()
-	}
-
-	// Notify all waiters
-	c.mu.Lock()
-	for signal, waiters := range c.waiters {
-		for _, ch := range waiters {
-			select {
-			case <-ch:
-				// Already closed
-			default:
-				close(ch)
-			}
+		// Close pub/sub (stops the go-redis channel pump and frees the
+		// dedicated subscription connection).
+		if c.sub != nil {
+			c.sub.Close()
 		}
-		delete(c.waiters, signal)
-	}
-	c.mu.Unlock()
 
+		// Notify all waiters so nobody blocks forever on shutdown.
+		c.mu.Lock()
+		for signal, waiters := range c.waiters {
+			for _, ch := range waiters {
+				select {
+				case <-ch:
+					// Already closed
+				default:
+					close(ch)
+				}
+			}
+			delete(c.waiters, signal)
+		}
+		c.mu.Unlock()
+	})
+}
+
+// Close stops the coordinator and closes its Redis client. Use only when the
+// coordinator owns the client (NewRedisCoordinator). For client-shared
+// coordinators the manager calls stop() and closes the shared client itself.
+func (c *RedisCoordinator) Close() error {
+	c.stop()
 	return c.client.Close()
 }
 
@@ -266,8 +280,8 @@ func (c *RedisCoordinator) Stats(ctx context.Context) (map[string]interface{}, e
 	}
 
 	return map[string]interface{}{
-		"active_signals":    len(keys),
-		"active_waiters":    totalWaiters,
+		"active_signals":     len(keys),
+		"active_waiters":     totalWaiters,
 		"waiter_signal_keys": signalKeys,
 	}, nil
 }

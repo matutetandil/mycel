@@ -260,6 +260,15 @@ mycel start --verbose-flow
 
 All debug features are **development-only** — automatically disabled in staging/production with zero overhead.
 
+**Profiling (`pprof`).** For diagnosing a live process — goroutine leaks, heap growth, CPU hotspots — set `MYCEL_PPROF=true` to mount the Go `net/http/pprof` endpoints under `/debug/pprof/` on the admin server (`:9090`). It's off by default and safe to enable in any environment, including production: the admin port is internal (reach it with `kubectl port-forward`). Then:
+
+```bash
+# Full goroutine dump (what reveals a leak)
+curl 'http://localhost:9090/debug/pprof/goroutine?debug=2'
+# Or interactively
+go tool pprof http://localhost:9090/debug/pprof/goroutine
+```
+
 See the [Debugging Guide](docs/guides/debugging.md) for full documentation including IDE setup.
 
 ## CLI
@@ -278,7 +287,7 @@ mycel plugin remove <name>
 mycel plugin update [name]
 ```
 
-Environment: `MYCEL_ENV` (default: development), `MYCEL_LOG_LEVEL` (default: info), `MYCEL_LOG_FORMAT` (default: text). Flags take precedence.
+Environment: `MYCEL_ENV` (default: development), `MYCEL_LOG_LEVEL` (default: info), `MYCEL_LOG_FORMAT` (default: text), `MYCEL_PPROF` (default: off — mounts `pprof` on the admin server when truthy). Flags take precedence.
 
 See the [Debugging Guide](docs/guides/debugging.md) for `mycel trace` usage and examples.
 

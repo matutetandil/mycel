@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	httppprof "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -25,49 +26,48 @@ import (
 	"github.com/matutetandil/mycel/internal/codec"
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/cache"
-	"github.com/matutetandil/mycel/internal/connector/discord"
-	"github.com/matutetandil/mycel/internal/connector/email"
-	"github.com/matutetandil/mycel/internal/connector/profile"
-	"github.com/matutetandil/mycel/internal/connector/push"
-	"github.com/matutetandil/mycel/internal/connector/slack"
-	"github.com/matutetandil/mycel/internal/connector/sms"
-	"github.com/matutetandil/mycel/internal/connector/webhook"
+	conncdc "github.com/matutetandil/mycel/internal/connector/cdc"
 	"github.com/matutetandil/mycel/internal/connector/database/mongodb"
 	"github.com/matutetandil/mycel/internal/connector/database/mysql"
 	"github.com/matutetandil/mycel/internal/connector/database/postgres"
 	"github.com/matutetandil/mycel/internal/connector/database/sqlite"
+	"github.com/matutetandil/mycel/internal/connector/discord"
+	connelastic "github.com/matutetandil/mycel/internal/connector/elasticsearch"
+	"github.com/matutetandil/mycel/internal/connector/email"
 	"github.com/matutetandil/mycel/internal/connector/exec"
-	"github.com/matutetandil/mycel/internal/debug"
-	"github.com/matutetandil/mycel/internal/envdefaults"
 	"github.com/matutetandil/mycel/internal/connector/file"
+	connftp "github.com/matutetandil/mycel/internal/connector/ftp"
 	"github.com/matutetandil/mycel/internal/connector/graphql"
-	conns3 "github.com/matutetandil/mycel/internal/connector/s3"
 	conngrpc "github.com/matutetandil/mycel/internal/connector/grpc"
 	connhttp "github.com/matutetandil/mycel/internal/connector/http"
 	"github.com/matutetandil/mycel/internal/connector/mq"
-	"github.com/matutetandil/mycel/internal/connector/rest"
-	"github.com/matutetandil/mycel/internal/connector/tcp"
-	conncdc "github.com/matutetandil/mycel/internal/connector/cdc"
-	connelastic "github.com/matutetandil/mycel/internal/connector/elasticsearch"
-	connoauth "github.com/matutetandil/mycel/internal/connector/oauth"
 	connmqtt "github.com/matutetandil/mycel/internal/connector/mqtt"
-	connftp "github.com/matutetandil/mycel/internal/connector/ftp"
+	connoauth "github.com/matutetandil/mycel/internal/connector/oauth"
 	connpdf "github.com/matutetandil/mycel/internal/connector/pdf"
+	"github.com/matutetandil/mycel/internal/connector/profile"
+	"github.com/matutetandil/mycel/internal/connector/push"
+	"github.com/matutetandil/mycel/internal/connector/rest"
+	conns3 "github.com/matutetandil/mycel/internal/connector/s3"
+	"github.com/matutetandil/mycel/internal/connector/slack"
+	"github.com/matutetandil/mycel/internal/connector/sms"
 	connsoap "github.com/matutetandil/mycel/internal/connector/soap"
 	connsse "github.com/matutetandil/mycel/internal/connector/sse"
+	"github.com/matutetandil/mycel/internal/connector/tcp"
+	"github.com/matutetandil/mycel/internal/connector/webhook"
 	connws "github.com/matutetandil/mycel/internal/connector/websocket"
+	"github.com/matutetandil/mycel/internal/debug"
+	"github.com/matutetandil/mycel/internal/envdefaults"
 	"github.com/matutetandil/mycel/internal/flow"
-	"github.com/matutetandil/mycel/internal/saga"
-	"github.com/matutetandil/mycel/internal/sanitize"
 	"github.com/matutetandil/mycel/internal/functions"
 	"github.com/matutetandil/mycel/internal/health"
 	"github.com/matutetandil/mycel/internal/hotreload"
-	"github.com/matutetandil/mycel/internal/mock"
 	"github.com/matutetandil/mycel/internal/metrics"
+	"github.com/matutetandil/mycel/internal/mock"
 	"github.com/matutetandil/mycel/internal/parser"
 	"github.com/matutetandil/mycel/internal/plugin"
 	"github.com/matutetandil/mycel/internal/ratelimit"
-	goredis "github.com/redis/go-redis/v9"
+	"github.com/matutetandil/mycel/internal/saga"
+	"github.com/matutetandil/mycel/internal/sanitize"
 	"github.com/matutetandil/mycel/internal/scheduler"
 	"github.com/matutetandil/mycel/internal/statemachine"
 	msync "github.com/matutetandil/mycel/internal/sync"
@@ -75,6 +75,7 @@ import (
 	"github.com/matutetandil/mycel/internal/validate"
 	"github.com/matutetandil/mycel/internal/validator"
 	"github.com/matutetandil/mycel/internal/workflow"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 // Version is the current version of Mycel.
@@ -148,8 +149,8 @@ type Runtime struct {
 	debugServer *debug.Server
 
 	// Debug suspend: event-driven connectors defer Start() until a debugger connects
-	debugSuspend       bool
-	suspendedStarters  []suspendedConnector
+	debugSuspend      bool
+	suspendedStarters []suspendedConnector
 
 	// shutdownTimeout is the maximum time to wait for graceful shutdown.
 	shutdownTimeout time.Duration
@@ -1490,6 +1491,20 @@ func (r *Runtime) startAdminServer() error {
 	// Register debug protocol (Mycel Studio IDE)
 	r.debugServer.RegisterHandlers(mux)
 
+	// Optional pprof profiling endpoints under /debug/pprof/. Opt-in via
+	// MYCEL_PPROF: off by default because pprof exposes runtime internals and
+	// the profile/trace endpoints are CPU-heavy. The admin port is internal
+	// (reachable via `kubectl port-forward`), so it's safe to enable in any
+	// environment — including production — to diagnose a live process.
+	pprofEnabled := false
+	if registerPprofHandlers(mux) {
+		pprofEnabled = true
+		r.logger.Warn("pprof profiling enabled on admin server",
+			"path", "/debug/pprof/",
+			"toggle", "MYCEL_PPROF",
+			"hint", "kubectl port-forward then: go tool pprof http://<host>:9090/debug/pprof/goroutine")
+	}
+
 	addr := fmt.Sprintf(":%d", port)
 
 	listener, err := net.Listen("tcp", addr)
@@ -1507,10 +1522,34 @@ func (r *Runtime) startAdminServer() error {
 		}
 	}()
 
-	r.logger.Info("admin server started", "port", port, "endpoints", []string{"/health", "/health/live", "/health/ready", "/metrics", "/debug"})
+	endpoints := []string{"/health", "/health/live", "/health/ready", "/metrics", "/debug"}
+	if pprofEnabled {
+		endpoints = append(endpoints, "/debug/pprof/")
+	}
+	r.logger.Info("admin server started", "port", port, "endpoints", endpoints)
 	banner.PrintConnector("admin", "http", fmt.Sprintf("health + metrics + debug on :%d", port))
 
 	return nil
+}
+
+// registerPprofHandlers mounts the net/http/pprof endpoints on the admin mux
+// when MYCEL_PPROF is set to a truthy value. Returns whether they were mounted.
+// They live under /debug/pprof/ (distinct from the Studio /debug WebSocket).
+func registerPprofHandlers(mux *http.ServeMux) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("MYCEL_PPROF"))) {
+	case "1", "true", "yes", "on":
+	default:
+		return false
+	}
+
+	// pprof.Index also serves the named profiles (goroutine, heap, allocs,
+	// block, mutex, threadcreate) at /debug/pprof/<name>.
+	mux.HandleFunc("/debug/pprof/", httppprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", httppprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", httppprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", httppprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", httppprof.Trace)
+	return true
 }
 
 // registerWorkflowEndpoints adds workflow management endpoints to an HTTP mux.
