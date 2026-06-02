@@ -60,6 +60,12 @@ type Manager struct {
 	// Cached Redis clients, keyed by resolved address
 	redisClients map[string]*redis.Client
 
+	// Cached Redis coordinators, keyed by resolved address. A coordinator
+	// owns a long-lived Pub/Sub subscription + listener goroutine, so it
+	// MUST be shared across flows/messages — creating one per operation
+	// leaks the subscription (a pooled connection) and its goroutine.
+	redisCoordinators map[string]*RedisCoordinator
+
 	mu gosync.RWMutex
 }
 
@@ -71,6 +77,7 @@ func NewManager() *Manager {
 		memoryCoordinator:   NewMemoryCoordinator(time.Second),
 		memorySequenceGuard: NewMemorySequenceGuard(time.Minute),
 		redisClients:        make(map[string]*redis.Client),
+		redisCoordinators:   make(map[string]*RedisCoordinator),
 	}
 }
 
@@ -139,13 +146,40 @@ func (m *Manager) GetCoordinator(ctx context.Context, cfg *SyncStorageConfig) (C
 		return m.memoryCoordinator, nil
 	}
 	if cfg.Driver == "redis" {
-		client, err := m.getOrCreateRedisClient(cfg)
-		if err != nil {
-			return nil, err
-		}
-		return NewRedisCoordinatorFromClient(client, "mycel:coord:"), nil
+		return m.getOrCreateRedisCoordinator(cfg)
 	}
 	return nil, fmt.Errorf("unsupported sync storage driver: %s", cfg.Driver)
+}
+
+// getOrCreateRedisCoordinator returns a cached coordinator or creates one.
+// The coordinator holds a long-lived Pub/Sub subscription and listener
+// goroutine, so it must be shared — never created per operation.
+func (m *Manager) getOrCreateRedisCoordinator(cfg *SyncStorageConfig) (*RedisCoordinator, error) {
+	key := cfg.cacheKey()
+
+	m.mu.RLock()
+	if coord, ok := m.redisCoordinators[key]; ok {
+		m.mu.RUnlock()
+		return coord, nil
+	}
+	m.mu.RUnlock()
+
+	client, err := m.getOrCreateRedisClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Double-check after acquiring write lock.
+	if coord, ok := m.redisCoordinators[key]; ok {
+		return coord, nil
+	}
+
+	coord := NewRedisCoordinatorFromClient(client, "mycel:coord:")
+	m.redisCoordinators[key] = coord
+	return coord, nil
 }
 
 // GetSequenceGuard returns a SequenceGuard implementation based on the
@@ -196,6 +230,13 @@ func (m *Manager) Close() error {
 			errs = append(errs, err)
 		}
 	}
+
+	// Stop cached coordinators (pub/sub + listener goroutine) before closing
+	// the shared clients they ride on.
+	for _, coord := range m.redisCoordinators {
+		coord.stop()
+	}
+	m.redisCoordinators = make(map[string]*RedisCoordinator)
 
 	for _, client := range m.redisClients {
 		if err := client.Close(); err != nil {
