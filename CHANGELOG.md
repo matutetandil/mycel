@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.8.1] - 2026-06-03
+
+### Fixed
+
+- **Flow metrics were recorded but never exposed at `/metrics`.** A running service recorded flow executions (`mycel_flow_executions_total`, `mycel_flow_duration_seconds`, `mycel_flow_errors_total`) but `/metrics` exposed none of them — only the Go/process collectors plus `mycel_goroutines`, `mycel_uptime_seconds`, and `mycel_service_info` showed up. The cause was `metrics.Default()`: it lazily created a fallback registry behind a `sync.Once`, and the first recorder call fired that `Once` **after** `SetDefault` had already installed the registry the admin/REST endpoint serves — clobbering it with a throwaway `"unknown"` registry that nothing exposes. Every flow/connector recorder then wrote into the orphaned registry. The metrics that *did* appear were written directly on the served registry, which is why they were unaffected. `Default()` no longer self-initializes over an assigned registry (mutex + nil-check instead of `sync.Once`), so `SetDefault` sticks and recorders write into the registry that is actually served. Message throughput is now derivable, e.g. `rate(mycel_flow_executions_total{flow="..."}[1m])`.
+
 ## [2.8.0] - 2026-06-02
 
 ### Fixed

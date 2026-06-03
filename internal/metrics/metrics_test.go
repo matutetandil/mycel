@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -273,7 +272,6 @@ func TestRegistry_Handler(t *testing.T) {
 func TestDefault(t *testing.T) {
 	// Reset default
 	defaultRegistry = nil
-	initOnce = sync.Once{}
 
 	reg := Default()
 	if reg == nil {
@@ -284,6 +282,30 @@ func TestDefault(t *testing.T) {
 	reg2 := Default()
 	if reg != reg2 {
 		t.Error("expected same instance")
+	}
+}
+
+// TestSetDefaultNotClobberedByLazyInit guards a production bug: a sync.Once in
+// Default() used to overwrite the registry SetDefault had assigned, the first
+// time Default() was called — so recorders wrote into a throwaway registry that
+// nothing served, and flow/connector metrics never appeared at /metrics.
+func TestSetDefaultNotClobberedByLazyInit(t *testing.T) {
+	defaultRegistry = nil
+
+	custom := NewRegistry("svc", "1.0.0", "2.0.0", "test")
+	SetDefault(custom)
+
+	// The FIRST Default() call must not replace what SetDefault assigned.
+	if got := Default(); got != custom {
+		t.Fatalf("Default() clobbered the registry set by SetDefault: got %p, want %p", got, custom)
+	}
+	// A metric recorded via Default() must be visible on custom's handler.
+	Default().RecordFlowExecution("f", "success", 0)
+
+	rec := httptest.NewRecorder()
+	custom.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if !strings.Contains(rec.Body.String(), "mycel_flow_executions_total") {
+		t.Fatal("flow metric recorded via Default() is not exposed by the registry SetDefault assigned")
 	}
 }
 
