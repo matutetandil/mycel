@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-06-04
+
+### Added
+
+- **Incoming payload logging via `MYCEL_PAYLOAD_SHOW`.** Set `MYCEL_PAYLOAD_SHOW=true` (together with `MYCEL_LOG_LEVEL=debug`) to log the raw payload entering every flow, regardless of source connector — a queue message, an HTTP body, a TCP frame, etc. Previously the only way to see an incoming payload was `--verbose-flow`, which traces every pipeline stage and is disabled outside development mode; this logs *just* the incoming payload at the single choke-point all requests pass through (`FlowHandler.HandleRequest`), so it works for every connector and in any environment, including production. The payload is logged raw, on entry — before sanitization and validation — so the line appears even for requests that later fail validation. Off by default because payloads may carry PII or secrets.
+
+  ```bash
+  MYCEL_LOG_LEVEL=debug MYCEL_PAYLOAD_SHOW=true mycel start
+  # DBG incoming payload flow=create_user source=api payload={"name":"Ada","email":"..."}
+  ```
+
+  `MYCEL_PAYLOAD_SIZE` caps the logged size (default `4k`; accepts a plain byte count or a `k`/`m` suffix, e.g. `512`, `4k`, `1m`), with truncated payloads marked `…(truncated, N bytes total)`. Both `MYCEL_PAYLOAD_SHOW=true` and debug level are required; setting `MYCEL_PAYLOAD_SHOW=true` without debug logs a one-time startup warning. The `Enabled()` guard skips JSON marshalling unless debug logging is active, so there is no hot-path cost when it isn't.
+
 ## [2.8.1] - 2026-06-03
 
 ### Fixed

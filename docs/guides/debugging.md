@@ -29,6 +29,7 @@ All debug features (breakpoints, DAP, verbose flow) are **development-only** —
   - [Start Suspended Mode](#start-suspended-mode)
 - [Verbose Flow Logging](#verbose-flow-logging)
 - [Log-Level Debugging](#log-level-debugging)
+- [Incoming Payload Logging](#incoming-payload-logging)
 - [Local vs Docker](#local-vs-docker)
 - [Troubleshooting](#troubleshooting)
 - [CLI Reference](#cli-reference)
@@ -599,6 +600,40 @@ Log levels from most to least verbose:
 
 ---
 
+## Incoming Payload Logging
+
+When you need to see the **raw payload entering a flow** — no matter which connector it came from (a queue message, an HTTP body, a TCP frame, etc.) — opt in with `MYCEL_PAYLOAD_SHOW`. Mycel logs the payload at the single choke-point every request passes through, so it works for **every** source connector and in **any** environment (including production — unlike `--verbose-flow`, which is dev-only).
+
+```bash
+# Show incoming payloads (requires debug level to actually emit)
+MYCEL_LOG_LEVEL=debug MYCEL_PAYLOAD_SHOW=true mycel start
+
+# Cap how much of the payload is logged (default 4k)
+MYCEL_LOG_LEVEL=debug MYCEL_PAYLOAD_SHOW=true MYCEL_PAYLOAD_SIZE=512 mycel start
+```
+
+Example output (one line per request, regardless of connector):
+
+```
+DBG incoming payload flow=create_user source=api payload={"name":"Ada","email":"Ada@Example.com","age":36}
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MYCEL_PAYLOAD_SHOW` | `false` | Opt in to logging the incoming payload of every flow. |
+| `MYCEL_PAYLOAD_SIZE` | `4k` | Truncation cap. Accepts bytes or a `k`/`m` suffix (`512`, `4k`, `1m`). Truncated payloads are marked `…(truncated, N bytes total)`. |
+
+Notes:
+
+- **Both `MYCEL_PAYLOAD_SHOW=true` and debug level are required.** Payloads only emit at debug level; if you set `MYCEL_PAYLOAD_SHOW=true` without it, Mycel logs a one-time warning at startup and nothing else.
+- **The payload is logged raw, on entry — before sanitization and validation.** This is what you want for "what did the client actually send me?", and it means the line appears even for requests that later fail validation.
+- **Off by default for a reason.** Payloads may contain PII or secrets. Enable it deliberately, and prefer a small `MYCEL_PAYLOAD_SIZE` when you only need to confirm shape.
+- The `Enabled()` guard skips JSON marshalling entirely unless debug logging is active, so leaving `MYCEL_PAYLOAD_SHOW=true` set with a non-debug level has no runtime cost.
+
+This differs from [Verbose Flow Logging](#verbose-flow-logging): that traces *every pipeline stage* (sanitize → validate → transform → write) and is dev-only; this logs *just the incoming payload* and runs anywhere.
+
+---
+
 ## Local vs Docker
 
 For the best debugging experience, **run Mycel locally**:
@@ -719,6 +754,8 @@ Flags:
 
 Environment Variables:
   MYCEL_DEBUG_SUSPEND=true   Same as --debug-suspend
+  MYCEL_PAYLOAD_SHOW=true    Log the incoming payload of every flow (requires debug level)
+  MYCEL_PAYLOAD_SIZE=4k      Max logged payload bytes (e.g. 512, 4k, 1m; default 4k)
 
 Global Flags:
   -c, --config string   Configuration directory (default ".")

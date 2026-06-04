@@ -27,7 +27,7 @@ const (
 
 var (
 	// Version information (set at build time)
-	version = "2.8.1"
+	version = "2.9.0"
 	commit  = "dev"
 )
 
@@ -55,9 +55,11 @@ Quick Start:
   mycel check --config ./my-service     Test connector connectivity
 
 Environment Variables:
-  MYCEL_ENV         Environment (development, staging, production)
-  MYCEL_LOG_LEVEL   Log level (debug, info, warn, error)
-  MYCEL_LOG_FORMAT  Log format (text, json)
+  MYCEL_ENV          Environment (development, staging, production)
+  MYCEL_LOG_LEVEL    Log level (debug, info, warn, error)
+  MYCEL_LOG_FORMAT   Log format (text, json)
+  MYCEL_PAYLOAD_SHOW Log incoming flow payloads (requires debug level)
+  MYCEL_PAYLOAD_SIZE Max logged payload bytes (e.g. 512, 4k, 1m; default 4k)
 
 Documentation:
   https://github.com/matutetandil/mycel`,
@@ -317,14 +319,23 @@ func runStart(cmd *cobra.Command, args []string) error {
 		effectiveDebugSuspend = false
 	}
 
+	// Incoming-payload debug logging (MYCEL_PAYLOAD_SHOW / MYCEL_PAYLOAD_SIZE).
+	// Payloads only emit at debug level, so warn if opted in without it.
+	payloadCfg := logging.PayloadLogFromEnv()
+	if payloadCfg.Show && !logger.Enabled(context.Background(), slog.LevelDebug) {
+		logger.Warn("MYCEL_PAYLOAD_SHOW=true but log level is not debug; payloads will not be logged. Set MYCEL_LOG_LEVEL=debug.")
+	}
+
 	// Create runtime
 	rt, err := runtime.New(runtime.Options{
-		ConfigDir:    configDir,
-		Environment:  env,
-		Logger:       logger,
-		HotReload:    hotReloadEnabled,
-		VerboseFlow:  effectiveVerboseFlow,
-		DebugSuspend: effectiveDebugSuspend,
+		ConfigDir:       configDir,
+		Environment:     env,
+		Logger:          logger,
+		HotReload:       hotReloadEnabled,
+		VerboseFlow:     effectiveVerboseFlow,
+		ShowPayload:     payloadCfg.Show,
+		PayloadMaxBytes: payloadCfg.MaxBytes,
+		DebugSuspend:    effectiveDebugSuspend,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create runtime: %w", err)

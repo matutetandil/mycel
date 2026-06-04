@@ -20,6 +20,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector/cache"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/functions"
+	"github.com/matutetandil/mycel/internal/logging"
 	"github.com/matutetandil/mycel/internal/metrics"
 	"github.com/matutetandil/mycel/internal/sanitize"
 	"github.com/matutetandil/mycel/internal/trace"
@@ -165,6 +166,14 @@ type FlowHandler struct {
 	// VerboseFlow enables per-request trace logging via LogCollector.
 	VerboseFlow bool
 
+	// ShowPayload logs the incoming payload at debug level on entry,
+	// regardless of source connector (MYCEL_PAYLOAD_SHOW).
+	ShowPayload bool
+
+	// PayloadMaxBytes caps the logged payload size before truncation
+	// (MYCEL_PAYLOAD_SIZE).
+	PayloadMaxBytes int
+
 	// DebugServer provides access to the Studio debug protocol server.
 	// When a debug client is connected, trace context and breakpoints are injected.
 	DebugServer *debug.Server
@@ -186,6 +195,37 @@ type FlowHandler struct {
 // Used for backwards compatibility when no rejection policy is configured.
 var FilteredResult = &struct{ Filtered bool }{Filtered: true}
 
+// logIncomingPayload emits the raw incoming payload at debug level when
+// MYCEL_PAYLOAD_SHOW opted in. The Enabled() guard skips the JSON marshal
+// entirely unless debug logging is actually active.
+func (h *FlowHandler) logIncomingPayload(ctx context.Context, input map[string]interface{}) {
+	if !h.ShowPayload || h.Logger == nil || !h.Logger.Enabled(ctx, slog.LevelDebug) {
+		return
+	}
+	h.Logger.LogAttrs(ctx, slog.LevelDebug, "incoming payload",
+		slog.String("flow", h.Config.Name),
+		slog.String("source", h.Config.From.Connector),
+		slog.String("payload", formatPayload(input, h.PayloadMaxBytes)),
+	)
+}
+
+// formatPayload renders a payload as JSON for debug logging, truncating to
+// maxBytes (a non-positive maxBytes falls back to the default cap). A
+// truncation marker is appended so cut payloads are obvious in the logs.
+func formatPayload(payload interface{}, maxBytes int) string {
+	if maxBytes <= 0 {
+		maxBytes = logging.DefaultPayloadMaxBytes
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		b = []byte(fmt.Sprintf("%v", payload))
+	}
+	if len(b) > maxBytes {
+		return fmt.Sprintf("%s…(truncated, %d bytes total)", b[:maxBytes], len(b))
+	}
+	return string(b)
+}
+
 // HandleRequest processes an incoming request through the flow.
 func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interface{}) (result interface{}, err error) {
 	h.Logger.Info("HandleRequest entered",
@@ -194,6 +234,11 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		"hasClients", h.DebugServer != nil && h.DebugServer.HasClients(),
 		"isTracing", trace.IsTracing(ctx),
 	)
+
+	// Log the raw incoming payload when explicitly opted in via
+	// MYCEL_PAYLOAD_SHOW. This is the single choke-point every connector's
+	// payload passes through, so it works regardless of source.
+	h.logIncomingPayload(ctx, input)
 
 	// Attach Studio debug context when a debug client is connected.
 	// This takes priority over verbose flow to ensure breakpoints work.
