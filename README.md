@@ -260,6 +260,13 @@ mycel start --verbose-flow
 
 All debug features are **development-only** — automatically disabled in staging/production with zero overhead.
 
+**Incoming payload logging.** To see the raw payload entering a flow — regardless of source connector, and in any environment including production — set `MYCEL_PAYLOAD_SHOW=true` together with `MYCEL_LOG_LEVEL=debug`. It logs the payload on entry (before sanitization/validation) at the single choke-point every request passes through, so it works for queues, HTTP, TCP, etc. Off by default (payloads may carry PII/secrets); `MYCEL_PAYLOAD_SIZE` caps the logged size (default `4k`, e.g. `512`/`4k`/`1m`).
+
+```bash
+MYCEL_LOG_LEVEL=debug MYCEL_PAYLOAD_SHOW=true mycel start
+# DBG incoming payload flow=create_user source=api payload={"name":"Ada","email":"..."}
+```
+
 **Profiling (`pprof`).** For diagnosing a live process — goroutine leaks, heap growth, CPU hotspots — set `MYCEL_PPROF=true` to mount the Go `net/http/pprof` endpoints under `/debug/pprof/` on the admin server (`:9090`). It's off by default and safe to enable in any environment, including production: the admin port is internal (reach it with `kubectl port-forward`). Then:
 
 ```bash
@@ -287,7 +294,7 @@ mycel plugin remove <name>
 mycel plugin update [name]
 ```
 
-Environment: `MYCEL_ENV` (default: development), `MYCEL_LOG_LEVEL` (default: info), `MYCEL_LOG_FORMAT` (default: text), `MYCEL_PPROF` (default: off — mounts `pprof` on the admin server when truthy). Flags take precedence.
+Environment: `MYCEL_ENV` (default: development), `MYCEL_LOG_LEVEL` (default: info), `MYCEL_LOG_FORMAT` (default: text), `MYCEL_PPROF` (default: off — mounts `pprof` on the admin server when truthy), `MYCEL_PAYLOAD_SHOW` (default: off — logs incoming flow payloads at debug level) with `MYCEL_PAYLOAD_SIZE` (default: `4k`). Flags take precedence.
 
 See the [Debugging Guide](docs/guides/debugging.md) for `mycel trace` usage and examples.
 

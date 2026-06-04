@@ -136,6 +136,10 @@ type Runtime struct {
 	// Verbose flow tracing (logs all pipeline stages per request)
 	verboseFlow bool
 
+	// Incoming payload debug logging (MYCEL_PAYLOAD_SHOW / MYCEL_PAYLOAD_SIZE)
+	showPayload     bool
+	payloadMaxBytes int
+
 	// Hot reload components
 	hotReloadEnabled bool
 	hotReloader      *hotreload.Reloader
@@ -192,6 +196,15 @@ type Options struct {
 	// When true, every pipeline stage (sanitize, validate, transform, read/write)
 	// is logged at debug level for all flows.
 	VerboseFlow bool
+
+	// ShowPayload logs the incoming payload of every flow at debug level,
+	// regardless of source connector. Off by default (payloads may carry
+	// PII/secrets); driven by MYCEL_PAYLOAD_SHOW.
+	ShowPayload bool
+
+	// PayloadMaxBytes caps how many bytes of the logged payload are emitted
+	// before truncation. Driven by MYCEL_PAYLOAD_SIZE.
+	PayloadMaxBytes int
 
 	// MockConnectors is a comma-separated list of connectors to mock.
 	// Empty means mock all when mocking is enabled.
@@ -498,6 +511,8 @@ func New(opts Options) (*Runtime, error) {
 		environment:       env,
 		configDir:         opts.ConfigDir,
 		verboseFlow:       opts.VerboseFlow,
+		showPayload:       opts.ShowPayload,
+		payloadMaxBytes:   opts.PayloadMaxBytes,
 		hotReloadEnabled:  opts.HotReload,
 		debugSuspend:      opts.DebugSuspend,
 		shutdownTimeout:   opts.ShutdownTimeout,
@@ -1210,6 +1225,8 @@ func (r *Runtime) registerFlows() error {
 			ValidatorRegistry:  r.validatorRegistry,
 			Logger:             r.logger,
 			VerboseFlow:        r.verboseFlow,
+			ShowPayload:        r.showPayload,
+			PayloadMaxBytes:    r.payloadMaxBytes,
 			DebugServer:        r.debugServer,
 		}
 
