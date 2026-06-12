@@ -28,6 +28,7 @@ import (
 	"github.com/matutetandil/mycel/internal/saga"
 	"github.com/matutetandil/mycel/internal/statemachine"
 	msync "github.com/matutetandil/mycel/internal/sync"
+	"github.com/matutetandil/mycel/internal/tracing"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
 	"github.com/matutetandil/mycel/internal/validator"
@@ -294,9 +295,21 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		ctx = trace.WithTrace(ctx, tc)
 	}
 
+	// Distributed tracing: open the root span for this flow, joining any inbound
+	// trace carried in the source headers (W3C traceparent). No-op unless tracing
+	// is configured (see internal/tracing). Ended in the deferred block below.
+	var traceHeaders map[string]interface{}
+	if hdrs, ok := input["headers"].(map[string]interface{}); ok {
+		traceHeaders = hdrs
+	}
+	ctx, span := tracing.StartFlowSpan(ctx, h.Config.Name, h.Config.From.Connector, h.Config.From.GetOperation(), traceHeaders)
+
 	start := time.Now()
 	defer func() {
 		duration := time.Since(start)
+
+		// Finalize the trace span (records error/status when err != nil).
+		tracing.End(span, err)
 
 		// Broadcast flow end to debug clients
 		if debugCollector != nil {
@@ -2603,7 +2616,11 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 		}, nil
 	}
 
+	// Child span around the connector write so the trace shows downstream calls;
+	// the span context is what the connector (e.g. HTTP) propagates outbound.
+	ctx, span := tracing.StartConnectorSpan(ctx, destConfig.Connector, data.Operation, data.Target)
 	writeResult, err := writer.Write(ctx, data)
+	tracing.End(span, err)
 	if err != nil {
 		return nil, err
 	}

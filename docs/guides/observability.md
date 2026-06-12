@@ -454,6 +454,48 @@ The bundled local monitoring stack at [`monitoring/`](https://github.com/matutet
 
 Mycel does **not** ship logs over the network from inside the process. There's a fair case for adding a built-in OTLP sink (`logging { sink "otlp" { } }` declared in HCL alongside connectors) for deployments without a collector — small VPS, edge — and it fits Mycel's "configuration, not code" ethos. It's not on the roadmap today; open an issue or a discussion if you have a concrete use case.
 
+## Distributed Tracing (OpenTelemetry)
+
+Mycel can emit [OpenTelemetry](https://opentelemetry.io/) traces over OTLP, so a single request can be followed end-to-end across services in Jaeger, Tempo, Grafana, or any OTel-compatible backend.
+
+Tracing is **opt-in** and a strict no-op when unconfigured — there is no hot-path cost unless you turn it on.
+
+### Enabling it
+
+Either set `MYCEL_TRACING=true`, or simply point Mycel at a collector with the standard OTLP endpoint variable (which turns tracing on by itself):
+
+```bash
+# Auto-enabled: setting an OTLP endpoint is enough
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 mycel start
+
+# Or explicitly
+MYCEL_TRACING=true OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 mycel start
+```
+
+The OTLP/gRPC exporter reads the rest of its configuration from the **standard `OTEL_*` environment variables** — endpoint, headers, TLS/insecure, timeout — so Mycel is wired up exactly like any other OpenTelemetry service. Common ones:
+
+| Variable | Purpose |
+|---|---|
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector endpoint (e.g. `http://otel-collector:4317`) |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Traces-only endpoint override |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Headers (e.g. auth: `authorization=Bearer ...`) |
+| `OTEL_EXPORTER_OTLP_INSECURE` | `true` to disable TLS (plaintext collector) |
+
+`service.name` and `service.version` come from your service config; override with `OTEL_SERVICE_NAME` if needed.
+
+### What gets traced
+
+- A **root span per flow execution**, started at the single choke-point every request passes through — so it works for any source connector (queue message, HTTP body, TCP frame, CDC event), in any environment.
+- **Inbound context propagation:** the flow joins an existing distributed trace when a W3C `traceparent` is present in the source headers (HTTP or message headers; lookup is case-insensitive).
+- **Child spans** around connector writes (`to {}` destinations), tagged with the connector, operation, and target.
+- **Outbound propagation** on HTTP client calls, so the downstream service continues the same trace.
+
+Span attributes include `mycel.flow`, `mycel.source`, `mycel.connector`, and the operation; errored flows and writes are marked on the span.
+
+> This is separate from the [debugging](debugging.md) tracer (verbose flow logging + the Studio debugger), which is for local development. The two are independent and can be active at the same time. Prometheus `/metrics` is unaffected by tracing.
+
+Outbound propagation on MQ publishes, and OTLP export of metrics/logs, are planned follow-ups.
+
 ## Grafana Dashboard
 
 ### Import Dashboard

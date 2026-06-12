@@ -20,6 +20,7 @@ import (
 
 	"github.com/matutetandil/mycel/internal/codec"
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/tracing"
 )
 
 // Connector is an HTTP client for calling external REST APIs.
@@ -375,6 +376,11 @@ func (c *Connector) doRequest(ctx context.Context, method, fullURL string, body 
 	for k, v := range c.headers {
 		req.Header.Set(k, v)
 	}
+
+	// Propagate the active distributed trace to the downstream service (no-op
+	// when tracing is disabled). The ctx carries the connector span started by
+	// the runtime, so the remote span links into this trace.
+	tracing.InjectHTTP(ctx, req.Header)
 
 	// Apply authentication
 	if err := c.applyAuth(ctx, req); err != nil {
