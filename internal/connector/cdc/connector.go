@@ -60,6 +60,11 @@ type Connector struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 
+	// Reconnect backoff bounds for the listener supervisor. Defaulted in New;
+	// overridable in tests to keep them fast.
+	minBackoff time.Duration
+	maxBackoff time.Duration
+
 	// Debug throttling: single-message processing when debugger is connected
 	debugGate connector.DebugGate
 }
@@ -70,11 +75,13 @@ func New(name string, config *Config, listener Listener, logger *slog.Logger) *C
 		logger = slog.Default()
 	}
 	return &Connector{
-		name:     name,
-		config:   config,
-		logger:   logger,
-		listener: listener,
-		handlers: make(map[string]HandlerFunc),
+		name:       name,
+		config:     config,
+		logger:     logger,
+		listener:   listener,
+		handlers:   make(map[string]HandlerFunc),
+		minBackoff: 1 * time.Second,
+		maxBackoff: 30 * time.Second,
 	}
 }
 
@@ -164,14 +171,13 @@ func (c *Connector) Start(ctx context.Context) error {
 
 	eventCh := make(chan *Event, 256)
 
-	// Start the listener in a goroutine
-	go func() {
-		if err := c.listener.Start(c.ctx, eventCh); err != nil {
-			if c.ctx.Err() == nil {
-				c.logger.Error("CDC listener error", "connector", c.name, "error", err)
-			}
-		}
-	}()
+	// Supervise the listener so a single connection drop (network blip, DB
+	// failover, idle timeout) does not permanently stop the stream. The driver
+	// libraries here (pglogrepl/pgconn) do not reconnect on their own, and
+	// listener.Start returns when the replication connection dies — without
+	// supervision the goroutine would exit and the connector would become a
+	// silent non-streaming zombie until a process restart.
+	go c.superviseListener(eventCh)
 
 	c.mu.RLock()
 	tableSet := make(map[string]struct{})
@@ -199,6 +205,49 @@ func (c *Connector) Start(ctx context.Context) error {
 	go c.dispatchLoop(eventCh)
 
 	return nil
+}
+
+// superviseListener runs the driver listener and restarts it with capped
+// exponential backoff whenever it returns because the connection dropped.
+// PostgreSQL persists the replication slot and its confirmed-flush LSN, so a
+// restart reconnects and resumes from where the stream left off — events that
+// occur during the gap accumulate in the slot's WAL and are delivered on
+// reconnect, so none are missed. The loop exits only when the connector context
+// is cancelled (clean shutdown via Close).
+func (c *Connector) superviseListener(eventCh chan<- *Event) {
+	backoff := c.minBackoff
+	for {
+		startedAt := time.Now()
+		err := c.listener.Start(c.ctx, eventCh)
+
+		// Clean shutdown — stop supervising.
+		if c.ctx.Err() != nil {
+			return
+		}
+
+		// A listener that streamed for a healthy stretch before dropping is a
+		// fresh incident, not a tight crash loop: reset the backoff.
+		if time.Since(startedAt) > c.maxBackoff {
+			backoff = c.minBackoff
+		}
+
+		c.logger.Error("CDC listener stopped; reconnecting",
+			"connector", c.name,
+			"error", err,
+			"retry_in", backoff,
+		)
+
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+
+		backoff *= 2
+		if backoff > c.maxBackoff {
+			backoff = c.maxBackoff
+		}
+	}
 }
 
 // dispatchLoop reads events from the channel and dispatches them to matching handlers.

@@ -104,7 +104,13 @@ func (p *PostgresListener) Start(ctx context.Context, eventCh chan<- *Event) err
 		"start_lsn", startLSN,
 	)
 
-	return p.streamLoop(ctx, conn, eventCh, startLSN)
+	// Close the replication connection when streaming ends (drop or shutdown),
+	// so the supervisor's reconnect does not leak a Postgres backend per drop.
+	// Uses a background context because ctx is typically already cancelled on
+	// the shutdown path. Close is idempotent with the listener's Close().
+	err = p.streamLoop(ctx, conn, eventCh, startLSN)
+	_ = conn.Close(context.Background())
+	return err
 }
 
 // ensurePublication creates the publication if it doesn't exist.
