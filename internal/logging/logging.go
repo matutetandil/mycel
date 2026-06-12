@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/lmittmann/tint"
+
+	"github.com/matutetandil/mycel/internal/tracing"
 )
 
 // Environment variable names
@@ -82,6 +84,10 @@ func NewLogger(cfg *Config) *slog.Logger {
 			TimeFormat: time.Kitchen,
 		})
 	}
+
+	// Wrap so logs emitted during a traced flow carry trace_id / span_id and
+	// link to the trace (no-op when there is no active span).
+	handler = tracing.NewLogHandler(handler)
 
 	return slog.New(handler)
 }

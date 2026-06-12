@@ -71,6 +71,7 @@ import (
 	"github.com/matutetandil/mycel/internal/scheduler"
 	"github.com/matutetandil/mycel/internal/statemachine"
 	msync "github.com/matutetandil/mycel/internal/sync"
+	"github.com/matutetandil/mycel/internal/tracing"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
 	"github.com/matutetandil/mycel/internal/validator"
@@ -148,6 +149,10 @@ type Runtime struct {
 
 	// Admin server for health/metrics when no REST connector is present
 	adminServer *http.Server
+
+	// OpenTelemetry tracer-provider shutdown (flushes buffered spans). No-op
+	// when tracing is disabled. Set in New, invoked in Shutdown.
+	traceShutdown func(context.Context) error
 
 	// Debug protocol server for Mycel Studio IDE integration
 	debugServer *debug.Server
@@ -289,6 +294,15 @@ func New(opts Options) (*Runtime, error) {
 	}
 	metricsReg := metrics.NewRegistry(serviceName, serviceVersion, Version, env)
 	metrics.SetDefault(metricsReg)
+
+	// Distributed tracing (OpenTelemetry). Opt-in via MYCEL_TRACING or an
+	// OTEL_EXPORTER_OTLP_ENDPOINT; a no-op otherwise. The returned shutdown is
+	// stored on the Runtime and invoked in Shutdown to flush buffered spans.
+	traceShutdown, err := tracing.Setup(context.Background(), serviceName, serviceVersion)
+	if err != nil {
+		opts.Logger.Warn("failed to set up OpenTelemetry tracing; continuing without traces", "error", err)
+		traceShutdown = func(context.Context) error { return nil }
+	}
 
 	// Create aspect registry and register aspects from config
 	aspectReg := aspect.NewRegistry()
@@ -498,6 +512,7 @@ func New(opts Options) (*Runtime, error) {
 		namedCaches:       namedCaches,
 		health:            healthMgr,
 		metrics:           metricsReg,
+		traceShutdown:     traceShutdown,
 		aspectRegistry:    aspectReg,
 		mockManager:       mockMgr,
 		functionsRegistry: functionsReg,
@@ -1971,6 +1986,13 @@ func (r *Runtime) Shutdown() error {
 	if r.adminServer != nil {
 		if err := r.adminServer.Shutdown(ctx); err != nil {
 			r.logger.Warn("error shutting down admin server", "error", err)
+		}
+	}
+
+	// Flush and stop the OpenTelemetry tracer provider (no-op when tracing off).
+	if r.traceShutdown != nil {
+		if err := r.traceShutdown(ctx); err != nil {
+			r.logger.Warn("error shutting down tracing", "error", err)
 		}
 	}
 

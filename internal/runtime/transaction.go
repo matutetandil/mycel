@@ -11,6 +11,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/trace"
+	"github.com/matutetandil/mycel/internal/tracing"
 	"github.com/matutetandil/mycel/internal/transform"
 )
 
@@ -67,6 +68,7 @@ func (h *FlowHandler) handleTransaction(ctx context.Context, input map[string]in
 	writeResult, writeErr := h.dedupeAwareWrite(ctx, input, payload, func() (interface{}, error) {
 		return trace.RecordStage(ctx, trace.StageWrite, h.Config.To.Connector, trace.Snapshot(payload), func() (interface{}, error) {
 			runErr := runner.RunInTx(ctx, func(ops connector.TxOps) error {
+				txCtx, txSpan := tracing.StartSpan(ctx, "transaction")
 				ex := &txExecutor{
 					eval:     eval,
 					ops:      ops,
@@ -78,8 +80,9 @@ func (h *FlowHandler) handleTransaction(ctx context.Context, input map[string]in
 						"captured": captured,
 					},
 				}
-				a, runErr := ex.run(ctx, txCfg.Statements)
+				a, runErr := ex.run(txCtx, txCfg.Statements)
 				affected = a
+				tracing.End(txSpan, runErr)
 				return runErr
 			})
 			if runErr != nil {
@@ -215,6 +218,12 @@ func (e *txExecutor) runExec(ctx context.Context, ex *flow.TxExec) (int64, error
 // non-list or empty result runs nothing. Bindings are restored afterwards so
 // sibling/nested each blocks don't leak into one another's scope.
 func (e *txExecutor) runEach(ctx context.Context, each *flow.TxEach) (int64, error) {
+	// Span the whole loop so the trace shows where transaction time goes
+	// (the iterative blocks are usually the hot part). The transaction span
+	// records overall error status; here we only need duration.
+	ctx, span := tracing.StartSpan(ctx, "each "+each.Var)
+	defer span.End()
+
 	listVal, err := e.eval.EvaluateWith(ctx, each.In, e.scope)
 	if err != nil {
 		return 0, fmt.Errorf("transaction each %q in %q: %w", each.Var, each.In, err)

@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.10.0] - 2026-06-12
+
+### Added
+
+- **OpenTelemetry distributed tracing (opt-in).** Mycel can now emit OpenTelemetry traces over OTLP, so a request is followed end-to-end across services in Jaeger / Tempo / Grafana / any OTel backend. It's off by default and a strict no-op when unconfigured (the global tracer stays OTel's no-op, so instrumentation costs essentially nothing). Turn it on with `MYCEL_TRACING=true`, or simply by setting the standard `OTEL_EXPORTER_OTLP_ENDPOINT` — the OTLP exporter reads the rest of its configuration (endpoint, headers, TLS/insecure, timeout) from the usual `OTEL_*` environment variables, so it's wired up exactly like any other OpenTelemetry service.
+
+  What gets traced:
+  - A **root span per flow execution**, started at the single choke-point every request passes through (`FlowHandler.HandleRequest`) — so it works for any source connector (queue message, HTTP body, TCP frame, CDC event), in any environment.
+  - **Inbound context propagation:** the flow joins an existing distributed trace when a W3C `traceparent` is present in the source headers — HTTP headers or message headers alike (header lookup is case-insensitive, since AMQP and HTTP carry different casing).
+  - **Child spans** around connector writes (`to {}` destinations), tagged with the connector name, operation, and target.
+  - **Depth inside the flow:** spans for the transform/steps stage, the `to { transaction {} }` block, and each `each` loop inside it — so a trace shows where a flow's time actually goes (e.g. which `each` loop in a large transaction is slow), not just a flat flow → write.
+  - **Trace ↔ log correlation:** logs emitted with a context during a traced flow automatically carry `trace_id` / `span_id`, so you can jump from a log line to its trace (and back) in Grafana/Loki. No-op when there's no active span.
+  - **Outbound context propagation** on HTTP client calls and on **RabbitMQ / Kafka** publishes (the `traceparent` is written into the AMQP headers / Kafka record headers), so the downstream service or consumer continues the same trace. Redis Pub/Sub and MQTT v3 have no message-header mechanism, so trace context cannot be carried across those hops — they are intentionally left un-propagated rather than mangling the payload.
+
+  Spans carry `service.name` / `service.version` from the service config, plus `mycel.flow`, `mycel.source`, `mycel.connector`, and operation attributes; errored flows/writes are marked on the span. This is separate from the existing development/debug tracer (verbose flow logging + the Studio debugger), which is unchanged — the two can run at the same time. Prometheus `/metrics` is unaffected. (OTel metrics/logs export are planned follow-ups.)
+
+  ```bash
+  OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 mycel start
+  ```
+
 ## [2.9.1] - 2026-06-12
 
 ### Fixed
