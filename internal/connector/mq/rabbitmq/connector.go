@@ -347,13 +347,23 @@ func (c *Connector) Start(ctx context.Context) error {
 	c.requeueTracker = flow.NewRequeueTracker(10 * time.Minute)
 	c.mu.Unlock()
 
+	// Always watch the connection for drops. Both publishers AND consumers
+	// must reconnect after an idle/network disconnect; consumers additionally
+	// re-issue basic.consume via handleReconnect's IsConsumer() branch.
+	//
+	// This MUST run before the consumer branch below: that branch returns early,
+	// so a consumer used to never start its monitor goroutine. The result was a
+	// non-consuming zombie — after a single idle-disconnect the broker closed the
+	// connection, the delivery channel closed (worker exited), the close error
+	// landed on an unread closeChan, and the consumer never re-subscribed until
+	// a full process restart. The handleReconnect re-subscribe logic existed but
+	// was dead code because nothing watched the consumer's closeChan.
+	go c.monitorConnection()
+
 	// Start consumer if configured
 	if c.config.IsConsumer() {
 		return c.startConsumer(c.ctx)
 	}
-
-	// For publishers, just start connection monitoring
-	go c.monitorConnection()
 
 	return nil
 }

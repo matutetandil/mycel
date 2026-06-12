@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.1] - 2026-06-12
+
+### Fixed
+
+- **RabbitMQ consumers became non-consuming zombies after an idle/network disconnect.** A consumer connector that lost its connection (CloudAMQP idle-disconnect, network blip — surfacing as `Exception (501) ... read tcp ...: i/o timeout`) never resumed consuming: the broker showed `consumers: 0`, messages piled up, and only a full process restart restored draining. The cause was in `Start()`: the consumer path returned early (`return c.startConsumer(...)`) **before** the line that launches the connection-monitor goroutine, so a consumer never watched its own close-notification channel. The reconnect logic that re-issues `basic.consume` (in `handleReconnect`) was therefore dead code for consumers — nothing ever invoked it. Publishers were unaffected because their path reaches the monitor; in a service running both (consumer + publisher against the same broker), only the publisher reconnected after a drop, which is exactly how the bug surfaced. The monitor goroutine now starts for **every** MQ connector before the consumer branch, so consumers reconnect and re-subscribe on their own after a drop. Heartbeats were already configured (10s default) and were in fact what detected the dead connection; the gap was purely the missing re-subscribe. Covered by a new integration test that drives a real consumer through a TCP proxy, drops the connection mid-flight, and asserts a message published after the drop is still consumed.
+
 ## [2.9.0] - 2026-06-04
 
 ### Added
