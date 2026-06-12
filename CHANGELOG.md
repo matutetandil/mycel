@@ -15,9 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A **root span per flow execution**, started at the single choke-point every request passes through (`FlowHandler.HandleRequest`) — so it works for any source connector (queue message, HTTP body, TCP frame, CDC event), in any environment.
   - **Inbound context propagation:** the flow joins an existing distributed trace when a W3C `traceparent` is present in the source headers — HTTP headers or message headers alike (header lookup is case-insensitive, since AMQP and HTTP carry different casing).
   - **Child spans** around connector writes (`to {}` destinations), tagged with the connector name, operation, and target.
-  - **Outbound context propagation** on HTTP client calls, so the downstream service continues the same trace.
+  - **Outbound context propagation** on HTTP client calls and on **RabbitMQ / Kafka** publishes (the `traceparent` is written into the AMQP headers / Kafka record headers), so the downstream service or consumer continues the same trace. Redis Pub/Sub and MQTT v3 have no message-header mechanism, so trace context cannot be carried across those hops — they are intentionally left un-propagated rather than mangling the payload.
 
-  Spans carry `service.name` / `service.version` from the service config, plus `mycel.flow`, `mycel.source`, `mycel.connector`, and operation attributes; errored flows/writes are marked on the span. This is separate from the existing development/debug tracer (verbose flow logging + the Studio debugger), which is unchanged — the two can run at the same time. Prometheus `/metrics` is unaffected. (Outbound propagation on MQ publishes and OTel metrics/logs export are planned follow-ups.)
+  Spans carry `service.name` / `service.version` from the service config, plus `mycel.flow`, `mycel.source`, `mycel.connector`, and operation attributes; errored flows/writes are marked on the span. This is separate from the existing development/debug tracer (verbose flow logging + the Studio debugger), which is unchanged — the two can run at the same time. Prometheus `/metrics` is unaffected. (OTel metrics/logs export are planned follow-ups.)
 
   ```bash
   OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 mycel start

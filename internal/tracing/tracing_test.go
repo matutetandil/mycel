@@ -177,3 +177,42 @@ func TestInjectHTTPRoundtrip(t *testing.T) {
 		t.Errorf("round-trip trace id = %s, want %s", got, want)
 	}
 }
+
+func TestInjectIntoMessageHeaders(t *testing.T) {
+	withRecorder(t)
+
+	ctx, span := StartConnectorSpan(context.Background(), "rabbit", "publish", "q")
+	defer span.End()
+
+	headers := InjectInto(ctx, nil)
+	tp, ok := headers["traceparent"]
+	if !ok || tp == "" {
+		t.Fatalf("InjectInto did not write a traceparent header; got %v", headers)
+	}
+	// The injected context round-trips back to the same trace.
+	extracted := otel.GetTextMapPropagator().Extract(context.Background(), mapCarrier(toAny(headers)))
+	if got, want := trace.SpanContextFromContext(extracted).TraceID(), span.SpanContext().TraceID(); got != want {
+		t.Errorf("round-trip trace id = %s, want %s", got, want)
+	}
+}
+
+func TestInjectIntoNoopWithoutSpan(t *testing.T) {
+	withRecorder(t)
+	// No active span in ctx → must not allocate or write, returns input as-is.
+	if got := InjectInto(context.Background(), nil); got != nil {
+		t.Errorf("InjectInto with no active span returned %v, want nil (no allocation)", got)
+	}
+	existing := map[string]string{"x": "y"}
+	got := InjectInto(context.Background(), existing)
+	if len(got) != 1 || got["x"] != "y" {
+		t.Errorf("InjectInto with no active span mutated headers: %v", got)
+	}
+}
+
+func toAny(m map[string]string) map[string]interface{} {
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/mq/types"
 	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/internal/tracing"
 )
 
 // HandlerFunc is the function signature for message handlers.
@@ -49,7 +50,6 @@ type Connector struct {
 
 	// Debug throttling: single-message processing when debugger is connected
 	debugGate connector.DebugGate
-
 }
 
 // NewConnector creates a new Kafka connector.
@@ -267,6 +267,10 @@ func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector
 func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
 	// Create message from payload
 	msg := types.NewMessage(data.Payload)
+
+	// Propagate the active distributed trace into the Kafka record headers so a
+	// downstream consumer continues the same trace (no-op when tracing is off).
+	msg.Headers = tracing.InjectInto(ctx, msg.Headers)
 
 	// Set topic from target
 	if data.Target != "" {

@@ -155,6 +155,27 @@ func InjectHTTP(ctx context.Context, header http.Header) {
 	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(header))
 }
 
+// InjectInto merges the active trace context (W3C traceparent etc.) into a
+// string header map for message-queue publishers whose protocol carries message
+// headers — AMQP (RabbitMQ) and Kafka record headers. It creates the map if nil
+// and returns it. When there is no active span (tracing disabled, or no flow
+// span in ctx) it returns the map untouched without allocating, so it is a true
+// no-op on the publish hot path.
+//
+// Redis Pub/Sub and MQTT v3 have no message-header mechanism, so trace context
+// cannot be carried across those hops without mangling the payload — they are
+// intentionally not propagated.
+func InjectInto(ctx context.Context, headers map[string]string) map[string]string {
+	if !trace.SpanContextFromContext(ctx).IsValid() {
+		return headers
+	}
+	if headers == nil {
+		headers = make(map[string]string)
+	}
+	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(headers))
+	return headers
+}
+
 // mapCarrier adapts a map[string]interface{} (Mycel's input["headers"]) to the
 // OTel TextMapCarrier interface for inbound context extraction. Get is
 // case-insensitive because header casing varies across sources (HTTP canonical

@@ -488,13 +488,15 @@ The OTLP/gRPC exporter reads the rest of its configuration from the **standard `
 - A **root span per flow execution**, started at the single choke-point every request passes through — so it works for any source connector (queue message, HTTP body, TCP frame, CDC event), in any environment.
 - **Inbound context propagation:** the flow joins an existing distributed trace when a W3C `traceparent` is present in the source headers (HTTP or message headers; lookup is case-insensitive).
 - **Child spans** around connector writes (`to {}` destinations), tagged with the connector, operation, and target.
-- **Outbound propagation** on HTTP client calls, so the downstream service continues the same trace.
+- **Outbound propagation** on HTTP client calls and on **RabbitMQ / Kafka** publishes (the `traceparent` is written into the message headers), so the downstream service or consumer continues the same trace.
 
 Span attributes include `mycel.flow`, `mycel.source`, `mycel.connector`, and the operation; errored flows and writes are marked on the span.
 
+> **Header-less brokers:** Redis Pub/Sub and MQTT v3 carry no message headers, so trace context cannot cross those hops (Mycel does not embed it in the payload). A trace will show the flow that consumes such a message but cannot be linked from the publishing side over that hop.
+
 > This is separate from the [debugging](debugging.md) tracer (verbose flow logging + the Studio debugger), which is for local development. The two are independent and can be active at the same time. Prometheus `/metrics` is unaffected by tracing.
 
-Outbound propagation on MQ publishes, and OTLP export of metrics/logs, are planned follow-ups.
+OTLP export of metrics/logs is a planned follow-up.
 
 ## Grafana Dashboard
 
