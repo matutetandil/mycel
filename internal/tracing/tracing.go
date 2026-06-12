@@ -17,6 +17,7 @@ package tracing
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -133,6 +134,45 @@ func StartConnectorSpan(ctx context.Context, connectorName, operation, target st
 		span.SetAttributes(attribute.String("mycel.connector.target", target))
 	}
 	return ctx, span
+}
+
+// StartSpan starts a generic internal span (transform/steps stage, transaction,
+// each loop, ...) as a child of the active span in ctx. No-op-safe: returns a
+// non-recording span at near-zero cost when tracing is disabled.
+func StartSpan(ctx context.Context, name string) (context.Context, trace.Span) {
+	return otel.Tracer(tracerName).Start(ctx, name, trace.WithSpanKind(trace.SpanKindInternal))
+}
+
+// NewLogHandler wraps a slog.Handler so that records logged with a context that
+// carries an active span gain trace_id / span_id attributes — linking logs to
+// traces in the backend (Grafana, etc.). Records without an active span pass
+// through unchanged, so it is safe to install unconditionally and costs only a
+// context lookup when tracing is off.
+func NewLogHandler(h slog.Handler) slog.Handler { return &logHandler{inner: h} }
+
+type logHandler struct{ inner slog.Handler }
+
+func (h *logHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.inner.Enabled(ctx, level)
+}
+
+func (h *logHandler) Handle(ctx context.Context, r slog.Record) error {
+	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+		r = r.Clone()
+		r.AddAttrs(
+			slog.String("trace_id", sc.TraceID().String()),
+			slog.String("span_id", sc.SpanID().String()),
+		)
+	}
+	return h.inner.Handle(ctx, r)
+}
+
+func (h *logHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &logHandler{inner: h.inner.WithAttrs(attrs)}
+}
+
+func (h *logHandler) WithGroup(name string) slog.Handler {
+	return &logHandler{inner: h.inner.WithGroup(name)}
 }
 
 // End finalizes a span, recording err and marking the span as errored when err

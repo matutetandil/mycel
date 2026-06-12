@@ -488,9 +488,20 @@ The OTLP/gRPC exporter reads the rest of its configuration from the **standard `
 - A **root span per flow execution**, started at the single choke-point every request passes through — so it works for any source connector (queue message, HTTP body, TCP frame, CDC event), in any environment.
 - **Inbound context propagation:** the flow joins an existing distributed trace when a W3C `traceparent` is present in the source headers (HTTP or message headers; lookup is case-insensitive).
 - **Child spans** around connector writes (`to {}` destinations), tagged with the connector, operation, and target.
+- **Depth inside the flow:** the transform/steps stage, the `to { transaction {} }` block, and each `each` loop within it get their own spans, so the trace shows where a flow's time actually goes — e.g. which `each` loop in a large transaction is slow — instead of a flat flow → write.
 - **Outbound propagation** on HTTP client calls and on **RabbitMQ / Kafka** publishes (the `traceparent` is written into the message headers), so the downstream service or consumer continues the same trace.
 
 Span attributes include `mycel.flow`, `mycel.source`, `mycel.connector`, and the operation; errored flows and writes are marked on the span.
+
+### Correlating logs with traces
+
+Logs emitted with a context during a traced flow automatically carry `trace_id` and `span_id`, so you can pivot from a log line to its trace (and back) in Grafana/Loki/Tempo. This is a no-op when there is no active span, so it adds nothing when tracing is off.
+
+```json
+{"time":"...","level":"INFO","msg":"request","flow":"item_update","duration":"812ms","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7"}
+```
+
+> Granular per-step / per-rule transform spans, per-statement transaction spans, and spans around the sync primitives (`lock` / `coordinate` / `sequence_guard`) are planned refinements; today the transform/transaction stages are spanned as a whole and sync wait time shows up as the leading gap inside the flow span.
 
 > **Header-less brokers:** Redis Pub/Sub and MQTT v3 carry no message headers, so trace context cannot cross those hops (Mycel does not embed it in the payload). A trace will show the flow that consumes such a message but cannot be linked from the publishing side over that hop.
 

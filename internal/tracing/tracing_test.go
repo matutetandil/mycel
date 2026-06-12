@@ -1,9 +1,12 @@
 package tracing
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel"
@@ -206,6 +209,35 @@ func TestInjectIntoNoopWithoutSpan(t *testing.T) {
 	got := InjectInto(context.Background(), existing)
 	if len(got) != 1 || got["x"] != "y" {
 		t.Errorf("InjectInto with no active span mutated headers: %v", got)
+	}
+}
+
+func TestLogHandlerAddsTraceID(t *testing.T) {
+	withRecorder(t)
+
+	var buf bytes.Buffer
+	base := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})
+	logger := slog.New(NewLogHandler(base))
+
+	// With an active span, the record gains trace_id / span_id.
+	ctx, span := StartFlowSpan(context.Background(), "f", "src", "", nil)
+	logger.InfoContext(ctx, "during flow")
+	span.End()
+
+	out := buf.String()
+	wantTID := span.SpanContext().TraceID().String()
+	if !strings.Contains(out, `"trace_id":"`+wantTID+`"`) {
+		t.Errorf("log line missing trace_id %s: %s", wantTID, out)
+	}
+	if !strings.Contains(out, `"span_id":"`) {
+		t.Errorf("log line missing span_id: %s", out)
+	}
+
+	// Without an active span, no trace fields are added.
+	buf.Reset()
+	logger.InfoContext(context.Background(), "no span")
+	if strings.Contains(buf.String(), "trace_id") {
+		t.Errorf("unexpected trace_id without an active span: %s", buf.String())
 	}
 }
 

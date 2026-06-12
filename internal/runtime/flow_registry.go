@@ -16,18 +16,18 @@ import (
 
 	"github.com/matutetandil/mycel/internal/aspect"
 	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/debug"
 	"github.com/matutetandil/mycel/internal/connector/cache"
+	"github.com/matutetandil/mycel/internal/debug"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/functions"
+	"github.com/matutetandil/mycel/internal/graphql/optimizer"
 	"github.com/matutetandil/mycel/internal/logging"
 	"github.com/matutetandil/mycel/internal/metrics"
-	"github.com/matutetandil/mycel/internal/sanitize"
-	"github.com/matutetandil/mycel/internal/trace"
-	"github.com/matutetandil/mycel/internal/graphql/optimizer"
 	"github.com/matutetandil/mycel/internal/saga"
+	"github.com/matutetandil/mycel/internal/sanitize"
 	"github.com/matutetandil/mycel/internal/statemachine"
 	msync "github.com/matutetandil/mycel/internal/sync"
+	"github.com/matutetandil/mycel/internal/trace"
 	"github.com/matutetandil/mycel/internal/tracing"
 	"github.com/matutetandil/mycel/internal/transform"
 	"github.com/matutetandil/mycel/internal/validate"
@@ -623,7 +623,7 @@ func (h *FlowHandler) executeWithRetry(ctx context.Context, input map[string]int
 				if currentDelay > maxDelay {
 					currentDelay = maxDelay
 				}
-			// "constant" - delay stays the same
+				// "constant" - delay stays the same
 			}
 		}
 	}
@@ -2608,11 +2608,11 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 			Detail: fmt.Sprintf("%s → %s.%s", data.Operation, destConfig.Connector, data.Target),
 		})
 		return map[string]interface{}{
-			"dry_run":    true,
-			"connector":  destConfig.Connector,
-			"operation":  data.Operation,
-			"target":     data.Target,
-			"payload":    payload,
+			"dry_run":   true,
+			"connector": destConfig.Connector,
+			"operation": data.Operation,
+			"target":    data.Target,
+			"payload":   payload,
 		}, nil
 	}
 
@@ -3199,6 +3199,12 @@ func (h *FlowHandler) applyTransformsWithSteps(ctx context.Context, input map[st
 	if h.Config.Transform == nil && len(h.Config.Enrichments) == 0 && len(h.Config.Steps) == 0 {
 		return input, nil, nil
 	}
+
+	// Span the transform+steps stage (steps run here exactly once). Granular
+	// per-step / per-rule spans are a future refinement; this captures the
+	// stage as a whole so it shows up between the flow span and the write.
+	ctx, span := tracing.StartSpan(ctx, "transform")
+	defer span.End()
 
 	// Initialize CEL transformer if needed (thread-safe for concurrent async flows)
 	h.transformerOnce.Do(func() {
