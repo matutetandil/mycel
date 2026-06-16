@@ -1,5 +1,7 @@
 # Build stage
-FROM golang:1.24-alpine AS builder
+# Go 1.25: go.mod requires >= 1.25 (grpc / golang.org/x/* pulled in by the
+# OpenTelemetry deps declare go 1.25). Keep in sync with the go directive.
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /build
 
