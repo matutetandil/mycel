@@ -60,6 +60,8 @@ Environment Variables:
   MYCEL_LOG_FORMAT   Log format (text, json)
   MYCEL_PAYLOAD_SHOW Log incoming flow payloads (requires debug level)
   MYCEL_PAYLOAD_SIZE Max logged payload bytes (e.g. 512, 4k, 1m; default 4k)
+  MYCEL_TRACING      Enable OpenTelemetry tracing (also auto-on when
+                     OTEL_EXPORTER_OTLP_ENDPOINT is set; honors OTEL_* vars)
 
 Documentation:
   https://github.com/matutetandil/mycel`,

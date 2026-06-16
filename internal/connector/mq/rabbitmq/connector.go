@@ -13,6 +13,7 @@ import (
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/mq/types"
 	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/internal/tracing"
 )
 
 // HandlerFunc is the function signature for message handlers.
@@ -281,6 +282,10 @@ func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector
 func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
 	// Create message from payload
 	msg := types.NewMessage(data.Payload)
+
+	// Propagate the active distributed trace into the AMQP message headers so a
+	// downstream consumer continues the same trace (no-op when tracing is off).
+	msg.Headers = tracing.InjectInto(ctx, msg.Headers)
 
 	// Set routing info
 	if data.Target != "" {
