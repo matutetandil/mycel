@@ -1,0 +1,48 @@
+# HTTP QUERY method (RFC 10008): a safe, idempotent, cacheable read whose
+# query travels in the request BODY — like POST's ergonomics with GET's
+# semantics. Perfect for searches too complex (or too sensitive) for a
+# query string.
+
+# QUERY /products/search — the body feeds the raw SQL named parameters.
+#
+#   curl -X QUERY http://localhost:3000/products/search \
+#     -H "Content-Type: application/json" \
+#     -d '{"name_like": "%pro%", "max_price": 1500}'
+flow "search_products" {
+  from {
+    connector = "api"
+    operation = "QUERY /products/search"
+  }
+
+  to {
+    connector = "sqlite"
+    target    = "products"
+    query     = "SELECT id, name, price FROM products WHERE name LIKE :name_like AND price <= :max_price ORDER BY price"
+  }
+}
+
+# Plain QUERY read — same read semantics as GET, body available if needed.
+flow "query_products" {
+  from {
+    connector = "api"
+    operation = "QUERY /products"
+  }
+
+  to {
+    connector = "sqlite"
+    target    = "products"
+  }
+}
+
+# GET sibling on the same path — both methods coexist per path.
+flow "get_products" {
+  from {
+    connector = "api"
+    operation = "GET /products"
+  }
+
+  to {
+    connector = "sqlite"
+    target    = "products"
+  }
+}

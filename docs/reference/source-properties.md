@@ -56,13 +56,15 @@ flow "nightly_sync" {
 
 Path parameters use colon syntax (`:id`, `:user_id`).
 
+Supported methods: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, and `QUERY` — the RFC 10008 safe method whose query travels in the request body (GET semantics, POST ergonomics). QUERY runs the read path, its body is decoded like POST's, and a QUERY with content but no `Content-Type` is rejected with `415`. Responses on QUERY-capable paths advertise the accepted media types via the `Accept-Query` header. See [examples/query-method](https://github.com/matutetandil/mycel/tree/main/examples/query-method).
+
 ### `input.*` variables
 
 | Variable | Source | Description |
 |----------|--------|-------------|
 | `input.<param>` | Path | Path parameters by name (`input.id`, `input.user_id`) |
 | `input.<param>` | Query | Query string parameters by name (`input.page`, `input.limit`) |
-| `input.<field>` | Body | JSON/XML body fields merged directly (POST/PUT/PATCH) |
+| `input.<field>` | Body | JSON/XML body fields merged directly (POST/PUT/PATCH/QUERY) |
 | `input.headers` | Headers | Map of all request headers (lowercased keys) |
 | `input.<field>` | Multipart | File uploads: `{filename, size, content_type, data}` (base64) |
 

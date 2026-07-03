@@ -254,12 +254,27 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 		defer c.metrics.DecRequestsInFlight(r.Method, path)
 	}
 
+	// RFC 10008: advertise QUERY support (and the accepted media types) for
+	// this path via the Accept-Query response header, on every response.
+	if _, hasQuery := handlers["QUERY"]; hasQuery {
+		w.Header().Set("Accept-Query", "application/json, application/xml")
+	}
+
 	handler, ok := handlers[r.Method]
 	if !ok {
 		if c.metrics != nil {
 			c.metrics.RecordRequest(r.Method, path, "405", time.Since(start))
 		}
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// RFC 10008: a QUERY request with content MUST declare its media type.
+	if r.Method == "QUERY" && r.ContentLength != 0 && r.Header.Get("Content-Type") == "" {
+		if c.metrics != nil {
+			c.metrics.RecordRequest(r.Method, path, "415", time.Since(start))
+		}
+		http.Error(w, "QUERY requires a Content-Type header", http.StatusUnsupportedMediaType)
 		return
 	}
 
@@ -338,8 +353,9 @@ func (c *Connector) buildInput(r *http.Request, paramNames []string) map[string]
 	}
 	input["headers"] = headers
 
-	// Body for POST/PUT/PATCH — auto-detect format from Content-Type
-	if r.Method == "POST" || r.Method == "PUT" || r.Method == "PATCH" {
+	// Body for POST/PUT/PATCH/QUERY — auto-detect format from Content-Type.
+	// QUERY (RFC 10008) is a safe read method whose query lives in the body.
+	if r.Method == "POST" || r.Method == "PUT" || r.Method == "PATCH" || r.Method == "QUERY" {
 		ct := r.Header.Get("Content-Type")
 
 		// Handle multipart/form-data (file uploads)
@@ -609,7 +625,7 @@ func (c *Connector) corsMiddleware(next http.Handler) http.Handler {
 			origin := r.Header.Get("Origin")
 			if origin != "" {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, QUERY, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 				if r.Method == "OPTIONS" {

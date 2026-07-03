@@ -1,0 +1,4 @@
+service {
+  name    = "query-method-demo"
+  version = "1.0.0"
+}

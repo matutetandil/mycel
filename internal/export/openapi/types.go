@@ -40,6 +40,8 @@ type Server struct {
 }
 
 // PathItem describes operations available on a single path.
+// Query (the RFC 10008 HTTP QUERY method) is an OpenAPI 3.2+ field; when any
+// flow uses it, the generator emits the spec as 3.2.0 instead of 3.0.3.
 type PathItem struct {
 	Get     *Operation `json:"get,omitempty" yaml:"get,omitempty"`
 	Post    *Operation `json:"post,omitempty" yaml:"post,omitempty"`
@@ -47,6 +49,7 @@ type PathItem struct {
 	Delete  *Operation `json:"delete,omitempty" yaml:"delete,omitempty"`
 	Patch   *Operation `json:"patch,omitempty" yaml:"patch,omitempty"`
 	Options *Operation `json:"options,omitempty" yaml:"options,omitempty"`
+	Query   *Operation `json:"query,omitempty" yaml:"query,omitempty"`
 }
 
 // Operation describes a single API operation on a path.

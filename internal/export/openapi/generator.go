@@ -37,10 +37,20 @@ func (g *Generator) SetBaseURL(url string) {
 	g.baseURL = url
 }
 
-// Generate creates an OpenAPI 3.0 specification.
+// Spec versions emitted by the generator. 3.0.3 is the default for maximum
+// tooling compatibility; the HTTP QUERY method (RFC 10008) only has an
+// operation slot from OpenAPI 3.2 on, so a config containing QUERY flows
+// upgrades the whole emitted spec to 3.2.0.
+const (
+	openAPIVersionDefault   = "3.0.3"
+	openAPIVersionWithQuery = "3.2.0"
+)
+
+// Generate creates an OpenAPI specification (3.0.3, or 3.2.0 when the config
+// contains HTTP QUERY flows — see the version constants).
 func (g *Generator) Generate() (*Spec, error) {
 	spec := &Spec{
-		OpenAPI: "3.0.3",
+		OpenAPI: openAPIVersionDefault,
 		Info: Info{
 			Title:   "Mycel API",
 			Version: "1.0.0",
@@ -114,6 +124,12 @@ func (g *Generator) addFlowToSpec(spec *Spec, f *flow.Config, tags map[string]bo
 		return nil // Skip non-REST operations
 	}
 
+	// QUERY (RFC 10008) is only representable from OpenAPI 3.2 on — its
+	// presence upgrades the emitted spec version (see Generate).
+	if method == "QUERY" {
+		spec.OpenAPI = openAPIVersionWithQuery
+	}
+
 	// Convert path params from :id to {id}
 	openAPIPath := convertPathParams(path)
 
@@ -157,8 +173,8 @@ func (g *Generator) addFlowToSpec(spec *Spec, f *flow.Config, tags map[string]bo
 		})
 	}
 
-	// Add request body for POST/PUT/PATCH
-	if method == "POST" || method == "PUT" || method == "PATCH" {
+	// Add request body for the body-carrying methods
+	if method == "POST" || method == "PUT" || method == "PATCH" || method == "QUERY" {
 		op.RequestBody = &RequestBody{
 			Required: true,
 			Content: map[string]MediaType{
@@ -181,6 +197,8 @@ func (g *Generator) addFlowToSpec(spec *Spec, f *flow.Config, tags map[string]bo
 		pathItem.Delete = op
 	case "PATCH":
 		pathItem.Patch = op
+	case "QUERY":
+		pathItem.Query = op
 	}
 
 	spec.Paths[openAPIPath] = pathItem
@@ -199,7 +217,7 @@ func parseOperation(op string) (method, path string, err error) {
 
 	// Validate HTTP method
 	switch method {
-	case "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS":
+	case "GET", "POST", "PUT", "DELETE", "PATCH", "QUERY", "OPTIONS":
 		return method, path, nil
 	default:
 		return "", "", fmt.Errorf("unknown HTTP method: %s", method)

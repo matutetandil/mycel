@@ -141,6 +141,7 @@ The A's and B's of any flow. Use any as a source, a target, or both.
 | Connector | Description |
 |-----------|-------------|
 | [REST API](examples/basic) | Expose and consume REST endpoints |
+| [HTTP QUERY method](examples/query-method) | RFC 10008 safe method with a body — search criteria in the request body with GET's read/cache semantics |
 | [SQLite / PostgreSQL / MySQL](examples/basic) | Relational database connectors |
 | [MongoDB](examples/mongodb) | NoSQL document database |
 | [GraphQL Server & Client](examples/graphql) | Schema-based GraphQL API |

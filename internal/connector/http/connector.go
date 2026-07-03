@@ -251,12 +251,7 @@ func (c *Connector) Health(ctx context.Context) error {
 
 // Write sends data to an external API (implements connector.Writer).
 func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
-	// Parse target as "METHOD /path"
-	method, path := parseTarget(data.Target)
-	if data.Operation != "" {
-		// Operation overrides if specified
-		method = data.Operation
-	}
+	method, path := resolveMethodPath(data.Target, data.Operation)
 
 	// Build full URL
 	fullURL := c.baseURL + path
@@ -280,7 +275,7 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	// with an empty body (server saw 500 once + then 400 "field required"
 	// from the retry, mistaking a transient failure for permanent).
 	var encoded []byte
-	if data.Payload != nil && (method == "POST" || method == "PUT" || method == "PATCH") {
+	if data.Payload != nil && (method == "POST" || method == "PUT" || method == "PATCH" || method == "QUERY") {
 		var err error
 		encoded, err = c.codec.Encode(data.Payload)
 		if err != nil {
@@ -332,17 +327,21 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 
 // Read fetches data from an external API (implements connector.Reader).
 func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector.Result, error) {
-	// Parse target as "METHOD /path" or just "/path" (defaults to GET)
-	method, path := parseTarget(query.Target)
-	if query.Operation != "" {
-		method = query.Operation
-	}
-	if method == "" {
-		method = "GET"
-	}
+	method, path := resolveMethodPath(query.Target, query.Operation)
 
 	// Build full URL
 	fullURL := c.baseURL + path
+
+	// QUERY (RFC 10008) carries its criteria in the request body — that is
+	// the method's whole point — so filters travel as an encoded body
+	// instead of query string parameters.
+	if method == "QUERY" && len(query.Filters) > 0 {
+		encoded, err := c.codec.Encode(query.Filters)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode query filters: %w", err)
+		}
+		return c.doRequest(ctx, method, fullURL, bytes.NewReader(encoded))
+	}
 
 	// Add query params from filters
 	if len(query.Filters) > 0 {
@@ -359,6 +358,53 @@ func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector
 
 	// Execute request
 	return c.doRequest(ctx, method, fullURL, nil)
+}
+
+// Call invokes an HTTP operation described as "METHOD /path" (or a bare
+// path, defaulting to GET). It implements the Caller interface that saga
+// actions, state machine actions, and flow steps dispatch through.
+//
+// Params placement follows the verb's semantics: body-carrying methods
+// (POST/PUT/PATCH/QUERY) get them encoded as the request body; the rest
+// (GET/DELETE/HEAD/OPTIONS) get them as query string parameters.
+//
+// The decoded response is returned directly — a single object for one-row
+// responses, a list otherwise — so step/saga results are usable in CEL as
+// step.<name>.<field>.
+func (c *Connector) Call(ctx context.Context, operation string, params map[string]interface{}) (interface{}, error) {
+	method, path := parseTarget(operation)
+	fullURL := c.baseURL + path
+
+	var body io.Reader
+	if len(params) > 0 {
+		switch method {
+		case "POST", "PUT", "PATCH", "QUERY":
+			encoded, err := c.codec.Encode(params)
+			if err != nil {
+				return nil, fmt.Errorf("failed to encode call params: %w", err)
+			}
+			body = bytes.NewReader(encoded)
+		default:
+			q := url.Values{}
+			for k, v := range params {
+				q.Add(k, fmt.Sprintf("%v", v))
+			}
+			if strings.Contains(fullURL, "?") {
+				fullURL += "&" + q.Encode()
+			} else {
+				fullURL += "?" + q.Encode()
+			}
+		}
+	}
+
+	result, err := c.doRequest(ctx, method, fullURL, body)
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Rows) == 1 {
+		return result.Rows[0], nil
+	}
+	return result.Rows, nil
 }
 
 // doRequest executes an HTTP request with authentication.
@@ -664,6 +710,64 @@ func parseTarget(target string) (method, path string) {
 		return "GET", target
 	}
 	return "GET", "/" + target
+}
+
+// isHTTPMethod reports whether s is a verb this connector sends as-is.
+func isHTTPMethod(s string) bool {
+	switch s {
+	case "GET", "POST", "PUT", "PATCH", "DELETE", "QUERY", "HEAD", "OPTIONS":
+		return true
+	}
+	return false
+}
+
+// resolveMethodPath normalizes the two ways callers describe an HTTP request.
+//
+// The runtime and flow config express requests either split (operation holds
+// the verb, target holds the path — e.g. operation="POST", target="/orders")
+// or combined (a single "METHOD /path" string, in either field — the form the
+// connector schema documents). On top of that, the runtime's generic dispatch
+// passes database-flavored operations (SELECT/INSERT/UPDATE) that are
+// meaningless on the wire; historically they clobbered the verb parsed from
+// target ("INSERT /orders" went out as method INSERT with no body).
+//
+// Resolution rules:
+//   - operation containing a space is "METHOD /path" and wins entirely
+//   - operation naming a bare HTTP verb overrides the method, path from target
+//   - a DB operation maps to its HTTP equivalent (SELECT→GET, INSERT→POST,
+//     UPDATE→PUT) only when target didn't carry an explicit verb
+//   - anything else is ignored: target's parse stands
+func resolveMethodPath(target, operation string) (method, path string) {
+	method, path = parseTarget(target)
+	targetHasMethod := strings.Contains(strings.TrimSpace(target), " ")
+
+	trimmed := strings.TrimSpace(operation)
+	op := strings.ToUpper(trimmed)
+	if op == "" {
+		return method, path
+	}
+
+	if strings.Contains(trimmed, " ") {
+		// parseTarget uppercases the verb; the path keeps its casing
+		return parseTarget(trimmed)
+	}
+
+	if isHTTPMethod(op) {
+		return op, path
+	}
+
+	if !targetHasMethod {
+		switch op {
+		case "SELECT":
+			return "GET", path
+		case "INSERT", "CREATE":
+			return "POST", path
+		case "UPDATE":
+			return "PUT", path
+		}
+	}
+
+	return method, path
 }
 
 // HTTPError represents an HTTP error response.

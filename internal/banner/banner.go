@@ -168,7 +168,7 @@ func PrintError(msg string) {
 // methodToColor returns the appropriate color for an HTTP/TCP method.
 func methodToColor(method string) string {
 	switch method {
-	case "GET":
+	case "GET", "QUERY":
 		return BrightGreen
 	case "POST":
 		return BrightYellow

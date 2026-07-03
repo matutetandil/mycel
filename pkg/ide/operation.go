@@ -7,7 +7,7 @@ import (
 
 // Operation string parsing and validation for REST operations like "GET /users/:id".
 
-var validHTTPMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+var validHTTPMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "QUERY", "HEAD", "OPTIONS"}
 
 // validateOperation checks REST operation strings for common issues.
 func validateOperation(path string, attr *Attribute, connType string) []*Diagnostic {
@@ -62,6 +62,7 @@ func completeOperation(connType string) []CompletionItem {
 			{Label: "PUT /", Kind: CompletionValue, Detail: "Update endpoint", InsertText: `"PUT /"`},
 			{Label: "PATCH /", Kind: CompletionValue, Detail: "Partial update endpoint", InsertText: `"PATCH /"`},
 			{Label: "DELETE /", Kind: CompletionValue, Detail: "Delete endpoint", InsertText: `"DELETE /"`},
+			{Label: "QUERY /", Kind: CompletionValue, Detail: "Read endpoint with query in body (RFC 10008)", InsertText: `"QUERY /"`},
 		}
 	case "graphql":
 		return []CompletionItem{
