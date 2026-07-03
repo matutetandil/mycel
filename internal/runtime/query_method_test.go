@@ -36,9 +36,10 @@ func (m *mockQueryReadWriter) Write(ctx context.Context, data *connector.Data) (
 // mockQueryReader is a Reader-only variant (no Write method at all, so the
 // ReadWriter type assertion fails) to exercise handleSimpleRequest.
 type mockQueryReader struct {
-	name  string
-	reads int
-	rows  []map[string]interface{}
+	name      string
+	reads     int
+	rows      []map[string]interface{}
+	lastQuery connector.Query
 }
 
 func (m *mockQueryReader) Name() string                      { return m.name }
@@ -49,6 +50,7 @@ func (m *mockQueryReader) Health(ctx context.Context) error  { return nil }
 
 func (m *mockQueryReader) Read(ctx context.Context, query connector.Query) (*connector.Result, error) {
 	m.reads++
+	m.lastQuery = query
 	return &connector.Result{Rows: m.rows}, nil
 }
 
@@ -115,6 +117,107 @@ func TestQueryDispatch_ReadWriter(t *testing.T) {
 	rows, ok := result.([]map[string]interface{})
 	if !ok || len(rows) != 1 {
 		t.Errorf("result = %#v, want the reader's rows", result)
+	}
+}
+
+// TestQueryDest_ForwardsInputAsFilters: when the destination targets the
+// HTTP QUERY method, the whole input (inbound body + params) is forwarded as
+// filters — the HTTP connector encodes filters as the outbound QUERY body.
+// Headers and internal fields stay out.
+func TestQueryDest_ForwardsInputAsFilters(t *testing.T) {
+	dest := &mockQueryReader{name: "upstream", rows: []map[string]interface{}{{"id": 1}}}
+	h := &FlowHandler{
+		Config: &flow.Config{
+			Name: "search_proxy",
+			From: &flow.FromConfig{
+				Connector:       "api",
+				ConnectorParams: map[string]interface{}{"operation": "QUERY /search"},
+			},
+			To: &flow.ToConfig{
+				Connector:       "upstream",
+				ConnectorParams: map[string]interface{}{"target": "QUERY /search"},
+			},
+		},
+		Dest:       dest,
+		SourceType: "rest",
+	}
+
+	input := map[string]interface{}{
+		"name_like": "%pro%",
+		"max_price": 1500,
+		"headers":   map[string]interface{}{"authorization": "secret"},
+	}
+	if _, err := h.executeFlowCoreInternal(context.Background(), input); err != nil {
+		t.Fatalf("flow failed: %v", err)
+	}
+
+	f := dest.lastQuery.Filters
+	if f["name_like"] != "%pro%" || f["max_price"] != 1500 {
+		t.Errorf("filters = %#v, want inbound body fields forwarded", f)
+	}
+	if _, ok := f["headers"]; ok {
+		t.Error("headers must not be forwarded in the outbound QUERY body")
+	}
+}
+
+// TestQueryDest_SplitFormAlsoForwards: to { operation = "QUERY", target = "/search" }.
+func TestQueryDest_SplitFormAlsoForwards(t *testing.T) {
+	dest := &mockQueryReader{name: "upstream", rows: []map[string]interface{}{{"id": 1}}}
+	h := &FlowHandler{
+		Config: &flow.Config{
+			Name: "search_proxy",
+			From: &flow.FromConfig{
+				Connector:       "api",
+				ConnectorParams: map[string]interface{}{"operation": "GET /search"},
+			},
+			To: &flow.ToConfig{
+				Connector: "upstream",
+				ConnectorParams: map[string]interface{}{
+					"operation": "QUERY",
+					"target":    "/search",
+				},
+			},
+		},
+		Dest:       dest,
+		SourceType: "rest",
+	}
+
+	// a GET source with query params can still feed a QUERY destination
+	input := map[string]interface{}{"q": "laptop"}
+	if _, err := h.executeFlowCoreInternal(context.Background(), input); err != nil {
+		t.Fatalf("flow failed: %v", err)
+	}
+	if dest.lastQuery.Filters["q"] != "laptop" {
+		t.Errorf("filters = %#v, want query params forwarded", dest.lastQuery.Filters)
+	}
+}
+
+// TestNonQueryDest_KeepsPathParamOnlyBehavior: a plain GET destination keeps
+// the existing contract — only path params become filters.
+func TestNonQueryDest_KeepsPathParamOnlyBehavior(t *testing.T) {
+	dest := &mockQueryReader{name: "upstream", rows: []map[string]interface{}{{"id": 1}}}
+	h := &FlowHandler{
+		Config: &flow.Config{
+			Name: "plain_read",
+			From: &flow.FromConfig{
+				Connector:       "api",
+				ConnectorParams: map[string]interface{}{"operation": "GET /users"},
+			},
+			To: &flow.ToConfig{
+				Connector:       "upstream",
+				ConnectorParams: map[string]interface{}{"target": "GET /users"},
+			},
+		},
+		Dest:       dest,
+		SourceType: "rest",
+	}
+
+	input := map[string]interface{}{"page": "2"}
+	if _, err := h.executeFlowCoreInternal(context.Background(), input); err != nil {
+		t.Fatalf("flow failed: %v", err)
+	}
+	if len(dest.lastQuery.Filters) != 0 {
+		t.Errorf("filters = %#v, want empty (no path params in operation)", dest.lastQuery.Filters)
 	}
 }
 

@@ -2027,6 +2027,18 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 			}
 			query.Filters[key] = val
 		}
+	} else if destMethodIsQuery(h.Config.To) {
+		// The destination is an HTTP QUERY (RFC 10008): its criteria travel in
+		// the request body, so forward the whole input — the inbound QUERY
+		// body, path and query string params — as filters; the HTTP connector
+		// encodes filters as the outbound body for QUERY. Header metadata and
+		// internal fields stay out.
+		for key, val := range input {
+			if isInternalField(key) || key == "headers" {
+				continue
+			}
+			query.Filters[key] = val
+		}
 	} else {
 		// For REST, extract path parameters from operation and use as filters
 		// For operations like "GET /users/:id", extract :id as a filter
@@ -2653,6 +2665,22 @@ type Operation struct {
 // it shares GET's read path, response shaping, and caching behavior.
 func (o Operation) IsRead() bool {
 	return o.Method == "GET" || o.Method == "QUERY"
+}
+
+// destMethodIsQuery reports whether a flow destination targets the HTTP QUERY
+// method, in either the split form (operation = "QUERY") or the combined form
+// ("QUERY /path" in operation or target).
+func destMethodIsQuery(to *flow.ToConfig) bool {
+	if to == nil {
+		return false
+	}
+	for _, s := range []string{to.GetOperation(), to.GetTarget()} {
+		m := strings.ToUpper(strings.TrimSpace(s))
+		if m == "QUERY" || strings.HasPrefix(m, "QUERY ") {
+			return true
+		}
+	}
+	return false
 }
 
 // parseOperation parses an operation string like "GET /users/:id" or "Query.users".
