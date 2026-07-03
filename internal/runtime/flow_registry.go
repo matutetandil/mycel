@@ -1139,8 +1139,8 @@ func (h *FlowHandler) handleRequestWithAspectsForFlow(ctx context.Context, input
 	// Build the response value
 	var response interface{}
 
-	// For GET operations, return rows directly (unless echo flow with single result)
-	if operation.Method == "GET" && !(h.Dest == nil && len(result.Rows) == 1) {
+	// For read operations, return rows directly (unless echo flow with single result)
+	if operation.IsRead() && !(h.Dest == nil && len(result.Rows) == 1) {
 		response = result.Rows
 	} else if len(result.Rows) > 0 {
 		// For write operations, return appropriate format
@@ -1680,8 +1680,11 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 		}
 	}
 
-	// For read operations, check cache first
-	if operation.Method == "GET" && h.hasCacheConfig() {
+	// For read operations, check cache first. For QUERY the default cache key
+	// already covers the body: buildInput merges body fields into input, and
+	// the default key serializes every input pair (RFC 10008 requires the
+	// request content to be part of the cache key).
+	if operation.IsRead() && h.hasCacheConfig() {
 		cacheKey := h.buildCacheKey(input)
 		if cacheKey != "" {
 			cached, hit, err := h.checkCache(ctx, cacheKey)
@@ -1738,9 +1741,9 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 
 	// For flows with steps, execute steps + transform instead of reading from destination
 	// This supports orchestration flows where data comes from multiple sources
-	if len(h.Config.Steps) > 0 && operation.Method == "GET" {
+	if len(h.Config.Steps) > 0 && operation.IsRead() {
 		result, err = h.handleStepsFlow(ctx, input)
-	} else if len(h.Config.MultiTo) > 0 && operation.Method != "GET" {
+	} else if len(h.Config.MultiTo) > 0 && !operation.IsRead() {
 		// Check for multi-destination writes
 		result, err = h.handleMultiDestWrite(ctx, input, operation)
 	} else if h.Dest == nil {
@@ -1756,7 +1759,7 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 			result, err = h.handleSimpleRequest(ctx, input)
 		} else {
 			switch operation.Method {
-			case "GET":
+			case "GET", "QUERY":
 				result, err = h.handleRead(ctx, input, dest)
 			case "POST":
 				result, err = h.handleCreate(ctx, input, dest)
@@ -1783,7 +1786,7 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	}
 
 	// For read operations, store result in cache
-	if operation.Method == "GET" && h.hasCacheConfig() {
+	if operation.IsRead() && h.hasCacheConfig() {
 		cacheKey := h.buildCacheKey(input)
 		if cacheKey != "" {
 			_ = h.storeInCache(ctx, cacheKey, result)
@@ -1791,7 +1794,7 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	}
 
 	// For write operations, execute invalidation if configured
-	if operation.Method != "GET" && h.Config.After != nil && h.Config.After.Invalidate != nil {
+	if !operation.IsRead() && h.Config.After != nil && h.Config.After.Invalidate != nil {
 		_ = h.executeInvalidation(ctx, input, result)
 	}
 
@@ -2388,7 +2391,7 @@ func (h *FlowHandler) handleDelete(ctx context.Context, input map[string]interfa
 func (h *FlowHandler) handleSimpleRequest(ctx context.Context, input map[string]interface{}) (interface{}, error) {
 	operation := parseOperation(h.Config.From.GetOperation())
 
-	if operation.Method == "GET" {
+	if operation.IsRead() {
 		if reader, ok := h.Dest.(connector.Reader); ok {
 			return h.handleRead(ctx, input, reader)
 		}
@@ -2643,6 +2646,13 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 type Operation struct {
 	Method string
 	Path   string
+}
+
+// IsRead reports whether the operation has read semantics. QUERY (RFC 10008)
+// is a safe, idempotent method that carries its query in the request body —
+// it shares GET's read path, response shaping, and caching behavior.
+func (o Operation) IsRead() bool {
+	return o.Method == "GET" || o.Method == "QUERY"
 }
 
 // parseOperation parses an operation string like "GET /users/:id" or "Query.users".

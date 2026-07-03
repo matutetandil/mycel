@@ -114,6 +114,13 @@ func (g *Generator) addFlowToSpec(spec *Spec, f *flow.Config, tags map[string]bo
 		return nil // Skip non-REST operations
 	}
 
+	// QUERY (RFC 10008) has no operation slot in OpenAPI 3.0 — the spec's
+	// PathItem verb set is fixed (query lands in OpenAPI 3.2+). Skip the
+	// flow rather than fail the whole export.
+	if method == "QUERY" {
+		return nil
+	}
+
 	// Convert path params from :id to {id}
 	openAPIPath := convertPathParams(path)
 
@@ -199,7 +206,7 @@ func parseOperation(op string) (method, path string, err error) {
 
 	// Validate HTTP method
 	switch method {
-	case "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS":
+	case "GET", "POST", "PUT", "DELETE", "PATCH", "QUERY", "OPTIONS":
 		return method, path, nil
 	default:
 		return "", "", fmt.Errorf("unknown HTTP method: %s", method)

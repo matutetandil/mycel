@@ -280,7 +280,7 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	// with an empty body (server saw 500 once + then 400 "field required"
 	// from the retry, mistaking a transient failure for permanent).
 	var encoded []byte
-	if data.Payload != nil && (method == "POST" || method == "PUT" || method == "PATCH") {
+	if data.Payload != nil && (method == "POST" || method == "PUT" || method == "PATCH" || method == "QUERY") {
 		var err error
 		encoded, err = c.codec.Encode(data.Payload)
 		if err != nil {

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **HTTP QUERY method support (RFC 10008).** Flows can now declare `from { connector.api = "QUERY /search" }` — QUERY is the new IETF-standardized method (June 2026) that carries a query in the request body like POST, but with GET's safe, idempotent, cacheable read semantics. What v1 covers:
+  - **REST server:** the QUERY request body is decoded (Content-Type aware, same as POST) and merged into the flow input alongside path/query parameters. Per the RFC, a QUERY with content but no `Content-Type` is rejected with `415`. The permissive dev-mode CORS fallback now advertises QUERY (browsers always preflight it — it is not a safelisted method).
+  - **Runtime:** QUERY dispatches to the read path (`handleRead`), including steps/orchestration flows, response shaping, and the flow cache. The default cache key already incorporates the body fields (they're merged into the input), satisfying the RFC's requirement that request content be part of the cache key. QUERY never triggers write-side behavior (multi-destination writes, cache invalidation).
+  - **HTTP client:** outbound requests with method QUERY encode and send the payload as the request body.
+  - **Tooling:** the IDE/LSP accepts QUERY as a valid method (plus autocomplete). The OpenAPI export skips QUERY flows gracefully — OpenAPI 3.0's verb set has no `query` slot (it lands in OpenAPI 3.2+); the rest of the spec is unaffected.
+
 ## [2.10.0] - 2026-06-12
 
 ### Added
