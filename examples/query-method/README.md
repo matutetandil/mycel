@@ -111,7 +111,7 @@ Inside Mycel, QUERY runs the **read path**: it can use steps/orchestration and t
 ## Notes
 
 - **Browsers preflight QUERY** (it is not a CORS-safelisted method). Mycel's permissive dev-mode CORS already advertises it; in production list it explicitly in your `cors { methods = [...] }`.
-- **OpenAPI export**: OpenAPI 3.0 has no `query` operation slot, so `mycel export openapi` skips QUERY flows (siblings on the same path are unaffected).
+- **OpenAPI export**: QUERY has an operation slot from OpenAPI 3.2 on, so when a config contains QUERY flows `mycel export openapi` emits the spec as **3.2.0** (with `query` operations and their request bodies documented); configs without QUERY keep emitting 3.0.3 for maximum tooling compatibility.
 - Older proxies/load balancers may not know the verb yet — test your edge before relying on it end-to-end.
 
 ## Next Steps
