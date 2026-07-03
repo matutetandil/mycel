@@ -360,6 +360,53 @@ func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector
 	return c.doRequest(ctx, method, fullURL, nil)
 }
 
+// Call invokes an HTTP operation described as "METHOD /path" (or a bare
+// path, defaulting to GET). It implements the Caller interface that saga
+// actions, state machine actions, and flow steps dispatch through.
+//
+// Params placement follows the verb's semantics: body-carrying methods
+// (POST/PUT/PATCH/QUERY) get them encoded as the request body; the rest
+// (GET/DELETE/HEAD/OPTIONS) get them as query string parameters.
+//
+// The decoded response is returned directly — a single object for one-row
+// responses, a list otherwise — so step/saga results are usable in CEL as
+// step.<name>.<field>.
+func (c *Connector) Call(ctx context.Context, operation string, params map[string]interface{}) (interface{}, error) {
+	method, path := parseTarget(operation)
+	fullURL := c.baseURL + path
+
+	var body io.Reader
+	if len(params) > 0 {
+		switch method {
+		case "POST", "PUT", "PATCH", "QUERY":
+			encoded, err := c.codec.Encode(params)
+			if err != nil {
+				return nil, fmt.Errorf("failed to encode call params: %w", err)
+			}
+			body = bytes.NewReader(encoded)
+		default:
+			q := url.Values{}
+			for k, v := range params {
+				q.Add(k, fmt.Sprintf("%v", v))
+			}
+			if strings.Contains(fullURL, "?") {
+				fullURL += "&" + q.Encode()
+			} else {
+				fullURL += "?" + q.Encode()
+			}
+		}
+	}
+
+	result, err := c.doRequest(ctx, method, fullURL, body)
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Rows) == 1 {
+		return result.Rows[0], nil
+	}
+	return result.Rows, nil
+}
+
 // doRequest executes an HTTP request with authentication.
 func (c *Connector) doRequest(ctx context.Context, method, fullURL string, body io.Reader) (*connector.Result, error) {
 	req, err := http.NewRequestWithContext(ctx, method, fullURL, body)

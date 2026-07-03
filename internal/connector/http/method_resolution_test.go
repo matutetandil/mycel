@@ -191,6 +191,69 @@ func TestRead_QueryMethodSendsFiltersAsBody(t *testing.T) {
 	}
 }
 
+// TestCall_BodyVerbSendsParamsAsBody: saga/step actions like
+// action { operation = "POST /reserve", body = {...} } dispatch through
+// Call — params must travel as the encoded request body.
+func TestCall_BodyVerbSendsParamsAsBody(t *testing.T) {
+	var got capture
+	srv := captureServer(&got)
+	defer srv.Close()
+
+	c := New("api", srv.URL, 0, nil, nil, 1)
+	result, err := c.Call(context.Background(), "POST /reserve", map[string]interface{}{
+		"sku": "X1", "quantity": 2,
+	})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if got.method != "POST" || got.url != "/reserve" {
+		t.Errorf("sent %s %s, want POST /reserve", got.method, got.url)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal([]byte(got.body), &body); err != nil || body["sku"] != "X1" {
+		t.Errorf("body = %q, want params encoded as JSON body", got.body)
+	}
+	// single-object response unwraps to a map, usable as step.<name>.<field>
+	if m, ok := result.(map[string]interface{}); !ok || m["ok"] != true {
+		t.Errorf("result = %#v, want unwrapped single object", result)
+	}
+}
+
+// TestCall_GetSendsParamsAsQueryString: read verbs keep params on the URL.
+func TestCall_GetSendsParamsAsQueryString(t *testing.T) {
+	var got capture
+	srv := captureServer(&got)
+	defer srv.Close()
+
+	c := New("api", srv.URL, 0, nil, nil, 1)
+	_, err := c.Call(context.Background(), "GET /status", map[string]interface{}{"id": 7})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if got.method != "GET" || got.url != "/status?id=7" {
+		t.Errorf("sent %s %s, want GET /status?id=7", got.method, got.url)
+	}
+	if got.body != "" {
+		t.Errorf("body = %q, want empty for GET", got.body)
+	}
+}
+
+// TestCall_BarePathDefaultsToGet: an operation without a verb is a GET.
+func TestCall_BarePathDefaultsToGet(t *testing.T) {
+	var got capture
+	srv := captureServer(&got)
+	defer srv.Close()
+
+	c := New("api", srv.URL, 0, nil, nil, 1)
+	_, err := c.Call(context.Background(), "/health", nil)
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	if got.method != "GET" || got.url != "/health" {
+		t.Errorf("sent %s %s, want GET /health", got.method, got.url)
+	}
+}
+
 // TestRead_FiltersStillGoToQueryString: non-QUERY reads keep the existing
 // behavior — filters as query string parameters.
 func TestRead_FiltersStillGoToQueryString(t *testing.T) {
