@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **REST server:** the QUERY request body is decoded (Content-Type aware, same as POST) and merged into the flow input alongside path/query parameters. Per the RFC, a QUERY with content but no `Content-Type` is rejected with `415`. The permissive dev-mode CORS fallback now advertises QUERY (browsers always preflight it — it is not a safelisted method).
   - **Runtime:** QUERY dispatches to the read path (`handleRead`), including steps/orchestration flows, response shaping, and the flow cache. The default cache key already incorporates the body fields (they're merged into the input), satisfying the RFC's requirement that request content be part of the cache key. QUERY never triggers write-side behavior (multi-destination writes, cache invalidation).
   - **HTTP client:** outbound requests with method QUERY encode and send the payload as the request body.
-  - **Tooling:** the IDE/LSP accepts QUERY as a valid method (plus autocomplete). The OpenAPI export skips QUERY flows gracefully — OpenAPI 3.0's verb set has no `query` slot (it lands in OpenAPI 3.2+); the rest of the spec is unaffected.
+  - **Tooling:** the IDE/LSP accepts QUERY as a valid method (plus autocomplete). The OpenAPI export skips QUERY flows gracefully — OpenAPI 3.0's verb set has no `query` slot (it lands in OpenAPI 3.2+); the rest of the spec is unaffected. The startup banner colors QUERY like the read method it is.
+  - **Discovery:** responses on paths with a QUERY flow advertise the accepted media types via the RFC's `Accept-Query` response header (`application/json, application/xml`).
+  - **Example:** [`examples/query-method`](examples/query-method) — body-driven search over SQLite (`QUERY /products/search` feeding raw SQL named params), verified end-to-end.
 
 ## [2.10.0] - 2026-06-12
 

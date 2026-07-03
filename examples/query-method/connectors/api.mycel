@@ -1,0 +1,5 @@
+# REST API connector
+connector "api" {
+  type = "rest"
+  port = 3000
+}

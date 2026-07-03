@@ -254,6 +254,12 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 		defer c.metrics.DecRequestsInFlight(r.Method, path)
 	}
 
+	// RFC 10008: advertise QUERY support (and the accepted media types) for
+	// this path via the Accept-Query response header, on every response.
+	if _, hasQuery := handlers["QUERY"]; hasQuery {
+		w.Header().Set("Accept-Query", "application/json, application/xml")
+	}
+
 	handler, ok := handlers[r.Method]
 	if !ok {
 		if c.metrics != nil {

@@ -37,6 +37,40 @@ func TestQueryMethod_BodyReachesInput(t *testing.T) {
 	if got["page"] != "2" {
 		t.Errorf("input[page] = %v, want \"2\" (query params must still merge)", got["page"])
 	}
+	if aq := rr.Header().Get("Accept-Query"); aq == "" {
+		t.Error("Accept-Query header missing on a path with a QUERY handler")
+	}
+}
+
+// TestQueryMethod_AcceptQueryOnSiblingMethods: the Accept-Query header
+// advertises QUERY support for the path, so it must also appear on responses
+// to other methods on that path — and never on paths without a QUERY handler.
+func TestQueryMethod_AcceptQueryOnSiblingMethods(t *testing.T) {
+	conn := New("test", 3000, nil, nil)
+	conn.RegisterRoute("GET /search", func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return map[string]interface{}{"ok": true}, nil
+	})
+	conn.RegisterRoute("QUERY /search", func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return map[string]interface{}{"ok": true}, nil
+	})
+	conn.RegisterRoute("GET /plain", func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return map[string]interface{}{"ok": true}, nil
+	})
+	conn.setupRoutes()
+
+	req := httptest.NewRequest("GET", "/search", nil)
+	rr := httptest.NewRecorder()
+	conn.mux.ServeHTTP(rr, req)
+	if aq := rr.Header().Get("Accept-Query"); aq == "" {
+		t.Error("Accept-Query missing on GET response for a QUERY-capable path")
+	}
+
+	req = httptest.NewRequest("GET", "/plain", nil)
+	rr = httptest.NewRecorder()
+	conn.mux.ServeHTTP(rr, req)
+	if aq := rr.Header().Get("Accept-Query"); aq != "" {
+		t.Errorf("Accept-Query = %q on a path without QUERY support, want empty", aq)
+	}
 }
 
 // TestQueryMethod_MissingContentTypeRejected: RFC 10008 requires rejecting
