@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Discovery:** responses on paths with a QUERY flow advertise the accepted media types via the RFC's `Accept-Query` response header (`application/json, application/xml`).
   - **Example:** [`examples/query-method`](examples/query-method) — body-driven search over SQLite (`QUERY /products/search` feeding raw SQL named params), verified end-to-end.
 
+### Fixed
+
+- **HTTP client: the schema-documented `"METHOD /path"` form never worked — and database-flavored operations leaked onto the wire.** The connector's own schema documents `operation = "GET /endpoint"` (and several examples use it), but that form failed with `invalid method "GET /endpoint"`; and when the verb was carried in `target` instead (`target = "POST /orders"`), the runtime's database-flavored defaults (`SELECT`/`INSERT`/`UPDATE`) clobbered it — requests actually went out with method `INSERT` and, because the body-encoding gate only matched real HTTP verbs, **an empty body**. Only the split form (`operation = "POST"` + `target = "/path"`) ever worked, which is why production configs using it never noticed. All forms are now normalized in one place (`resolveMethodPath`): a combined `"METHOD /path"` in either field wins, a bare HTTP verb in `operation` overrides the method (the split form is untouched), and a DB-flavored operation maps to its HTTP equivalent (SELECT→GET, INSERT→POST, UPDATE→PUT) only when `target` didn't carry an explicit verb. Verified live: flow `to {}` writes/reads in both forms, aspect `action {}` in both forms, and QUERY end-to-end between two Mycel services. Additionally, outbound `Read` with method QUERY now sends filters as an encoded request body (the method's purpose) instead of query string parameters.
+
 ## [2.10.0] - 2026-06-12
 
 ### Added
