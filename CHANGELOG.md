@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Connector startup errors now name the missing environment variable.** An `env("X")` call for an unset variable with no default silently evaluates to an empty string, so the connector factory failed with a generic message (`http connector requires base_url`) that gave no clue about the real cause. Connector blocks are now scanned at parse time for unresolved `env()` calls, and a registration failure appends them to the error:
+
+  ```
+  ✗ failed to register connector url_ms: factory failed to create connector url_ms: http connector requires base_url
+        → Missing environment variable "URL_MS_BASE", required by connector "url_ms" (base_url)
+  ```
+
+  Nested blocks keep their path (`consumer.queue`), `env("X", "default")` calls are never reported, and the hint only appears when registration actually fails.
+
 ## [2.11.0] - 2026-07-04
 
 ### Added
