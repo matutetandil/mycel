@@ -204,6 +204,21 @@ type Config struct {
 	// Environment is the runtime environment (development, staging, production).
 	// Injected by the runtime for environment-aware defaults.
 	Environment string
+
+	// MissingEnv lists env() calls in this connector's block whose environment
+	// variable is unset and has no default. Recorded at parse time so failures
+	// can point at the real cause instead of an empty property.
+	MissingEnv []MissingEnvVar
+}
+
+// MissingEnvVar records an unresolved env() call inside a connector block.
+type MissingEnvVar struct {
+	// Name is the environment variable name, e.g. "URL_MS_BASE".
+	Name string
+
+	// Attr is the attribute path where it was used, e.g. "base_url" or
+	// "consumer.queue".
+	Attr string
 }
 
 // GetOperation finds an operation by name.

@@ -261,6 +261,10 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 		return nil, fmt.Errorf("connector content error: %s", diags.Error())
 	}
 
+	// Record env() calls that resolved to nothing so registration failures can
+	// name the missing variable instead of just the empty property.
+	config.MissingEnv = collectMissingEnv(block.Body)
+
 	// Parse required type attribute
 	if attr, ok := content.Attributes["type"]; ok {
 		val, diags := attr.Expr.Value(ctx)

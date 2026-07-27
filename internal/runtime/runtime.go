@@ -992,7 +992,7 @@ func (r *Runtime) initConnectors(ctx context.Context) error {
 		r.operationResolver.Register(cfg)
 
 		if err := r.connectors.Register(ctx, cfg); err != nil {
-			return fmt.Errorf("failed to register connector %s: %w", cfg.Name, err)
+			return fmt.Errorf("failed to register connector %s: %w%s", cfg.Name, err, missingEnvHint(cfg))
 		}
 
 		// Build details string based on connector type
