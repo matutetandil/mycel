@@ -7,6 +7,11 @@ Complete HCL syntax reference for all Mycel block types. Every block is document
 - [service](#service)
 - [connector](#connector)
 - [flow](#flow)
+    - [from](#from-block) · [to](#to-block) · [accept](#accept-block) · [step](#step-block) · [enrich](#enrich-block)
+    - [transform](#transform-block) · [response](#response-block) · [validate](#validate-block) · [require](#require-block)
+    - [cache](#cache-block) · [after](#after-block) · [dedupe](#dedupe-block) · [idempotency](#idempotency-block) · [async](#async-block)
+    - [error_handling](#error_handling-block) · [lock](#lock-block) · [semaphore](#semaphore-block) · [coordinate](#coordinate-block) · [sequence_guard](#sequence_guard-block)
+    - [batch](#batch-block) · [state_transition](#state_transition-block)
 - [type](#type)
 - [transform](#transform)
 - [cache (named)](#cache-named)
@@ -534,6 +539,24 @@ connector "soap_server" {
 }
 ```
 
+### PDF
+
+```hcl
+connector "invoice_pdf" {
+  type         = "pdf"
+  template     = "./templates/invoice.html"   # Required: HTML template path
+  page_size    = "A4"                         # A4, Letter, Legal
+  font         = "Helvetica"
+  margin_left  = 15                           # Millimetres
+  margin_top   = 15
+  margin_right = 15
+  output_dir   = "./pdfs"                     # Used by the "save" operation
+}
+```
+
+Flow `operation` values: `generate` (default — returns the PDF as binary) or
+`save` (writes it to `output_dir`). See [PDF](../connectors/pdf.md).
+
 ### Connector Profiles
 
 ```hcl
@@ -572,6 +595,7 @@ flow "NAME" {
 
   from { ... }
   to { ... }
+  accept { ... }
   step "NAME" { ... }
   enrich "NAME" { ... }
   transform { ... }
@@ -585,12 +609,17 @@ flow "NAME" {
   lock { ... }
   semaphore { ... }
   coordinate { ... }
+  sequence_guard { ... }
   batch { ... }
   state_transition { ... }
   idempotency { ... }
   async { ... }
 }
 ```
+
+That is the complete set: 21 blocks and 4 attributes. Every one of them is
+optional except `from`. For what each block is *for*, rather than its bare
+syntax, see [Flow Anatomy](../core-concepts/flows.md#flow-anatomy).
 
 ### from block
 
@@ -631,6 +660,19 @@ to {
   parallel     = true                                      # Parallel multi-to (default: true)
 
   transform { ... }    # Per-destination transform
+}
+```
+
+### accept block
+
+Business-level gate. Runs after `filter` and before `transform`: `filter` decides
+whether a message *matches* this flow, `accept` decides whether this flow should
+*process* it. Useful when several flows consume the same queue.
+
+```hcl
+accept {
+  when      = "input.payload.type == 'A1'"   # Required — CEL, must return true to proceed
+  on_reject = "requeue"                      # "ack" (default), "reject", "requeue"
 }
 ```
 
@@ -871,6 +913,30 @@ coordinate {
     query     = "SELECT id FROM products WHERE sku = ?"
     params    = { sku = "input.parent_sku" }
     if_exists = "pass"                        # "pass" = skip wait, "fail" = error
+  }
+}
+```
+
+### sequence_guard block
+
+Rejects messages that arrive out of order: the incoming `sequence` must be
+strictly greater than the last one recorded for the same `key`. Composes inside
+`lock` and `coordinate`, and runs before `transform`.
+
+```hcl
+sequence_guard {
+  key      = "'sku_seq:' + input.body.sku"   # Required: CEL, the ordering scope
+  sequence = "input.body.version"            # Required: CEL, monotonic number
+  on_older = "ack"                           # "ack" (default), "reject", "requeue"
+  ttl      = "30d"                           # How long a key's sequence is remembered
+
+  storage {
+    driver   = "redis"       # Required
+    url      = env("REDIS_URL")
+    host     = "localhost"   # Alternative to url
+    port     = 6379
+    password = env("REDIS_PASSWORD")
+    db       = 0
   }
 }
 ```

@@ -50,6 +50,10 @@ markdown_extensions:
   - tables
   - toc:
       permalink: true
+      # GitHub-compatible heading slugs, so the same anchor link resolves both
+      # on github.com and on the published site. The default slugify collapses
+      # the double dash that GitHub keeps in headings like "REST → Database".
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
 
 nav:
   - Home: index.md
@@ -118,7 +122,7 @@ nav:
       - Production: deployment/production.md
   - Reference:
       - CLI: reference/cli.md
-      - Configuration: reference/configuration.md
+      - HCL Syntax (all blocks): reference/configuration.md
       - CEL Functions: reference/cel-functions.md
       - API Endpoints: reference/api-endpoints.md
       - Source Properties: reference/source-properties.md

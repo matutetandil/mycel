@@ -120,4 +120,4 @@ See the [ftp example](https://github.com/matutetandil/mycel/tree/main/examples/f
 
 ---
 
-> **Full configuration reference:** See [FTP](../reference/configuration.md#ftp) in the Configuration Reference.
+> **Full configuration reference:** See [FTP](../reference/configuration.md#ftp--sftp) in the Configuration Reference.

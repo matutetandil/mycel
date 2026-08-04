@@ -219,4 +219,4 @@ The SDL includes all `@key`, `@external`, `@shareable`, and other federation dir
 
 - [GraphQL Connector](../connectors/graphql.md) — connector configuration, named operations, subscriptions
 - [graphql-federation example](https://github.com/matutetandil/mycel/tree/main/examples/graphql-federation) — complete multi-service setup with Cosmo Router
-- [Configuration Reference — Types](../reference/configuration.md#types) — all field directives including federation annotations
+- [Configuration Reference — Types](../reference/configuration.md#type) — all field directives including federation annotations
