@@ -10,14 +10,14 @@ A connector is a bidirectional adapter between Mycel and an external system. Eve
 | `http` | HTTP client | — | Call APIs |
 | `database` | `postgres`, `mysql`, `sqlite`, `mongodb` | Query data | Insert/Update/Delete |
 | `graphql` | GraphQL server/client | Expose schema | Query/Mutate |
-| `queue` | `rabbitmq`, `kafka`, `redis` | Consume messages | Publish messages |
+| `mq` | `rabbitmq`, `kafka`, `redis` | Consume messages | Publish messages |
 | `grpc` | gRPC server/client | Expose services | Call services |
 | `tcp` | TCP server/client | Receive connections | Send data |
 | `cache` | `memory`, `redis` | — | Read/write cache |
 | `file` | Local filesystem | Watch for files | Write files |
 | `s3` | AWS S3, MinIO | Read objects | Write objects |
-| `websocket` | WebSocket server | — | Push to clients |
-| `sse` | Server-Sent Events | — | Push events |
+| `websocket` | WebSocket server | Receive client events | Push to clients |
+| `sse` | Server-Sent Events | Connect/disconnect events | Push events |
 | `cdc` | PostgreSQL WAL | Stream DB changes | — |
 | `exec` | Shell commands | — | Execute commands |
 | `email` | SMTP | — | Send emails |
@@ -31,6 +31,7 @@ A connector is a bidirectional adapter between Mycel and an external system. Eve
 | `oauth` | Google, GitHub, Apple, OIDC | OAuth callback | — |
 | `mqtt` | MQTT 3.1.1/5.0 | Subscribe to topics | Publish messages |
 | `ftp` | FTP, FTPS, SFTP | List/Download files | Upload/Delete files |
+| `pdf` | PDF generation | — | Render documents |
 
 ## Defining a Connector
 

@@ -597,7 +597,8 @@ flow "NAME" {
 ```hcl
 from {
   connector = "api"           # Required
-  operation = "GET /users"    # Required
+  operation = "GET /users"    # Required for rest/graphql/grpc/soap/tcp/sse;
+                              # optional (defaults to "*") for mq/mqtt/cdc/websocket/file
   format    = "json"          # "json", "xml", "csv", "tsv"
 
   # Simple filter (string)

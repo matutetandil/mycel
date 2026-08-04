@@ -26,7 +26,7 @@ A flow needs only `from` and `to`. Everything else is optional.
 ```hcl
 from {
   connector = "api"           # Required: connector name
-  operation = "GET /users"    # Required: event type or endpoint
+  operation = "GET /users"    # Event type or endpoint — required for some connectors (see below)
   format    = "json"          # Optional: expected input format ("json", "xml", "csv", "tsv")
 }
 ```
@@ -36,9 +36,48 @@ from {
 | Attribute | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `connector` | string | yes | Name of the source connector |
-| `operation` | string | yes | Operation or event to listen for |
+| `operation` | string | **depends on the connector** | Operation or event to listen for — see below |
 | `format` | string | no | Input format: `json`, `xml`, `csv` (default: `json`) |
 | `filter` | string/block | no | CEL condition to skip non-matching events |
+
+### Is `operation` required?
+
+It depends on the source connector. Request/RPC-style sources address a specific
+endpoint, so `operation` is mandatory. Stream-style sources subscribe to whatever
+the connector is already configured to consume, so `operation` merely *narrows*
+what this flow handles — omit it and the flow receives everything.
+
+| Source connector | `operation` | If omitted |
+|------------------|-------------|------------|
+| `rest` | **required** | Startup error |
+| `graphql` | **required** | Startup error |
+| `grpc` | **required** | Startup error |
+| `soap` | **required** | Startup error |
+| `tcp` | **required** | Startup error |
+| `sse` | **required** | Startup error |
+| `mq` (RabbitMQ, Kafka, Redis Pub/Sub) | optional | Defaults to `"*"` — catch-all |
+| `mqtt` | optional | Defaults to `"*"` — catch-all |
+| `cdc` | optional | Defaults to `"*"` — every trigger, every table |
+| `websocket` | optional | Defaults to `"*"` — every event type |
+| `file` (watch) | optional | Defaults to `"*"` — every matched file |
+
+A missing required `operation` is caught by `mycel validate` and at startup:
+
+```
+flow "create_user": from block is missing attribute "operation" required by connector "api" (rest)
+```
+
+So a queue consumer that handles every message on its queue needs no `operation`
+at all:
+
+```hcl
+flow "process_all_orders" {
+  from {
+    connector = "rabbit"    # consumes whatever the connector's consumer{} block is bound to
+  }
+  to { connector = "db", target = "orders" }
+}
+```
 
 > **What does `operation` mean for each connector, and what `input.*` variables are available?** See the [Source Properties by Connector](../reference/source-properties.md) reference.
 

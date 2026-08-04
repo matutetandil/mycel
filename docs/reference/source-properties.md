@@ -11,9 +11,28 @@ Available on every `from` block regardless of connector type:
 | Attribute | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `connector` | string | yes | Name of the source connector |
-| `operation` | string | yes | Event type or endpoint (meaning varies per connector — see below) |
+| `operation` | string | depends — see below | Event type or endpoint (meaning varies per connector) |
 | `format` | string | no | Input format: `json`, `xml`, `csv` (default: `json`) |
 | `filter` | string/block | no | CEL condition to skip non-matching events |
+
+### Is `operation` required?
+
+Request/RPC-style sources address a specific endpoint, so `operation` is
+mandatory. Stream-style sources subscribe to whatever the connector already
+consumes, so `operation` only *narrows* what this flow handles — omit it and the
+flow receives everything.
+
+| `operation` **required** | `operation` **optional** (defaults to `"*"`, catch-all) |
+|---|---|
+| REST, GraphQL, gRPC, SOAP, TCP, SSE | RabbitMQ, Kafka, Redis Pub/Sub, MQTT, CDC, WebSocket, File watch |
+
+A missing required `operation` is reported by `mycel validate` and fails startup:
+
+```
+flow "create_user": from block is missing attribute "operation" required by connector "api" (rest)
+```
+
+Each connector section below states which case it falls into.
 
 ### Filter (block form — message queues)
 
@@ -53,6 +72,7 @@ flow "nightly_sync" {
 |----------|-------|
 | **Connector type** | `rest` |
 | **`operation` format** | `"METHOD /path"` — e.g., `"GET /users"`, `"POST /orders"`, `"GET /users/:id"` |
+| **`operation` required?** | **Required** |
 
 Path parameters use colon syntax (`:id`, `:user_id`).
 
@@ -85,6 +105,7 @@ from {
 |----------|-------|
 | **Connector type** | `graphql` |
 | **`operation` format** | `"Query.fieldName"`, `"Mutation.fieldName"`, `"Subscription.fieldName"` |
+| **`operation` required?** | **Required** |
 
 ### `input.*` variables
 
@@ -109,6 +130,7 @@ from {
 |----------|-------|
 | **Connector type** | `grpc` |
 | **`operation` format** | `"Service/Method"` or `"package.Service/Method"` |
+| **`operation` required?** | **Required** |
 
 ### `input.*` variables
 
@@ -133,6 +155,7 @@ from {
 |----------|-------|
 | **Connector type** | `soap` (with `driver = "server"`) |
 | **`operation` format** | SOAP operation name — e.g., `"CreateOrder"`, `"GetUser"` |
+| **`operation` required?** | **Required** |
 
 Extracted from the SOAP envelope body element name.
 
@@ -159,6 +182,7 @@ from {
 |----------|-------|
 | **Connector type** | `tcp` |
 | **`operation` format** | Message type string (json/msgpack) or NestJS pattern string |
+| **`operation` required?** | **Required** |
 
 ### `input.*` variables
 
@@ -181,8 +205,9 @@ from {
 
 | Property | Value |
 |----------|-------|
-| **Connector type** | `queue` (with `driver = "rabbitmq"`) |
+| **Connector type** | `mq` (with `driver = "rabbitmq"`) |
 | **`operation` format** | Routing key — e.g., `"orders.created"`, `"user.*"`, `"#"` |
+| **`operation` required?** | Optional — defaults to `"*"` (catch-all) |
 
 Supports AMQP topic exchange patterns: `*` matches one word, `#` matches zero or more.
 
@@ -213,8 +238,9 @@ from {
 
 | Property | Value |
 |----------|-------|
-| **Connector type** | `queue` (with `driver = "kafka"`) |
+| **Connector type** | `mq` (with `driver = "kafka"`) |
 | **`operation` format** | Topic name — e.g., `"orders"`, `"user-events"` |
+| **`operation` required?** | Optional — defaults to `"*"` (catch-all) |
 
 ### `input.*` variables
 
@@ -243,8 +269,9 @@ from {
 
 | Property | Value |
 |----------|-------|
-| **Connector type** | `queue` (with `driver = "redis"`) |
+| **Connector type** | `mq` (with `driver = "redis"`) |
 | **`operation` format** | Channel name or glob pattern — e.g., `"orders"`, `"user.*"`, `"*"` |
+| **`operation` required?** | Optional — defaults to `"*"` (catch-all) |
 
 Exact channel match first, then pattern match (from PSubscribe), then wildcard `"*"`.
 
@@ -274,6 +301,7 @@ from {
 |----------|-------|
 | **Connector type** | `mqtt` |
 | **`operation` format** | MQTT topic pattern — e.g., `"sensors/+/temperature"`, `"home/#"` |
+| **`operation` required?** | Optional — defaults to `"*"` (catch-all) |
 
 Supports MQTT wildcards: `+` matches single level, `#` matches multi-level.
 
@@ -305,6 +333,7 @@ from {
 |----------|-------|
 | **Connector type** | `websocket` |
 | **`operation` format** | Event type: `"connect"`, `"disconnect"`, `"message"`, or custom type string |
+| **`operation` required?** | Optional — defaults to `"*"` (catch-all) |
 
 ### `input.*` variables
 
@@ -332,6 +361,7 @@ from {
 |----------|-------|
 | **Connector type** | `sse` |
 | **`operation` format** | `"connect"` or `"disconnect"` |
+| **`operation` required?** | **Required** |
 
 SSE is unidirectional (server-to-client push). The `from` block only fires on lifecycle events.
 
@@ -359,6 +389,7 @@ from {
 |----------|-------|
 | **Connector type** | `cdc` |
 | **`operation` format** | `"TRIGGER:table"` — e.g., `"INSERT:users"`, `"UPDATE:orders"`, `"*:*"` |
+| **`operation` required?** | Optional — defaults to `"*"` (catch-all) |
 
 Trigger is uppercase (`INSERT`, `UPDATE`, `DELETE`). Wildcards: `"*:users"` (any trigger), `"INSERT:*"` (any table), `"*:*"` or `"*"` (all).
 
@@ -390,6 +421,7 @@ from {
 |----------|-------|
 | **Connector type** | `file` (with `watch = true`) |
 | **`operation` format** | Glob pattern — e.g., `"*.csv"`, `"reports/*.json"`, `"**/*.csv"` |
+| **`operation` required?** | Optional — defaults to `"*"` (catch-all) |
 
 Matches against filename, relative path, or `**/` prefix with filename suffix.
 
@@ -419,21 +451,21 @@ from {
 
 ## Summary
 
-| Connector | `operation` format | Key `input.*` fields |
-|-----------|--------------------|----------------------|
-| REST | `"METHOD /path"` (e.g., `"GET /users/:id"`) | path params, query params, body fields, `headers` |
-| GraphQL | `"Query.field"` / `"Mutation.field"` / `"Subscription.field"` | argument fields |
-| gRPC | `"Service/Method"` | proto message fields |
-| SOAP | `"OperationName"` | SOAP body element children |
-| TCP | message type/pattern string | `msg.Data` fields |
-| RabbitMQ | routing key (`*` / `#` wildcards) | `body`, `headers`, `properties`, `routing_key`, `exchange` |
-| Kafka | topic name | `body`, `headers`, `topic`, `partition`, `offset`, `key`, `timestamp` |
-| Redis Pub/Sub | channel name or glob pattern | `_channel`, `_pattern`, payload fields |
-| MQTT | topic pattern (`+` / `#` wildcards) | `_topic`, `_message_id`, `_qos`, `_retained`, payload fields |
-| WebSocket | `"connect"` / `"disconnect"` / `"message"` / custom type | `event`, data fields, `user_id`, `room` |
-| SSE | `"connect"` / `"disconnect"` | `event`, `client_id`, `remote_addr` |
-| CDC | `"TRIGGER:table"` (e.g., `"INSERT:users"`) | `trigger`, `table`, `schema`, `new`, `old`, `timestamp` |
-| File watch | glob pattern (e.g., `"*.csv"`) | `_path`, `_name`, `_size`, `_mod_time`, `_event`, content fields |
+| Connector | `type` | `operation` | `operation` format | Key `input.*` fields |
+|-----------|--------|-------------|--------------------|----------------------|
+| REST | `rest` | required | `"METHOD /path"` (e.g., `"GET /users/:id"`) | path params, query params, body fields, `headers` |
+| GraphQL | `graphql` | required | `"Query.field"` / `"Mutation.field"` / `"Subscription.field"` | argument fields |
+| gRPC | `grpc` | required | `"Service/Method"` | proto message fields |
+| SOAP | `soap` | required | `"OperationName"` | SOAP body element children |
+| TCP | `tcp` | required | message type/pattern string | `msg.Data` fields |
+| SSE | `sse` | required | `"connect"` / `"disconnect"` | `event`, `client_id`, `remote_addr` |
+| RabbitMQ | `mq` + `driver = "rabbitmq"` | optional (`"*"`) | routing key (`*` / `#` wildcards) | `body`, `headers`, `properties`, `routing_key`, `exchange` |
+| Kafka | `mq` + `driver = "kafka"` | optional (`"*"`) | topic name | `body`, `headers`, `topic`, `partition`, `offset`, `key`, `timestamp` |
+| Redis Pub/Sub | `mq` + `driver = "redis"` | optional (`"*"`) | channel name or glob pattern | `_channel`, `_pattern`, payload fields |
+| MQTT | `mqtt` | optional (`"*"`) | topic pattern (`+` / `#` wildcards) | `_topic`, `_message_id`, `_qos`, `_retained`, payload fields |
+| WebSocket | `websocket` | optional (`"*"`) | `"connect"` / `"disconnect"` / `"message"` / custom type | `event`, data fields, `user_id`, `room` |
+| CDC | `cdc` | optional (`"*"`) | `"TRIGGER:table"` (e.g., `"INSERT:users"`) | `trigger`, `table`, `schema`, `new`, `old`, `timestamp` |
+| File watch | `file` + `watch = true` | optional (`"*"`) | glob pattern (e.g., `"*.csv"`) | `_path`, `_name`, `_size`, `_mod_time`, `_event`, content fields |
 
 ---
 
