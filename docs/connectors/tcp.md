@@ -69,7 +69,7 @@ flow "forward_to_tcp" {
 }
 ```
 
-See the [tcp example](../../examples/tcp/) for a complete working setup.
+See the [tcp example](https://github.com/matutetandil/mycel/tree/main/examples/tcp) for a complete working setup.
 
 ---
 

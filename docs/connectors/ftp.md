@@ -116,7 +116,7 @@ flow "upload_result" {
 }
 ```
 
-See the [ftp example](../../examples/ftp/) for a complete working setup.
+See the [ftp example](https://github.com/matutetandil/mycel/tree/main/examples/ftp) for a complete working setup.
 
 ---
 

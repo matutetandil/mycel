@@ -133,4 +133,4 @@ See [WASM Documentation](wasm.md) for complete interface details and language-sp
 
 - [WASM Documentation](wasm.md) — WASM interface spec, 6 language examples
 - [Extending Mycel](../guides/extending.md) — validators, functions, mocks
-- [Plugin example](../../examples/plugin)
+- [Plugin example](https://github.com/matutetandil/mycel/tree/main/examples/plugin)

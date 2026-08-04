@@ -96,7 +96,7 @@ helm install my-api oci://ghcr.io/matutetandil/charts/mycel \
   --set envFrom[0].secretRef.name=my-api-secrets
 ```
 
-See [helm/mycel/README.md](../../helm/mycel/README.md) for the full values reference.
+See [helm/mycel/README.md](https://github.com/matutetandil/mycel/blob/main/helm/mycel/README.md) for the full values reference.
 
 ## Docker Compose
 

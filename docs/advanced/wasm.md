@@ -638,7 +638,7 @@ plugin "salesforce" {
 }
 ```
 
-See [Plugin Example](../examples/plugin/) for the full plugin manifest and connector interface.
+See [Plugin Example](https://github.com/matutetandil/mycel/tree/main/examples/plugin) for the full plugin manifest and connector interface.
 
 ---
 
@@ -669,8 +669,7 @@ Approximate `.wasm` sizes for the CUIT validator example:
 
 ## See Also
 
-- [WASM Validator Example](../examples/wasm-validator/) — Complete Rust validator
-- [WASM Functions Example](../examples/wasm-functions/) — Custom CEL functions in Rust
-- [Plugin Example](../examples/plugin/) — Custom connector via WASM
-- [CONCEPTS.md](./CONCEPTS.md#wasm) — WASM section in concepts overview
+- [WASM Validator Example](https://github.com/matutetandil/mycel/tree/main/examples/wasm-validator) — Complete Rust validator
+- [WASM Functions Example](https://github.com/matutetandil/mycel/tree/main/examples/wasm-functions) — Custom CEL functions in Rust
+- [Plugin Example](https://github.com/matutetandil/mycel/tree/main/examples/plugin) — Custom connector via WASM
 - [Plugins](./plugins.md) — Plugin system and extensibility

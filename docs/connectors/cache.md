@@ -78,7 +78,7 @@ flow "get_user_cached" {
 }
 ```
 
-See the [cache example](../../examples/cache/) and [redis-cluster example](../../examples/redis-cluster/) for complete setups.
+See the [cache example](https://github.com/matutetandil/mycel/tree/main/examples/cache) and [redis-cluster example](https://github.com/matutetandil/mycel/tree/main/examples/redis-cluster) for complete setups.
 
 ---
 

@@ -178,7 +178,7 @@ flow "create_user" {
 }
 ```
 
-See the [basic example](../../examples/basic/) for a complete working setup.
+See the [basic example](https://github.com/matutetandil/mycel/tree/main/examples/basic) for a complete working setup.
 
 ## File Upload (multipart/form-data)
 

@@ -302,7 +302,7 @@ flow "list_active_users" {
 }
 ```
 
-See the [named-operations example](../../examples/named-operations) for complete patterns.
+See the [named-operations example](https://github.com/matutetandil/mycel/tree/main/examples/named-operations) for complete patterns.
 
 ## Connector Profiles
 
@@ -349,7 +349,7 @@ connector "cache" {
 }
 ```
 
-See the [profiles example](../../examples/profiles) for details.
+See the [profiles example](https://github.com/matutetandil/mycel/tree/main/examples/profiles) for details.
 
 ## Per-Connector Reference
 

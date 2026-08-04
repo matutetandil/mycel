@@ -250,4 +250,4 @@ flow "checkout" {
 
 - [Core Concepts: Flows](../core-concepts/flows.md) — complete flow reference
 - [Core Concepts: Transforms](../core-concepts/transforms.md) — CEL functions
-- [Examples: Steps](../../examples/steps) — runnable step examples
+- [Examples: Steps](https://github.com/matutetandil/mycel/tree/main/examples/steps) — runnable step examples

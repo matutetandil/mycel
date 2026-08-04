@@ -273,4 +273,4 @@ flow "daily_sync" {
 
 - [Core Concepts: Flows](../core-concepts/flows.md) — flow trigger (`when`) reference
 - [Guides: Synchronization](synchronization.md) — lock for preventing duplicate jobs
-- [Examples: Batch](../../examples/batch)
+- [Examples: Batch](https://github.com/matutetandil/mycel/tree/main/examples/batch)

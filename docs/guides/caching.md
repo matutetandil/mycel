@@ -345,4 +345,4 @@ flow "handle_inventory_update" {
 
 - [Connectors: Cache](../connectors/cache.md)
 - [Guides: Error Handling](error-handling.md)
-- [Examples: Cache](../../examples/cache)
+- [Examples: Cache](https://github.com/matutetandil/mycel/tree/main/examples/cache)

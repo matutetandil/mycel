@@ -723,4 +723,4 @@ scrape_configs:
 
 - [Configuration Reference](../reference/configuration.md) - Full HCL reference
 - [Troubleshooting Guide](troubleshooting.md) - Common issues
-- [Helm Chart](../../helm/mycel/README.md) - Kubernetes deployment
+- [Helm Chart](https://github.com/matutetandil/mycel/blob/main/helm/mycel/README.md) - Kubernetes deployment

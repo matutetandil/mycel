@@ -317,5 +317,5 @@ Workflow state can be persisted to: PostgreSQL, MySQL, SQLite.
 - [Sagas](#sagas)
 - [State Machines](#state-machines)
 - [Long-Running Workflows](#long-running-workflows)
-- [Examples: Saga](../../examples/saga)
-- [Examples: State Machine](../../examples/state-machine)
+- [Examples: Saga](https://github.com/matutetandil/mycel/tree/main/examples/saga)
+- [Examples: State Machine](https://github.com/matutetandil/mycel/tree/main/examples/state-machine)

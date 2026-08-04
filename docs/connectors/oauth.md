@@ -80,4 +80,4 @@ flow "google_callback" {
 }
 ```
 
-See the [oauth example](../../examples/oauth/) for a complete working setup.
+See the [oauth example](https://github.com/matutetandil/mycel/tree/main/examples/oauth) for a complete working setup.

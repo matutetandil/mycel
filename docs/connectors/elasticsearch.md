@@ -82,7 +82,7 @@ flow "index_product" {
 }
 ```
 
-See the [elasticsearch example](../../examples/elasticsearch/) for a complete working setup.
+See the [elasticsearch example](https://github.com/matutetandil/mycel/tree/main/examples/elasticsearch) for a complete working setup.
 
 ---
 

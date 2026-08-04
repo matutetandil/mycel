@@ -147,4 +147,4 @@ Strictly additive. Every existing inline block — written without `use` — beh
 exactly as before. Names live in a per-kind namespace, so `flow "x"` and
 `dedupe "x"` never collide.
 
-See the runnable example in [`examples/reusable-blocks/`](../../examples/reusable-blocks/).
+See the runnable example in [`examples/reusable-blocks/`](https://github.com/matutetandil/mycel/tree/main/examples/reusable-blocks).
