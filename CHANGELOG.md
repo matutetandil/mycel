@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Only attributes marked required are enforced, so connectors that default a parameter are unaffected — message queues, MQTT, CDC, WebSocket and file watch all default `operation` to the catch-all `"*"` and stay legal without it. Connectors with no registered schema, such as plugin-provided ones, are skipped. Verified against all 81 example config directories with no new failures.
 
+### Fixed
+
+- **CLI errors no longer dump the usage text.** Every failure printed the full flag list after the error, burying the diagnostics — a config that fails to validate is not a usage mistake. Usage is suppressed from the point a command starts running; flag and argument errors are raised before that and still print it, and unknown commands keep cobra's `Run 'mycel --help' for usage.` hint. `main` also printed the error a second time after cobra had already reported it.
+
 ### Documentation
 
 - **`operation` was documented as always required in the `from` block; it isn't.** It is required for `rest`, `graphql`, `grpc`, `soap`, `tcp` and `sse`, and optional for `mq`, `mqtt`, `cdc`, `websocket` and `file` watch, which default it to `"*"`. The flows page and the source properties reference now state which case each connector falls into, and the catch-all default is documented for the first time.
