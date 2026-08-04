@@ -237,7 +237,7 @@ Aspects (cross-cutting concerns applied across flows by pattern matching) are a 
 ## See Also
 
 - [WASM Documentation](../advanced/wasm.md) — complete WASM interface and language examples
-- [Plugins example](../../examples/plugin)
-- [Validators example](../../examples/validators)
-- [Aspects example](../../examples/aspects)
-- [Mocks example](../../examples/mocks)
+- [Plugins example](https://github.com/matutetandil/mycel/tree/main/examples/plugin)
+- [Validators example](https://github.com/matutetandil/mycel/tree/main/examples/validators)
+- [Aspects example](https://github.com/matutetandil/mycel/tree/main/examples/aspects)
+- [Mocks example](https://github.com/matutetandil/mycel/tree/main/examples/mocks)

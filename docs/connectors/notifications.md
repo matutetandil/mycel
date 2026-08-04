@@ -673,4 +673,4 @@ flow "receive_stripe" {
 
 ---
 
-See the [notifications example](../../examples/notifications/) for a complete working setup.
+See the [notifications example](https://github.com/matutetandil/mycel/tree/main/examples/notifications) for a complete working setup.

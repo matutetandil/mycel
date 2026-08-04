@@ -32,8 +32,8 @@ var (
 )
 
 func main() {
+	// Cobra has already reported the error; just set the exit status.
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
@@ -66,6 +66,14 @@ Environment Variables:
 Documentation:
   https://github.com/matutetandil/mycel`,
 	Version: fmt.Sprintf("%s (commit: %s)", version, commit),
+
+	// Suppress the usage dump once a command is actually running: a config that
+	// fails to validate is not a usage mistake, and burying the diagnostics
+	// under the flag list helps nobody. Flag and argument errors are raised
+	// before this hook runs, so those still print usage.
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+		cmd.SilenceUsage = true
+	},
 }
 
 var startCmd = &cobra.Command{
@@ -407,10 +415,21 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Config dir: %s\n", configDir)
 
 	// Parse configuration
-	p := parser.NewHCLParser()
+	schemaReg := runtime.NewSchemaRegistry()
+	p := parser.NewHCLParserWithRegistry(schemaReg)
 	config, err := p.Parse(context.Background(), configDir)
 	if err != nil {
 		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Check every flow's "from" block against its source connector's schema
+	if errs := runtime.ValidateFlowSchemas(config, schemaReg); len(errs) > 0 {
+		fmt.Printf("\n✗ Configuration is invalid:\n\n")
+		for _, e := range errs {
+			fmt.Printf("    - %s\n", e)
+		}
+		fmt.Println()
+		return fmt.Errorf("validation failed: %d flow error(s)", len(errs))
 	}
 
 	// Report success

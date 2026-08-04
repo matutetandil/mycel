@@ -75,7 +75,7 @@ flow "get_user" {
 }
 ```
 
-See the [grpc example](../../examples/grpc/) and [grpc-loadbalancing example](../../examples/grpc-loadbalancing/) for complete setups.
+See the [grpc example](https://github.com/matutetandil/mycel/tree/main/examples/grpc) and [grpc-loadbalancing example](https://github.com/matutetandil/mycel/tree/main/examples/grpc-loadbalancing) for complete setups.
 
 ---
 

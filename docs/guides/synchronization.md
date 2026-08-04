@@ -539,5 +539,5 @@ lock → coordinate → sequence_guard → transform → to → (write-back)
 
 ## See Also
 
-- [Examples: Sync](../../examples/sync)
+- [Examples: Sync](https://github.com/matutetandil/mycel/tree/main/examples/sync)
 - [Guides: Caching](caching.md)

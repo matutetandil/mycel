@@ -28,7 +28,9 @@ On top of this, you can add [transforms](docs/core-concepts/transforms.md) (resh
 
 Every Mycel service automatically includes health checks (`/health`, `/health/live`, `/health/ready`), Prometheus metrics (`/metrics`), and hot reload — no configuration needed. Change a `.mycel` file and the service reloads with zero downtime.
 
-That's the whole model. Everything else is configuration. Learn more in [Core Concepts](docs/core-concepts/connectors.md).
+That's the whole model. Everything else is configuration.
+
+**Want to write your first flow?** [Flow Anatomy](docs/core-concepts/flows.md#flow-anatomy) lists every block a flow can contain and what each one is for, in the order they run. For the bare syntax of every block in the language, see the [HCL Syntax Reference](docs/reference/configuration.md).
 
 ## Quick Start
 
@@ -367,7 +369,8 @@ Full documentation is at [docs/index.md](docs/index.md). Quick links:
 
 **Core Concepts**
 - [Connectors](docs/core-concepts/connectors.md) — All connector types
-- [Flows](docs/core-concepts/flows.md) — Complete flow reference
+- [Flows](docs/core-concepts/flows.md) — Complete flow reference, starting with [Flow Anatomy](docs/core-concepts/flows.md#flow-anatomy): every block a flow can contain
+- [Reusable Blocks](docs/core-concepts/reusable-blocks.md) — Declare `dedupe`, `retry`, `lock` and friends once, reference them from many flows
 - [Transforms](docs/core-concepts/transforms.md) — CEL functions and expressions
 - [Types](docs/core-concepts/types.md) — Schema validation and field constraints
 - [Aspects](docs/core-concepts/aspects.md) — Cross-cutting concerns (AOP) applied across flows by pattern
@@ -387,7 +390,9 @@ Full documentation is at [docs/index.md](docs/index.md). Quick links:
 - [Extending Mycel](docs/guides/extending.md) — Validators, WASM functions, mocks, plugins
 
 **Reference**
-- [Configuration Reference](docs/reference/configuration.md) — Complete HCL syntax
+- [HCL Syntax Reference](docs/reference/configuration.md) — Every block type and attribute
+- [Source Properties](docs/reference/source-properties.md) — What `operation` means per connector, and the `input.*` variables it gives you
+- [Destination Properties](docs/reference/destination-properties.md) — What `target`, `operation` and `query` mean per connector
 - [CEL Functions](docs/reference/cel-functions.md) — All built-in transform functions
 - [CLI Reference](docs/reference/cli.md) — All commands and flags
 - [API Endpoints](docs/reference/api-endpoints.md) — Health, metrics, workflow, auth endpoints

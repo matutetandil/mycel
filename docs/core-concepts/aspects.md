@@ -115,4 +115,4 @@ on = ["get_product*"]               # Flows starting with "get_product"
 - [Flows](flows.md) — the unit of work aspects bind to
 - [Transforms](transforms.md) — the CEL expressions used inside aspect actions
 - [Error Handling](../guides/error-handling.md) — retries, DLQ, and `on_error` dispositions that complement `on_error` aspects
-- [Aspects example](../../examples/aspects)
+- [Aspects example](https://github.com/matutetandil/mycel/tree/main/examples/aspects)

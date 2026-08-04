@@ -88,7 +88,7 @@ flow "get_product_price" {
 
 The flow always targets `pricing` — the profile connector handles backend selection, fallback, and response normalization transparently.
 
-See the [profiles example](../../examples/profiles/) for a complete working setup.
+See the [profiles example](https://github.com/matutetandil/mycel/tree/main/examples/profiles) for a complete working setup.
 
 ---
 

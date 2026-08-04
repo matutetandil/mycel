@@ -1198,10 +1198,10 @@ transform {
 
 ## More Examples
 
-- [GraphQL Full Example](../examples/graphql/README.md)
-- [Message Queue Example](../examples/mq/README.md)
-- [Data Enrichment](../examples/enrich/README.md)
-- [TCP Connector](../examples/tcp/README.md)
+- [GraphQL Full Example](https://github.com/matutetandil/mycel/tree/main/examples/graphql)
+- [Message Queue Example](https://github.com/matutetandil/mycel/tree/main/examples/mq)
+- [Data Enrichment](https://github.com/matutetandil/mycel/tree/main/examples/enrich)
+- [TCP Connector](https://github.com/matutetandil/mycel/tree/main/examples/tcp)
 - [Transformations Guide](../core-concepts/transforms.md)
 
 ---

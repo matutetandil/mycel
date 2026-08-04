@@ -694,7 +694,7 @@ echo "MYCEL_ENV=development" >> .env
 
 ### Breakpoints not hitting
 
-1. Make sure you're using valid stage names (see [Pipeline Stages](#pipeline-stages) table)
+1. Make sure you're using valid stage names (see [Available Stages for --break-at](#available-stages-for---break-at) table)
 2. Not all stages execute for every flow — e.g., `enrich` only runs if the flow has enrichments configured
 3. Use `--breakpoints` (all stages) first to see which stages your flow actually goes through
 

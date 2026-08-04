@@ -109,7 +109,7 @@ flow "order_updates" {
 }
 ```
 
-See the [graphql example](../../examples/graphql/), [graphql-federation example](../../examples/graphql-federation/), and [graphql-optimization example](../../examples/graphql-optimization/) for complete setups.
+See the [graphql example](https://github.com/matutetandil/mycel/tree/main/examples/graphql), [graphql-federation example](https://github.com/matutetandil/mycel/tree/main/examples/graphql-federation), and [graphql-optimization example](https://github.com/matutetandil/mycel/tree/main/examples/graphql-optimization) for complete setups.
 
 ---
 

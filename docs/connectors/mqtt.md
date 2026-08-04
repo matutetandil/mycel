@@ -125,7 +125,7 @@ flow "temperature_alert" {
 }
 ```
 
-See the [mqtt example](../../examples/mqtt/) for a complete working setup.
+See the [mqtt example](https://github.com/matutetandil/mycel/tree/main/examples/mqtt) for a complete working setup.
 
 ---
 

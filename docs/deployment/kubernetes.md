@@ -39,7 +39,7 @@ helm install my-api oci://ghcr.io/matutetandil/charts/mycel \
 | `autoscaling.enabled` | `false` | Enable HPA |
 | `ingress.enabled` | `false` | Enable Ingress |
 
-See [helm/mycel/README.md](../../helm/mycel/README.md) for the complete values reference.
+See [helm/mycel/README.md](https://github.com/matutetandil/mycel/blob/main/helm/mycel/README.md) for the complete values reference.
 
 ## Manual Deployment
 
@@ -250,4 +250,4 @@ metadata:
 
 - [Docker Deployment](docker.md)
 - [Production Checklist](production.md)
-- [Helm Chart README](../../helm/mycel/README.md)
+- [Helm Chart README](https://github.com/matutetandil/mycel/blob/main/helm/mycel/README.md)

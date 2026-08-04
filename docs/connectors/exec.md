@@ -78,7 +78,7 @@ flow "run_report" {
 }
 ```
 
-See the [exec example](../../examples/exec/) for a complete working setup.
+See the [exec example](https://github.com/matutetandil/mycel/tree/main/examples/exec) for a complete working setup.
 
 ---
 

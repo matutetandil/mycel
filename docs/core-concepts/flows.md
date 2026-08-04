@@ -19,6 +19,63 @@ flow "get_users" {
 
 A flow needs only `from` and `to`. Everything else is optional.
 
+## Flow Anatomy
+
+Everything a flow can contain, in the order it runs. Each block is optional
+except `from`; a flow with no `to` is an [echo flow](#response) that answers from
+its own `response` block.
+
+```
+        from ─── filter ─── accept ─── validate ─── enrich ─── transform ─── dedupe ─── to
+       source     drop      business    schema     fetch more   reshape     skip     write
+       event    non-matching  gate       check     data/steps    payload  duplicates
+```
+
+`lock`, `semaphore`, `coordinate` and `sequence_guard` wrap the whole pipeline;
+`error_handling`, `cache`, `batch`, `async` and `idempotency` change how it is
+scheduled and retried; `after` runs once the write succeeds.
+
+### Blocks
+
+| Block | What it does | Where it's documented |
+|-------|--------------|-----------------------|
+| `from` | The trigger: which connector fires the flow, and for what event | [below](#the-from-block) · [source properties](../reference/source-properties.md) |
+| `to` | Where the flow writes. Repeat it to fan out, nest `transaction` for all-or-nothing writes | [below](#the-to-block) · [destination properties](../reference/destination-properties.md) |
+| `accept` | Business-level gate — "is this message mine?" — with an ack/reject/requeue policy | [below](#the-accept-block) |
+| `validate` | Check the payload against a `type` before and/or after transforming | [below](#validate-block) · [types](types.md) |
+| `require` | Demand that specific fields be present, with a custom error | [below](#require-block) |
+| `enrich` | Pull extra data from another connector and merge it into the payload | [below](#enrich-block) · [multi-step flows](../guides/multi-step-flows.md) |
+| `step` | Named intermediate connector calls, referenced later as `step.<name>.<field>` | [below](#step-block) · [multi-step flows](../guides/multi-step-flows.md) |
+| `transform` | Reshape the payload with CEL | [below](#transform) · [transforms](transforms.md) |
+| `response` | Shape what the caller gets back, independently of what was written | [below](#response) |
+| `after` | Fire-and-forget work once the write succeeds | [below](#after-block) |
+| `cache` | Serve reads from cache and invalidate on write | [below](#cache-block) · [caching](../guides/caching.md) |
+| `dedupe` | Skip a message whose transformed payload matches the last one processed | [below](#dedupe-block) · [caching](../guides/caching.md) |
+| `idempotency` | Replay the stored result when the same idempotency key arrives twice | [configuration reference](../reference/configuration.md#idempotency-block) |
+| `error_handling` | Retry with backoff, dead-letter queues, circuit breakers, per-class dispositions | [below](#error-handling-block) · [error handling](../guides/error-handling.md) |
+| `lock` | Distributed mutex — one flow instance per key at a time | [below](#lock-mutex) · [synchronization](../guides/synchronization.md) |
+| `semaphore` | Allow at most N concurrent instances | [below](#semaphore-n-concurrent) · [synchronization](../guides/synchronization.md) |
+| `coordinate` | Signal/wait between flows | [below](#coordinate-signalwait) · [synchronization](../guides/synchronization.md) |
+| `sequence_guard` | Reject messages that arrive out of order, by monotonic sequence number | [below](#sequence-guard-ordering) · [synchronization](../guides/synchronization.md) |
+| `batch` | Process large datasets in chunks | [batch processing](../guides/batch-processing.md) |
+| `async` | Answer `202 Accepted` immediately and run the flow in the background | [configuration reference](../reference/configuration.md#async-block) |
+| `state_transition` | Drive a state machine as part of the flow | [below](#state-transition-block) · [sagas & state machines](../guides/sagas.md) |
+
+Any of these blocks can also be declared once at the top level and reused across
+flows with `use = "<kind>.<name>"` — see [Reusable Blocks](reusable-blocks.md).
+
+### Flow-level attributes
+
+| Attribute | What it does | Where it's documented |
+|-----------|--------------|-----------------------|
+| `when` | Run on a cron schedule instead of waiting for a source event | [below](#scheduled-flows-cron) |
+| `cache` | Reference a named cache — `cache = "cache.<name>"` | [caching](../guides/caching.md) |
+| `returns` | GraphQL return type for HCL-first schemas | [below](#returns-graphql-type) |
+| `entity` | Mark the flow as a GraphQL Federation entity resolver | [below](#federation-entity-resolver) |
+
+> Looking for the bare syntax of every block, without the prose? See the
+> [Configuration Reference](../reference/configuration.md#flow).
+
 ## The `from` Block
 
 `from` defines the trigger: which connector fires the flow and for what event.
@@ -26,7 +83,7 @@ A flow needs only `from` and `to`. Everything else is optional.
 ```hcl
 from {
   connector = "api"           # Required: connector name
-  operation = "GET /users"    # Required: event type or endpoint
+  operation = "GET /users"    # Event type or endpoint — required for some connectors (see below)
   format    = "json"          # Optional: expected input format ("json", "xml", "csv", "tsv")
 }
 ```
@@ -36,9 +93,48 @@ from {
 | Attribute | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `connector` | string | yes | Name of the source connector |
-| `operation` | string | yes | Operation or event to listen for |
+| `operation` | string | **depends on the connector** | Operation or event to listen for — see below |
 | `format` | string | no | Input format: `json`, `xml`, `csv` (default: `json`) |
 | `filter` | string/block | no | CEL condition to skip non-matching events |
+
+### Is `operation` required?
+
+It depends on the source connector. Request/RPC-style sources address a specific
+endpoint, so `operation` is mandatory. Stream-style sources subscribe to whatever
+the connector is already configured to consume, so `operation` merely *narrows*
+what this flow handles — omit it and the flow receives everything.
+
+| Source connector | `operation` | If omitted |
+|------------------|-------------|------------|
+| `rest` | **required** | Startup error |
+| `graphql` | **required** | Startup error |
+| `grpc` | **required** | Startup error |
+| `soap` | **required** | Startup error |
+| `tcp` | **required** | Startup error |
+| `sse` | **required** | Startup error |
+| `mq` (RabbitMQ, Kafka, Redis Pub/Sub) | optional | Defaults to `"*"` — catch-all |
+| `mqtt` | optional | Defaults to `"*"` — catch-all |
+| `cdc` | optional | Defaults to `"*"` — every trigger, every table |
+| `websocket` | optional | Defaults to `"*"` — every event type |
+| `file` (watch) | optional | Defaults to `"*"` — every matched file |
+
+A missing required `operation` is caught by `mycel validate` and at startup:
+
+```
+flow "create_user": from block is missing attribute "operation" required by connector "api" (rest)
+```
+
+So a queue consumer that handles every message on its queue needs no `operation`
+at all:
+
+```hcl
+flow "process_all_orders" {
+  from {
+    connector = "rabbit"    # consumes whatever the connector's consumer{} block is bound to
+  }
+  to { connector = "db", target = "orders" }
+}
+```
 
 > **What does `operation` mean for each connector, and what `input.*` variables are available?** See the [Source Properties by Connector](../reference/source-properties.md) reference.
 
@@ -930,6 +1026,45 @@ flow "consume_data" {
   }
 }
 ```
+
+### Sequence guard (ordering)
+
+Reject a message whose sequence number is not strictly greater than the last one
+already processed for the same key. This is the guard against *out-of-order*
+replays — redelivery, requeue, multiple workers — where an older update would
+otherwise overwrite a newer one already applied.
+
+```hcl
+flow "apply_product_update" {
+  from {
+    connector = "rabbit"
+    operation = "products.updated"
+  }
+
+  sequence_guard {
+    key      = "'sku_seq:' + input.body.sku"
+    sequence = "input.body.version"
+    on_older = "ack"          # ack | reject | requeue
+    ttl      = "30d"
+
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL")
+    }
+  }
+
+  to {
+    connector = "db"
+    target    = "products"
+  }
+}
+```
+
+`sequence_guard` is comparative (rejects by *ordering*), while
+[`dedupe`](#dedupe-block) is content-based (rejects by *sameness*). They compose:
+`sequence_guard` drops stale replays, then `dedupe` drops no-op rewrites.
+
+Ordering inside a flow is `lock → coordinate → sequence_guard → transform → to`.
 
 See [Synchronization Guide](../guides/synchronization.md) for details.
 

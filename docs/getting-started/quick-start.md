@@ -304,4 +304,4 @@ docker run \
 - [Core Concepts: Transforms](../core-concepts/transforms.md)
 - [Core Concepts: Types](../core-concepts/types.md)
 - [Deployment Guide](../deployment/docker.md)
-- [Examples](../../examples/)
+- [Examples](https://github.com/matutetandil/mycel/tree/main/examples)

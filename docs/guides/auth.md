@@ -286,7 +286,7 @@ auth {
 **Not yet implemented:** response caching (every request hits the provider) and
 `sync_to` (parsed, but setting it only logs a warning today).
 
-See the [`dynamic-api-key` example](../../examples/dynamic-api-key) for a complete setup.
+See the [`dynamic-api-key` example](https://github.com/matutetandil/mycel/tree/main/examples/dynamic-api-key) for a complete setup.
 
 ### User Storage
 
@@ -534,4 +534,4 @@ CREATE INDEX idx_audit_created ON auth_audit_log(created_at);
 
 ## Examples
 
-See [examples/auth](../examples/auth) for a complete working example.
+See [examples/auth](https://github.com/matutetandil/mycel/tree/main/examples/auth) for a complete working example.

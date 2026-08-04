@@ -90,7 +90,7 @@ flow "user_notification" {
 }
 ```
 
-See the [sse example](../../examples/sse/) for a complete working setup.
+See the [sse example](https://github.com/matutetandil/mycel/tree/main/examples/sse) for a complete working setup.
 
 ---
 

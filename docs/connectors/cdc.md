@@ -99,7 +99,7 @@ flow "audit_products" {
 }
 ```
 
-See the [cdc example](../../examples/cdc/) for a complete working setup.
+See the [cdc example](https://github.com/matutetandil/mycel/tree/main/examples/cdc) for a complete working setup.
 
 ---
 

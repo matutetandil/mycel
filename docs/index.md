@@ -32,6 +32,7 @@ The foundational building blocks of every Mycel service.
 |----------|-------------|
 | [Connectors](core-concepts/connectors.md) | Bidirectional adapters: REST, database, queues, gRPC, WebSocket, file, and more |
 | [Flows](core-concepts/flows.md) | The unit of work — wiring connectors together with transforms, validation, caching, and error handling |
+| [Reusable Blocks](core-concepts/reusable-blocks.md) | Declare `dedupe`, `retry`, `lock`, `accept`, `response` and friends once by name, reference them from many flows with `use = "<kind>.<name>"` |
 | [Transforms](core-concepts/transforms.md) | CEL-based data transformations and the complete built-in function reference |
 | [Types](core-concepts/types.md) | Schema validation with field constraints, custom validators, and federation directives |
 | [Aspects](core-concepts/aspects.md) | Cross-cutting concerns (AOP) — audit, metrics, alerting, response enrichment — applied across flows by name pattern |
@@ -126,12 +127,14 @@ Documentation for each connector type.
 | [Elasticsearch](connectors/elasticsearch.md) | Write | Search and analytics |
 | [OAuth](connectors/oauth.md) | Server | Social login and OIDC |
 | [SOAP](connectors/soap.md) | Server + Client | SOAP 1.1/1.2 web services |
-| [Email](connectors/email.md) | Send | SMTP, SendGrid, AWS SES |
-| [Slack](connectors/slack.md) | Send | Slack Bot API |
-| [Discord](connectors/discord.md) | Send | Discord Bot API |
-| [SMS](connectors/sms.md) | Send | Twilio, AWS SNS |
-| [Push](connectors/push.md) | Send | FCM, APNs |
-| [Webhook](connectors/webhook.md) | Send | HTTP callbacks |
+| [Email](connectors/notifications.md#email) | Send | SMTP, SendGrid, AWS SES |
+| [Slack](connectors/notifications.md#slack) | Send | Slack Bot API |
+| [Discord](connectors/notifications.md#discord) | Send | Discord Bot API |
+| [SMS](connectors/notifications.md#sms) | Send | Twilio, AWS SNS |
+| [Push](connectors/notifications.md#push-notifications) | Send | FCM, APNs |
+| [Webhook](connectors/notifications.md#webhook) | Send | HTTP callbacks |
+| [PDF](connectors/pdf.md) | Write | Render PDF documents |
+| [Exec](connectors/exec.md) | Write | Run shell commands |
 
 ---
 
@@ -141,4 +144,4 @@ Documentation for each connector type.
 |----------|-------------|
 | [Architecture](architecture.md) | Design decisions: why HCL, why CEL, why WASM, why Go, trade-offs |
 | [Roadmap](ROADMAP.md) | Implementation status, phase history, and pending work |
-| [Changelog](../CHANGELOG.md) | Version history with detailed change descriptions |
+| [Changelog](https://github.com/matutetandil/mycel/blob/main/CHANGELOG.md) | Version history with detailed change descriptions |

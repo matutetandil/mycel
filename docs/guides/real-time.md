@@ -289,7 +289,7 @@ flow "react_to_price_change" {
 
 The client automatically reconnects with exponential backoff if the connection drops.
 
-See the [GraphQL connector docs](../connectors/graphql.md) and [federation example](../../examples/graphql-federation) for complete setup.
+See the [GraphQL connector docs](../connectors/graphql.md) and [federation example](https://github.com/matutetandil/mycel/tree/main/examples/graphql-federation) for complete setup.
 
 ## Combining Real-Time Patterns
 

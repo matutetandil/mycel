@@ -495,7 +495,7 @@ flow "import_csv" {
 }
 ```
 
-See the [files example](../../examples/files/) for a complete working setup.
+See the [files example](https://github.com/matutetandil/mycel/tree/main/examples/files) for a complete working setup.
 
 ---
 

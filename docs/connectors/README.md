@@ -2,7 +2,7 @@
 
 Mycel connectors are bidirectional adapters between your service and external systems. Each connector can act as a **source** (receives data that triggers a flow) or a **target** (destination where a flow writes data).
 
-For the general connector concept and how they fit into the Mycel model, see [Concepts — Connectors](../CONCEPTS.md#connectors).
+For the general connector concept and how they fit into the Mycel model, see [Connectors](../core-concepts/connectors.md).
 
 ---
 

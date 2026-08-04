@@ -90,7 +90,7 @@ flow "room_notification" {
 }
 ```
 
-See the [websocket example](../../examples/websocket/) for a complete working setup.
+See the [websocket example](https://github.com/matutetandil/mycel/tree/main/examples/websocket) for a complete working setup.
 
 ---
 

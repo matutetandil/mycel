@@ -533,7 +533,7 @@ flow "enqueue_order" {
 }
 ```
 
-See the [mq example](../../examples/mq/) for a complete working setup.
+See the [mq example](https://github.com/matutetandil/mycel/tree/main/examples/mq) for a complete working setup.
 
 ---
 
