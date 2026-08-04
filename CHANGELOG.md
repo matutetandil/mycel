@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Flow source parameters are validated against the connector's schema.** Connectors have always declared which flow parameters they require via `ConnectorSchemaProvider.SourceSchema`, but only the IDE engine consumed that contract. A REST flow missing its `operation` parsed cleanly and registered a handler for the empty operation instead of failing. `mycel validate` and `mycel start` now check every flow's `from` block and report each missing required attribute:
+
+  ```
+  flow "create_user": from block is missing attribute "operation" required by connector "api" (rest)
+  ```
+
+  Only attributes marked required are enforced, so connectors that default a parameter are unaffected — message queues, MQTT, CDC, WebSocket and file watch all default `operation` to the catch-all `"*"` and stay legal without it. Connectors with no registered schema, such as plugin-provided ones, are skipped. Verified against all 81 example config directories with no new failures.
+
+### Documentation
+
+- **`operation` was documented as always required in the `from` block; it isn't.** It is required for `rest`, `graphql`, `grpc`, `soap`, `tcp` and `sse`, and optional for `mq`, `mqtt`, `cdc`, `websocket` and `file` watch, which default it to `"*"`. The flows page and the source properties reference now state which case each connector falls into, and the catch-all default is documented for the first time.
+- **The connector type for message queues was documented as `queue`.** The real HCL type is `mq` — `queue` parses but fails when the runtime builds the connector.
+- **New "Flow Anatomy" section opens the flows page**: the pipeline diagram, then a table of all 21 blocks and 4 attributes a flow can contain, each with what it does and a link to its full documentation. Writing it surfaced blocks the configuration reference had missed entirely — `accept` and `sequence_guard` were parseable but undocumented there, and the PDF connector had no section at all; all three added, plus a `sequence_guard` section on the flows page.
+- **Navigation repairs.** The reusable blocks and resilience pages existed but were absent from the site navigation. Guides were ordered alphabetically in the nav while the documentation index ordered them as a learning path; the nav now follows the index. Top-level groups render as tabs instead of listing every page in one scroll. Every broken link and heading anchor is fixed — links leaving `docs/` now use absolute repository URLs (they resolved from the wrong depth and 404'd on the site), and heading slugs are GitHub-compatible so the same anchor works in both places. `mkdocs build --strict` completes with no warnings.
+
 ## [2.11.1] - 2026-07-27
 
 ### Changed
