@@ -32,8 +32,8 @@ var (
 )
 
 func main() {
+	// Cobra has already reported the error; just set the exit status.
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
@@ -66,6 +66,14 @@ Environment Variables:
 Documentation:
   https://github.com/matutetandil/mycel`,
 	Version: fmt.Sprintf("%s (commit: %s)", version, commit),
+
+	// Suppress the usage dump once a command is actually running: a config that
+	// fails to validate is not a usage mistake, and burying the diagnostics
+	// under the flag list helps nobody. Flag and argument errors are raised
+	// before this hook runs, so those still print usage.
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+		cmd.SilenceUsage = true
+	},
 }
 
 var startCmd = &cobra.Command{
