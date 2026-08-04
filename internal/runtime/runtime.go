@@ -6,6 +6,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -244,6 +245,13 @@ func New(opts Options) (*Runtime, error) {
 	config, err := p.Parse(context.Background(), opts.ConfigDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse configuration: %w", err)
+	}
+
+	// Check each flow's "from" block against its source connector's schema,
+	// so a missing required parameter fails here instead of surfacing later
+	// as a confusing runtime error.
+	if errs := ValidateFlowSchemas(config, schemaReg); len(errs) > 0 {
+		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
 
 	// Create connector registry

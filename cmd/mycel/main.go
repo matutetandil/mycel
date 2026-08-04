@@ -407,10 +407,21 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Config dir: %s\n", configDir)
 
 	// Parse configuration
-	p := parser.NewHCLParser()
+	schemaReg := runtime.NewSchemaRegistry()
+	p := parser.NewHCLParserWithRegistry(schemaReg)
 	config, err := p.Parse(context.Background(), configDir)
 	if err != nil {
 		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	// Check every flow's "from" block against its source connector's schema
+	if errs := runtime.ValidateFlowSchemas(config, schemaReg); len(errs) > 0 {
+		fmt.Printf("\n✗ Configuration is invalid:\n\n")
+		for _, e := range errs {
+			fmt.Printf("    - %s\n", e)
+		}
+		fmt.Println()
+		return fmt.Errorf("validation failed: %d flow error(s)", len(errs))
 	}
 
 	// Report success
