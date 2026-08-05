@@ -68,7 +68,7 @@ go build -o mycel ./cmd/mycel
 
 ```bash
 mycel version
-# mycel v1.7.0 (go1.21)
+# mycel 2.12.0 (commit: 64be3eb, go1.25.0, linux/amd64)
 ```
 
 ## Helm (Kubernetes)

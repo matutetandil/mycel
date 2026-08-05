@@ -254,6 +254,13 @@ func New(opts Options) (*Runtime, error) {
 		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
 
+	// Attributes that parse but do nothing. Not fatal — they are inert, and
+	// failing here would break configs that work today — but the whole point
+	// is that nobody can tell they are inert by reading the file.
+	for _, w := range InertFlowAttrs(config) {
+		opts.Logger.Warn("configuration has no effect", "detail", w)
+	}
+
 	// Create connector registry
 	registry := connector.NewRegistry()
 
@@ -2204,18 +2211,14 @@ func getString(props map[string]interface{}, key, defaultVal string) string {
 	return defaultVal
 }
 
+// getInt reads an int property for the startup banner.
+//
+// It delegates so that a string survives: env() returns a string, so
+// `port = env("PORT")` used to fall through to the default here and the banner
+// announced a port the service was not listening on. The connector factories
+// have coerced since 1.19.1; this is the display path catching up.
 func getInt(props map[string]interface{}, key string, defaultVal int) int {
-	if v, ok := props[key]; ok {
-		switch n := v.(type) {
-		case int:
-			return n
-		case int64:
-			return int(n)
-		case float64:
-			return int(n)
-		}
-	}
-	return defaultVal
+	return connector.IntFromProps(props, key, defaultVal)
 }
 
 func getBool(props map[string]interface{}, key string, defaultVal bool) bool {
