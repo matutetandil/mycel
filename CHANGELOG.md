@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Every item here has the same shape: a misconfiguration that produced no error, just an absence of behaviour. Nothing in this release changes what a correct configuration does.
+
+### Added
+
+- **`mycel version`.** Documented in the CLI reference, the README and the installation guide, but never actually registered — only cobra's `--version` flag existed. It prints the version, build commit, Go toolchain and platform. The same information is in the startup banner, which is no help on a pod that has been running long enough for that line to roll out of the log buffer.
+
+  ```
+  mycel 2.12.0 (commit: 64be3eb, go1.25.0, linux/amd64)
+  ```
+
+- **`mycel_messages_undispatched_total{connector,queue,routing_key}`.** Counts messages that reached a consumer and matched no flow handler. Previously nothing recorded these: the queue showed deliveries with no acks, and no metric moved.
+
+- **`mycel validate` reports unset `env()` references.** Startup already names the missing variable when the empty value leaves a required attribute unset (2.11.1), but validate passed clean on the same config. Unset variables are a warning, not a failure — validate legitimately runs in CI, without the deployment environment — and the output names the connector and attribute each one feeds.
+
+- **`mycel validate` and startup report configuration that has no effect.** `params` on a `to` block is the first case: it parses, and nothing ever reads it. A write sends the transform output, or the raw input when the flow has no transform. The attribute is real on `step`, on `enrich`, and on `exec` inside a `transaction`, which is how it ends up copied onto `to`.
+
+- **`mycel check` actually checks.** It created the runtime, printed `✓ All connectors configured correctly!` and exited zero without opening a single connection — a database on an unroutable address passed, and the documented per-connector output did not exist. It now builds, connects and health-checks every connector, concurrently and each with its own timeout (`--timeout`, default 10s), reporting all of them rather than stopping at the first failure:
+
+  ```
+    ✓ orders_db (database/postgres): connected in 12ms
+    ✗ payments_api (http): no response within 10s
+
+  Error: 1 of 2 connectors unreachable
+  ```
+
+  Exits non-zero when anything is unreachable, so it works as a deploy gate. `connection refused` (something answered and said no) is distinguished from `no response within <timeout>` (nothing answered at all), and failures to build the connector are reported the same way, including the missing environment variable behind an empty `env()`.
+
+- **The sync, cache and connector metrics are recorded.** They were defined, registered and documented from the start — including a Grafana panel for cache hit rate — with no call sites anywhere, so they were permanently absent from `/metrics`. Now emitted: `mycel_lock_*`, `mycel_semaphore_*`, `mycel_coordinate_*`, `mycel_cache_{hits,misses}_total`, `mycel_connector_health`, `mycel_connector_operations_total` and `mycel_connector_latency_seconds`.
+
+  `mycel_lock_wait_seconds` is the one worth watching: time spent waiting for a lock is invisible in `mycel_flow_duration_seconds`, so a consumer that looks fast per message can still be serialized behind a hot key.
+
+  **The sync metrics are now labelled by `flow`, not by `key`.** Lock, semaphore and signal keys are CEL expressions evaluated per message — one per order, per SKU, per customer — so recording them as declared would have grown the time series set without bound. `mycel_connector_operations_total` labels the operation coarsely (`read`, `write`, `call`) for the same reason. Since none of these metrics had ever been emitted, no existing dashboard or alert can break.
+
+### Changed
+
+- **A message no flow can handle is now an error, not a warning.** This applies to **RabbitMQ, Kafka and Redis**, which all had the same hole: WARN, no metric, message gone. Each states what it just did, because the outcome differs — RabbitMQ nacks without requeue (a dead-letter exchange may still catch it), Kafka commits the offset (it will not be redelivered), Redis pub/sub simply discards.
+
+  The usual cause is that on a message queue source `operation` reads like an operation *name* but is a subscription *pattern*, so an invented value matches nothing and every delivery is dropped. The first occurrence per key is logged at ERROR with the patterns flows actually registered alongside it — the difference between the two is the diagnosis. Repeats only move the counter, so a misconfigured consumer does not drown the log.
+
+- **Consumers log the routing keys they will dispatch at startup**, and log an error when a consumer starts with no flow handlers at all. Both make the mismatch visible before the first message arrives.
+
+- **`dlq { enabled = true }` says plainly when it is not in effect.** Mycel provisions the dead-letter exchange only when it declared the queue itself; on a pre-existing queue it provisions nothing, so a message that exhausts its retries is discarded unless the queue already carries `x-dead-letter-exchange` or a server-side policy sets one. This was already warned about, but the message opened with the part that still works and left the conclusion to the end. It now leads with the conclusion and states what to check.
+
+  It stays a warning rather than a startup failure because Mycel genuinely cannot check: AMQP's `queue.declare-ok` returns the name, message count and consumer count and nothing else, and policies are not visible over AMQP at all — a correctly dead-lettered queue and one with no dead-lettering anywhere look identical. New `dlq { external = true }` records the answer once you have checked the broker yourself: Mycel then provisions no DLX or DLQ, sets no `x-dead-letter-exchange` argument (it does not know which exchange name ops chose), and stays quiet. Retry counting is unaffected either way, and omitting the attribute keeps the previous behaviour exactly.
+
+- **Per-delivery handler lookup logging moved from info to debug.** It logged a line for every message in production.
+
 ## [2.12.0] - 2026-08-04
 
 ### Added

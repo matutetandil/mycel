@@ -33,6 +33,48 @@ Mycel exposes metrics in Prometheus format at `/metrics`.
 | `mycel_flow_duration_seconds` | Histogram | flow | Flow execution duration |
 | `mycel_flow_errors_total` | Counter | flow, error_type | Flow errors by type |
 
+### Message Queue Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `mycel_messages_undispatched_total` | Counter | connector, driver, target, key | Messages that matched no flow handler and were dropped |
+
+`target` is where the message arrived and `key` is what was matched against the
+handler patterns:
+
+| Driver | `target` | `key` | What happens to the message |
+|--------|----------|-------|------------------------------|
+| `rabbitmq` | queue | routing key | Nacked without requeue — discarded unless the queue has a dead-letter exchange |
+| `kafka` | topic | topic | Offset committed — it will not be redelivered |
+| `redis` | channel | channel | Discarded — pub/sub retains nothing |
+
+This counter should stay at zero. Anything else means the broker routed a
+message to this consumer that no flow claims. The usual cause is a
+`from { operation = "..." }` that matches no key actually delivered: on a
+message queue source `operation` reads like an operation *name* but is a
+subscription *pattern*, and an invented value matches nothing. Omit it to accept
+every message.
+
+The first occurrence per key is also logged at error level, with the patterns
+your flows registered — the difference between the two is the diagnosis:
+
+```
+ERROR message dropped: no flow handles this key
+      driver=rabbitmq target=orders.in.q key=gallery-assets
+      registered_patterns=[product.created product.updated]
+      consequence="nacked without requeue; discarded unless the queue has a dead-letter exchange"
+```
+
+Repeats only move the counter, so a misconfigured consumer does not drown the
+log. Worth an alert:
+
+```yaml
+- alert: MycelMessagesUndispatched
+  expr: increase(mycel_messages_undispatched_total[5m]) > 0
+  annotations:
+    summary: "{{ $labels.connector }} is dropping messages on {{ $labels.target }} with key {{ $labels.key }}"
+```
+
 ### Connector Metrics
 
 | Metric | Type | Labels | Description |
@@ -41,6 +83,15 @@ Mycel exposes metrics in Prometheus format at `/metrics`.
 | `mycel_connector_operations_total` | Counter | connector, type, operation, status | Operations count |
 | `mycel_connector_latency_seconds` | Histogram | connector, type, operation | Operation latency |
 
+`operation` is deliberately coarse — `read`, `write` or `call` — never the query
+or the target: a SQL statement as a label is unbounded cardinality. This answers
+"which connector is slow or failing"; `mycel_flow_duration_seconds` carries the
+per-flow breakdown.
+
+`mycel_connector_health` is refreshed whenever the health endpoint runs a check,
+so scrape `/health` on a schedule (or point a Kubernetes probe at it) if you
+want the gauge to track reality between deploys.
+
 ### Cache Metrics
 
 | Metric | Type | Labels | Description |
@@ -48,6 +99,11 @@ Mycel exposes metrics in Prometheus format at `/metrics`.
 | `mycel_cache_hits_total` | Counter | cache | Cache hits |
 | `mycel_cache_misses_total` | Counter | cache | Cache misses |
 | `mycel_cache_size` | Gauge | cache | Current cache size |
+
+`cache` is the configured storage name, falling back to the flow name when the
+`cache {}` block declares none. A cache error counts as a miss: the flow falls
+through and does the work either way, so counting it as anything else would
+overstate how often the cache saved a round trip.
 
 ### Profile Metrics
 
@@ -63,15 +119,39 @@ Mycel exposes metrics in Prometheus format at `/metrics`.
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `mycel_lock_acquired_total` | Counter | key | Locks acquired |
-| `mycel_lock_released_total` | Counter | key | Locks released |
-| `mycel_lock_wait_seconds` | Histogram | key | Lock wait time |
-| `mycel_lock_timeout_total` | Counter | key | Lock timeouts |
-| `mycel_lock_held` | Gauge | key | Currently held locks |
-| `mycel_semaphore_acquired_total` | Counter | key | Semaphore permits acquired |
-| `mycel_semaphore_available` | Gauge | key | Available permits |
-| `mycel_coordinate_signal_total` | Counter | signal | Signals emitted |
-| `mycel_coordinate_wait_seconds` | Histogram | signal | Wait duration |
+| `mycel_lock_acquired_total` | Counter | flow | Locks acquired |
+| `mycel_lock_released_total` | Counter | flow | Locks released |
+| `mycel_lock_wait_seconds` | Histogram | flow | Time spent waiting for the lock |
+| `mycel_lock_timeout_total` | Counter | flow | Lock acquisitions that gave up |
+| `mycel_lock_held` | Gauge | flow | Locks currently held |
+| `mycel_semaphore_acquired_total` | Counter | flow | Semaphore permits acquired |
+| `mycel_semaphore_released_total` | Counter | flow | Semaphore permits released |
+| `mycel_semaphore_wait_seconds` | Histogram | flow | Time spent waiting for a permit |
+| `mycel_semaphore_timeout_total` | Counter | flow | Permit acquisitions that gave up |
+| `mycel_coordinate_signal_total` | Counter | flow | Signals emitted |
+| `mycel_coordinate_wait_total` | Counter | flow | Waits started |
+| `mycel_coordinate_wait_seconds` | Histogram | flow | Wait duration |
+| `mycel_coordinate_timeout_total` | Counter | flow | Waits that timed out |
+| `mycel_coordinate_active_waits` | Gauge | flow | Flows currently blocked in a wait |
+| `mycel_coordinate_preflight_hit_total` | Counter | flow | Preflight checks that skipped the wait |
+
+These are labelled by **flow, not by key**. Lock, semaphore and signal keys are
+CEL expressions evaluated per message — one per order, per SKU, per customer —
+so using them as a label would grow the time series set without bound. The flow
+is also the dimension that answers the operational question: which flow is
+contending, not which entity.
+
+`mycel_lock_wait_seconds` is the one to watch. Time a message spends waiting for
+a lock is invisible in `mycel_flow_duration_seconds`, so a consumer that looks
+fast per message can still be serialized behind a hot key:
+
+```promql
+# p95 lock wait by flow
+histogram_quantile(0.95, sum by (flow, le) (rate(mycel_lock_wait_seconds_bucket[5m])))
+
+# flows giving up on locks
+rate(mycel_lock_timeout_total[5m]) > 0
+```
 
 ### Runtime Metrics
 
