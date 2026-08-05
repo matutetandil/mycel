@@ -31,6 +31,9 @@ type Registry struct {
 	ConnectorOperations *prometheus.CounterVec
 	ConnectorLatency    *prometheus.HistogramVec
 
+	// Message queue metrics
+	MessagesUndispatched *prometheus.CounterVec
+
 	// Flow metrics
 	FlowExecutions *prometheus.CounterVec
 	FlowDuration   *prometheus.HistogramVec
@@ -137,6 +140,22 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 			[]string{"connector", "type", "operation"},
 		),
 
+		// Message queue metrics.
+		//
+		// target is where the message arrived (queue, topic, channel) and key
+		// is what was matched against the handler patterns — the routing key
+		// on RabbitMQ, the topic on Kafka, the channel on Redis. key is a
+		// label because "which key is being dropped" is the whole diagnostic
+		// value here; cardinality is bounded in practice, since a consumer
+		// only sees keys it is subscribed to.
+		MessagesUndispatched: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "mycel_messages_undispatched_total",
+				Help: "Messages delivered to a consumer that no flow handler matched (dropped)",
+			},
+			[]string{"connector", "driver", "target", "key"},
+		),
+
 		// Flow metrics
 		FlowExecutions: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -190,14 +209,14 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 				Name: "mycel_lock_acquired_total",
 				Help: "Total number of locks acquired",
 			},
-			[]string{"key"},
+			[]string{"flow"},
 		),
 		LockReleased: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "mycel_lock_released_total",
 				Help: "Total number of locks released",
 			},
-			[]string{"key"},
+			[]string{"flow"},
 		),
 		LockWaitSeconds: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -205,21 +224,21 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 				Help:    "Time spent waiting to acquire a lock",
 				Buckets: prometheus.DefBuckets,
 			},
-			[]string{"key"},
+			[]string{"flow"},
 		),
 		LockTimeout: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "mycel_lock_timeout_total",
 				Help: "Total number of lock acquisition timeouts",
 			},
-			[]string{"key"},
+			[]string{"flow"},
 		),
 		LockHeld: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "mycel_lock_held",
 				Help: "Current number of held locks",
 			},
-			[]string{"key"},
+			[]string{"flow"},
 		),
 
 		// Semaphore metrics
@@ -228,14 +247,14 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 				Name: "mycel_semaphore_acquired_total",
 				Help: "Total number of semaphore permits acquired",
 			},
-			[]string{"key"},
+			[]string{"flow"},
 		),
 		SemaphoreReleased: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "mycel_semaphore_released_total",
 				Help: "Total number of semaphore permits released",
 			},
-			[]string{"key"},
+			[]string{"flow"},
 		),
 		SemaphoreWaitSeconds: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -243,21 +262,21 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 				Help:    "Time spent waiting to acquire a semaphore permit",
 				Buckets: prometheus.DefBuckets,
 			},
-			[]string{"key"},
+			[]string{"flow"},
 		),
 		SemaphoreTimeout: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "mycel_semaphore_timeout_total",
 				Help: "Total number of semaphore acquisition timeouts",
 			},
-			[]string{"key"},
+			[]string{"flow"},
 		),
 		SemaphoreAvailable: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "mycel_semaphore_available",
 				Help: "Current number of available semaphore permits",
 			},
-			[]string{"key"},
+			[]string{"flow"},
 		),
 
 		// Coordinate metrics
@@ -266,14 +285,14 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 				Name: "mycel_coordinate_signal_total",
 				Help: "Total number of signals emitted",
 			},
-			[]string{"signal"},
+			[]string{"flow"},
 		),
 		CoordinateWait: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "mycel_coordinate_wait_total",
 				Help: "Total number of waits started",
 			},
-			[]string{"signal"},
+			[]string{"flow"},
 		),
 		CoordinateWaitSeconds: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -281,14 +300,14 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 				Help:    "Time spent waiting for a signal",
 				Buckets: prometheus.DefBuckets,
 			},
-			[]string{"signal"},
+			[]string{"flow"},
 		),
 		CoordinateTimeout: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "mycel_coordinate_timeout_total",
 				Help: "Total number of coordinate wait timeouts",
 			},
-			[]string{"signal"},
+			[]string{"flow"},
 		),
 		CoordinatePreflightHit: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -302,7 +321,7 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 				Name: "mycel_coordinate_active_waits",
 				Help: "Current number of active waits",
 			},
-			[]string{"signal"},
+			[]string{"flow"},
 		),
 
 		// Scheduler metrics
@@ -401,6 +420,7 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 		r.ConnectorHealth,
 		r.ConnectorOperations,
 		r.ConnectorLatency,
+		r.MessagesUndispatched,
 		r.FlowExecutions,
 		r.FlowDuration,
 		r.FlowErrors,
@@ -479,6 +499,12 @@ func (r *Registry) RecordConnectorOperation(connector, connType, operation, stat
 	r.ConnectorLatency.WithLabelValues(connector, connType, operation).Observe(duration.Seconds())
 }
 
+// RecordUndispatchedMessage records a message that reached a consumer but
+// matched no flow handler, and was therefore dropped.
+func (r *Registry) RecordUndispatchedMessage(connector, driver, target, key string) {
+	r.MessagesUndispatched.WithLabelValues(connector, driver, target, key).Inc()
+}
+
 // RecordFlowExecution records a flow execution.
 func (r *Registry) RecordFlowExecution(flow, status string, duration time.Duration) {
 	r.FlowExecutions.WithLabelValues(flow, status).Inc()
@@ -505,64 +531,70 @@ func (r *Registry) SetCacheSize(cache string, size int64) {
 	r.CacheSize.WithLabelValues(cache).Set(float64(size))
 }
 
+// Sync metrics are labelled by flow, not by the lock/semaphore/signal key.
+// Those keys are evaluated per message — one per order, per SKU, per customer —
+// so using them as a label would grow the time series set without bound and
+// take Prometheus down with it. The flow is the bounded dimension, and it is
+// also the one that answers the operational question: which flow is contending.
+
 // RecordLockAcquired records a successful lock acquisition.
-func (r *Registry) RecordLockAcquired(key string, waitDuration time.Duration) {
-	r.LockAcquired.WithLabelValues(key).Inc()
-	r.LockWaitSeconds.WithLabelValues(key).Observe(waitDuration.Seconds())
-	r.LockHeld.WithLabelValues(key).Inc()
+func (r *Registry) RecordLockAcquired(flow string, waitDuration time.Duration) {
+	r.LockAcquired.WithLabelValues(flow).Inc()
+	r.LockWaitSeconds.WithLabelValues(flow).Observe(waitDuration.Seconds())
+	r.LockHeld.WithLabelValues(flow).Inc()
 }
 
 // RecordLockReleased records a lock release.
-func (r *Registry) RecordLockReleased(key string) {
-	r.LockReleased.WithLabelValues(key).Inc()
-	r.LockHeld.WithLabelValues(key).Dec()
+func (r *Registry) RecordLockReleased(flow string) {
+	r.LockReleased.WithLabelValues(flow).Inc()
+	r.LockHeld.WithLabelValues(flow).Dec()
 }
 
 // RecordLockTimeout records a lock acquisition timeout.
-func (r *Registry) RecordLockTimeout(key string, waitDuration time.Duration) {
-	r.LockTimeout.WithLabelValues(key).Inc()
-	r.LockWaitSeconds.WithLabelValues(key).Observe(waitDuration.Seconds())
+func (r *Registry) RecordLockTimeout(flow string, waitDuration time.Duration) {
+	r.LockTimeout.WithLabelValues(flow).Inc()
+	r.LockWaitSeconds.WithLabelValues(flow).Observe(waitDuration.Seconds())
 }
 
 // RecordSemaphoreAcquired records a successful semaphore permit acquisition.
-func (r *Registry) RecordSemaphoreAcquired(key string, waitDuration time.Duration) {
-	r.SemaphoreAcquired.WithLabelValues(key).Inc()
-	r.SemaphoreWaitSeconds.WithLabelValues(key).Observe(waitDuration.Seconds())
+func (r *Registry) RecordSemaphoreAcquired(flow string, waitDuration time.Duration) {
+	r.SemaphoreAcquired.WithLabelValues(flow).Inc()
+	r.SemaphoreWaitSeconds.WithLabelValues(flow).Observe(waitDuration.Seconds())
 }
 
 // RecordSemaphoreReleased records a semaphore permit release.
-func (r *Registry) RecordSemaphoreReleased(key string) {
-	r.SemaphoreReleased.WithLabelValues(key).Inc()
+func (r *Registry) RecordSemaphoreReleased(flow string) {
+	r.SemaphoreReleased.WithLabelValues(flow).Inc()
 }
 
 // RecordSemaphoreTimeout records a semaphore acquisition timeout.
-func (r *Registry) RecordSemaphoreTimeout(key string, waitDuration time.Duration) {
-	r.SemaphoreTimeout.WithLabelValues(key).Inc()
-	r.SemaphoreWaitSeconds.WithLabelValues(key).Observe(waitDuration.Seconds())
+func (r *Registry) RecordSemaphoreTimeout(flow string, waitDuration time.Duration) {
+	r.SemaphoreTimeout.WithLabelValues(flow).Inc()
+	r.SemaphoreWaitSeconds.WithLabelValues(flow).Observe(waitDuration.Seconds())
 }
 
 // SetSemaphoreAvailable sets the current available semaphore permits.
-func (r *Registry) SetSemaphoreAvailable(key string, available int) {
-	r.SemaphoreAvailable.WithLabelValues(key).Set(float64(available))
+func (r *Registry) SetSemaphoreAvailable(flow string, available int) {
+	r.SemaphoreAvailable.WithLabelValues(flow).Set(float64(available))
 }
 
 // RecordCoordinateSignal records a signal emission.
-func (r *Registry) RecordCoordinateSignal(signal string) {
-	r.CoordinateSignal.WithLabelValues(signal).Inc()
+func (r *Registry) RecordCoordinateSignal(flow string) {
+	r.CoordinateSignal.WithLabelValues(flow).Inc()
 }
 
 // RecordCoordinateWait records a wait initiation.
-func (r *Registry) RecordCoordinateWait(signal string) {
-	r.CoordinateWait.WithLabelValues(signal).Inc()
-	r.CoordinateActiveWaits.WithLabelValues(signal).Inc()
+func (r *Registry) RecordCoordinateWait(flow string) {
+	r.CoordinateWait.WithLabelValues(flow).Inc()
+	r.CoordinateActiveWaits.WithLabelValues(flow).Inc()
 }
 
 // RecordCoordinateWaitComplete records a wait completion.
-func (r *Registry) RecordCoordinateWaitComplete(signal string, waitDuration time.Duration, timedOut bool) {
-	r.CoordinateWaitSeconds.WithLabelValues(signal).Observe(waitDuration.Seconds())
-	r.CoordinateActiveWaits.WithLabelValues(signal).Dec()
+func (r *Registry) RecordCoordinateWaitComplete(flow string, waitDuration time.Duration, timedOut bool) {
+	r.CoordinateWaitSeconds.WithLabelValues(flow).Observe(waitDuration.Seconds())
+	r.CoordinateActiveWaits.WithLabelValues(flow).Dec()
 	if timedOut {
-		r.CoordinateTimeout.WithLabelValues(signal).Inc()
+		r.CoordinateTimeout.WithLabelValues(flow).Inc()
 	}
 }
 
