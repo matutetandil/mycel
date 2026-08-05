@@ -136,6 +136,19 @@ type DLQConfig struct {
 	// RetryHeader is the header name used to track retry count
 	// Default: x-retry-count
 	RetryHeader string
+
+	// External asserts that the dead-letter topology is declared outside
+	// Mycel — by Terraform, rabbitmqctl, or a server-side policy. Mycel then
+	// provisions no DLX or DLQ, sets no x-dead-letter-exchange argument, and
+	// stays quiet about it. Retry counting is unaffected either way.
+	//
+	// This exists because AMQP offers no way to read a queue's arguments back:
+	// QueueDeclarePassive returns only name, message count and consumer count,
+	// and policies are not visible over AMQP at all. So on a pre-existing
+	// queue Mycel cannot distinguish "correctly dead-lettered by ops" from
+	// "no dead-lettering anywhere", and without this flag it has to warn about
+	// both. It is an operator assertion, not something Mycel verifies.
+	External bool
 }
 
 // PublisherConfig holds publisher options.

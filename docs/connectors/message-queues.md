@@ -177,6 +177,55 @@ Configure automatic retry and dead-lettering for failed messages. Nest inside th
 | `consumer.dlq.max_retries` | int | optional | `3` | Max retry attempts before dead-lettering |
 | `consumer.dlq.retry_delay` | duration | optional | `0` | Delay before requeuing for retry |
 | `consumer.dlq.retry_header` | string | optional | `x-retry-count` | Header name to track retry count |
+| `consumer.dlq.external` | bool | optional | `false` | The dead-letter topology is declared outside Mycel; provision nothing and do not warn |
+
+#### Who declares the dead-letter exchange
+
+Mycel provisions the DLX and DLQ **only when it declared the queue itself**.
+Since 2.0.0 it does not create queues that already exist, so on a queue created
+by ops — Terraform, `rabbitmqctl`, the management UI — Mycel provisions no
+dead-letter topology at all. Retries still work: `max_retries` is enforced by
+republishing with a counter header, which needs no broker support. Only the
+final rejection depends on the queue's own configuration, and a queue with no
+dead-letter exchange discards it.
+
+Mycel cannot check this for you. AMQP has no way to read a queue's arguments
+back — `queue.declare-ok` returns the name, message count and consumer count,
+nothing else — and policies are not visible over AMQP at all. So it warns at
+startup whenever `dlq { enabled = true }` sits on a pre-existing queue:
+
+```
+WARN dlq { enabled = true } is NOT provisioned by Mycel for this queue: ...
+     queue=orders.in.q max_retries=3
+```
+
+Check the queue on the broker — the management UI shows a `DLX` badge on queues
+that carry `x-dead-letter-exchange`, and `rabbitmqctl list_queues name arguments
+policy` prints both the arguments and any policy in effect. Then:
+
+- **The DLX is there**, set by ops or a policy. Nothing is wrong; record that
+  with `external = true` and the warning stops.
+
+  ```hcl
+  consumer {
+    queue = "orders.in.q"
+
+    dlq {
+      enabled     = true
+      max_retries = 3
+      external    = true   # ops owns the DLX; Mycel provisions nothing
+    }
+  }
+  ```
+
+- **The DLX is missing.** Messages that exhaust their retries are being
+  discarded. Add the dead-lettering where the queue is declared, or let Mycel
+  own the queue (`create_if_missing = true`) so it declares the whole topology.
+
+`external = true` is an assertion, not a check: Mycel takes your word for it,
+skips provisioning, and leaves `x-dead-letter-exchange` alone — it does not know
+which exchange name ops chose, and guessing would dead-letter into an exchange
+that does not exist.
 
 ### Publisher Options
 
