@@ -12,6 +12,7 @@ import (
 	"github.com/segmentio/kafka-go/sasl/scram"
 
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/connector/mq/undispatched"
 	"github.com/matutetandil/mycel/internal/flow"
 )
 
@@ -183,12 +184,21 @@ func (c *Connector) handleMessage(ctx context.Context, msg kafka.Message) error 
 	// Find handler for this topic
 	c.mu.RLock()
 	handler := c.findHandler(msg.Topic)
+	patterns := undispatched.SortedPatterns(c.handlers)
 	c.mu.RUnlock()
 
 	if handler == nil {
-		c.logger.Warn("no handler for topic",
-			"topic", msg.Topic,
-		)
+		// Returning nil lets the caller commit the offset, so the message is
+		// gone for good — worth stating, since it differs from RabbitMQ where
+		// a dead-letter exchange could still catch it.
+		c.undispatched.Report(c.logger, undispatched.Event{
+			Connector:   c.name,
+			Driver:      "kafka",
+			Target:      msg.Topic,
+			Key:         msg.Topic,
+			Patterns:    patterns,
+			Consequence: "offset committed; the message will not be redelivered",
+		})
 		return nil // Don't error, just skip
 	}
 

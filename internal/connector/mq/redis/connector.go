@@ -12,6 +12,7 @@ import (
 
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/mq/types"
+	"github.com/matutetandil/mycel/internal/connector/mq/undispatched"
 	"github.com/matutetandil/mycel/internal/flow"
 )
 
@@ -42,6 +43,9 @@ type Connector struct {
 
 	// Debug throttling: single-message processing when debugger is connected
 	debugGate connector.DebugGate
+
+	// Reports messages no flow handler matched.
+	undispatched undispatched.Reporter
 }
 
 // NewConnector creates a new Redis Pub/Sub connector.
@@ -265,13 +269,20 @@ func (c *Connector) handleMessage(msg *redis.Message) {
 	// Find handler: try exact channel match first, then pattern match, then wildcard
 	c.mu.RLock()
 	handler := c.findHandler(msg.Channel, msg.Pattern)
+	patterns := undispatched.SortedPatterns(c.handlers)
 	c.mu.RUnlock()
 
 	if handler == nil {
-		c.logger.Warn("no handler for channel",
-			"channel", msg.Channel,
-			"pattern", msg.Pattern,
-		)
+		// Pub/sub has no acknowledgement and no redelivery: nothing retains
+		// this message once the callback returns.
+		c.undispatched.Report(c.logger, undispatched.Event{
+			Connector:   c.name,
+			Driver:      "redis",
+			Target:      msg.Channel,
+			Key:         msg.Channel,
+			Patterns:    patterns,
+			Consequence: "discarded; Redis pub/sub does not retain or redeliver messages",
+		})
 		return
 	}
 
