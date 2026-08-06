@@ -45,3 +45,8 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v5
+        with:
+          # Pages occasionally takes longer than the action's 10-minute default
+          # to confirm a deployment that has in fact succeeded, failing the run
+          # over a site that is already live (see the 2.13.0 docs deploy).
+          timeout: 1200000
