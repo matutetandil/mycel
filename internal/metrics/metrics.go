@@ -39,6 +39,10 @@ type Registry struct {
 	FlowDuration   *prometheus.HistogramVec
 	FlowErrors     *prometheus.CounterVec
 
+	// FlowStats derives fastest/slowest/average/throughput over successful
+	// executions only — see flowstats.go for why the histogram cannot.
+	FlowStats *FlowStats
+
 	// Cache metrics
 	CacheHits   *prometheus.CounterVec
 	CacheMisses *prometheus.CounterVec
@@ -179,6 +183,7 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 			},
 			[]string{"flow", "error_type"},
 		),
+		FlowStats: NewFlowStats(),
 
 		// Cache metrics
 		CacheHits: prometheus.NewCounterVec(
@@ -421,6 +426,7 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 		r.ConnectorOperations,
 		r.ConnectorLatency,
 		r.MessagesUndispatched,
+		r.FlowStats,
 		r.FlowExecutions,
 		r.FlowDuration,
 		r.FlowErrors,
@@ -509,6 +515,13 @@ func (r *Registry) RecordUndispatchedMessage(connector, driver, target, key stri
 func (r *Registry) RecordFlowExecution(flow, status string, duration time.Duration) {
 	r.FlowExecutions.WithLabelValues(flow, status).Inc()
 	r.FlowDuration.WithLabelValues(flow).Observe(duration.Seconds())
+
+	// Fastest/slowest/average/throughput cover successful work only: a flow
+	// that fails fast would otherwise take the "fastest" spot and pull the
+	// average down, making a broken service look quick.
+	if status == "success" {
+		r.FlowStats.Observe(flow, duration)
+	}
 }
 
 // RecordFlowError records a flow error.

@@ -30,8 +30,48 @@ Mycel exposes metrics in Prometheus format at `/metrics`.
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `mycel_flow_executions_total` | Counter | flow, status | Total flow executions |
-| `mycel_flow_duration_seconds` | Histogram | flow | Flow execution duration |
+| `mycel_flow_duration_seconds` | Histogram | flow | Flow execution duration (all executions) |
 | `mycel_flow_errors_total` | Counter | flow, error_type | Flow errors by type |
+| `mycel_flow_duration_fastest_seconds` | Gauge | flow | Fastest successful execution since start |
+| `mycel_flow_duration_slowest_seconds` | Gauge | flow | Slowest successful execution since start |
+| `mycel_flow_duration_average_seconds` | Gauge | flow | Mean of successful executions since start |
+| `mycel_flow_messages_per_second` | Gauge | flow | Successful executions per second, last minute |
+
+#### Throughput and timing
+
+The histogram is the primary instrument. With Prometheus you get throughput,
+average and percentiles from it directly:
+
+```promql
+rate(mycel_flow_duration_seconds_count[1m])                       # messages per second
+rate(mycel_flow_duration_seconds_sum[5m])
+  / rate(mycel_flow_duration_seconds_count[5m])                   # average duration
+histogram_quantile(0.95, sum by (flow, le)
+  (rate(mycel_flow_duration_seconds_bucket[5m])))                 # p95
+```
+
+Prefer these when you have a Prometheus server: they are windowed, so they
+follow the service instead of averaging over its whole uptime.
+
+The four gauges exist for what the histogram cannot give you:
+
+- **Exact fastest and slowest.** A histogram records which bucket a value fell
+  into, not the value, so `histogram_quantile` cannot recover the true extremes.
+- **Successful executions only.** `mycel_flow_duration_seconds` is not split by
+  status, so nothing derived from it can exclude failures. A flow that fails in
+  1 ms would otherwise take the "fastest" spot and pull the average down, making
+  a broken service look quick.
+
+They are also readable straight off `/metrics` with no query engine, which is
+often all you want when checking a single pod.
+
+Two caveats worth knowing. Fastest, slowest and average are cumulative **since
+process start**, so a single outlier pins the slowest value until the next
+restart — for trends, use the histogram. And `mycel_flow_messages_per_second` is
+already a rate, so graph it as-is; wrapping it in `rate()` is meaningless.
+
+A flow that has never completed successfully emits none of these, rather than
+reporting a fastest and slowest of zero.
 
 ### Message Queue Metrics
 

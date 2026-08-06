@@ -34,6 +34,12 @@ Every item here has the same shape: a misconfiguration that produced no error, j
 
   Exits non-zero when anything is unreachable, so it works as a deploy gate. `connection refused` (something answered and said no) is distinguished from `no response within <timeout>` (nothing answered at all), and failures to build the connector are reported the same way, including the missing environment variable behind an empty `env()`.
 
+- **Per-flow timing extremes and throughput**, over successful executions only: `mycel_flow_duration_fastest_seconds`, `mycel_flow_duration_slowest_seconds`, `mycel_flow_duration_average_seconds` and `mycel_flow_messages_per_second`.
+
+  Most of this was already derivable from the `mycel_flow_duration_seconds` histogram — `rate(_count)` is the throughput and `rate(_sum)/rate(_count)` the average — and those queries remain the better instrument where a Prometheus server is available, being windowed rather than cumulative. Two things were not derivable: a histogram records which bucket a value fell into rather than the value, so the true fastest and slowest cannot be recovered from it, and the histogram is not split by status, so nothing from it can be narrowed to messages that actually succeeded. A flow failing in 1 ms would otherwise take the "fastest" spot and pull the average down.
+
+  Computed at scrape time by a collector, with no background goroutine, and bounded memory per flow (throughput uses a fixed 60-slot ring, not a list of samples). The existing histogram is unchanged and still observes every execution.
+
 - **The sync, cache and connector metrics are recorded.** They were defined, registered and documented from the start — including a Grafana panel for cache hit rate — with no call sites anywhere, so they were permanently absent from `/metrics`. Now emitted: `mycel_lock_*`, `mycel_semaphore_*`, `mycel_coordinate_*`, `mycel_cache_{hits,misses}_total`, `mycel_connector_health`, `mycel_connector_operations_total` and `mycel_connector_latency_seconds`.
 
   `mycel_lock_wait_seconds` is the one worth watching: time spent waiting for a lock is invisible in `mycel_flow_duration_seconds`, so a consumer that looks fast per message can still be serialized behind a hot key.
