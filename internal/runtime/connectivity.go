@@ -24,6 +24,10 @@ type ConnectivityResult struct {
 	// Err is nil when the connector was built, connected and reported healthy.
 	Err error
 
+	// Inbound reports a connector that listens rather than dials, so there was
+	// nothing to reach and no verdict to give.
+	Inbound bool
+
 	// TimedOut reports that the check hit the timeout rather than failing
 	// outright, which usually means a firewall dropping packets rather than a
 	// host actively refusing.
@@ -33,7 +37,8 @@ type ConnectivityResult struct {
 	Duration time.Duration
 }
 
-// OK reports whether the connector connected and is healthy.
+// OK reports whether the connector connected and is healthy. Listeners are OK
+// by definition: there is nothing they could fail to reach.
 func (r ConnectivityResult) OK() bool { return r.Err == nil }
 
 // CheckConnectivity builds every configured connector, connects to it and runs
@@ -106,6 +111,15 @@ func (r *Runtime) checkOne(ctx context.Context, cfg *connector.Config, timeout t
 	conn, err := r.connectors.Get(cfg.Name)
 	if err != nil {
 		res.Err = err
+		return res
+	}
+
+	// A listener has no endpoint to reach, and its health check only reports
+	// whether it has been started — which check deliberately does not do. It
+	// was still worth building, since that is where a bad port or a malformed
+	// TLS config surfaces.
+	if inbound, ok := conn.(connector.InboundOnly); ok && inbound.InboundOnly() {
+		res.Inbound = true
 		return res
 	}
 

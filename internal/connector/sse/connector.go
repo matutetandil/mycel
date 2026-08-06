@@ -43,7 +43,7 @@ type Connector struct {
 	server            *http.Server
 
 	mu       sync.RWMutex
-	clients  map[string]*Client           // clientID -> Client
+	clients  map[string]*Client            // clientID -> Client
 	rooms    map[string]map[string]*Client // room -> clientID -> Client
 	handlers map[string]HandlerFunc
 	eventID  uint64 // atomic counter for event IDs
@@ -442,3 +442,6 @@ func (c *Connector) RoomClientCount(room string) int {
 	defer c.mu.RUnlock()
 	return len(c.rooms[room])
 }
+
+// InboundOnly implements connector.InboundOnly: this connector listens.
+func (c *Connector) InboundOnly() bool { return true }

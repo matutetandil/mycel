@@ -1479,7 +1479,7 @@ func (h *FlowHandler) buildPreflightFn(input map[string]interface{}) msync.FlowP
 			"connector", pf.Connector,
 			"if_exists", pf.IfExists)
 
-		result, err := reader.Read(ctx, connector.Query{
+		result, err := meteredRead(ctx, reader, connector.Query{
 			RawSQL:  pf.Query,
 			Filters: params,
 		})

@@ -687,3 +687,6 @@ func convertPathParams(path string) string {
 	}
 	return result.String()
 }
+
+// InboundOnly implements connector.InboundOnly: this connector listens.
+func (c *Connector) InboundOnly() bool { return true }

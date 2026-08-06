@@ -308,3 +308,19 @@ func ExtractStatusCode(result map[string]interface{}, key string) (int, bool) {
 	}
 	return 0, false
 }
+
+// InboundOnly marks connectors that listen for inbound traffic rather than
+// dialing out: REST, GraphQL, gRPC, SOAP and TCP servers, plus SSE and
+// WebSocket.
+//
+// They have no endpoint to reach, and their Health only reports whether the
+// listener has been started. `mycel check` does not start servers, so without
+// this marker every such connector would report "server not started" and fail
+// a check that has nothing to verify — which is most configurations.
+//
+// Server and client connectors are separate types, so implementations return a
+// constant; there is no configuration to inspect.
+type InboundOnly interface {
+	// InboundOnly reports that this connector listens instead of dialing.
+	InboundOnly() bool
+}

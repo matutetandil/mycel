@@ -585,3 +585,6 @@ func (c *Connector) RoomClientCount(room string) int {
 	defer c.mu.RUnlock()
 	return len(c.rooms[room])
 }
+
+// InboundOnly implements connector.InboundOnly: this connector listens.
+func (c *Connector) InboundOnly() bool { return true }

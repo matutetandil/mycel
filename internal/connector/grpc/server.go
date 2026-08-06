@@ -607,3 +607,6 @@ func (c *ServerConnector) ListServices() []string {
 	}
 	return services
 }
+
+// InboundOnly implements connector.InboundOnly: this connector listens.
+func (c *ServerConnector) InboundOnly() bool { return true }

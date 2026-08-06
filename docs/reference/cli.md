@@ -79,14 +79,21 @@ complete picture of what is reachable.
 
 ```bash
 mycel check --config ./my-service
+#   – api (rest): listens, nothing to reach
 #   ✓ orders_db (database/postgres): connected in 12ms
 #   ✓ cache (cache/redis): connected in 3ms
 #   ✗ payments_api (http): no response within 10s
 #
-# Error: 1 of 3 connectors unreachable
+# Error: 1 of 4 connectors unreachable
 ```
 
 Exits non-zero when any connector is unreachable, so it works as a deploy gate.
+
+Connectors that **listen** rather than dial — REST, GraphQL, gRPC, SOAP and TCP
+servers, plus SSE and WebSocket — are reported with `–` and never fail the
+check. They have no endpoint to reach, and they are not started here, so their
+health check would only ever report "not started". They are still built, which
+is where a bad port or a malformed TLS config surfaces.
 
 The distinction in the failure message matters: `connection refused` means
 something answered and said no — usually a wrong port or a service that is

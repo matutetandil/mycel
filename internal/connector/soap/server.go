@@ -277,3 +277,6 @@ func (s *Server) handleWSDLRequest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(buf.String()))
 }
+
+// InboundOnly implements connector.InboundOnly: this connector listens.
+func (s *Server) InboundOnly() bool { return true }

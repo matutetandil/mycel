@@ -517,3 +517,6 @@ func (s *ServerConnector) ConnectionCount() int {
 	defer s.connMu.RUnlock()
 	return len(s.conns)
 }
+
+// InboundOnly implements connector.InboundOnly: this connector listens.
+func (c *ServerConnector) InboundOnly() bool { return true }

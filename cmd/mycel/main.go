@@ -575,11 +575,19 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	failed := 0
+	failed, inbound := 0, 0
 	for _, res := range results {
 		label := res.Name
 		if desc := describeConnectorKind(res.Type, res.Driver); desc != "" {
 			label = fmt.Sprintf("%s (%s)", res.Name, desc)
+		}
+
+		// A listener has no endpoint to reach. Saying so beats both a green
+		// tick it did not earn and a cross for a check that never applied.
+		if res.Inbound {
+			inbound++
+			fmt.Printf("  – %s: listens, nothing to reach\n", label)
+			continue
 		}
 
 		if res.OK() {
@@ -601,7 +609,17 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	if failed > 0 {
 		return fmt.Errorf("%d of %d connectors unreachable", failed, len(results))
 	}
-	fmt.Printf("✓ All %d connectors reachable!\n", len(results))
+	// Count only what was actually reached, so a config that is all listeners
+	// does not claim to have verified anything.
+	dialed := len(results) - inbound
+	switch {
+	case dialed == 0:
+		fmt.Printf("✓ Nothing to reach: all %d connectors listen for inbound traffic.\n", inbound)
+	case inbound > 0:
+		fmt.Printf("✓ All %d reachable connectors are up (%d listen for inbound traffic).\n", dialed, inbound)
+	default:
+		fmt.Printf("✓ All %d connectors reachable!\n", dialed)
+	}
 
 	return nil
 }

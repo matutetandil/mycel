@@ -160,3 +160,65 @@ func TestCheckConnectivity_NoConnectors(t *testing.T) {
 		t.Fatalf("expected no results, got %d", len(results))
 	}
 }
+
+// The regression this guards: a rest connector is a server. It has no endpoint
+// to reach, and its Health only reports whether the listener has started —
+// which check deliberately does not do. Reporting that as unreachable failed
+// the check on essentially every configuration that serves HTTP.
+func TestCheckConnectivity_ListenerIsNotAFailure(t *testing.T) {
+	rt := newCheckRuntime(t, `
+service { name = "t" }
+
+connector "api" {
+  type = "rest"
+  port = 18799
+}
+`)
+
+	results := rt.CheckConnectivity(context.Background(), 5*time.Second)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if !results[0].Inbound {
+		t.Error("a rest connector should be reported as inbound")
+	}
+	if !results[0].OK() {
+		t.Errorf("a listener must not fail the check, got: %v", results[0].Err)
+	}
+}
+
+// Listeners must not mask a real failure sitting next to them.
+func TestCheckConnectivity_ListenerAlongsideUnreachable(t *testing.T) {
+	rt := newCheckRuntime(t, `
+service { name = "t" }
+
+connector "api" {
+  type = "rest"
+  port = 18798
+}
+
+connector "broken" {
+  type     = "database"
+  driver   = "postgres"
+  host     = "127.0.0.1"
+  port     = 59999
+  database = "nope"
+  user     = "nobody"
+  password = "wrong"
+}
+`)
+
+	results := rt.CheckConnectivity(context.Background(), 5*time.Second)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if !results[0].Inbound || !results[0].OK() {
+		t.Errorf("api should be an inbound pass, got inbound=%v err=%v", results[0].Inbound, results[0].Err)
+	}
+	if results[1].Inbound {
+		t.Error("a database connector is not inbound")
+	}
+	if results[1].OK() {
+		t.Error("the unreachable database should still fail")
+	}
+}

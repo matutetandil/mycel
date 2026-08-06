@@ -34,6 +34,8 @@ Every item here has the same shape: a misconfiguration that produced no error, j
 
   Exits non-zero when anything is unreachable, so it works as a deploy gate. `connection refused` (something answered and said no) is distinguished from `no response within <timeout>` (nothing answered at all), and failures to build the connector are reported the same way, including the missing environment variable behind an empty `env()`.
 
+  Connectors that listen rather than dial — REST, GraphQL, gRPC, SOAP and TCP servers, plus SSE and WebSocket — are reported as such and never fail the check: they have no endpoint to reach, and are not started here, so their health check would only ever report "not started". They declare this through a new optional `connector.InboundOnly` interface rather than being matched by type, since server and client are already separate types.
+
 - **Per-flow timing extremes and throughput**, over successful executions only: `mycel_flow_duration_fastest_seconds`, `mycel_flow_duration_slowest_seconds`, `mycel_flow_duration_average_seconds` and `mycel_flow_messages_per_second`.
 
   Most of this was already derivable from the `mycel_flow_duration_seconds` histogram — `rate(_count)` is the throughput and `rate(_sum)/rate(_count)` the average — and those queries remain the better instrument where a Prometheus server is available, being windowed rather than cumulative. Two things were not derivable: a histogram records which bucket a value fell into rather than the value, so the true fastest and slowest cannot be recovered from it, and the histogram is not split by status, so nothing from it can be narrowed to messages that actually succeeded. A flow failing in 1 ms would otherwise take the "fastest" spot and pull the average down.
