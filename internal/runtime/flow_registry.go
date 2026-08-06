@@ -196,6 +196,62 @@ type FlowHandler struct {
 // Used for backwards compatibility when no rejection policy is configured.
 var FilteredResult = &struct{ Filtered bool }{Filtered: true}
 
+// logDroppedMessage explains, at debug level, why a message was deliberately
+// not processed.
+//
+// Every gate that can drop a message — filter, accept, dedupe, sequence_guard,
+// coordinate timeout — already reports a stable Reason, but until now that only
+// reached `on_drop` aspects. Anyone without one saw a message vanish with no
+// error and nothing in the log: indistinguishable from a broker that never
+// delivered it. This is the single place every source funnels through, so one
+// line here covers them all.
+//
+// The reason and the deciding configuration are always logged. The payload is
+// only included when MYCEL_PAYLOAD_SHOW opted in, under the same size cap as
+// the incoming-payload log, because a dropped message is still customer data.
+func (h *FlowHandler) logDroppedMessage(ctx context.Context, input map[string]interface{}, drop *flow.FilteredResultWithPolicy) {
+	if drop == nil || !drop.Filtered || h.Logger == nil || !h.Logger.Enabled(ctx, slog.LevelDebug) {
+		return
+	}
+
+	attrs := []slog.Attr{
+		slog.String("flow", h.Config.Name),
+		slog.String("source", h.Config.From.Connector),
+		slog.String("reason", drop.Reason),
+		slog.String("decided_by", dropDecidedBy(drop.Reason)),
+	}
+	if drop.Detail != "" {
+		attrs = append(attrs, slog.String("detail", drop.Detail))
+	}
+	if drop.Policy != "" {
+		attrs = append(attrs, slog.String("disposition", drop.Policy))
+	}
+	if h.ShowPayload {
+		attrs = append(attrs, slog.String("payload", formatPayload(input, h.PayloadMaxBytes)))
+	}
+
+	h.Logger.LogAttrs(ctx, slog.LevelDebug, "message dropped by policy", attrs...)
+}
+
+// dropDecidedBy names the HCL block behind each Reason, so the log points at
+// what to go and edit rather than at an internal label.
+func dropDecidedBy(reason string) string {
+	switch reason {
+	case "filter":
+		return "from { filter }"
+	case "accept":
+		return "accept { }"
+	case "dedupe_match":
+		return "dedupe { }"
+	case "sequence_older":
+		return "sequence_guard { }"
+	case "coordinate_timeout":
+		return "coordinate { on_timeout }"
+	default:
+		return reason
+	}
+}
+
 // logIncomingPayload emits the raw incoming payload at debug level when
 // MYCEL_PAYLOAD_SHOW opted in. The Enabled() guard skips the JSON marshal
 // entirely unless debug logging is actually active.
@@ -316,6 +372,13 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 			debugCollector.BroadcastFlowEnd(result, duration, err)
 		}
 
+		// Explain a deliberate drop. Sits beside the metrics rather than at
+		// each gate so every reason is reported identically, whichever
+		// connector delivered the message.
+		if drop, ok := result.(*flow.FilteredResultWithPolicy); ok {
+			h.logDroppedMessage(ctx, input, drop)
+		}
+
 		// Record flow execution metrics. Runs regardless of logger
 		// availability so mycel_flow_* series populate for MQ-driven
 		// services that have no REST connector emitting request metrics.
@@ -381,6 +444,7 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 					Policy:     h.Config.From.FilterConfig.OnReject,
 					MaxRequeue: h.Config.From.FilterConfig.MaxRequeue,
 					Reason:     "filter",
+					Detail:     h.Config.From.FilterConfig.Condition,
 				}
 				// Evaluate ID field if configured (for requeue dedup)
 				if h.Config.From.FilterConfig.IDField != "" && h.Config.From.FilterConfig.OnReject == "requeue" {
@@ -409,6 +473,7 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 				Filtered: true,
 				Policy:   h.Config.Accept.OnReject,
 				Reason:   "accept",
+				Detail:   h.Config.Accept.When,
 			}
 			return h.prepareDropResult(ctx, input, result)
 		}
@@ -1250,6 +1315,8 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 					Filtered: true,
 					Policy:   string(skipped.Policy),
 					Reason:   "sequence_older",
+					Detail: fmt.Sprintf("key %q: incoming sequence %d is not newer than the stored one",
+						key, current),
 				}, nil
 			}
 			return result, err
@@ -1357,6 +1424,8 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 					Filtered: true,
 					Policy:   "ack",
 					Reason:   "coordinate_timeout",
+					Detail: fmt.Sprintf("waited %s for signal %q, on_timeout = ack",
+						h.Config.Coordinate.Timeout, waitKey),
 				}, nil
 			}
 			return result, err

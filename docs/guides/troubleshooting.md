@@ -235,6 +235,61 @@ mysql -e "CREATE DATABASE myapp;"
 
 ## Flow Issues
 
+### "The message arrived but nothing happened"
+
+**Symptom:** the broker shows the message delivered, no error appears anywhere,
+and no row is written. A message that Mycel deliberately declines to process is
+not an error, so nothing fails — which makes it indistinguishable from a broker
+that never delivered it.
+
+**Diagnosis:** turn on debug logging. Every gate that can decline a message
+reports itself in one line, naming the gate, the HCL block behind it, and what
+that block was evaluating:
+
+```bash
+MYCEL_LOG_LEVEL=debug mycel start --config ./my-service
+```
+
+```
+DBG message dropped by policy flow=only_big_orders source=api reason=filter
+    decided_by="from { filter }" detail="input.total > 100" disposition=ack
+```
+
+`reason` is stable and also available to `on_drop` aspects as `drop.reason`:
+
+| `reason` | `decided_by` | Why the message was declined |
+|---|---|---|
+| `filter` | `from { filter }` | The CEL condition returned false |
+| `accept` | `accept { }` | The business gate returned false |
+| `dedupe_match` | `dedupe { }` | This fingerprint was already seen in the window |
+| `sequence_older` | `sequence_guard { }` | The incoming sequence was not newer than the stored one |
+| `coordinate_timeout` | `coordinate { on_timeout }` | The wait expired and `on_timeout = "ack"` |
+
+`disposition` is what the broker was told to do with it: `ack`, `reject` or
+`requeue`.
+
+To see the message itself alongside the reason, add the payload opt-in. It is
+separate because a declined message is still customer data:
+
+```bash
+MYCEL_PAYLOAD_SHOW=true MYCEL_LOG_LEVEL=debug mycel start --config ./my-service
+# MYCEL_PAYLOAD_SIZE caps it (default 4k)
+```
+
+**One case does not appear here.** If no flow's `operation` matched, the flow
+never ran, so there is no gate to report — the message is dropped at dispatch
+instead. That is logged at **error** level without needing debug, and counted in
+`mycel_messages_undispatched_total`:
+
+```
+ERR message dropped: no flow handles this key driver=rabbitmq target=orders.in.q
+    key=gallery-assets registered_patterns=[product.created product.updated]
+```
+
+See [Is `operation` required?](../reference/source-properties.md#is-operation-required) —
+on a stream source `operation` is a subscription pattern, and a value matching
+nothing discards everything.
+
 ### "Flow not being triggered"
 
 **Symptom:** You make a request but nothing happens.

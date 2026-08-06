@@ -130,6 +130,7 @@ func (h *FlowHandler) dedupeAwareWrite(
 				Filtered: true,
 				Policy:   cfg.OnDuplicate,
 				Reason:   "dedupe_match",
+				Detail:   fmt.Sprintf("key %q already seen within the dedupe window", key),
 			}, nil
 		}
 

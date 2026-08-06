@@ -50,6 +50,15 @@ Every item here has the same shape: a misconfiguration that produced no error, j
 
   **The sync metrics are now labelled by `flow`, not by `key`.** Lock, semaphore and signal keys are CEL expressions evaluated per message — one per order, per SKU, per customer — so recording them as declared would have grown the time series set without bound. `mycel_connector_operations_total` labels the operation coarsely (`read`, `write`, `call`) for the same reason. Since none of these metrics had ever been emitted, no existing dashboard or alert can break.
 
+- **Every deliberate drop explains itself at debug level.** A message Mycel declines to process is not an error, so nothing failed, nothing logged, and the result was indistinguishable from a broker that never delivered it. Each gate already reported a stable reason, but only `on_drop` aspects ever saw it.
+
+  ```
+  DBG message dropped by policy flow=only_big_orders source=api reason=filter
+      decided_by="from { filter }" detail="input.total > 100" disposition=ack
+  ```
+
+  `decided_by` names the HCL block to go and edit, and `detail` the expression, fingerprint or sequence numbers that block was judging — `reason` alone says which gate said no, not why. Covers `filter`, `accept`, `dedupe`, `sequence_guard` and `coordinate` timeouts, logged from the one choke-point every source funnels through, so the line is identical whichever connector delivered the message. The payload can be included with `MYCEL_PAYLOAD_SHOW`, under the same cap as the incoming-payload log; it stays a separate opt-in because a dropped message is still customer data.
+
 ### Changed
 
 - **A message no flow can handle is now an error, not a warning.** This applies to **RabbitMQ, Kafka and Redis**, which all had the same hole: WARN, no metric, message gone. Each states what it just did, because the outcome differs — RabbitMQ nacks without requeue (a dead-letter exchange may still catch it), Kafka commits the offset (it will not be redelivered), Redis pub/sub simply discards.
