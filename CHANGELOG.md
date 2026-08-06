@@ -46,6 +46,8 @@ Every item here has the same shape: a misconfiguration that produced no error, j
 
   `mycel_lock_wait_seconds` is the one worth watching: time spent waiting for a lock is invisible in `mycel_flow_duration_seconds`, so a consumer that looks fast per message can still be serialized behind a hot key.
 
+  Lock metrics carry a second label, `purpose`: `flow` for the flow's own `lock {}` block, guarding a business key, and `dedupe` for the critical section around the duplicate check. Contention means different things in each — a hot business key versus duplicate deliveries piling up — and they want different responses.
+
   **The sync metrics are now labelled by `flow`, not by `key`.** Lock, semaphore and signal keys are CEL expressions evaluated per message — one per order, per SKU, per customer — so recording them as declared would have grown the time series set without bound. `mycel_connector_operations_total` labels the operation coarsely (`read`, `write`, `call`) for the same reason. Since none of these metrics had ever been emitted, no existing dashboard or alert can break.
 
 ### Changed

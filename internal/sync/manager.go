@@ -253,13 +253,26 @@ func (m *Manager) Close() error {
 	return nil
 }
 
+// Lock purposes, used as the `purpose` metric label.
+const (
+	// LockPurposeFlow is the flow's own lock {} block, guarding a business key.
+	LockPurposeFlow = "flow"
+	// LockPurposeDedupe is the critical section around the duplicate check.
+	LockPurposeDedupe = "dedupe"
+)
+
 // FlowLockConfig is the flow-level lock configuration.
 type FlowLockConfig struct {
 	Storage *SyncStorageConfig
 	Key     string
 	// Flow labels the metrics. The evaluated lock key is per message, so it
 	// cannot be a Prometheus label; the flow name is the bounded dimension.
-	Flow    string
+	Flow string
+	// Purpose distinguishes what the lock guards: LockPurposeFlow for the
+	// flow's own lock {} block, LockPurposeDedupe for the duplicate-check
+	// critical section. Defaults to LockPurposeFlow when empty, so the label
+	// is never blank.
+	Purpose string
 	Timeout string
 	Wait    bool
 	Retry   string
@@ -356,18 +369,23 @@ func (m *Manager) ExecuteWithLock(ctx context.Context, cfg *FlowLockConfig, key 
 	// Acquire lock. The wait is timed either way: contention shows up as the
 	// gap between a message arriving and its flow starting, and without this
 	// there is no way to see it short of a tracing backend.
+	purpose := cfg.Purpose
+	if purpose == "" {
+		purpose = LockPurposeFlow
+	}
+
 	waitStart := time.Now()
 	acquired, err := AcquireWithRetry(ctx, lock, key, lockCfg)
 	waited := time.Since(waitStart)
 	if err != nil {
-		metrics.Default().RecordLockTimeout(cfg.Flow, waited)
+		metrics.Default().RecordLockTimeout(cfg.Flow, purpose, waited)
 		return nil, fmt.Errorf("failed to acquire lock: %w", err)
 	}
 	if !acquired {
-		metrics.Default().RecordLockTimeout(cfg.Flow, waited)
+		metrics.Default().RecordLockTimeout(cfg.Flow, purpose, waited)
 		return nil, ErrLockTimeout
 	}
-	metrics.Default().RecordLockAcquired(cfg.Flow, waited)
+	metrics.Default().RecordLockAcquired(cfg.Flow, purpose, waited)
 
 	slog.Info("lock acquired", "key", key, "timeout", timeout, "waited", waited)
 
@@ -433,7 +451,7 @@ func (m *Manager) ExecuteWithLock(ctx context.Context, cfg *FlowLockConfig, key 
 		// Decrement the held gauge regardless of whether the release call
 		// succeeds: this process is no longer holding the lock either way,
 		// and a failed release leaves it to the TTL, not to us.
-		metrics.Default().RecordLockReleased(cfg.Flow)
+		metrics.Default().RecordLockReleased(cfg.Flow, purpose)
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := lock.Release(releaseCtx, key); err != nil {

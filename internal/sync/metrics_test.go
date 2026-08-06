@@ -27,6 +27,8 @@ func TestExecuteWithLock_RecordsAcquireAndRelease(t *testing.T) {
 	mgr := NewManager()
 	defer mgr.Close()
 
+	// Purpose left empty on purpose: it must default to "flow" rather than
+	// emitting an empty label.
 	cfg := &FlowLockConfig{Flow: "sync_inventory", Timeout: "5s", Wait: true}
 	if _, err := mgr.ExecuteWithLock(context.Background(), cfg, "sku:12345", func() (interface{}, error) {
 		return "ok", nil
@@ -36,10 +38,10 @@ func TestExecuteWithLock_RecordsAcquireAndRelease(t *testing.T) {
 
 	out := scrape(t)
 	for _, want := range []string{
-		`mycel_lock_acquired_total{flow="sync_inventory"} 1`,
-		`mycel_lock_released_total{flow="sync_inventory"} 1`,
-		`mycel_lock_held{flow="sync_inventory"} 0`,
-		`mycel_lock_wait_seconds_count{flow="sync_inventory"} 1`,
+		`mycel_lock_acquired_total{flow="sync_inventory",purpose="flow"} 1`,
+		`mycel_lock_released_total{flow="sync_inventory",purpose="flow"} 1`,
+		`mycel_lock_held{flow="sync_inventory",purpose="flow"} 0`,
+		`mycel_lock_wait_seconds_count{flow="sync_inventory",purpose="flow"} 1`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in /metrics output", want)
@@ -86,7 +88,7 @@ func TestExecuteWithLock_RecordsTimeout(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the contended acquire to fail")
 	}
-	if got := scrape(t); !strings.Contains(got, `mycel_lock_timeout_total{flow="sync_inventory"} 1`) {
+	if got := scrape(t); !strings.Contains(got, `mycel_lock_timeout_total{flow="sync_inventory",purpose="flow"} 1`) {
 		t.Errorf("timeout not recorded: %s", filterLines(got, "mycel_lock"))
 	}
 }
@@ -125,4 +127,41 @@ func filterLines(s, sub string) string {
 		}
 	}
 	return strings.Join(kept, "\n")
+}
+
+// The dedupe critical section and the flow's own lock {} are separate series
+// on the same flow. Contention in one means a hot business key; in the other,
+// duplicate deliveries piling up.
+func TestExecuteWithLock_PurposeSeparatesDedupeFromFlowLock(t *testing.T) {
+	metrics.SetDefault(metrics.NewRegistry("test", "1", "1", "test"))
+
+	mgr := NewManager()
+	defer mgr.Close()
+
+	run := func(purpose string) {
+		cfg := &FlowLockConfig{Flow: "sync_inventory", Purpose: purpose, Timeout: "5s", Wait: true}
+		if _, err := mgr.ExecuteWithLock(context.Background(), cfg, "sku:1", func() (interface{}, error) {
+			return nil, nil
+		}); err != nil {
+			t.Fatalf("ExecuteWithLock(%s): %v", purpose, err)
+		}
+	}
+	run(LockPurposeFlow)
+	run(LockPurposeDedupe)
+	run(LockPurposeDedupe)
+
+	out := scrape(t)
+	for _, want := range []string{
+		`mycel_lock_acquired_total{flow="sync_inventory",purpose="flow"} 1`,
+		`mycel_lock_acquired_total{flow="sync_inventory",purpose="dedupe"} 2`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, filterLines(out, "mycel_lock_acquired"))
+		}
+	}
+
+	// The flow name must stay clean — the purpose belongs in its own label.
+	if strings.Contains(out, "(dedupe)") {
+		t.Error(`the purpose leaked into the flow label`)
+	}
 }

@@ -214,14 +214,14 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 				Name: "mycel_lock_acquired_total",
 				Help: "Total number of locks acquired",
 			},
-			[]string{"flow"},
+			[]string{"flow", "purpose"},
 		),
 		LockReleased: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "mycel_lock_released_total",
 				Help: "Total number of locks released",
 			},
-			[]string{"flow"},
+			[]string{"flow", "purpose"},
 		),
 		LockWaitSeconds: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -229,21 +229,21 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 				Help:    "Time spent waiting to acquire a lock",
 				Buckets: prometheus.DefBuckets,
 			},
-			[]string{"flow"},
+			[]string{"flow", "purpose"},
 		),
 		LockTimeout: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "mycel_lock_timeout_total",
 				Help: "Total number of lock acquisition timeouts",
 			},
-			[]string{"flow"},
+			[]string{"flow", "purpose"},
 		),
 		LockHeld: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "mycel_lock_held",
 				Help: "Current number of held locks",
 			},
-			[]string{"flow"},
+			[]string{"flow", "purpose"},
 		),
 
 		// Semaphore metrics
@@ -551,22 +551,28 @@ func (r *Registry) SetCacheSize(cache string, size int64) {
 // also the one that answers the operational question: which flow is contending.
 
 // RecordLockAcquired records a successful lock acquisition.
-func (r *Registry) RecordLockAcquired(flow string, waitDuration time.Duration) {
-	r.LockAcquired.WithLabelValues(flow).Inc()
-	r.LockWaitSeconds.WithLabelValues(flow).Observe(waitDuration.Seconds())
-	r.LockHeld.WithLabelValues(flow).Inc()
+//
+// purpose separates the two places a lock is taken: "flow" for the flow's own
+// lock {} block, guarding a business key, and "dedupe" for the critical
+// section around the duplicate check. Contention means different things in
+// each — a hot business key versus duplicate deliveries piling up — so they
+// need to be distinguishable without reading it out of the flow name.
+func (r *Registry) RecordLockAcquired(flow, purpose string, waitDuration time.Duration) {
+	r.LockAcquired.WithLabelValues(flow, purpose).Inc()
+	r.LockWaitSeconds.WithLabelValues(flow, purpose).Observe(waitDuration.Seconds())
+	r.LockHeld.WithLabelValues(flow, purpose).Inc()
 }
 
 // RecordLockReleased records a lock release.
-func (r *Registry) RecordLockReleased(flow string) {
-	r.LockReleased.WithLabelValues(flow).Inc()
-	r.LockHeld.WithLabelValues(flow).Dec()
+func (r *Registry) RecordLockReleased(flow, purpose string) {
+	r.LockReleased.WithLabelValues(flow, purpose).Inc()
+	r.LockHeld.WithLabelValues(flow, purpose).Dec()
 }
 
 // RecordLockTimeout records a lock acquisition timeout.
-func (r *Registry) RecordLockTimeout(flow string, waitDuration time.Duration) {
-	r.LockTimeout.WithLabelValues(flow).Inc()
-	r.LockWaitSeconds.WithLabelValues(flow).Observe(waitDuration.Seconds())
+func (r *Registry) RecordLockTimeout(flow, purpose string, waitDuration time.Duration) {
+	r.LockTimeout.WithLabelValues(flow, purpose).Inc()
+	r.LockWaitSeconds.WithLabelValues(flow, purpose).Observe(waitDuration.Seconds())
 }
 
 // RecordSemaphoreAcquired records a successful semaphore permit acquisition.

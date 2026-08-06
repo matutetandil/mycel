@@ -1385,6 +1385,7 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 			Storage: mapSyncStorage(h.Config.Lock.Storage),
 			Key:     h.Config.Lock.Key,
 			Flow:    h.Config.Name,
+			Purpose: msync.LockPurposeFlow,
 			Timeout: h.Config.Lock.Timeout,
 			Wait:    h.Config.Lock.Wait,
 			Retry:   h.Config.Lock.Retry,

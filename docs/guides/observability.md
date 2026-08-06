@@ -159,11 +159,11 @@ overstate how often the cache saved a round trip.
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `mycel_lock_acquired_total` | Counter | flow | Locks acquired |
-| `mycel_lock_released_total` | Counter | flow | Locks released |
-| `mycel_lock_wait_seconds` | Histogram | flow | Time spent waiting for the lock |
-| `mycel_lock_timeout_total` | Counter | flow | Lock acquisitions that gave up |
-| `mycel_lock_held` | Gauge | flow | Locks currently held |
+| `mycel_lock_acquired_total` | Counter | flow, purpose | Locks acquired |
+| `mycel_lock_released_total` | Counter | flow, purpose | Locks released |
+| `mycel_lock_wait_seconds` | Histogram | flow, purpose | Time spent waiting for the lock |
+| `mycel_lock_timeout_total` | Counter | flow, purpose | Lock acquisitions that gave up |
+| `mycel_lock_held` | Gauge | flow, purpose | Locks currently held |
 | `mycel_semaphore_acquired_total` | Counter | flow | Semaphore permits acquired |
 | `mycel_semaphore_released_total` | Counter | flow | Semaphore permits released |
 | `mycel_semaphore_wait_seconds` | Histogram | flow | Time spent waiting for a permit |
@@ -181,13 +181,25 @@ so using them as a label would grow the time series set without bound. The flow
 is also the dimension that answers the operational question: which flow is
 contending, not which entity.
 
+Locks carry a second label, `purpose`, because Mycel takes them from two places
+and contention means something different in each:
+
+| `purpose` | What it guards | What contention means |
+|-----------|----------------|-----------------------|
+| `flow` | The flow's own `lock {}` block | A hot business key — many messages competing for the same entity |
+| `dedupe` | The critical section around the duplicate check | Duplicate deliveries piling up on one key |
+
 `mycel_lock_wait_seconds` is the one to watch. Time a message spends waiting for
 a lock is invisible in `mycel_flow_duration_seconds`, so a consumer that looks
 fast per message can still be serialized behind a hot key:
 
 ```promql
-# p95 lock wait by flow
-histogram_quantile(0.95, sum by (flow, le) (rate(mycel_lock_wait_seconds_bucket[5m])))
+# p95 lock wait, split by what the lock guards
+histogram_quantile(0.95, sum by (flow, purpose, le) (rate(mycel_lock_wait_seconds_bucket[5m])))
+
+# business-key contention only
+histogram_quantile(0.95, sum by (flow, le)
+  (rate(mycel_lock_wait_seconds_bucket{purpose="flow"}[5m])))
 
 # flows giving up on locks
 rate(mycel_lock_timeout_total[5m]) > 0
