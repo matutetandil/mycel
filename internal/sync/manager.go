@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/matutetandil/mycel/internal/metrics"
 )
 
 // SyncStorageConfig defines inline storage configuration for sync primitives.
@@ -251,10 +253,26 @@ func (m *Manager) Close() error {
 	return nil
 }
 
+// Lock purposes, used as the `purpose` metric label.
+const (
+	// LockPurposeFlow is the flow's own lock {} block, guarding a business key.
+	LockPurposeFlow = "flow"
+	// LockPurposeDedupe is the critical section around the duplicate check.
+	LockPurposeDedupe = "dedupe"
+)
+
 // FlowLockConfig is the flow-level lock configuration.
 type FlowLockConfig struct {
 	Storage *SyncStorageConfig
 	Key     string
+	// Flow labels the metrics. The evaluated lock key is per message, so it
+	// cannot be a Prometheus label; the flow name is the bounded dimension.
+	Flow string
+	// Purpose distinguishes what the lock guards: LockPurposeFlow for the
+	// flow's own lock {} block, LockPurposeDedupe for the duplicate-check
+	// critical section. Defaults to LockPurposeFlow when empty, so the label
+	// is never blank.
+	Purpose string
 	Timeout string
 	Wait    bool
 	Retry   string
@@ -262,8 +280,10 @@ type FlowLockConfig struct {
 
 // FlowSemaphoreConfig is the flow-level semaphore configuration.
 type FlowSemaphoreConfig struct {
-	Storage    *SyncStorageConfig
-	Key        string
+	Storage *SyncStorageConfig
+	Key     string
+	// Flow labels the metrics — see FlowLockConfig.Flow.
+	Flow       string
 	MaxPermits int
 	Timeout    string
 	Lease      string
@@ -271,7 +291,9 @@ type FlowSemaphoreConfig struct {
 
 // FlowCoordinateConfig is the flow-level coordinate configuration.
 type FlowCoordinateConfig struct {
-	Storage            *SyncStorageConfig
+	Storage *SyncStorageConfig
+	// Flow labels the metrics — see FlowLockConfig.Flow.
+	Flow               string
 	Wait               *FlowWaitConfig
 	Signal             *FlowSignalConfig
 	Timeout            string
@@ -344,16 +366,28 @@ func (m *Manager) ExecuteWithLock(ctx context.Context, cfg *FlowLockConfig, key 
 		Retry:   retry,
 	}
 
-	// Acquire lock
+	// Acquire lock. The wait is timed either way: contention shows up as the
+	// gap between a message arriving and its flow starting, and without this
+	// there is no way to see it short of a tracing backend.
+	purpose := cfg.Purpose
+	if purpose == "" {
+		purpose = LockPurposeFlow
+	}
+
+	waitStart := time.Now()
 	acquired, err := AcquireWithRetry(ctx, lock, key, lockCfg)
+	waited := time.Since(waitStart)
 	if err != nil {
+		metrics.Default().RecordLockTimeout(cfg.Flow, purpose, waited)
 		return nil, fmt.Errorf("failed to acquire lock: %w", err)
 	}
 	if !acquired {
+		metrics.Default().RecordLockTimeout(cfg.Flow, purpose, waited)
 		return nil, ErrLockTimeout
 	}
+	metrics.Default().RecordLockAcquired(cfg.Flow, purpose, waited)
 
-	slog.Info("lock acquired", "key", key, "timeout", timeout)
+	slog.Info("lock acquired", "key", key, "timeout", timeout, "waited", waited)
 
 	// Heartbeat: extend the lock TTL while fn() runs. Without this, a
 	// flow that takes longer than `timeout` lets the lock auto-expire
@@ -414,6 +448,10 @@ func (m *Manager) ExecuteWithLock(ctx context.Context, cfg *FlowLockConfig, key 
 	defer func() {
 		hbCancel()
 		<-hbDone // wait for the heartbeat goroutine to exit before release
+		// Decrement the held gauge regardless of whether the release call
+		// succeeds: this process is no longer holding the lock either way,
+		// and a failed release leaves it to the TTL, not to us.
+		metrics.Default().RecordLockReleased(cfg.Flow, purpose)
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := lock.Release(releaseCtx, key); err != nil {
@@ -468,15 +506,20 @@ func (m *Manager) ExecuteWithSemaphore(ctx context.Context, cfg *FlowSemaphoreCo
 	}
 
 	// Acquire permit
+	waitStart := time.Now()
 	permitID, err := AcquireSemaphoreWithRetry(ctx, sem, key, semCfg)
+	waited := time.Since(waitStart)
 	if err != nil {
+		metrics.Default().RecordSemaphoreTimeout(cfg.Flow, waited)
 		return nil, fmt.Errorf("failed to acquire semaphore permit: %w", err)
 	}
+	metrics.Default().RecordSemaphoreAcquired(cfg.Flow, waited)
 
 	// Ensure permit is released even when parent ctx is cancelled. Same
 	// rationale as ExecuteWithLock — without a detached context, releases
 	// silently no-op and the semaphore leaks permits.
 	defer func() {
+		metrics.Default().RecordSemaphoreReleased(cfg.Flow)
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		_ = sem.Release(releaseCtx, key, permitID)
@@ -620,6 +663,7 @@ func (m *Manager) ExecuteWithCoordinate(ctx context.Context, cfg *FlowCoordinate
 			return result, nil
 		}
 
+		metrics.Default().RecordCoordinateSignal(cfg.Flow)
 		slog.Info("coordinate signal emitted", "key", signalKey, "ttl", ttl)
 		return result, nil
 	}
@@ -647,6 +691,7 @@ func (m *Manager) ExecuteWithCoordinate(ctx context.Context, cfg *FlowCoordinate
 				slog.Warn("coordinate preflight error, falling through to wait",
 					"error", pfErr)
 			case skip:
+				metrics.Default().RecordCoordinatePreflightHit(cfg.Flow)
 				slog.Info("coordinate preflight passed, skipping wait",
 					"key", waitKey,
 					"action", "skip_wait")
@@ -666,7 +711,13 @@ func (m *Manager) ExecuteWithCoordinate(ctx context.Context, cfg *FlowCoordinate
 			}
 		}
 
+		// The wait is the interesting part operationally: how long flows sit
+		// blocked, and how often they give up. Both are recorded whatever the
+		// outcome, so the active-waits gauge always comes back down.
+		metrics.Default().RecordCoordinateWait(cfg.Flow)
+		waitStart := time.Now()
 		received, err := coord.Wait(ctx, waitKey, timeout)
+		metrics.Default().RecordCoordinateWaitComplete(cfg.Flow, time.Since(waitStart), !received)
 		if err != nil {
 			return nil, fmt.Errorf("coordinate wait failed: %w", err)
 		}

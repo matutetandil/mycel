@@ -71,6 +71,7 @@ func (RabbitMQSchema) ConnectorSchema() schema.Block {
 					{Name: "max_retries", Doc: "Max retries before DLQ", Type: schema.TypeNumber},
 					{Name: "retry_delay", Doc: "Delay between retries", Type: schema.TypeDuration},
 					{Name: "retry_header", Doc: "Header tracking retry count", Type: schema.TypeString},
+					{Name: "external", Doc: "Dead-letter topology is declared outside Mycel (Terraform, rabbitmqctl, broker policy): Mycel provisions nothing and does not warn", Type: schema.TypeBool},
 				}},
 			}},
 			{Type: "publisher", Doc: "Publisher settings", Attrs: []schema.Attr{

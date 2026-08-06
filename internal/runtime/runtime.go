@@ -77,6 +77,7 @@ import (
 	"github.com/matutetandil/mycel/internal/validate"
 	"github.com/matutetandil/mycel/internal/validator"
 	"github.com/matutetandil/mycel/internal/workflow"
+	"github.com/matutetandil/mycel/pkg/schema"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -93,6 +94,7 @@ type Runtime struct {
 	transforms        map[string]*transform.Config
 	types             map[string]*validate.TypeSchema
 	namedCaches       map[string]*flow.NamedCacheConfig
+	schemaRegistry    *schema.Registry
 	health            *health.Manager
 	metrics           *metrics.Registry
 	rateLimiter       *ratelimit.Limiter
@@ -252,6 +254,13 @@ func New(opts Options) (*Runtime, error) {
 	// as a confusing runtime error.
 	if errs := ValidateFlowSchemas(config, schemaReg); len(errs) > 0 {
 		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
+	}
+
+	// Attributes that parse but do nothing. Not fatal — they are inert, and
+	// failing here would break configs that work today — but the whole point
+	// is that nobody can tell they are inert by reading the file.
+	for _, w := range InertFlowAttrs(config) {
+		opts.Logger.Warn("configuration has no effect", "detail", w)
 	}
 
 	// Create connector registry
@@ -518,6 +527,7 @@ func New(opts Options) (*Runtime, error) {
 		transforms:        transforms,
 		types:             types,
 		namedCaches:       namedCaches,
+		schemaRegistry:    schemaReg,
 		health:            healthMgr,
 		metrics:           metricsReg,
 		traceShutdown:     traceShutdown,
@@ -683,6 +693,14 @@ func (r *Runtime) Start(ctx context.Context) error {
 		}
 	}
 	banner.PrintServiceInfo(serviceName, serviceVersion, r.environment, r.getRESTPort())
+
+	// Spell out which deliveries each flow will actually receive, before the
+	// first message arrives. On a subscription source `operation` silently
+	// filters, so a pattern matching nothing is indistinguishable from a
+	// broker that is simply quiet. This reads configuration only, so it runs
+	// before connecting: the dispatch shape is worth knowing even when the
+	// broker is down and startup is about to fail.
+	r.reportDispatch(r.logger, r.schemaRegistry)
 
 	// Propagate service version to health responses
 	r.health.SetServiceVersion(serviceVersion)
@@ -2204,18 +2222,14 @@ func getString(props map[string]interface{}, key, defaultVal string) string {
 	return defaultVal
 }
 
+// getInt reads an int property for the startup banner.
+//
+// It delegates so that a string survives: env() returns a string, so
+// `port = env("PORT")` used to fall through to the default here and the banner
+// announced a port the service was not listening on. The connector factories
+// have coerced since 1.19.1; this is the display path catching up.
 func getInt(props map[string]interface{}, key string, defaultVal int) int {
-	if v, ok := props[key]; ok {
-		switch n := v.(type) {
-		case int:
-			return n
-		case int64:
-			return int(n)
-		case float64:
-			return int(n)
-		}
-	}
-	return defaultVal
+	return connector.IntFromProps(props, key, defaultVal)
 }
 
 func getBool(props map[string]interface{}, key string, defaultVal bool) bool {

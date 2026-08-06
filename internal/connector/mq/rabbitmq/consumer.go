@@ -8,6 +8,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 
 	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/internal/connector/mq/undispatched"
 	"github.com/matutetandil/mycel/internal/flow"
 )
 
@@ -55,12 +56,24 @@ func (c *Connector) startConsumer(ctx context.Context) error {
 		return fmt.Errorf("failed to start consumer: %w", err)
 	}
 
+	// The per-flow explanation of what these patterns mean lives in the
+	// runtime's dispatch report, which knows the flow names. Here they are
+	// repeated as plain connector state.
+	c.mu.RLock()
+	patterns := c.handlerPatterns()
+	c.mu.RUnlock()
+
 	c.logger.Info("started consuming",
 		"name", c.name,
 		"queue", queueName,
+		"routing_keys", patterns,
 		"concurrency", consumerCfg.Concurrency,
 		"prefetch", consumerCfg.Prefetch,
 	)
+
+	if len(patterns) == 0 {
+		undispatched.ReportNoHandlers(c.logger, c.name, "rabbitmq", queueName)
+	}
 
 	// Start worker goroutines
 	concurrency := consumerCfg.Concurrency
@@ -184,19 +197,17 @@ func (c *Connector) handleDelivery(ctx context.Context, delivery amqp.Delivery) 
 	c.mu.RLock()
 	handler := c.findHandler(delivery.RoutingKey)
 	handlerCount := len(c.handlers)
+	patterns := c.handlerPatterns()
 	c.mu.RUnlock()
 
-	c.logger.Info("handleDelivery: handler lookup",
+	c.logger.Debug("handleDelivery: handler lookup",
 		"routing_key", delivery.RoutingKey,
 		"handler_found", handler != nil,
 		"registered_handlers", handlerCount,
 	)
 
 	if handler == nil {
-		c.logger.Warn("no handler for routing key",
-			"routing_key", delivery.RoutingKey,
-			"exchange", delivery.Exchange,
-		)
+		c.reportUndispatched(delivery, patterns)
 		// Nack without requeue for unhandled messages
 		return delivery.Nack(false, false)
 	}
@@ -460,6 +471,31 @@ func (c *Connector) handleRetry(delivery amqp.Delivery, handlerErr error) error 
 
 // findHandler finds a handler for the given routing key.
 // It supports exact match and wildcard patterns (for topic exchanges).
+// handlerPatterns returns the routing-key patterns flows registered, sorted so
+// the diagnostic output is stable. Callers must hold c.mu.
+func (c *Connector) handlerPatterns() []string {
+	return undispatched.SortedPatterns(c.handlers)
+}
+
+// reportUndispatched records and logs a delivery that matched no flow handler.
+// The message is about to be nacked without requeue, which a queue with no
+// dead-letter exchange discards outright.
+func (c *Connector) reportUndispatched(delivery amqp.Delivery, patterns []string) {
+	queue := ""
+	if c.config.Queue != nil {
+		queue = c.config.Queue.Name
+	}
+
+	c.undispatched.Report(c.logger, undispatched.Event{
+		Connector:   c.name,
+		Driver:      "rabbitmq",
+		Target:      queue,
+		Key:         delivery.RoutingKey,
+		Patterns:    patterns,
+		Consequence: "nacked without requeue; discarded unless the queue has a dead-letter exchange",
+	})
+}
+
 func (c *Connector) findHandler(routingKey string) HandlerFunc {
 	// Try exact match first
 	if handler, ok := c.handlers[routingKey]; ok {

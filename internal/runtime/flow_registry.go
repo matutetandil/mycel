@@ -196,6 +196,62 @@ type FlowHandler struct {
 // Used for backwards compatibility when no rejection policy is configured.
 var FilteredResult = &struct{ Filtered bool }{Filtered: true}
 
+// logDroppedMessage explains, at debug level, why a message was deliberately
+// not processed.
+//
+// Every gate that can drop a message — filter, accept, dedupe, sequence_guard,
+// coordinate timeout — already reports a stable Reason, but until now that only
+// reached `on_drop` aspects. Anyone without one saw a message vanish with no
+// error and nothing in the log: indistinguishable from a broker that never
+// delivered it. This is the single place every source funnels through, so one
+// line here covers them all.
+//
+// The reason and the deciding configuration are always logged. The payload is
+// only included when MYCEL_PAYLOAD_SHOW opted in, under the same size cap as
+// the incoming-payload log, because a dropped message is still customer data.
+func (h *FlowHandler) logDroppedMessage(ctx context.Context, input map[string]interface{}, drop *flow.FilteredResultWithPolicy) {
+	if drop == nil || !drop.Filtered || h.Logger == nil || !h.Logger.Enabled(ctx, slog.LevelDebug) {
+		return
+	}
+
+	attrs := []slog.Attr{
+		slog.String("flow", h.Config.Name),
+		slog.String("source", h.Config.From.Connector),
+		slog.String("reason", drop.Reason),
+		slog.String("decided_by", dropDecidedBy(drop.Reason)),
+	}
+	if drop.Detail != "" {
+		attrs = append(attrs, slog.String("detail", drop.Detail))
+	}
+	if drop.Policy != "" {
+		attrs = append(attrs, slog.String("disposition", drop.Policy))
+	}
+	if h.ShowPayload {
+		attrs = append(attrs, slog.String("payload", formatPayload(input, h.PayloadMaxBytes)))
+	}
+
+	h.Logger.LogAttrs(ctx, slog.LevelDebug, "message dropped by policy", attrs...)
+}
+
+// dropDecidedBy names the HCL block behind each Reason, so the log points at
+// what to go and edit rather than at an internal label.
+func dropDecidedBy(reason string) string {
+	switch reason {
+	case "filter":
+		return "from { filter }"
+	case "accept":
+		return "accept { }"
+	case "dedupe_match":
+		return "dedupe { }"
+	case "sequence_older":
+		return "sequence_guard { }"
+	case "coordinate_timeout":
+		return "coordinate { on_timeout }"
+	default:
+		return reason
+	}
+}
+
 // logIncomingPayload emits the raw incoming payload at debug level when
 // MYCEL_PAYLOAD_SHOW opted in. The Enabled() guard skips the JSON marshal
 // entirely unless debug logging is actually active.
@@ -316,13 +372,31 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 			debugCollector.BroadcastFlowEnd(result, duration, err)
 		}
 
+		// Explain a deliberate drop. Sits beside the metrics rather than at
+		// each gate so every reason is reported identically, whichever
+		// connector delivered the message.
+		drop, dropped := result.(*flow.FilteredResultWithPolicy)
+		dropped = dropped && drop.Filtered
+		if dropped {
+			h.logDroppedMessage(ctx, input, drop)
+		}
+
 		// Record flow execution metrics. Runs regardless of logger
 		// availability so mycel_flow_* series populate for MQ-driven
 		// services that have no REST connector emitting request metrics.
-		status := "success"
-		if err != nil {
-			status = "error"
+		//
+		// A drop is its own status. Counting it as success made a consumer
+		// that filters out most of its input look fully productive, and let
+		// drops — which short-circuit before the transform — own the fastest
+		// and average timing gauges.
+		status := metrics.FlowStatusSuccess
+		switch {
+		case err != nil:
+			status = metrics.FlowStatusError
 			metrics.Default().RecordFlowError(h.Config.Name, classifyFlowError(err))
+		case dropped:
+			status = metrics.FlowStatusDropped
+			metrics.Default().RecordFlowDrop(h.Config.Name, drop.Reason)
 		}
 		metrics.Default().RecordFlowExecution(h.Config.Name, status, duration)
 
@@ -381,6 +455,7 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 					Policy:     h.Config.From.FilterConfig.OnReject,
 					MaxRequeue: h.Config.From.FilterConfig.MaxRequeue,
 					Reason:     "filter",
+					Detail:     h.Config.From.FilterConfig.Condition,
 				}
 				// Evaluate ID field if configured (for requeue dedup)
 				if h.Config.From.FilterConfig.IDField != "" && h.Config.From.FilterConfig.OnReject == "requeue" {
@@ -409,6 +484,7 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 				Filtered: true,
 				Policy:   h.Config.Accept.OnReject,
 				Reason:   "accept",
+				Detail:   h.Config.Accept.When,
 			}
 			return h.prepareDropResult(ctx, input, result)
 		}
@@ -707,7 +783,7 @@ func (h *FlowHandler) sendToFallback(ctx context.Context, input map[string]inter
 		Payload:   message,
 	}
 
-	_, err := writer.Write(ctx, data)
+	_, err := meteredWrite(ctx, writer, data)
 	return err
 }
 
@@ -1250,6 +1326,8 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 					Filtered: true,
 					Policy:   string(skipped.Policy),
 					Reason:   "sequence_older",
+					Detail: fmt.Sprintf("key %q: incoming sequence %d is not newer than the stored one",
+						key, current),
 				}, nil
 			}
 			return result, err
@@ -1331,6 +1409,7 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 
 		coordCfg := &msync.FlowCoordinateConfig{
 			Storage:            mapSyncStorage(h.Config.Coordinate.Storage),
+			Flow:               h.Config.Name,
 			Wait:               waitCfg,
 			Signal:             signalFlowCfg,
 			Timeout:            h.Config.Coordinate.Timeout,
@@ -1356,6 +1435,8 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 					Filtered: true,
 					Policy:   "ack",
 					Reason:   "coordinate_timeout",
+					Detail: fmt.Sprintf("waited %s for signal %q, on_timeout = ack",
+						h.Config.Coordinate.Timeout, waitKey),
 				}, nil
 			}
 			return result, err
@@ -1367,6 +1448,7 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 		semCfg := &msync.FlowSemaphoreConfig{
 			Storage:    mapSyncStorage(h.Config.Semaphore.Storage),
 			Key:        h.Config.Semaphore.Key,
+			Flow:       h.Config.Name,
 			MaxPermits: h.Config.Semaphore.MaxPermits,
 			Timeout:    h.Config.Semaphore.Timeout,
 			Lease:      h.Config.Semaphore.Lease,
@@ -1382,6 +1464,8 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 		lockCfg := &msync.FlowLockConfig{
 			Storage: mapSyncStorage(h.Config.Lock.Storage),
 			Key:     h.Config.Lock.Key,
+			Flow:    h.Config.Name,
+			Purpose: msync.LockPurposeFlow,
 			Timeout: h.Config.Lock.Timeout,
 			Wait:    h.Config.Lock.Wait,
 			Retry:   h.Config.Lock.Retry,
@@ -1476,7 +1560,7 @@ func (h *FlowHandler) buildPreflightFn(input map[string]interface{}) msync.FlowP
 			"connector", pf.Connector,
 			"if_exists", pf.IfExists)
 
-		result, err := reader.Read(ctx, connector.Query{
+		result, err := meteredRead(ctx, reader, connector.Query{
 			RawSQL:  pf.Query,
 			Filters: params,
 		})
@@ -1893,7 +1977,7 @@ func (h *FlowHandler) executeBatch(ctx context.Context, input map[string]interfa
 		}
 
 		// Read a chunk
-		readResult, err := reader.Read(ctx, query)
+		readResult, err := meteredRead(ctx, reader, query)
 		if err != nil {
 			if batch.OnError == "continue" {
 				batchResult.Errors = append(batchResult.Errors, fmt.Sprintf("chunk at offset %d read error: %v", offset, err))
@@ -1942,7 +2026,7 @@ func (h *FlowHandler) executeBatch(ctx context.Context, input map[string]interfa
 				Payload:   flow.WrapPayload(row, batch.To.Envelope),
 			}
 
-			_, err := writer.Write(ctx, writeData)
+			_, err := meteredWrite(ctx, writer, writeData)
 			if err != nil {
 				if batch.OnError == "continue" {
 					batchResult.Failed++
@@ -2062,7 +2146,7 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 	}
 
 	readResult, readErr := trace.RecordStage(ctx, trace.StageRead, h.Config.To.GetTarget(), query.Filters, func() (interface{}, error) {
-		result, err := dest.Read(ctx, query)
+		result, err := meteredRead(ctx, dest, query)
 		if err != nil {
 			return nil, err
 		}
@@ -2210,7 +2294,7 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 
 	writeResult, writeErr := h.dedupeAwareWrite(ctx, input, payload, func() (interface{}, error) {
 		return trace.RecordStage(ctx, trace.StageWrite, data.Target, trace.Snapshot(data.Payload), func() (interface{}, error) {
-			return dest.Write(ctx, data)
+			return meteredWrite(ctx, dest, data)
 		})
 	})
 	if writeErr != nil {
@@ -2242,7 +2326,7 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 				Operation: "SELECT",
 				Filters:   map[string]interface{}{"id": result.LastID},
 			}
-			readResult, err := reader.Read(ctx, query)
+			readResult, err := meteredRead(ctx, reader, query)
 			if err == nil && len(readResult.Rows) > 0 {
 				return readResult.Rows[0], nil
 			}
@@ -2319,7 +2403,7 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 	}
 
 	writeResult, err := h.dedupeAwareWrite(ctx, input, payload, func() (interface{}, error) {
-		return dest.Write(ctx, data)
+		return meteredWrite(ctx, dest, data)
 	})
 	if err != nil {
 		return nil, err
@@ -2381,7 +2465,7 @@ func (h *FlowHandler) handleDelete(ctx context.Context, input map[string]interfa
 		}, nil
 	}
 
-	result, err := dest.Write(ctx, data)
+	result, err := meteredWrite(ctx, dest, data)
 	if err != nil {
 		return nil, err
 	}
@@ -2634,7 +2718,7 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 	// Child span around the connector write so the trace shows downstream calls;
 	// the span context is what the connector (e.g. HTTP) propagates outbound.
 	ctx, span := tracing.StartConnectorSpan(ctx, destConfig.Connector, data.Operation, data.Target)
-	writeResult, err := writer.Write(ctx, data)
+	writeResult, err := meteredWrite(ctx, writer, data)
 	tracing.End(span, err)
 	if err != nil {
 		return nil, err
@@ -2938,7 +3022,7 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					RawSQL:    step.GetQuery(),
 					Filters:   params,
 				}
-				readResult, err := reader.Read(ctx, query)
+				readResult, err := meteredRead(ctx, reader, query)
 				if err != nil {
 					if step.OnError == "skip" {
 						if step.Default != nil {
@@ -2969,7 +3053,7 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 				if len(step.GetBody()) > 0 {
 					callParams = step.GetBody()
 				}
-				callResult, err := caller.Call(ctx, step.GetOperation(), callParams)
+				callResult, err := meteredCall(ctx, caller, step.GetOperation(), callParams)
 				if err != nil {
 					if step.OnError == "skip" {
 						if step.Default != nil {
@@ -2993,7 +3077,7 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					Operation: step.GetOperation(),
 					Filters:   params,
 				}
-				readResult, err := reader.Read(ctx, query)
+				readResult, err := meteredRead(ctx, reader, query)
 				if err != nil {
 					if step.OnError == "skip" {
 						if step.Default != nil {
@@ -3022,7 +3106,7 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					Payload:   flow.WrapPayload(step.GetBody(), step.Envelope),
 					Filters:   params,
 				}
-				writeResult, err := writer.Write(ctx, data)
+				writeResult, err := meteredWrite(ctx, writer, data)
 				if err != nil {
 					if step.OnError == "skip" {
 						if step.Default != nil {
@@ -3055,7 +3139,7 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					Operation: "SELECT",
 					Filters:   params,
 				}
-				readResult, err := reader.Read(ctx, query)
+				readResult, err := meteredRead(ctx, reader, query)
 				if err != nil {
 					if step.OnError == "skip" {
 						if step.Default != nil {
@@ -3156,7 +3240,7 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 				Operation: "SELECT",
 				Filters:   params,
 			}
-			readResult, err := reader.Read(ctx, query)
+			readResult, err := meteredRead(ctx, reader, query)
 			if err != nil {
 				return nil, fmt.Errorf("enrich %s: read failed: %w", enrich.Name, err)
 			}
@@ -3168,7 +3252,7 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 			}
 		} else if caller, ok := conn.(Caller); ok {
 			// Try as a Caller (for TCP, HTTP, etc.)
-			callResult, err := caller.Call(ctx, enrich.GetOperation(), params)
+			callResult, err := meteredCall(ctx, caller, enrich.GetOperation(), params)
 			if err != nil {
 				return nil, fmt.Errorf("enrich %s: call failed: %w", enrich.Name, err)
 			}
@@ -3631,8 +3715,13 @@ func (h *FlowHandler) checkCache(ctx context.Context, key string) (interface{}, 
 
 	data, found, err := cacheConn.Get(ctx, key)
 	if err != nil || !found {
+		// A cache error is a miss as far as the flow is concerned: it falls
+		// through and does the work. Counting it as one keeps the hit rate
+		// honest about how often the cache actually saved a round trip.
+		metrics.Default().RecordCacheMiss(h.cacheMetricName())
 		return nil, false, err
 	}
+	metrics.Default().RecordCacheHit(h.cacheMetricName())
 
 	// Deserialize from JSON
 	var result interface{}
@@ -3660,6 +3749,23 @@ func (h *FlowHandler) storeInCache(ctx context.Context, key string, value interf
 	ttl := h.getCacheTTL()
 
 	return cacheConn.Set(ctx, key, data, ttl)
+}
+
+// cacheMetricName labels the cache metrics. It is the configured storage name
+// where there is one, falling back to the flow name — both bounded, unlike the
+// cache key, which is evaluated per message.
+func (h *FlowHandler) cacheMetricName() string {
+	if h.Config.Cache != nil {
+		if h.Config.Cache.Storage != "" {
+			return h.Config.Cache.Storage
+		}
+		if h.Config.Cache.Use != "" {
+			if named, ok := h.NamedCaches[h.Config.Cache.Use]; ok && named.Storage != "" {
+				return named.Storage
+			}
+		}
+	}
+	return h.Config.Name
 }
 
 // getCacheConnector returns the cache connector for this flow.

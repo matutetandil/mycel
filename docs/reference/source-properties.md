@@ -26,6 +26,42 @@ flow receives everything.
 |---|---|
 | REST, GraphQL, gRPC, SOAP, TCP, SSE | RabbitMQ, Kafka, Redis Pub/Sub, MQTT, CDC, WebSocket, File watch |
 
+!!! warning "On a stream source, `operation` is a filter — and it drops what it does not match"
+
+    Optional does not mean inert. When you declare it, the value becomes the
+    key this flow's handler is registered under, and every incoming message is
+    matched against it. **A message matching no flow's pattern is dropped** —
+    nacked without requeue on RabbitMQ, offset committed on Kafka, discarded on
+    Redis. It is not an error, and without the startup notice below it is not
+    visible either.
+
+    Note this is a *second* filter. The broker has already decided what lands
+    in the queue, through the exchange and binding you configured on the
+    connector. `operation` narrows again, in-process, after that.
+
+    The failure mode is a value that reads like a name — an endpoint, a queue,
+    an entity — but matches no key the publisher actually sends. Everything is
+    then discarded silently. If you do not need to split one subscription
+    across several flows, **omit `operation`** and take the `"*"` catch-all.
+
+    Since 2.13.0 this is stated at startup, per flow:
+
+    ```
+    INF dispatch: flow only accepts matching messages connector=rabbit flow=item_create
+        operation=all.in.magento.q meaning="only deliveries whose key matches
+        \"all.in.magento.q\" reach this flow"
+    WRN dispatch: messages matching no pattern will be DROPPED connector=rabbit
+        patterns="\"all.in.magento.q\"" hint="on a message queue source
+        `operation` is a subscription pattern, not an operation name; omit it
+        to accept every message"
+    ```
+
+    The warning appears only when **every** flow on that connector is narrowed,
+    since one catch-all among them guarantees a handler for anything that
+    arrives. Drops that do happen are counted in
+    [`mycel_messages_undispatched_total`](../guides/observability.md#message-queue-metrics)
+    and the first one per key is logged at error level.
+
 A missing required `operation` is reported by `mycel validate` and fails startup:
 
 ```
@@ -206,10 +242,31 @@ from {
 | Property | Value |
 |----------|-------|
 | **Connector type** | `mq` (with `driver = "rabbitmq"`) |
-| **`operation` format** | Routing key — e.g., `"orders.created"`, `"user.*"`, `"#"` |
+| **`operation` format** | Routing-key **pattern** — e.g., `"orders.created"`, `"user.*"`, `"#"` |
 | **`operation` required?** | Optional — defaults to `"*"` (catch-all) |
 
 Supports AMQP topic exchange patterns: `*` matches one word, `#` matches zero or more.
+
+`operation` here is matched against `delivery.RoutingKey`, in this order: exact
+match, then topic-pattern match, then `"*"`, then `"#"`. **A delivery matching
+none of the registered patterns is nacked without requeue** — and discarded by
+the broker unless the queue carries a dead-letter exchange. See
+[Is `operation` required?](#is-operation-required) for what that means in
+practice.
+
+A common trap is setting `operation` to the **queue name**. That only works
+while the publisher happens to use the queue name as its routing key, and
+breaks silently the day it does not:
+
+```hcl
+from {
+  connector = "rabbit"
+  operation = "all.in.magento.q"   # ← a queue name, not a routing key
+}
+```
+
+The queue is already selected by the connector's `queue {}` and binding. If one
+flow handles everything on this queue, omit `operation`.
 
 ### `input.*` variables
 

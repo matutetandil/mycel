@@ -102,6 +102,11 @@ func (h *FlowHandler) dedupeAwareWrite(
 	lockCfg := &msync.FlowLockConfig{
 		Storage: nil, // memory backend
 		Key:     lockKey,
+		Flow:    h.Config.Name,
+		// Separated from the flow's own lock {} in the metrics: contention
+		// here means duplicate deliveries piling up, not business-key
+		// contention, and the two want different responses.
+		Purpose: msync.LockPurposeDedupe,
 		Timeout: "5m",
 		Wait:    true,
 	}
@@ -125,6 +130,7 @@ func (h *FlowHandler) dedupeAwareWrite(
 				Filtered: true,
 				Policy:   cfg.OnDuplicate,
 				Reason:   "dedupe_match",
+				Detail:   fmt.Sprintf("key %q already seen within the dedupe window", key),
 			}, nil
 		}
 

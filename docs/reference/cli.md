@@ -68,24 +68,57 @@ mycel check [flags]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--config`, `-c` | `.` | Path to the config directory |
+| `--timeout` | `10s` | Per-connector timeout |
+
+Every connector is built, connected and health-checked. Connectors are checked
+concurrently, each with its own timeout, so one unreachable host does not stall
+the rest. Unlike startup, a failure does not stop the sweep — the point is a
+complete picture of what is reachable.
 
 **Example:**
 
 ```bash
 mycel check --config ./my-service
-# ✓ postgres: connected
-# ✓ redis: connected
-# ✗ external_api: connection refused
+#   – api (rest): listens, nothing to reach
+#   ✓ orders_db (database/postgres): connected in 12ms
+#   ✓ cache (cache/redis): connected in 3ms
+#   ✗ payments_api (http): no response within 10s
+#
+# Error: 1 of 4 connectors unreachable
+```
+
+Exits non-zero when any connector is unreachable, so it works as a deploy gate.
+
+Connectors that **listen** rather than dial — REST, GraphQL, gRPC, SOAP and TCP
+servers, plus SSE and WebSocket — are reported with `–` and never fail the
+check. They have no endpoint to reach, and they are not started here, so their
+health check would only ever report "not started". They are still built, which
+is where a bad port or a malformed TLS config surfaces.
+
+The distinction in the failure message matters: `connection refused` means
+something answered and said no — usually a wrong port or a service that is
+down. `no response within <timeout>` means nothing answered at all — usually a
+firewall or a wrong host. Errors from building the connector are reported the
+same way, including the missing environment variable when an `env()` call
+resolved to nothing:
+
+```
+  ✗ products_api (http): factory failed to create connector products_api: http connector requires base_url
+      → Missing environment variable "MERCURY_PRODUCTS_URL", required by connector "products_api" (base_url)
 ```
 
 ### `mycel version`
 
-Print the Mycel version.
+Print the Mycel version, build commit, Go toolchain and platform.
 
 ```bash
 mycel version
-# mycel v1.7.0 (go1.21)
+# mycel 2.12.0 (commit: 64be3eb, go1.25.0, linux/amd64)
 ```
+
+The same information appears in the startup banner. This command exists for the
+case where the banner has already rolled out of a pod's log buffer and you need
+to know what is running without restarting it.
 
 ### `mycel export`
 

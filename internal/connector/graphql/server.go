@@ -488,3 +488,6 @@ func writeGraphQLError(w http.ResponseWriter, message string, status int) {
 var (
 	_ connector.Connector = (*ServerConnector)(nil)
 )
+
+// InboundOnly implements connector.InboundOnly: this connector listens.
+func (c *ServerConnector) InboundOnly() bool { return true }

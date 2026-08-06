@@ -389,7 +389,15 @@ type FilteredResultWithPolicy struct {
 	//   - "accept"             — accept { } rejected
 	//   - "coordinate_timeout" — coordinate { on_timeout = "ack" } fired
 	//   - "sequence_older"     — sequence_guard { } saw current <= stored
+	//   - "dedupe_match"       — dedupe { } saw this fingerprint already
 	Reason string
+
+	// Detail names the specific configuration that decided the drop — the CEL
+	// expression that rejected, the fingerprint that matched, the sequence
+	// numbers compared. Reason says which gate; Detail says why that gate said
+	// no, which is what you need to go and fix it. Logged with the drop; not
+	// exposed to CEL.
+	Detail string
 
 	// PendingOnDrop is the deferred dispatcher for the flow's on_drop
 	// aspects. The flow handler attaches this closure instead of firing

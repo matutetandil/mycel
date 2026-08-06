@@ -13,6 +13,7 @@ import (
 
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/mq/types"
+	"github.com/matutetandil/mycel/internal/connector/mq/undispatched"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/tracing"
 )
@@ -50,6 +51,9 @@ type Connector struct {
 
 	// Debug throttling: single-message processing when debugger is connected
 	debugGate connector.DebugGate
+
+	// Reports messages no flow handler matched.
+	undispatched undispatched.Reporter
 }
 
 // NewConnector creates a new Kafka connector.

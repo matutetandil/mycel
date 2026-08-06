@@ -6,12 +6,15 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 	"go.uber.org/automaxprocs/maxprocs"
 
+	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/envdefaults"
 	"github.com/matutetandil/mycel/internal/export/asyncapi"
 	"github.com/matutetandil/mycel/internal/export/openapi"
@@ -173,6 +176,20 @@ Common issues detected:
 	RunE: runCheck,
 }
 
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print the Mycel version",
+	Long: `Print the Mycel version, build commit, Go toolchain and platform.
+
+The same information appears in the startup banner, but on a pod that has been
+running for a while that line has long rolled out of the log buffer. This
+command answers "what is actually running here?" without a restart.
+
+Examples:
+  mycel version`,
+	RunE: runVersion,
+}
+
 var exportCmd = &cobra.Command{
 	Use:   "export",
 	Short: "Export API documentation",
@@ -239,6 +256,9 @@ var (
 	verboseFlow  bool
 	debugSuspend bool
 
+	// Check flags
+	checkTimeout time.Duration
+
 	// Export flags
 	exportOutput  string
 	exportFormat  string
@@ -258,6 +278,10 @@ func init() {
 	startCmd.Flags().BoolVar(&verboseFlow, "verbose-flow", false, "Log all flow pipeline stages per request (debug)")
 	startCmd.Flags().BoolVar(&debugSuspend, "debug-suspend", false, "Defer event-driven connector start until debugger connects")
 
+	// Check command flags
+	checkCmd.Flags().DurationVar(&checkTimeout, "timeout", runtime.DefaultConnectivityTimeout,
+		"Per-connector timeout for the connectivity check")
+
 	// Export command flags (OpenAPI)
 	exportOpenAPICmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file (default: stdout)")
 	exportOpenAPICmd.Flags().StringVarP(&exportFormat, "format", "f", "yaml", "Output format: yaml, json")
@@ -275,6 +299,7 @@ func init() {
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(checkCmd)
+	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(pluginCmd)
 
@@ -407,6 +432,12 @@ func resolveEnvironment() string {
 	return "development"
 }
 
+func runVersion(cmd *cobra.Command, args []string) error {
+	fmt.Printf("mycel %s (commit: %s, %s, %s/%s)\n",
+		version, commit, goruntime.Version(), goruntime.GOOS, goruntime.GOARCH)
+	return nil
+}
+
 func runValidate(cmd *cobra.Command, args []string) error {
 	// Load .env file if present (so env() in HCL resolves correctly)
 	loadDotEnv()
@@ -431,6 +462,21 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 		return fmt.Errorf("validation failed: %d flow error(s)", len(errs))
 	}
+
+	// Attributes that parse but do nothing. Inert, so not a failure, but the
+	// config gives no hint that they are inert.
+	if warnings := runtime.InertFlowAttrs(config); len(warnings) > 0 {
+		fmt.Printf("\n⚠ Configuration with no effect (%d):\n\n", len(warnings))
+		for _, w := range warnings {
+			fmt.Printf("    - %s\n", w)
+		}
+	}
+
+	// Unset env() references are not a validation failure — `mycel validate`
+	// legitimately runs in CI, where production variables are absent. But the
+	// config alone cannot tell you that an attribute silently resolved to "",
+	// so report them rather than letting the run look entirely clean.
+	printMissingEnvWarnings(config.Connectors)
 
 	// Report success
 	fmt.Printf("\n✓ Configuration is valid!\n\n")
@@ -462,6 +508,39 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// printMissingEnvWarnings reports env() references that resolved to an empty
+// string because the variable is unset. The parser already collected these per
+// connector for the startup hint; surfacing them here means `mycel validate`
+// stops looking clean on a config that cannot actually start.
+func printMissingEnvWarnings(connectors []*connector.Config) {
+	type ref struct{ conn, attr string }
+	byVar := map[string][]ref{}
+	var order []string
+
+	for _, c := range connectors {
+		for _, m := range c.MissingEnv {
+			if _, seen := byVar[m.Name]; !seen {
+				order = append(order, m.Name)
+			}
+			byVar[m.Name] = append(byVar[m.Name], ref{c.Name, m.Attr})
+		}
+	}
+	if len(order) == 0 {
+		return
+	}
+
+	fmt.Printf("\n⚠ Unset environment variables (%d):\n\n", len(order))
+	for _, name := range order {
+		for _, r := range byVar[name] {
+			fmt.Printf("    - %s → connector %q (%s) resolves to \"\"\n", name, r.conn, r.attr)
+		}
+	}
+	fmt.Printf("\n  These are only a warning here: validate does not need the deployment\n")
+	fmt.Printf("  environment. Startup fails if the empty value leaves a required\n")
+	fmt.Printf("  attribute unset. Give env() a default — env(\"NAME\", \"fallback\") —\n")
+	fmt.Printf("  when an empty value is intended.\n")
+}
+
 func runCheck(cmd *cobra.Command, args []string) error {
 	// Load .env file if present (so env() in HCL resolves correctly)
 	loadDotEnv()
@@ -485,14 +564,77 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create runtime: %w", err)
 	}
 
-	// Try to start (this will attempt connections)
-	// For now, just validate that we can parse and create the runtime
-	fmt.Printf("\n✓ All connectors configured correctly!\n")
+	results := rt.CheckConnectivity(context.Background(), checkTimeout)
+	// Shut down after the report is printed: Shutdown writes its own banner,
+	// which would otherwise land in the middle of the results.
+	defer func() { _ = rt.Shutdown() }()
 
-	// Clean shutdown
-	_ = rt.Shutdown()
+	if len(results) == 0 {
+		fmt.Printf("\n  No connectors configured.\n")
+		return nil
+	}
+
+	fmt.Println()
+	failed, inbound := 0, 0
+	for _, res := range results {
+		label := res.Name
+		if desc := describeConnectorKind(res.Type, res.Driver); desc != "" {
+			label = fmt.Sprintf("%s (%s)", res.Name, desc)
+		}
+
+		// A listener has no endpoint to reach. Saying so beats both a green
+		// tick it did not earn and a cross for a check that never applied.
+		if res.Inbound {
+			inbound++
+			fmt.Printf("  – %s: listens, nothing to reach\n", label)
+			continue
+		}
+
+		if res.OK() {
+			fmt.Printf("  ✓ %s: connected in %s\n", label, res.Duration.Round(time.Millisecond))
+			continue
+		}
+
+		failed++
+		if res.TimedOut {
+			// No answer at all points at a firewall or a wrong host, where a
+			// refusal points at a wrong port or a service that is down.
+			fmt.Printf("  ✗ %s: no response within %s\n", label, checkTimeout)
+			continue
+		}
+		fmt.Printf("  ✗ %s: %v\n", label, res.Err)
+	}
+
+	fmt.Println()
+	if failed > 0 {
+		return fmt.Errorf("%d of %d connectors unreachable", failed, len(results))
+	}
+	// Count only what was actually reached, so a config that is all listeners
+	// does not claim to have verified anything.
+	dialed := len(results) - inbound
+	switch {
+	case dialed == 0:
+		fmt.Printf("✓ Nothing to reach: all %d connectors listen for inbound traffic.\n", inbound)
+	case inbound > 0:
+		fmt.Printf("✓ All %d reachable connectors are up (%d listen for inbound traffic).\n", dialed, inbound)
+	default:
+		fmt.Printf("✓ All %d connectors reachable!\n", dialed)
+	}
 
 	return nil
+}
+
+// describeConnectorKind renders "type/driver", or just the type when the
+// connector has no driver.
+func describeConnectorKind(connType, driver string) string {
+	switch {
+	case connType == "":
+		return ""
+	case driver == "":
+		return connType
+	default:
+		return connType + "/" + driver
+	}
 }
 
 // loadDotEnv loads environment variables from a .env file if present.

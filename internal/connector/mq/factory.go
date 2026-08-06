@@ -171,6 +171,7 @@ func buildRabbitMQConfig(cfg *connector.Config) *rabbitmq.Config {
 				MaxRetries:  getInt(dlqCfg, "max_retries", 3),
 				RetryDelay:  getDuration(dlqCfg, "retry_delay", 0),
 				RetryHeader: getString(dlqCfg, "retry_header", "x-retry-count"),
+				External:    getBool(dlqCfg, "external", false),
 			}
 		}
 

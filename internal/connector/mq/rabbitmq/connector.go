@@ -12,6 +12,7 @@ import (
 
 	"github.com/matutetandil/mycel/internal/connector"
 	"github.com/matutetandil/mycel/internal/connector/mq/types"
+	"github.com/matutetandil/mycel/internal/connector/mq/undispatched"
 	"github.com/matutetandil/mycel/internal/flow"
 	"github.com/matutetandil/mycel/internal/tracing"
 )
@@ -43,6 +44,9 @@ type Connector struct {
 
 	// Filter rejection tracking for requeue dedup
 	requeueTracker *flow.RequeueTracker
+
+	// Reports deliveries no flow handler matched.
+	undispatched undispatched.Reporter
 
 	// Debug throttling: studio-controlled single-message processing
 	debugGate connector.DebugGate
@@ -492,7 +496,10 @@ func (c *Connector) setupTopology() error {
 			return fmt.Errorf("failed to declare queue: %w", err)
 		}
 
-		if !queueExisted && dlqConfig != nil && dlqConfig.Enabled {
+		// external = true means ops owns the dead-letter topology; Mycel
+		// declaring its own DLX alongside would create infrastructure nothing
+		// routes to.
+		if !queueExisted && dlqConfig != nil && dlqConfig.Enabled && !dlqConfig.External {
 			if err := c.setupDLQ(dlqConfig); err != nil {
 				return fmt.Errorf("failed to setup DLQ: %w", err)
 			}
@@ -555,12 +562,24 @@ func (c *Connector) declareConsumerQueue(dlqConfig *DLQConfig) (bool, error) {
 		c.logger.Info("queue exists; preserving existing topology",
 			"queue", queueCfg.Name,
 		)
-		if dlqConfig != nil && dlqConfig.Enabled {
+		if dlqConfig != nil && dlqConfig.Enabled && !dlqConfig.External {
+			// Lead with the conclusion. `dlq { enabled = true }` reads as
+			// protection that exists, and on a pre-existing queue Mycel has
+			// provisioned none of it: the queue was declared by someone else,
+			// so its dead-letter arguments are whatever they set. Retry
+			// counting (republish) is unaffected and still works; only the
+			// final rejection has nowhere to go. Mycel cannot tell from AMQP
+			// whether a server-side policy covers this queue, hence a warning
+			// rather than a hard failure — but the operator has to go check.
 			c.logger.Warn(
-				"dlq enabled but queue pre-existed without Mycel-declared DLX args; "+
-					"retry counting via republish still works, but on Reject(false) "+
-					"RabbitMQ will discard messages instead of routing to a DLQ unless "+
-					"a server-side policy with dead-letter-exchange is configured on this queue",
+				"dlq { enabled = true } is NOT provisioned by Mycel for this queue: "+
+					"the queue already existed, so Mycel declared no dead-letter exchange for it. "+
+					"Retries still work (max_retries is enforced by republish), but a message that "+
+					"exhausts them is DISCARDED unless this queue already carries "+
+					"x-dead-letter-exchange or a server-side policy sets one. "+
+					"Verify the queue's dead-letter policy on the broker, then set "+
+					"dlq { external = true } to confirm it is managed there and silence this; "+
+					"or let Mycel own the queue declaration (create_if_missing = true)",
 				"queue", queueCfg.Name,
 				"max_retries", dlqConfig.MaxRetries,
 			)
@@ -592,8 +611,11 @@ func (c *Connector) declareConsumerQueue(dlqConfig *DLQConfig) (bool, error) {
 	}
 	c.channel = newChannel
 
+	// Point the queue at the DLX Mycel is about to declare. Skipped when the
+	// dead-letter topology is external: Mycel does not know the name ops chose,
+	// so guessing one would dead-letter into an exchange that does not exist.
 	args := queueCfg.Args
-	if dlqConfig != nil && dlqConfig.Enabled {
+	if dlqConfig != nil && dlqConfig.Enabled && !dlqConfig.External {
 		if args == nil {
 			args = make(map[string]interface{})
 		}

@@ -236,3 +236,87 @@ connector "rabbit" {
 		})
 	}
 }
+
+// TestRabbitMQDLQExternal verifies the external flag survives the parser →
+// factory pipeline. It carries no behaviour of its own in the factory, but a
+// silent drop here would put the startup warning back on every consumer whose
+// dead-letter topology is owned by ops.
+func TestRabbitMQDLQExternal(t *testing.T) {
+	hcl := `
+connector "rabbit" {
+  type   = "mq"
+  driver = "rabbitmq"
+
+  consumer {
+    queue = "magento.system.gallery.assets.in.q"
+
+    dlq {
+      enabled     = true
+      max_retries = 3
+      external    = true
+    }
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "rabbit.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+
+	p := parser.NewHCLParser()
+	cfg, err := p.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	dlq := buildRabbitMQConfig(cfg.Connectors[0]).Consumer.DLQ
+	if dlq == nil {
+		t.Fatalf("Consumer.DLQ not built")
+	}
+	if !dlq.External {
+		t.Errorf("DLQ.External=false, want true")
+	}
+	// external must not disturb the rest of the DLQ config.
+	if !dlq.Enabled {
+		t.Errorf("DLQ.Enabled=false, want true")
+	}
+	if dlq.MaxRetries != 3 {
+		t.Errorf("DLQ.MaxRetries=%d, want 3", dlq.MaxRetries)
+	}
+}
+
+// Omitting external must leave it false, so existing configs keep provisioning
+// and warning exactly as before.
+func TestRabbitMQDLQExternalDefaultsFalse(t *testing.T) {
+	hcl := `
+connector "rabbit" {
+  type   = "mq"
+  driver = "rabbitmq"
+
+  consumer {
+    queue = "orders"
+
+    dlq {
+      enabled     = true
+      max_retries = 3
+    }
+  }
+}
+`
+	tmpDir := t.TempDir()
+	tmpFile := filepath.Join(tmpDir, "rabbit.mycel")
+	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
+		t.Fatalf("write temp file: %v", err)
+	}
+
+	p := parser.NewHCLParser()
+	cfg, err := p.ParseFile(context.Background(), tmpFile)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	if dlq := buildRabbitMQConfig(cfg.Connectors[0]).Consumer.DLQ; dlq.External {
+		t.Errorf("DLQ.External=true, want false when the attribute is omitted")
+	}
+}

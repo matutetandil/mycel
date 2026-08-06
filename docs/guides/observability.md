@@ -29,9 +29,115 @@ Mycel exposes metrics in Prometheus format at `/metrics`.
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `mycel_flow_executions_total` | Counter | flow, status | Total flow executions |
-| `mycel_flow_duration_seconds` | Histogram | flow | Flow execution duration |
+| `mycel_flow_executions_total` | Counter | flow, status | Flow executions — `success`, `error` or `dropped` |
+| `mycel_flow_drops_total` | Counter | flow, reason | Messages a gate declined, by gate |
+| `mycel_flow_duration_seconds` | Histogram | flow | Flow execution duration (all executions) |
 | `mycel_flow_errors_total` | Counter | flow, error_type | Flow errors by type |
+| `mycel_flow_duration_fastest_seconds` | Gauge | flow | Fastest successful execution since start |
+| `mycel_flow_duration_slowest_seconds` | Gauge | flow | Slowest successful execution since start |
+| `mycel_flow_duration_average_seconds` | Gauge | flow | Mean of successful executions since start |
+| `mycel_flow_messages_per_second` | Gauge | flow | Successful executions per second, last minute |
+
+#### Deliberate drops
+
+A message a gate declines — filtered, deduplicated, superseded — is neither
+success nor failure. It gets its own status, and a counter broken down by the
+gate that declined it, with the same `reason` values as the
+[drop log line](troubleshooting.md#the-message-arrived-but-nothing-happened):
+`filter`, `accept`, `dedupe_match`, `sequence_older`, `coordinate_timeout`.
+
+```promql
+# share of incoming messages actually processed
+sum by (flow) (rate(mycel_flow_executions_total{status="success"}[5m]))
+  / sum by (flow) (rate(mycel_flow_executions_total[5m]))
+
+# what is declining them
+sum by (flow, reason) (rate(mycel_flow_drops_total[5m]))
+```
+
+Worth watching after a config change: a filter that suddenly declines
+everything looks exactly like a quiet upstream unless you graph this.
+
+#### Throughput and timing
+
+The histogram is the primary instrument. With Prometheus you get throughput,
+average and percentiles from it directly:
+
+```promql
+rate(mycel_flow_duration_seconds_count[1m])                       # messages per second
+rate(mycel_flow_duration_seconds_sum[5m])
+  / rate(mycel_flow_duration_seconds_count[5m])                   # average duration
+histogram_quantile(0.95, sum by (flow, le)
+  (rate(mycel_flow_duration_seconds_bucket[5m])))                 # p95
+```
+
+Prefer these when you have a Prometheus server: they are windowed, so they
+follow the service instead of averaging over its whole uptime.
+
+The four gauges exist for what the histogram cannot give you:
+
+- **Exact fastest and slowest.** A histogram records which bucket a value fell
+  into, not the value, so `histogram_quantile` cannot recover the true extremes.
+- **Successful executions only.** `mycel_flow_duration_seconds` is not split by
+  status, so nothing derived from it can exclude failures or drops. Both are
+  fast — a failure gives up early, a drop short-circuits before the transform —
+  so either would take the "fastest" spot and pull the average down, making a
+  broken or heavily-filtered service look quick. `mycel_flow_messages_per_second`
+  likewise counts work done, not messages received; compare it against
+  `rate(mycel_flow_executions_total[1m])` to see how much is being declined.
+
+They are also readable straight off `/metrics` with no query engine, which is
+often all you want when checking a single pod.
+
+Two caveats worth knowing. Fastest, slowest and average are cumulative **since
+process start**, so a single outlier pins the slowest value until the next
+restart — for trends, use the histogram. And `mycel_flow_messages_per_second` is
+already a rate, so graph it as-is; wrapping it in `rate()` is meaningless.
+
+A flow that has never completed successfully emits none of these, rather than
+reporting a fastest and slowest of zero.
+
+### Message Queue Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `mycel_messages_undispatched_total` | Counter | connector, driver, target, key | Messages that matched no flow handler and were dropped |
+
+`target` is where the message arrived and `key` is what was matched against the
+handler patterns:
+
+| Driver | `target` | `key` | What happens to the message |
+|--------|----------|-------|------------------------------|
+| `rabbitmq` | queue | routing key | Nacked without requeue — discarded unless the queue has a dead-letter exchange |
+| `kafka` | topic | topic | Offset committed — it will not be redelivered |
+| `redis` | channel | channel | Discarded — pub/sub retains nothing |
+
+This counter should stay at zero. Anything else means the broker routed a
+message to this consumer that no flow claims. The usual cause is a
+`from { operation = "..." }` that matches no key actually delivered: on a
+message queue source `operation` reads like an operation *name* but is a
+subscription *pattern*, and an invented value matches nothing. Omit it to accept
+every message.
+
+The first occurrence per key is also logged at error level, with the patterns
+your flows registered — the difference between the two is the diagnosis:
+
+```
+ERROR message dropped: no flow handles this key
+      driver=rabbitmq target=orders.in.q key=gallery-assets
+      registered_patterns=[product.created product.updated]
+      consequence="nacked without requeue; discarded unless the queue has a dead-letter exchange"
+```
+
+Repeats only move the counter, so a misconfigured consumer does not drown the
+log. Worth an alert:
+
+```yaml
+- alert: MycelMessagesUndispatched
+  expr: increase(mycel_messages_undispatched_total[5m]) > 0
+  annotations:
+    summary: "{{ $labels.connector }} is dropping messages on {{ $labels.target }} with key {{ $labels.key }}"
+```
 
 ### Connector Metrics
 
@@ -41,6 +147,15 @@ Mycel exposes metrics in Prometheus format at `/metrics`.
 | `mycel_connector_operations_total` | Counter | connector, type, operation, status | Operations count |
 | `mycel_connector_latency_seconds` | Histogram | connector, type, operation | Operation latency |
 
+`operation` is deliberately coarse — `read`, `write` or `call` — never the query
+or the target: a SQL statement as a label is unbounded cardinality. This answers
+"which connector is slow or failing"; `mycel_flow_duration_seconds` carries the
+per-flow breakdown.
+
+`mycel_connector_health` is refreshed whenever the health endpoint runs a check,
+so scrape `/health` on a schedule (or point a Kubernetes probe at it) if you
+want the gauge to track reality between deploys.
+
 ### Cache Metrics
 
 | Metric | Type | Labels | Description |
@@ -48,6 +163,11 @@ Mycel exposes metrics in Prometheus format at `/metrics`.
 | `mycel_cache_hits_total` | Counter | cache | Cache hits |
 | `mycel_cache_misses_total` | Counter | cache | Cache misses |
 | `mycel_cache_size` | Gauge | cache | Current cache size |
+
+`cache` is the configured storage name, falling back to the flow name when the
+`cache {}` block declares none. A cache error counts as a miss: the flow falls
+through and does the work either way, so counting it as anything else would
+overstate how often the cache saved a round trip.
 
 ### Profile Metrics
 
@@ -63,15 +183,51 @@ Mycel exposes metrics in Prometheus format at `/metrics`.
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `mycel_lock_acquired_total` | Counter | key | Locks acquired |
-| `mycel_lock_released_total` | Counter | key | Locks released |
-| `mycel_lock_wait_seconds` | Histogram | key | Lock wait time |
-| `mycel_lock_timeout_total` | Counter | key | Lock timeouts |
-| `mycel_lock_held` | Gauge | key | Currently held locks |
-| `mycel_semaphore_acquired_total` | Counter | key | Semaphore permits acquired |
-| `mycel_semaphore_available` | Gauge | key | Available permits |
-| `mycel_coordinate_signal_total` | Counter | signal | Signals emitted |
-| `mycel_coordinate_wait_seconds` | Histogram | signal | Wait duration |
+| `mycel_lock_acquired_total` | Counter | flow, purpose | Locks acquired |
+| `mycel_lock_released_total` | Counter | flow, purpose | Locks released |
+| `mycel_lock_wait_seconds` | Histogram | flow, purpose | Time spent waiting for the lock |
+| `mycel_lock_timeout_total` | Counter | flow, purpose | Lock acquisitions that gave up |
+| `mycel_lock_held` | Gauge | flow, purpose | Locks currently held |
+| `mycel_semaphore_acquired_total` | Counter | flow | Semaphore permits acquired |
+| `mycel_semaphore_released_total` | Counter | flow | Semaphore permits released |
+| `mycel_semaphore_wait_seconds` | Histogram | flow | Time spent waiting for a permit |
+| `mycel_semaphore_timeout_total` | Counter | flow | Permit acquisitions that gave up |
+| `mycel_coordinate_signal_total` | Counter | flow | Signals emitted |
+| `mycel_coordinate_wait_total` | Counter | flow | Waits started |
+| `mycel_coordinate_wait_seconds` | Histogram | flow | Wait duration |
+| `mycel_coordinate_timeout_total` | Counter | flow | Waits that timed out |
+| `mycel_coordinate_active_waits` | Gauge | flow | Flows currently blocked in a wait |
+| `mycel_coordinate_preflight_hit_total` | Counter | flow | Preflight checks that skipped the wait |
+
+These are labelled by **flow, not by key**. Lock, semaphore and signal keys are
+CEL expressions evaluated per message — one per order, per SKU, per customer —
+so using them as a label would grow the time series set without bound. The flow
+is also the dimension that answers the operational question: which flow is
+contending, not which entity.
+
+Locks carry a second label, `purpose`, because Mycel takes them from two places
+and contention means something different in each:
+
+| `purpose` | What it guards | What contention means |
+|-----------|----------------|-----------------------|
+| `flow` | The flow's own `lock {}` block | A hot business key — many messages competing for the same entity |
+| `dedupe` | The critical section around the duplicate check | Duplicate deliveries piling up on one key |
+
+`mycel_lock_wait_seconds` is the one to watch. Time a message spends waiting for
+a lock is invisible in `mycel_flow_duration_seconds`, so a consumer that looks
+fast per message can still be serialized behind a hot key:
+
+```promql
+# p95 lock wait, split by what the lock guards
+histogram_quantile(0.95, sum by (flow, purpose, le) (rate(mycel_lock_wait_seconds_bucket[5m])))
+
+# business-key contention only
+histogram_quantile(0.95, sum by (flow, le)
+  (rate(mycel_lock_wait_seconds_bucket{purpose="flow"}[5m])))
+
+# flows giving up on locks
+rate(mycel_lock_timeout_total[5m]) > 0
+```
 
 ### Runtime Metrics
 

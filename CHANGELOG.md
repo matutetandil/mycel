@@ -5,6 +5,88 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Every item here has the same shape: a misconfiguration that produced no error, just an absence of behaviour. Nothing in this release changes what a correct configuration does.
+
+### Added
+
+- **`mycel version`.** Documented in the CLI reference, the README and the installation guide, but never actually registered — only cobra's `--version` flag existed. It prints the version, build commit, Go toolchain and platform. The same information is in the startup banner, which is no help on a pod that has been running long enough for that line to roll out of the log buffer.
+
+  ```
+  mycel 2.12.0 (commit: 64be3eb, go1.25.0, linux/amd64)
+  ```
+
+- **`mycel_messages_undispatched_total{connector,queue,routing_key}`.** Counts messages that reached a consumer and matched no flow handler. Previously nothing recorded these: the queue showed deliveries with no acks, and no metric moved.
+
+- **`mycel validate` reports unset `env()` references.** Startup already names the missing variable when the empty value leaves a required attribute unset (2.11.1), but validate passed clean on the same config. Unset variables are a warning, not a failure — validate legitimately runs in CI, without the deployment environment — and the output names the connector and attribute each one feeds.
+
+- **`mycel validate` and startup report configuration that has no effect.** `params` on a `to` block is the first case: it parses, and nothing ever reads it. A write sends the transform output, or the raw input when the flow has no transform. The attribute is real on `step`, on `enrich`, and on `exec` inside a `transaction`, which is how it ends up copied onto `to`.
+
+- **`mycel check` actually checks.** It created the runtime, printed `✓ All connectors configured correctly!` and exited zero without opening a single connection — a database on an unroutable address passed, and the documented per-connector output did not exist. It now builds, connects and health-checks every connector, concurrently and each with its own timeout (`--timeout`, default 10s), reporting all of them rather than stopping at the first failure:
+
+  ```
+    ✓ orders_db (database/postgres): connected in 12ms
+    ✗ payments_api (http): no response within 10s
+
+  Error: 1 of 2 connectors unreachable
+  ```
+
+  Exits non-zero when anything is unreachable, so it works as a deploy gate. `connection refused` (something answered and said no) is distinguished from `no response within <timeout>` (nothing answered at all), and failures to build the connector are reported the same way, including the missing environment variable behind an empty `env()`.
+
+  Connectors that listen rather than dial — REST, GraphQL, gRPC, SOAP and TCP servers, plus SSE and WebSocket — are reported as such and never fail the check: they have no endpoint to reach, and are not started here, so their health check would only ever report "not started". They declare this through a new optional `connector.InboundOnly` interface rather than being matched by type, since server and client are already separate types.
+
+- **Per-flow timing extremes and throughput**, over successful executions only: `mycel_flow_duration_fastest_seconds`, `mycel_flow_duration_slowest_seconds`, `mycel_flow_duration_average_seconds` and `mycel_flow_messages_per_second`.
+
+  Most of this was already derivable from the `mycel_flow_duration_seconds` histogram — `rate(_count)` is the throughput and `rate(_sum)/rate(_count)` the average — and those queries remain the better instrument where a Prometheus server is available, being windowed rather than cumulative. Two things were not derivable: a histogram records which bucket a value fell into rather than the value, so the true fastest and slowest cannot be recovered from it, and the histogram is not split by status, so nothing from it can be narrowed to messages that actually succeeded. A flow failing in 1 ms would otherwise take the "fastest" spot and pull the average down.
+
+  Computed at scrape time by a collector, with no background goroutine, and bounded memory per flow (throughput uses a fixed 60-slot ring, not a list of samples). The existing histogram is unchanged and still observes every execution.
+
+- **The sync, cache and connector metrics are recorded.** They were defined, registered and documented from the start — including a Grafana panel for cache hit rate — with no call sites anywhere, so they were permanently absent from `/metrics`. Now emitted: `mycel_lock_*`, `mycel_semaphore_*`, `mycel_coordinate_*`, `mycel_cache_{hits,misses}_total`, `mycel_connector_health`, `mycel_connector_operations_total` and `mycel_connector_latency_seconds`.
+
+  `mycel_lock_wait_seconds` is the one worth watching: time spent waiting for a lock is invisible in `mycel_flow_duration_seconds`, so a consumer that looks fast per message can still be serialized behind a hot key.
+
+  Lock metrics carry a second label, `purpose`: `flow` for the flow's own `lock {}` block, guarding a business key, and `dedupe` for the critical section around the duplicate check. Contention means different things in each — a hot business key versus duplicate deliveries piling up — and they want different responses.
+
+  **The sync metrics are now labelled by `flow`, not by `key`.** Lock, semaphore and signal keys are CEL expressions evaluated per message — one per order, per SKU, per customer — so recording them as declared would have grown the time series set without bound. `mycel_connector_operations_total` labels the operation coarsely (`read`, `write`, `call`) for the same reason. Since none of these metrics had ever been emitted, no existing dashboard or alert can break.
+
+- **`mycel_flow_drops_total{flow,reason}`**, and a `dropped` status on `mycel_flow_executions_total`. A declined message was counted as a success, so a consumer filtering out most of its input reported full productivity and there was no way to graph or alert on drops at all — only to read them out of the log. `reason` matches the drop log line, so the two are read together. **This corrects existing series**: flows with a `filter`, `accept`, `dedupe`, `sequence_guard` or `coordinate` timeout will see `status="success"` fall and a `status="dropped"` series appear.
+
+  Drops are also excluded from the timing gauges above. A drop short-circuits before the transform, so it was owning the "fastest" gauge permanently and pulling the average down — on a flow filtering 8 of 9 messages, `fastest` reported 14µs of doing nothing instead of the 1.9ms of real work.
+
+- **Every deliberate drop explains itself at debug level.** A message Mycel declines to process is not an error, so nothing failed, nothing logged, and the result was indistinguishable from a broker that never delivered it. Each gate already reported a stable reason, but only `on_drop` aspects ever saw it.
+
+  ```
+  DBG message dropped by policy flow=only_big_orders source=api reason=filter
+      decided_by="from { filter }" detail="input.total > 100" disposition=ack
+  ```
+
+  `decided_by` names the HCL block to go and edit, and `detail` the expression, fingerprint or sequence numbers that block was judging — `reason` alone says which gate said no, not why. Covers `filter`, `accept`, `dedupe`, `sequence_guard` and `coordinate` timeouts, logged from the one choke-point every source funnels through, so the line is identical whichever connector delivered the message. The payload can be included with `MYCEL_PAYLOAD_SHOW`, under the same cap as the incoming-payload log; it stays a separate opt-in because a dropped message is still customer data.
+
+### Changed
+
+- **A message no flow can handle is now an error, not a warning.** This applies to **RabbitMQ, Kafka and Redis**, which all had the same hole: WARN, no metric, message gone. Each states what it just did, because the outcome differs — RabbitMQ nacks without requeue (a dead-letter exchange may still catch it), Kafka commits the offset (it will not be redelivered), Redis pub/sub simply discards.
+
+  The usual cause is that on a message queue source `operation` reads like an operation *name* but is a subscription *pattern*, so an invented value matches nothing and every delivery is dropped. The first occurrence per key is logged at ERROR with the patterns flows actually registered alongside it — the difference between the two is the diagnosis. Repeats only move the counter, so a misconfigured consumer does not drown the log.
+
+- **Startup states, per flow, which messages it will actually receive.** On a stream source `operation` is optional, which reads as inert — it is not. Declaring it registers the flow's handler under that key and filters every delivery against it, a *second* filter after the broker's own exchange and binding. Nothing said so, at startup or in the reference.
+
+  ```
+  INF dispatch: flow only accepts matching messages connector=rabbit flow=item_create
+      operation=all.in.magento.q meaning="only deliveries whose key matches \"all.in.magento.q\" reach this flow"
+  WRN dispatch: messages matching no pattern will be DROPPED connector=rabbit
+      patterns="\"all.in.magento.q\"" hint="on a message queue source `operation` is a
+      subscription pattern, not an operation name; omit it to accept every message"
+  ```
+
+  The warning fires only when **every** flow on a connector is narrowed, since one catch-all sibling guarantees a handler for anything that arrives. It runs before connectors are dialled, so the dispatch shape is visible even when the broker is down and startup is about to fail, and it is driver-agnostic: which connectors treat `operation` as a subscription pattern comes from their own `SourceSchema`, so RabbitMQ, Kafka, Redis, MQTT, CDC, WebSocket and file watch are all covered without a per-driver list. RabbitMQ consumers additionally log an error when they start with no flow handlers at all.
+
+- **`dlq { enabled = true }` says plainly when it is not in effect.** Mycel provisions the dead-letter exchange only when it declared the queue itself; on a pre-existing queue it provisions nothing, so a message that exhausts its retries is discarded unless the queue already carries `x-dead-letter-exchange` or a server-side policy sets one. This was already warned about, but the message opened with the part that still works and left the conclusion to the end. It now leads with the conclusion and states what to check.
+
+  It stays a warning rather than a startup failure because Mycel genuinely cannot check: AMQP's `queue.declare-ok` returns the name, message count and consumer count and nothing else, and policies are not visible over AMQP at all — a correctly dead-lettered queue and one with no dead-lettering anywhere look identical. New `dlq { external = true }` records the answer once you have checked the broker yourself: Mycel then provisions no DLX or DLQ, sets no `x-dead-letter-exchange` argument (it does not know which exchange name ops chose), and stays quiet. Retry counting is unaffected either way, and omitting the attribute keeps the previous behaviour exactly.
+
+- **Per-delivery handler lookup logging moved from info to debug.** It logged a line for every message in production.
+
 ## [2.12.0] - 2026-08-04
 
 ### Added

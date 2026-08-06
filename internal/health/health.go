@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/matutetandil/mycel/internal/metrics"
 )
 
 // Checker represents something that can be health-checked.
@@ -268,7 +270,21 @@ func (m *Manager) checkOne(ctx context.Context, checker Checker, timeout time.Du
 		status.Latency = timeout.String()
 	}
 
+	// mycel_connector_health was defined from the start and never set, so it
+	// was permanently absent from /metrics even though the health endpoint had
+	// the answer all along. Every checker registered today is a connector.
+	metrics.Default().SetConnectorHealth(status.Name, checkerType(checker), status.Status == "healthy")
+
 	return status
+}
+
+// checkerType reports the connector type for metric labelling. Checker itself
+// only requires Name and Health, so the type comes off an optional assertion.
+func checkerType(c Checker) string {
+	if t, ok := c.(interface{ Type() string }); ok {
+		return t.Type()
+	}
+	return "unknown"
 }
 
 // RegisterHandlers registers health check handlers on an HTTP mux.
