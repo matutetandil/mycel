@@ -71,6 +71,10 @@ func (c *Connector) startConsumer(ctx context.Context) error {
 		"prefetch", consumerCfg.Prefetch,
 	)
 
+	if len(patterns) == 0 {
+		undispatched.ReportNoHandlers(c.logger, c.name, "rabbitmq", queueName)
+	}
+
 	// Start worker goroutines
 	concurrency := consumerCfg.Concurrency
 	if concurrency <= 0 {

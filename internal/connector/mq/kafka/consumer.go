@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -86,11 +87,19 @@ func (c *Connector) startConsumer(ctx context.Context) error {
 
 	c.reader = kafka.NewReader(readerConfig)
 
+	c.mu.RLock()
+	handlerCount := len(c.handlers)
+	c.mu.RUnlock()
+
 	c.logger.Info("started consumer",
 		"group_id", consumerCfg.GroupID,
 		"topics", consumerCfg.Topics,
 		"concurrency", consumerCfg.Concurrency,
 	)
+
+	if handlerCount == 0 {
+		undispatched.ReportNoHandlers(c.logger, c.name, "kafka", strings.Join(consumerCfg.Topics, ","))
+	}
 
 	// Start consumer workers
 	concurrency := consumerCfg.Concurrency

@@ -128,3 +128,29 @@ func TestReportDispatch_PerConnector(t *testing.T) {
 		t.Errorf("only the narrowed connector should warn, got %d:\n%s", strings.Count(out, "DROPPED"), out)
 	}
 }
+
+// The regression this guards: an earlier version reported "no flow reads from
+// this source" for any connector whose schema allows it to be a source. A
+// database used only as a write target, and an MQ connector with only a
+// publisher block, both matched — so every real consumer logged errors about
+// connectors that were working exactly as configured. Whether a connector will
+// consume is only knowable where it starts consuming; the drivers report it.
+func TestReportDispatch_NoOrphanWarningForNonSourceConnectors(t *testing.T) {
+	out := dispatchReport(t,
+		[]*connector.Config{
+			mqConnector("rabbit"),                                   // consumed
+			mqConnector("rabbit_returns"),                           // publisher only
+			{Name: "magento_db", Type: "database", Driver: "mysql"}, // write target
+		},
+		[]*flow.Config{mqFlow("item_update", "rabbit", "")},
+	)
+
+	for _, unwanted := range []string{"magento_db", "rabbit_returns", "no flow reads"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("connectors that are not configured as sources must not be reported (%q):\n%s", unwanted, out)
+		}
+	}
+	if !strings.Contains(out, "accepts every message") {
+		t.Errorf("the consumed connector should still be reported:\n%s", out)
+	}
+}

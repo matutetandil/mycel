@@ -103,3 +103,23 @@ func SortedPatterns[T any](handlers map[string]T) []string {
 	sort.Strings(patterns)
 	return patterns
 }
+
+// ReportNoHandlers logs that a consumer is starting with nothing registered to
+// receive its messages, so every delivery will be dropped at lookup.
+//
+// Called from each driver's start path rather than from configuration
+// analysis: declaring a source schema only means a connector *can* be a
+// source, and a database used purely as a write target or an MQ connector with
+// only a publisher block are indistinguishable from an unused consumer until
+// one actually starts consuming.
+func ReportNoHandlers(logger *slog.Logger, connectorName, driver, target string) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Error("consumer has no flow handlers: every message will be dropped",
+		"connector", connectorName,
+		"driver", driver,
+		"target", target,
+		"hint", "a flow needs from { connector = \""+connectorName+"\" } to receive these messages",
+	)
+}

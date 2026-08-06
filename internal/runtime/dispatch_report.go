@@ -55,22 +55,12 @@ func (r *Runtime) reportDispatch(logger *slog.Logger, reg *schema.Registry) {
 			dispatchBinding{flow: f.Name, pattern: f.From.GetOperation()})
 	}
 
-	// A subscription source no flow reads from will consume and discard
-	// everything. Previously only the RabbitMQ driver said so; reporting it
-	// here covers Kafka, Redis, MQTT, CDC and the rest for free.
-	var orphans []string
-	for name, ref := range byName {
-		if isSubscriptionSource(reg, ref) && len(perConnector[name]) == 0 {
-			orphans = append(orphans, name)
-		}
-	}
-	sort.Strings(orphans)
-	for _, name := range orphans {
-		logger.Error("dispatch: no flow reads from this source; every message will be dropped",
-			"connector", name,
-			"hint", "a flow needs from { connector = \""+name+"\" } to receive anything",
-		)
-	}
+	// Deliberately no "connector with no flows" check here. Declaring a
+	// SourceSchema means a connector *can* be a source, not that it is
+	// configured as one: a database used only as a write target, or an MQ
+	// connector with just a publisher block, both look identical from the
+	// config. Whether a connector will actually consume is only knowable
+	// where it starts consuming, so the drivers report that themselves.
 
 	names := make([]string, 0, len(perConnector))
 	for name := range perConnector {

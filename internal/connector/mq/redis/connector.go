@@ -228,10 +228,19 @@ func (c *Connector) Start(ctx context.Context) error {
 	c.pubsub = pubsub
 	c.mu.Unlock()
 
+	c.mu.RLock()
+	handlerCount := len(c.handlers)
+	c.mu.RUnlock()
+
 	c.logger.Info("started Redis Pub/Sub subscriber",
 		"channels", channels,
 		"patterns", patterns,
 	)
+
+	if handlerCount == 0 {
+		undispatched.ReportNoHandlers(c.logger, c.name, "redis",
+			strings.Join(append(append([]string{}, channels...), patterns...), ","))
+	}
 
 	// Start message receive loop
 	c.wg.Add(1)
