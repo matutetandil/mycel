@@ -39,6 +39,8 @@ type Registry struct {
 	FlowDuration   *prometheus.HistogramVec
 	FlowErrors     *prometheus.CounterVec
 
+	FlowDrops *prometheus.CounterVec
+
 	// FlowStats derives fastest/slowest/average/throughput over successful
 	// executions only — see flowstats.go for why the histogram cannot.
 	FlowStats *FlowStats
@@ -182,6 +184,17 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 				Help: "Total number of flow execution errors",
 			},
 			[]string{"flow", "error_type"},
+		),
+		// Deliberate drops, by the gate that declined the message. The
+		// matching log line (reason + decided_by + detail) says why one
+		// message was dropped; this says how many, and is what you graph
+		// and alert on. reason is a closed set, so cardinality is bounded.
+		FlowDrops: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "mycel_flow_drops_total",
+				Help: "Messages a flow deliberately declined to process, by gate",
+			},
+			[]string{"flow", "reason"},
 		),
 		FlowStats: NewFlowStats(),
 
@@ -426,6 +439,7 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 		r.ConnectorOperations,
 		r.ConnectorLatency,
 		r.MessagesUndispatched,
+		r.FlowDrops,
 		r.FlowStats,
 		r.FlowExecutions,
 		r.FlowDuration,
@@ -511,17 +525,35 @@ func (r *Registry) RecordUndispatchedMessage(connector, driver, target, key stri
 	r.MessagesUndispatched.WithLabelValues(connector, driver, target, key).Inc()
 }
 
+// Flow execution statuses.
+const (
+	FlowStatusSuccess = "success"
+	FlowStatusError   = "error"
+	// FlowStatusDropped is a message a gate declined to process — filtered,
+	// deduplicated, superseded. Not an error: the flow did exactly what it was
+	// configured to do. But not work either, which is why it is neither.
+	FlowStatusDropped = "dropped"
+)
+
 // RecordFlowExecution records a flow execution.
 func (r *Registry) RecordFlowExecution(flow, status string, duration time.Duration) {
 	r.FlowExecutions.WithLabelValues(flow, status).Inc()
 	r.FlowDuration.WithLabelValues(flow).Observe(duration.Seconds())
 
-	// Fastest/slowest/average/throughput cover successful work only: a flow
-	// that fails fast would otherwise take the "fastest" spot and pull the
-	// average down, making a broken service look quick.
-	if status == "success" {
+	// Fastest/slowest/average/throughput describe work actually done. A flow
+	// that fails fast, or drops a message before the transform, would
+	// otherwise own the "fastest" gauge permanently and pull the average
+	// down — a consumer filtering out 90% of its input would look quick while
+	// doing almost nothing.
+	if status == FlowStatusSuccess {
 		r.FlowStats.Observe(flow, duration)
 	}
+}
+
+// RecordFlowDrop records a message declined by a gate. reason matches the
+// `reason` field on the corresponding log line.
+func (r *Registry) RecordFlowDrop(flow, reason string) {
+	r.FlowDrops.WithLabelValues(flow, reason).Inc()
 }
 
 // RecordFlowError records a flow error.

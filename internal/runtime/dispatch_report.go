@@ -55,6 +55,23 @@ func (r *Runtime) reportDispatch(logger *slog.Logger, reg *schema.Registry) {
 			dispatchBinding{flow: f.Name, pattern: f.From.GetOperation()})
 	}
 
+	// A subscription source no flow reads from will consume and discard
+	// everything. Previously only the RabbitMQ driver said so; reporting it
+	// here covers Kafka, Redis, MQTT, CDC and the rest for free.
+	var orphans []string
+	for name, ref := range byName {
+		if isSubscriptionSource(reg, ref) && len(perConnector[name]) == 0 {
+			orphans = append(orphans, name)
+		}
+	}
+	sort.Strings(orphans)
+	for _, name := range orphans {
+		logger.Error("dispatch: no flow reads from this source; every message will be dropped",
+			"connector", name,
+			"hint", "a flow needs from { connector = \""+name+"\" } to receive anything",
+		)
+	}
+
 	names := make([]string, 0, len(perConnector))
 	for name := range perConnector {
 		names = append(names, name)

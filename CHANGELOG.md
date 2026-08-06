@@ -50,6 +50,10 @@ Every item here has the same shape: a misconfiguration that produced no error, j
 
   **The sync metrics are now labelled by `flow`, not by `key`.** Lock, semaphore and signal keys are CEL expressions evaluated per message — one per order, per SKU, per customer — so recording them as declared would have grown the time series set without bound. `mycel_connector_operations_total` labels the operation coarsely (`read`, `write`, `call`) for the same reason. Since none of these metrics had ever been emitted, no existing dashboard or alert can break.
 
+- **`mycel_flow_drops_total{flow,reason}`**, and a `dropped` status on `mycel_flow_executions_total`. A declined message was counted as a success, so a consumer filtering out most of its input reported full productivity and there was no way to graph or alert on drops at all — only to read them out of the log. `reason` matches the drop log line, so the two are read together. **This corrects existing series**: flows with a `filter`, `accept`, `dedupe`, `sequence_guard` or `coordinate` timeout will see `status="success"` fall and a `status="dropped"` series appear.
+
+  Drops are also excluded from the timing gauges above. A drop short-circuits before the transform, so it was owning the "fastest" gauge permanently and pulling the average down — on a flow filtering 8 of 9 messages, `fastest` reported 14µs of doing nothing instead of the 1.9ms of real work.
+
 - **Every deliberate drop explains itself at debug level.** A message Mycel declines to process is not an error, so nothing failed, nothing logged, and the result was indistinguishable from a broker that never delivered it. Each gate already reported a stable reason, but only `on_drop` aspects ever saw it.
 
   ```

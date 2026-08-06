@@ -29,13 +29,34 @@ Mycel exposes metrics in Prometheus format at `/metrics`.
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `mycel_flow_executions_total` | Counter | flow, status | Total flow executions |
+| `mycel_flow_executions_total` | Counter | flow, status | Flow executions — `success`, `error` or `dropped` |
+| `mycel_flow_drops_total` | Counter | flow, reason | Messages a gate declined, by gate |
 | `mycel_flow_duration_seconds` | Histogram | flow | Flow execution duration (all executions) |
 | `mycel_flow_errors_total` | Counter | flow, error_type | Flow errors by type |
 | `mycel_flow_duration_fastest_seconds` | Gauge | flow | Fastest successful execution since start |
 | `mycel_flow_duration_slowest_seconds` | Gauge | flow | Slowest successful execution since start |
 | `mycel_flow_duration_average_seconds` | Gauge | flow | Mean of successful executions since start |
 | `mycel_flow_messages_per_second` | Gauge | flow | Successful executions per second, last minute |
+
+#### Deliberate drops
+
+A message a gate declines — filtered, deduplicated, superseded — is neither
+success nor failure. It gets its own status, and a counter broken down by the
+gate that declined it, with the same `reason` values as the
+[drop log line](troubleshooting.md#the-message-arrived-but-nothing-happened):
+`filter`, `accept`, `dedupe_match`, `sequence_older`, `coordinate_timeout`.
+
+```promql
+# share of incoming messages actually processed
+sum by (flow) (rate(mycel_flow_executions_total{status="success"}[5m]))
+  / sum by (flow) (rate(mycel_flow_executions_total[5m]))
+
+# what is declining them
+sum by (flow, reason) (rate(mycel_flow_drops_total[5m]))
+```
+
+Worth watching after a config change: a filter that suddenly declines
+everything looks exactly like a quiet upstream unless you graph this.
 
 #### Throughput and timing
 
@@ -58,9 +79,12 @@ The four gauges exist for what the histogram cannot give you:
 - **Exact fastest and slowest.** A histogram records which bucket a value fell
   into, not the value, so `histogram_quantile` cannot recover the true extremes.
 - **Successful executions only.** `mycel_flow_duration_seconds` is not split by
-  status, so nothing derived from it can exclude failures. A flow that fails in
-  1 ms would otherwise take the "fastest" spot and pull the average down, making
-  a broken service look quick.
+  status, so nothing derived from it can exclude failures or drops. Both are
+  fast — a failure gives up early, a drop short-circuits before the transform —
+  so either would take the "fastest" spot and pull the average down, making a
+  broken or heavily-filtered service look quick. `mycel_flow_messages_per_second`
+  likewise counts work done, not messages received; compare it against
+  `rate(mycel_flow_executions_total[1m])` to see how much is being declined.
 
 They are also readable straight off `/metrics` with no query engine, which is
 often all you want when checking a single pod.

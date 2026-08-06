@@ -375,17 +375,28 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		// Explain a deliberate drop. Sits beside the metrics rather than at
 		// each gate so every reason is reported identically, whichever
 		// connector delivered the message.
-		if drop, ok := result.(*flow.FilteredResultWithPolicy); ok {
+		drop, dropped := result.(*flow.FilteredResultWithPolicy)
+		dropped = dropped && drop.Filtered
+		if dropped {
 			h.logDroppedMessage(ctx, input, drop)
 		}
 
 		// Record flow execution metrics. Runs regardless of logger
 		// availability so mycel_flow_* series populate for MQ-driven
 		// services that have no REST connector emitting request metrics.
-		status := "success"
-		if err != nil {
-			status = "error"
+		//
+		// A drop is its own status. Counting it as success made a consumer
+		// that filters out most of its input look fully productive, and let
+		// drops — which short-circuit before the transform — own the fastest
+		// and average timing gauges.
+		status := metrics.FlowStatusSuccess
+		switch {
+		case err != nil:
+			status = metrics.FlowStatusError
 			metrics.Default().RecordFlowError(h.Config.Name, classifyFlowError(err))
+		case dropped:
+			status = metrics.FlowStatusDropped
+			metrics.Default().RecordFlowDrop(h.Config.Name, drop.Reason)
 		}
 		metrics.Default().RecordFlowExecution(h.Config.Name, status, duration)
 

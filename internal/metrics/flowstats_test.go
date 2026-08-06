@@ -135,3 +135,54 @@ func TestFlowStats_NoSuccessesEmitsNothing(t *testing.T) {
 		t.Errorf("a flow with no successes should emit no timing gauges:\n%s", filterLines(out, "fastest"))
 	}
 }
+
+// A drop short-circuits before the transform, so it is the fastest thing a
+// flow ever does. Counting it would let a consumer that filters out most of
+// its input own the "fastest" gauge permanently and report a throughput it
+// never achieved.
+func TestFlowStats_IgnoresDroppedExecutions(t *testing.T) {
+	r := NewRegistry("test", "1", "1", "test")
+
+	r.RecordFlowExecution("sync_orders", FlowStatusSuccess, 50*time.Millisecond)
+	for i := 0; i < 8; i++ {
+		r.RecordFlowExecution("sync_orders", FlowStatusDropped, 20*time.Microsecond)
+	}
+
+	out := scrapeText(t, r)
+	if got := gaugeValue(t, out, "mycel_flow_duration_fastest_seconds", "sync_orders"); got != 0.05 {
+		t.Errorf("fastest = %v, want 0.05 (the 8 drops must not count)", got)
+	}
+	if got := gaugeValue(t, out, "mycel_flow_duration_average_seconds", "sync_orders"); got != 0.05 {
+		t.Errorf("average = %v, want 0.05", got)
+	}
+
+	// Drops are still visible, just as their own status rather than as success.
+	for _, want := range []string{
+		`mycel_flow_executions_total{flow="sync_orders",status="dropped"} 8`,
+		`mycel_flow_executions_total{flow="sync_orders",status="success"} 1`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, filterLines(out, "mycel_flow_executions"))
+		}
+	}
+}
+
+// The drop counter breaks down by gate, matching the `reason` on the log line,
+// so the two can be read together.
+func TestRecordFlowDrop_ByReason(t *testing.T) {
+	r := NewRegistry("test", "1", "1", "test")
+
+	r.RecordFlowDrop("sync_orders", "filter")
+	r.RecordFlowDrop("sync_orders", "filter")
+	r.RecordFlowDrop("sync_orders", "dedupe_match")
+
+	out := scrapeText(t, r)
+	for _, want := range []string{
+		`mycel_flow_drops_total{flow="sync_orders",reason="filter"} 2`,
+		`mycel_flow_drops_total{flow="sync_orders",reason="dedupe_match"} 1`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, filterLines(out, "mycel_flow_drops"))
+		}
+	}
+}
