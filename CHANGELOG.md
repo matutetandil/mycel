@@ -56,7 +56,17 @@ Every item here has the same shape: a misconfiguration that produced no error, j
 
   The usual cause is that on a message queue source `operation` reads like an operation *name* but is a subscription *pattern*, so an invented value matches nothing and every delivery is dropped. The first occurrence per key is logged at ERROR with the patterns flows actually registered alongside it — the difference between the two is the diagnosis. Repeats only move the counter, so a misconfigured consumer does not drown the log.
 
-- **Consumers log the routing keys they will dispatch at startup**, and log an error when a consumer starts with no flow handlers at all. Both make the mismatch visible before the first message arrives.
+- **Startup states, per flow, which messages it will actually receive.** On a stream source `operation` is optional, which reads as inert — it is not. Declaring it registers the flow's handler under that key and filters every delivery against it, a *second* filter after the broker's own exchange and binding. Nothing said so, at startup or in the reference.
+
+  ```
+  INF dispatch: flow only accepts matching messages connector=rabbit flow=item_create
+      operation=all.in.magento.q meaning="only deliveries whose key matches \"all.in.magento.q\" reach this flow"
+  WRN dispatch: messages matching no pattern will be DROPPED connector=rabbit
+      patterns="\"all.in.magento.q\"" hint="on a message queue source `operation` is a
+      subscription pattern, not an operation name; omit it to accept every message"
+  ```
+
+  The warning fires only when **every** flow on a connector is narrowed, since one catch-all sibling guarantees a handler for anything that arrives. It runs before connectors are dialled, so the dispatch shape is visible even when the broker is down and startup is about to fail, and it is driver-agnostic: which connectors treat `operation` as a subscription pattern comes from their own `SourceSchema`, so RabbitMQ, Kafka, Redis, MQTT, CDC, WebSocket and file watch are all covered without a per-driver list. RabbitMQ consumers additionally log an error when they start with no flow handlers at all.
 
 - **`dlq { enabled = true }` says plainly when it is not in effect.** Mycel provisions the dead-letter exchange only when it declared the queue itself; on a pre-existing queue it provisions nothing, so a message that exhausts its retries is discarded unless the queue already carries `x-dead-letter-exchange` or a server-side policy sets one. This was already warned about, but the message opened with the part that still works and left the conclusion to the end. It now leads with the conclusion and states what to check.
 

@@ -56,11 +56,9 @@ func (c *Connector) startConsumer(ctx context.Context) error {
 		return fmt.Errorf("failed to start consumer: %w", err)
 	}
 
-	// Spell out which routing keys this consumer will actually dispatch. An
-	// `operation` on an MQ source reads like an operation *name* but is a
-	// routing-key *pattern*, and an invented value matches nothing — every
-	// delivery is then dropped at handler lookup. Printing the effective
-	// patterns at boot makes that visible before the first message arrives.
+	// The per-flow explanation of what these patterns mean lives in the
+	// runtime's dispatch report, which knows the flow names. Here they are
+	// repeated as plain connector state.
 	c.mu.RLock()
 	patterns := c.handlerPatterns()
 	c.mu.RUnlock()

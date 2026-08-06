@@ -77,6 +77,7 @@ import (
 	"github.com/matutetandil/mycel/internal/validate"
 	"github.com/matutetandil/mycel/internal/validator"
 	"github.com/matutetandil/mycel/internal/workflow"
+	"github.com/matutetandil/mycel/pkg/schema"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -93,6 +94,7 @@ type Runtime struct {
 	transforms        map[string]*transform.Config
 	types             map[string]*validate.TypeSchema
 	namedCaches       map[string]*flow.NamedCacheConfig
+	schemaRegistry    *schema.Registry
 	health            *health.Manager
 	metrics           *metrics.Registry
 	rateLimiter       *ratelimit.Limiter
@@ -525,6 +527,7 @@ func New(opts Options) (*Runtime, error) {
 		transforms:        transforms,
 		types:             types,
 		namedCaches:       namedCaches,
+		schemaRegistry:    schemaReg,
 		health:            healthMgr,
 		metrics:           metricsReg,
 		traceShutdown:     traceShutdown,
@@ -690,6 +693,14 @@ func (r *Runtime) Start(ctx context.Context) error {
 		}
 	}
 	banner.PrintServiceInfo(serviceName, serviceVersion, r.environment, r.getRESTPort())
+
+	// Spell out which deliveries each flow will actually receive, before the
+	// first message arrives. On a subscription source `operation` silently
+	// filters, so a pattern matching nothing is indistinguishable from a
+	// broker that is simply quiet. This reads configuration only, so it runs
+	// before connecting: the dispatch shape is worth knowing even when the
+	// broker is down and startup is about to fail.
+	r.reportDispatch(r.logger, r.schemaRegistry)
 
 	// Propagate service version to health responses
 	r.health.SetServiceVersion(serviceVersion)
