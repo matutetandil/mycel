@@ -499,7 +499,10 @@ func AspectSchema() Block {
 		Labels: 1,
 		Attrs: []Attr{
 			{Name: "on", Doc: "Flow name patterns to match (glob)", Type: TypeList},
-			{Name: "when", Doc: "When to execute", Type: TypeString, Values: []string{"before", "after", "around", "on_error"}},
+			// Kept in step with internal/aspect.When, which is the authority.
+			// on_drop was added to the runtime and never reached here, so
+			// completions and generated skeletons did not offer it.
+			{Name: "when", Doc: "When to execute", Type: TypeString, Values: []string{"before", "after", "around", "on_error", "on_drop"}},
 			{Name: "if", Doc: "CEL condition for conditional execution", Type: TypeString},
 			{Name: "priority", Doc: "Execution priority (lower = first)", Type: TypeNumber},
 		},
