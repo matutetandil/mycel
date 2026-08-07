@@ -6,11 +6,11 @@ This example demonstrates a federated GraphQL subgraph built with Mycel. It show
 
 ```
 graphql-federation/
-├── config.mycel          # Service configuration (product-subgraph)
-├── connectors.mycel      # GraphQL server (federation + subscriptions), SQLite, RabbitMQ
-├── types.mycel           # Product and Review types with federation directives
-├── flows.mycel           # Queries, mutations, entity resolvers, subscriptions
-└── README.md           # This file
+├── config.mycel      # Service configuration (product-subgraph)
+├── connectors.mycel  # GraphQL server (federation + subscriptions), SQLite, RabbitMQ
+├── types.mycel       # Product and Review types with federation directives
+├── flows.mycel       # Queries, mutations, entity resolvers, subscriptions
+└── README.md         # This file
 ```
 
 ## Features Demonstrated

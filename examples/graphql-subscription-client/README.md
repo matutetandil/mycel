@@ -6,10 +6,10 @@ This example demonstrates Mycel acting as a GraphQL subscription **client** — 
 
 ```
 graphql-subscription-client/
-├── config.mycel          # Service configuration (price-tracker)
-├── connectors.mycel      # GraphQL client with subscriptions, SQLite, REST
-├── flows.mycel           # Subscription handlers + REST API for stored data
-└── README.md           # This file
+├── config.mycel      # Service configuration (price-tracker)
+├── connectors.mycel  # GraphQL client with subscriptions, SQLite, REST
+├── flows.mycel       # Subscription handlers + REST API for stored data
+└── README.md         # This file
 ```
 
 ## Features Demonstrated

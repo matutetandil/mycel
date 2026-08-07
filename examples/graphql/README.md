@@ -11,11 +11,11 @@ Both approaches produce the same result: a fully typed GraphQL API.
 
 ```
 graphql/
-├── config.mycel          # Service configuration
-├── connectors.mycel      # GraphQL server + SQLite database
-├── flows.mycel           # GraphQL operations (Query/Mutation)
-├── schema.graphql      # SDL schema (for schema-first approach)
-└── README.md           # This file
+├── config.mycel      # Service configuration
+├── connectors.mycel  # GraphQL server + SQLite database
+├── flows.mycel       # GraphQL operations (Query/Mutation)
+├── schema.graphql    # SDL schema (for schema-first approach)
+└── README.md         # This file
 ```
 
 ## Quick Start

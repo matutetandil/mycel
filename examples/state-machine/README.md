@@ -31,8 +31,8 @@ curl -X POST localhost:3000/orders/1/status \
 |------|---------|
 | `config.mycel` | Service configuration |
 | `connectors.mycel` | REST API and database connectors |
-| `machines.mycel` | State machine definition |
-| `flows.mycel` | Flow that triggers state transitions |
+| `order_status.mycel` | State machine definition |
+| `update_order_status.mycel` | Flow that triggers state transitions |
 
 ## Running
 

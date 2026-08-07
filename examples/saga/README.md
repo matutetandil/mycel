@@ -20,7 +20,7 @@ If any step fails, compensations run **in reverse order**:
 |------|---------|
 | `config.mycel` | Service configuration |
 | `connectors.mycel` | Database and API connectors |
-| `sagas.mycel` | Saga definition with steps and compensations |
+| `create_order.mycel` | Saga definition with steps and compensations |
 
 ## Running
 

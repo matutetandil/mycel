@@ -42,7 +42,7 @@ flow "get_users" {
 named-operations/
 ├── connectors.mycel  # Connector definitions with named operations
 ├── flows.mycel       # Flows referencing operations by name
-└── README.md       # This file
+└── README.md         # This file
 ```
 
 ## Connector Operations

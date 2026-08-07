@@ -56,15 +56,15 @@ curl http://localhost:3000/logs
 
 ```
 scheduled/
-├── config.mycel              # Service name and version
+├── config.mycel  # Service name and version
 ├── connectors/
-│   ├── api.mycel             # REST API on port 3000
-│   └── database.mycel        # SQLite database connection
+│   ├── api.mycel     # REST API on port 3000
+│   └── sqlite.mycel  # SQLite database connection
 ├── flows/
-│   ├── scheduled.mycel       # Three scheduled jobs (cron flows)
-│   └── api.mycel             # REST endpoints to query results
+│   ├── scheduled.mycel  # Three scheduled jobs (cron flows)
+│   └── api.mycel        # REST endpoints to query results
 └── data/
-    └── app.db              # SQLite database file (created automatically)
+    └── app.db  # SQLite database file (created automatically)
 ```
 
 ## Configuration Explained

@@ -6,13 +6,13 @@ This example demonstrates how to use Mycel's mock system for testing without ext
 
 ```
 mocks/
-├── config.mycel           # Service config with mocks enabled
-├── connectors.mycel       # REST API + SQLite connectors
-├── flows.mycel            # User CRUD flows
+├── config.mycel      # Service config with mocks enabled
+├── connectors.mycel  # REST API + SQLite connectors
+├── flows.mycel       # User CRUD flows
 ├── mocks/
 │   └── connectors/
 │       └── db/
-│           └── users.json   # Mock data for "users" table
+│           └── users.json  # Mock data for "users" table
 └── README.md
 ```
 
