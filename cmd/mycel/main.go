@@ -315,8 +315,12 @@ func init() {
 	addConnectorCmd.Flags().BoolVar(&addListTypes, "list", false, "List available connector types")
 	addFlowCmd.Flags().StringVar(&addFrom, "from", "", "Source connector")
 	addFlowCmd.Flags().StringVar(&addTo, "to", "", "Destination connector")
+	addFlowCmd.Flags().StringVar(&addOperation, "operation", "", "Source operation (e.g. \"GET /orders\")")
+	addFlowCmd.Flags().StringVar(&addTarget, "target", "", "Destination target (e.g. a table name)")
 	addAspectCmd.Flags().StringVar(&addOn, "on", "", "Flow name patterns, comma-separated")
 	addAspectCmd.Flags().StringVar(&addWhen, "when", "", "When to execute (before, after, around, on_error, on_drop)")
+	addAspectCmd.Flags().StringVar(&addActionConnector, "action-connector", "", "Connector the action calls")
+	addAspectCmd.Flags().StringVar(&addActionFlow, "action-flow", "", "Flow the action invokes")
 	addTypeCmd.Flags().StringVar(&addFields, "fields", "", "Fields as name:type[:format], comma-separated")
 
 	// Add export subcommands
@@ -477,6 +481,13 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Println()
 		return fmt.Errorf("validation failed: %d flow error(s)", len(errs))
+	}
+
+	// Aspects are checked with the same registry startup uses, so a config
+	// cannot pass validate and then refuse to start.
+	if err := runtime.ValidateAspects(config); err != nil {
+		fmt.Printf("\n✗ Configuration is invalid:\n\n    - %s\n\n", err)
+		return fmt.Errorf("validation failed: %w", err)
 	}
 
 	// Attributes that parse but do nothing. Inert, so not a failure, but the

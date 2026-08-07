@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/matutetandil/mycel/internal/aspect"
 	"github.com/matutetandil/mycel/internal/parser"
 	"github.com/matutetandil/mycel/pkg/schema"
 )
@@ -120,4 +121,20 @@ func quoteList(names []string) string {
 		return "attribute " + quoted[0]
 	}
 	return "attributes " + strings.Join(quoted, ", ")
+}
+
+// ValidateAspects checks aspects the same way startup does.
+//
+// runtime.New registers every aspect and fails if one is malformed — an action
+// naming neither a connector nor a flow, for instance. `mycel validate` builds
+// no runtime, so it never reached that check: a config could pass validate and
+// then refuse to start, which is the gap validate exists to close.
+//
+// Deliberately calls the same registry the runtime uses rather than
+// reimplementing the rules, so the two cannot drift.
+func ValidateAspects(config *parser.Configuration) error {
+	if config == nil || len(config.Aspects) == 0 {
+		return nil
+	}
+	return aspect.NewRegistry().RegisterAll(config.Aspects)
 }
