@@ -456,3 +456,132 @@ func optionalChildren(blk schema.Block) []string {
 	sort.Strings(names)
 	return names
 }
+
+var addTypeCmd = &cobra.Command{
+	Use:   "type <name>",
+	Short: "Add a type in types/<name>.mycel",
+	Long: `Generate a type from a field list.
+
+Fields are given as name:type pairs, so the generated type is complete rather
+than a skeleton to fill in. An optional format follows the type.
+
+Examples:
+  mycel add type user --fields "id:number,email:string:email,name:string"
+  mycel add type order --fields "id:uuid,total:number,placed_at:string:datetime"`,
+	Args: cobra.ExactArgs(1),
+	RunE: runAddType,
+}
+
+var addFields string
+
+func runAddType(cmd *cobra.Command, args []string) error {
+	name := args[0]
+
+	if err := ensureNameIsFree(name, "type"); err != nil {
+		return err
+	}
+
+	fields, err := parseFieldSpecs(addFields)
+	if err != nil {
+		return err
+	}
+
+	return writeDeclaration(filepath.Join("types", name+".mycel"), renderType(name, fields))
+}
+
+// typeField is one parsed `name:type[:format]` spec.
+type typeField struct {
+	name   string
+	kind   string
+	format string
+}
+
+// parseFieldSpecs turns "id:number,email:string:email" into fields.
+//
+// Validated against the schema rather than a literal list here, so a value type
+// or format added to the schema is accepted without touching this code — and a
+// typo is rejected now rather than at startup.
+func parseFieldSpecs(spec string) ([]typeField, error) {
+	if strings.TrimSpace(spec) == "" {
+		return nil, nil
+	}
+
+	valid := func(v string, allowed []string) bool {
+		for _, a := range allowed {
+			if a == v {
+				return true
+			}
+		}
+		return false
+	}
+
+	var fields []typeField
+	for _, raw := range strings.Split(spec, ",") {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		parts := strings.Split(raw, ":")
+		if len(parts) < 2 || parts[0] == "" {
+			return nil, fmt.Errorf("field %q must be name:type — e.g. email:string, or email:string:email to add a format", raw)
+		}
+
+		f := typeField{name: parts[0], kind: parts[1]}
+
+		// `id:uuid` is the shorthand people reach for; uuid is a format of a
+		// string, not a type, so accept it and say what it became.
+		if !valid(f.kind, schema.FieldTypes()) && valid(f.kind, schema.StringFormats()) {
+			f.format, f.kind = f.kind, "string"
+		}
+		if !valid(f.kind, schema.FieldTypes()) {
+			return nil, fmt.Errorf("unknown field type %q in %q; one of: %s",
+				f.kind, raw, strings.Join(schema.FieldTypes(), ", "))
+		}
+
+		if len(parts) > 2 && parts[2] != "" {
+			if !valid(parts[2], schema.StringFormats()) {
+				return nil, fmt.Errorf("unknown format %q in %q; one of: %s",
+					parts[2], raw, strings.Join(schema.StringFormats(), ", "))
+			}
+			f.format = parts[2]
+		}
+		fields = append(fields, f)
+	}
+	return fields, nil
+}
+
+// renderType builds the HCL for a type.
+func renderType(name string, fields []typeField) string {
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "// %s\n", schema.TypeSchema().Doc)
+	fmt.Fprintf(&b, "type %q {\n", name)
+
+	if len(fields) == 0 {
+		b.WriteString("  // field = string\n")
+		b.WriteString("  // Constraints are call arguments:\n")
+		b.WriteString("  //   email = string({ format = \"email\" })\n")
+		b.WriteString("  //   age   = number({ min = 0, max = 150 })\n")
+		b.WriteString("}\n")
+		return b.String()
+	}
+
+	width := 0
+	for _, f := range fields {
+		if len(f.name) > width {
+			width = len(f.name)
+		}
+	}
+	for _, f := range fields {
+		if f.format != "" {
+			// Constraints are call arguments, not a nested block: the brace
+			// form without parentheses does not parse.
+			fmt.Fprintf(&b, "  %-*s = %s({ format = %q })\n", width, f.name, f.kind, f.format)
+			continue
+		}
+		fmt.Fprintf(&b, "  %-*s = %s\n", width, f.name, f.kind)
+	}
+
+	b.WriteString("}\n")
+	return b.String()
+}
