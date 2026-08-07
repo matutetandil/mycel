@@ -16,6 +16,16 @@ mkdir my-first-service
 cd my-first-service
 ```
 
+!!! info "Why three files, and why `.mycel`"
+
+    Mycel reads **every `.mycel` file** under the config directory, recursively,
+    and merges them into one service. The extension is the only thing that
+    matters — file and directory names are for your benefit, not the runtime's.
+    These three could equally be one file.
+
+    [Project Structure](project-structure.md) covers how to lay this out as a
+    service grows.
+
 ### `config.mycel` — service identity
 
 ```hcl

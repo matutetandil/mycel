@@ -61,6 +61,7 @@ nav:
       - Introduction: getting-started/introduction.md
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quick-start.md
+      - Project Structure: getting-started/project-structure.md
   - Core Concepts:
       - Connectors: core-concepts/connectors.md
       - Flows: core-concepts/flows.md
