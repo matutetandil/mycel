@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`go install` installed v1.22.0 instead of the current release.** Go's semantic import versioning requires a module released at major version 2 or above to carry a `/vN` suffix in its path. Mycel has been on v2 since May with an unsuffixed module path, so every v2 tag was invisible to the toolchain and `go install github.com/matutetandil/mycel/cmd/mycel@latest` — the command in the README, the quick start, the installation guide and the debugging guide — silently handed people a release from April, fourteen versions behind.
+
+  The module path is now `github.com/matutetandil/mycel/v2`, and the documented command is:
+
+  ```bash
+  go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
+  ```
+
+  This only affects `go install` and anyone importing Mycel as a library; Docker, Helm and the released binaries were never involved. It cannot repair the existing tags — v2.13.0 and earlier carry the old `go.mod` forever — so the corrected path starts resolving at the next release.
+
+- **`mycel version` reported `commit: dev` in every build, released images included.** Nothing set the version or commit through ldflags, so the commit was a placeholder and the version was whatever was hardcoded in the source — a guess for a `go install` binary, which reports what the source claimed rather than what was installed. Both now come from the build metadata Go already embeds: the module version for `go install`, and the VCS revision with a `-dirty` flag for a build from a checkout. `mycel --version` agreed with neither and now matches.
+
+### Documentation
+
+- **How to update.** There is no separate update command and nothing self-updates; re-running the install command is the update. Documented alongside pinning a version, and the Docker/Helm equivalent.
+
 ## [2.13.0] - 2026-08-06
 
 Every item here has the same shape: a misconfiguration that produced no error, just an absence of behaviour. Nothing in this release changes what a correct configuration does.

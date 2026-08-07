@@ -47,13 +47,62 @@ docker run -p 3000:3000 my-service
 
 ## Go Binary
 
+Installing the CLI locally is worth it even if you deploy with Docker: it is
+what you run `mycel validate` and `mycel check` with while writing config.
+
 Requires Go 1.21 or later.
 
-### Install from source
+### Install
 
 ```bash
 go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
 ```
+
+The binary lands in `$GOBIN`, or `$(go env GOPATH)/bin` if `GOBIN` is unset.
+Make sure that directory is on your `PATH`:
+
+```bash
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+!!! warning "The `/v2` suffix is required"
+
+    Mycel is released at major version 2, and Go's [semantic import
+    versioning](https://go.dev/ref/mod#major-version-suffixes) requires the
+    module path to say so. Omitting it does not fail — it silently installs the
+    newest **v1** release, which is many versions old:
+
+    ```bash
+    go install github.com/matutetandil/mycel/cmd/mycel@latest   # ← wrong: installs v1.x
+    ```
+
+    If you installed Mycel before this was fixed, `mycel version` will report a
+    `1.x` number. Reinstall with the `/v2` path.
+
+### Updating
+
+There is no separate update command, and nothing updates itself in the
+background. **The install command is also the update command** — re-run it and
+Go replaces the binary with the newest release:
+
+```bash
+go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
+```
+
+`@latest` resolves to the highest published release tag each time it runs, so
+this is safe to repeat. To pin a specific version instead — in a CI image, or
+to match what is deployed:
+
+```bash
+go install github.com/matutetandil/mycel/v2/cmd/mycel@v2.13.0
+```
+
+Check what you have with `mycel version`, and compare against the
+[latest release](https://github.com/matutetandil/mycel/releases/latest).
+
+Docker and Helm have their own update path: change the image tag. Pin an exact
+version there rather than tracking `latest`, so a restart never changes the
+runtime underneath a running service.
 
 ### Build from repository
 
@@ -68,8 +117,13 @@ go build -o mycel ./cmd/mycel
 
 ```bash
 mycel version
-# mycel 2.12.0 (commit: 64be3eb, go1.25.0, linux/amd64)
+# mycel 2.13.0 (commit: ed24e66, go1.25.0, linux/amd64)
 ```
+
+The version and commit come from the build metadata Go embeds, so this reports
+what you are actually running: the module version for a `go install` binary,
+and the git revision — with a `-dirty` suffix for uncommitted changes — for a
+build from a checkout.
 
 ## Helm (Kubernetes)
 
