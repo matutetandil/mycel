@@ -533,7 +533,48 @@ func TypeSchema() Block {
 		Type:   "type",
 		Doc:    "Schema definition for input/output validation",
 		Labels: 1,
-		Open:   true, // fields are user-defined
+		// Field names are user-defined, so the block stays open. What is not
+		// open is the shape of a field: the value is one of a fixed set of
+		// types, optionally carrying a constraint block. Declaring that here
+		// is what lets the IDE complete constraints and `mycel add type`
+		// generate a field that is correct by construction.
+		Open: true,
+	}
+}
+
+// FieldTypes are the value types a type field may declare.
+func FieldTypes() []string {
+	return []string{"string", "number", "boolean", "array", "object"}
+}
+
+// StringFormats are the values the `format` constraint accepts.
+func StringFormats() []string {
+	return []string{"email", "url", "uuid", "date", "datetime", "phone", "ip"}
+}
+
+// FieldConstraints are the constraints a type field may carry.
+//
+// They are arguments to a call, not a nested block:
+//
+//	email = string({ format = "email" })
+//
+// The brace form without parentheses does not parse — HCL reads it as an
+// argument followed by a block, and the type body only accepts attributes.
+//
+// The set is a union across value types: min_length is meaningful on a string
+// and min on a number, and a field's type is the value rather than the label,
+// so it cannot be narrowed here.
+func FieldConstraints() []Attr {
+	return []Attr{
+		{Name: "required", Doc: "Field must be present and non-null", Type: TypeBool, Default: true},
+		{Name: "format", Doc: "Well-known string format", Type: TypeString, Values: StringFormats()},
+		{Name: "min_length", Doc: "Minimum string length", Type: TypeNumber},
+		{Name: "max_length", Doc: "Maximum string length", Type: TypeNumber},
+		{Name: "pattern", Doc: "Regular expression the value must match", Type: TypeString},
+		{Name: "min", Doc: "Minimum numeric value (inclusive)", Type: TypeNumber},
+		{Name: "max", Doc: "Maximum numeric value (inclusive)", Type: TypeNumber},
+		{Name: "enum", Doc: "Value must be one of these", Type: TypeList},
+		{Name: "validate", Doc: "Name of a custom validator to apply", Type: TypeString, Ref: RefValidator},
 	}
 }
 
