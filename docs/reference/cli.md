@@ -107,6 +107,35 @@ resolved to nothing:
       → Missing environment variable "MERCURY_PRODUCTS_URL", required by connector "products_api" (base_url)
 ```
 
+### `mycel init`
+
+Scaffold a new project in the recommended layout.
+
+```bash
+mycel init my-service     # creates ./my-service and scaffolds into it
+mycel init                # scaffolds into the current directory
+```
+
+```
+  created my-service/config.mycel
+  created my-service/connectors/api.mycel
+  created my-service/flows/status.mycel
+  created my-service/.gitignore
+  created my-service/.env.example
+```
+
+The generated service runs as-is — start it and `GET /status` answers. The
+service name comes from the directory, since it reaches logs, metric labels and
+health output.
+
+Mycel does not require this layout; it reads every `.mycel` file under the
+config directory and merges them, so a single file behaves identically. The
+scaffold hands you the shape that stays readable as a service grows. See
+[Project Structure](../getting-started/project-structure.md).
+
+Refuses to overwrite existing files, and writes nothing at all if any would
+clash.
+
 ### `mycel version`
 
 Print the Mycel version, build commit, Go toolchain and platform.

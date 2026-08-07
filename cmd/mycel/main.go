@@ -296,6 +296,7 @@ func init() {
 	runtime.Version = version
 
 	// Add commands
+	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(checkCmd)

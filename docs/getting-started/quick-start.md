@@ -9,7 +9,17 @@ Build and run a REST API backed by a database in 10 minutes.
 
 ## Step 1: Create Your Service
 
-Create a directory and three files:
+```bash
+mycel init my-first-service
+cd my-first-service
+```
+
+That scaffolds a service that already runs, in the layout that stays
+maintainable as it grows — one declaration per file, grouped by kind. See
+[Project Structure](project-structure.md).
+
+To follow along by hand instead, create the directory and these files
+yourself:
 
 ```bash
 mkdir my-first-service
