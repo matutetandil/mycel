@@ -162,3 +162,18 @@ mycel validate --config ./my-service
 If a connector or flow you expected is missing from that list, the file
 declaring it is not being read — check the extension first, then that it is
 actually under `--config`.
+
+Once a single file passes eight declarations, validate also mentions it:
+
+```
+○ Readability (nothing is wrong):
+
+    - everything.mycel declares 10 things — consider splitting into connectors/ and flows/
+
+  Mycel merges every .mycel file, so this changes nothing at runtime.
+```
+
+It is advice, never a failure, and it appears only here — not in `mycel start`.
+Where a declaration lives changes nothing at runtime, so a running service has
+no business raising it, and a startup that warns about style is one whose real
+warnings get ignored.

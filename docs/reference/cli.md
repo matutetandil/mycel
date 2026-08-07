@@ -57,6 +57,10 @@ mycel validate --config ./my-service
 # Config validation successful: 2 connectors, 5 flows, 3 types
 ```
 
+Also reports **readability advice** when a single file passes eight
+declarations — never a failure, and never shown by `mycel start`, since where a
+declaration lives changes nothing at runtime.
+
 ### `mycel check`
 
 Check connectivity to all configured connectors. Useful before deployment to verify all services are reachable.

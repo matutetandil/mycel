@@ -489,6 +489,18 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	// so report them rather than letting the run look entirely clean.
 	printMissingEnvWarnings(config.Connectors)
 
+	// Layout advice. Authoring-time only — it never reaches `mycel start`,
+	// where an opinion about file organisation would be noise on a restart.
+	if advice := runtime.LayoutAdvice(config); len(advice) > 0 {
+		fmt.Printf("\n○ Readability (nothing is wrong):\n\n")
+		for _, a := range advice {
+			fmt.Printf("    - %s\n", a)
+		}
+		fmt.Printf("\n  Mycel merges every .mycel file, so this changes nothing at runtime.\n")
+		fmt.Printf("  `mycel add connector <name>` and `mycel add flow <name>` place new\n")
+		fmt.Printf("  declarations in their own file.\n")
+	}
+
 	// Report success
 	fmt.Printf("\n✓ Configuration is valid!\n\n")
 	fmt.Printf("  Connectors: %d\n", len(config.Connectors))
