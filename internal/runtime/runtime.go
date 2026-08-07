@@ -1327,12 +1327,28 @@ func (r *Runtime) registerFlows() error {
 
 		// Parse operation to get method and path
 		method, path := r.parseFlowOperation(cfg.From.Connector, cfg.From.GetOperation())
+		// "(echo)" is only true of a flow that has no destination and shapes
+		// nothing: a fan-out writes to several places, and a response block
+		// answers with something the flow computed. Reporting all three as an
+		// echo made the banner misdescribe the very first flow `mycel init`
+		// generates.
 		target := "(echo)"
-		if cfg.To != nil {
+		switch {
+		case cfg.To != nil:
 			target = cfg.To.Connector + ":" + cfg.To.GetTarget()
 			if isSubscriptionTarget(cfg.To.GetOperation()) {
 				target = cfg.To.Connector + ":" + cfg.To.GetOperation()
 			}
+		case len(cfg.MultiTo) > 0:
+			targets := make([]string, 0, len(cfg.MultiTo))
+			for _, to := range cfg.MultiTo {
+				if to != nil {
+					targets = append(targets, to.Connector)
+				}
+			}
+			target = strings.Join(targets, ", ")
+		case cfg.Response != nil:
+			target = "(response)"
 		}
 		banner.PrintFlow(method, path, target)
 	}
