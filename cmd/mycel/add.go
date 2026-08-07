@@ -16,10 +16,12 @@ import (
 )
 
 var (
-	addType   string
-	addDriver string
-	addFrom   string
-	addTo     string
+	addType      string
+	addDriver    string
+	addFrom      string
+	addTo        string
+	addOperation string
+	addTarget    string
 )
 
 var addCmd = &cobra.Command{
@@ -117,7 +119,8 @@ func runAddFlow(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return writeDeclaration(filepath.Join("flows", name+".mycel"), renderFlow(name, addFrom, addTo))
+	return writeDeclaration(filepath.Join("flows", name+".mycel"),
+		renderFlow(name, addFrom, addTo, addOperation, addTarget))
 }
 
 // renderConnector builds the HCL for a connector from its declared schema.
@@ -208,8 +211,10 @@ func placeholderFor(a schema.Attr) string {
 	}
 }
 
-// renderFlow builds a flow skeleton.
-func renderFlow(name, from, to string) string {
+// renderFlow builds a flow. Everything supplied by a flag is written out;
+// what is missing stays a TODO with the explanation attached, so the generated
+// file is finished when the caller knew enough to finish it.
+func renderFlow(name, from, to, operation, target string) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "flow %q {\n", name)
@@ -219,16 +224,24 @@ func renderFlow(name, from, to string) string {
 	} else {
 		b.WriteString("    connector = \"\" // TODO: a connector declared in connectors/\n")
 	}
-	b.WriteString("    // operation addresses an endpoint on request-style sources\n")
-	b.WriteString("    // (REST, GraphQL, gRPC), and narrows a subscription on stream\n")
-	b.WriteString("    // sources (queues, CDC) — where omitting it accepts everything.\n")
-	b.WriteString("    operation = \"\" // TODO\n")
+	if operation != "" {
+		fmt.Fprintf(&b, "    operation = %q\n", operation)
+	} else {
+		b.WriteString("    // operation addresses an endpoint on request-style sources\n")
+		b.WriteString("    // (REST, GraphQL, gRPC), and narrows a subscription on stream\n")
+		b.WriteString("    // sources (queues, CDC) — where omitting it accepts everything.\n")
+		b.WriteString("    operation = \"\" // TODO\n")
+	}
 	b.WriteString("  }\n")
 
 	if to != "" {
 		b.WriteString("\n  to {\n")
 		fmt.Fprintf(&b, "    connector = %q\n", to)
-		b.WriteString("    target    = \"\" // TODO\n")
+		if target != "" {
+			fmt.Fprintf(&b, "    target    = %q\n", target)
+		} else {
+			b.WriteString("    target    = \"\" // TODO\n")
+		}
 		b.WriteString("  }\n")
 	} else {
 		b.WriteString("\n  // Add a to { } to write somewhere, or a response { } to answer\n")
@@ -344,8 +357,10 @@ Examples:
 }
 
 var (
-	addOn   string
-	addWhen string
+	addOn              string
+	addWhen            string
+	addActionConnector string
+	addActionFlow      string
 )
 
 func runAddAspect(cmd *cobra.Command, args []string) error {
@@ -362,8 +377,104 @@ func runAddAspect(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// An aspect that matches no flow is inert, and the name is the only thing
+	// tying it to one. Checking now costs nothing; discovering it later means
+	// wondering why a notification never fired.
+	if err := ensurePatternsMatchAFlow(addOn); err != nil {
+		return err
+	}
+
+	// An aspect without an action parses but fails to register at startup
+	// ("aspect must have at least one action type"), so there is no useful
+	// aspect to generate without one.
+	if addActionConnector == "" && addActionFlow == "" {
+		return fmt.Errorf("an aspect needs an action: pass --action-connector <name> or --action-flow <name>")
+	}
+	if addActionConnector != "" && addActionFlow != "" {
+		return fmt.Errorf("--action-connector and --action-flow are alternatives; an action calls one or the other")
+	}
+	if addActionConnector != "" {
+		if err := ensureConnectorExists(addActionConnector); err != nil {
+			return err
+		}
+	}
+	if addActionFlow != "" {
+		if err := ensureFlowExists(addActionFlow); err != nil {
+			return err
+		}
+	}
+
 	return writeDeclaration(filepath.Join("aspects", name+".mycel"),
 		renderAspect(name, addOn, addWhen, blk))
+}
+
+// ensurePatternsMatchAFlow rejects a pattern that matches nothing, using the
+// same matcher the runtime dispatches with so the two cannot disagree.
+func ensurePatternsMatchAFlow(spec string) error {
+	if strings.TrimSpace(spec) == "" {
+		return nil
+	}
+	cfg, err := parseConfigDirQuietly()
+	if err != nil {
+		return nil
+	}
+
+	var flows []string
+	for _, f := range cfg.Flows {
+		if f != nil {
+			flows = append(flows, f.Name)
+		}
+	}
+	if len(flows) == 0 {
+		return nil
+	}
+	sort.Strings(flows)
+
+	for _, pattern := range splitPatterns(spec) {
+		matched := false
+		for _, f := range flows {
+			if ok, _ := filepath.Match(pattern, f); ok {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return fmt.Errorf("pattern %q matches no flow — this project declares: %s",
+				pattern, strings.Join(flows, ", "))
+		}
+	}
+	return nil
+}
+
+// ensureFlowExists rejects an action invoking a flow that is not there.
+func ensureFlowExists(name string) error {
+	cfg, err := parseConfigDirQuietly()
+	if err != nil {
+		return nil
+	}
+	var known []string
+	for _, f := range cfg.Flows {
+		if f == nil {
+			continue
+		}
+		if f.Name == name {
+			return nil
+		}
+		known = append(known, f.Name)
+	}
+	sort.Strings(known)
+	return fmt.Errorf("no flow %q — this project declares: %s", name, strings.Join(known, ", "))
+}
+
+// splitPatterns splits and trims a comma-separated pattern list.
+func splitPatterns(spec string) []string {
+	var out []string
+	for _, p := range strings.Split(spec, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // validateAgainstSchema rejects a flag value the schema does not allow, so the
@@ -418,9 +529,16 @@ func renderAspect(name, on, when string, blk schema.Block) string {
 		fmt.Fprintf(&b, "  when = \"after\" // %s\n", whenValues(blk))
 	}
 
-	b.WriteString("\n  // An aspect with no action does nothing.\n")
-	b.WriteString("  action {\n")
-	b.WriteString("    connector = \"\" // TODO — or use `flow = \"...\"` to invoke a flow\n")
+	// An action must name a connector or a flow — the parser rejects one that
+	// names neither, so a placeholder here would generate a file that does not
+	// load. Without a target, the action is written as a comment instead: an
+	// aspect with no action parses, does nothing, and says how to finish it.
+	b.WriteString("\n  action {\n")
+	if addActionConnector != "" {
+		fmt.Fprintf(&b, "    connector = %q\n", addActionConnector)
+	} else {
+		fmt.Fprintf(&b, "    flow = %q\n", addActionFlow)
+	}
 	b.WriteString("\n    transform {\n")
 	b.WriteString("      // CEL. Available: input, output, error (on_error), drop (on_drop), _flow\n")
 	b.WriteString("    }\n")

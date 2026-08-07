@@ -67,7 +67,7 @@ func TestPlaceholderFor_PrefersDefaultsAndEnums(t *testing.T) {
 }
 
 func TestRenderFlow_WiresTheConnectorsGiven(t *testing.T) {
-	got := renderFlow("order_created", "rabbit", "orders_db")
+	got := renderFlow("order_created", "rabbit", "orders_db", "", "")
 
 	for _, want := range []string{
 		`flow "order_created" {`,
@@ -84,7 +84,7 @@ func TestRenderFlow_WiresTheConnectorsGiven(t *testing.T) {
 // Without a destination the skeleton must not invent one — it points at the
 // two real options instead.
 func TestRenderFlow_NoDestinationExplainsTheChoice(t *testing.T) {
-	got := renderFlow("ingest", "rabbit", "")
+	got := renderFlow("ingest", "rabbit", "", "", "")
 
 	// Look for a real block rather than the substring, since the comment that
 	// replaces it names both `to { }` and `response { }`.
@@ -103,7 +103,7 @@ func TestRenderFlow_NoDestinationExplainsTheChoice(t *testing.T) {
 // it wrong on a stream source silently discards every message. The generated
 // comment has to say so.
 func TestRenderFlow_ExplainsOperation(t *testing.T) {
-	got := renderFlow("ingest", "rabbit", "")
+	got := renderFlow("ingest", "rabbit", "", "", "")
 
 	if !strings.Contains(got, "narrows a subscription") {
 		t.Errorf("the skeleton should explain what operation does on a stream source:\n%s", got)
@@ -179,5 +179,49 @@ func TestValidateAgainstSchema_RejectsUnknownWhen(t *testing.T) {
 	}
 	if err := validateAgainstSchema(schema.AspectSchema(), "when", "on_drop"); err != nil {
 		t.Errorf("on_drop is valid, got: %v", err)
+	}
+}
+
+// Everything supplied by a flag is written out, so a caller who knows what
+// they want gets a finished file rather than one to edit.
+func TestRenderFlow_CompleteFromFlags(t *testing.T) {
+	got := renderFlow("list_orders", "api", "orders_db", "GET /orders", "orders")
+
+	for _, want := range []string{`operation = "GET /orders"`, `target    = "orders"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("flag value not written out (%q):\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "TODO") {
+		t.Errorf("nothing should be left as a TODO when every flag was given:\n%s", got)
+	}
+}
+
+// What is missing keeps its explanation, so a partly-specified flow still
+// teaches what the remaining field means.
+func TestRenderFlow_ExplainsWhatIsMissing(t *testing.T) {
+	got := renderFlow("ingest", "rabbit", "", "", "")
+
+	if !strings.Contains(got, "TODO") {
+		t.Errorf("an unspecified operation should stay a TODO:\n%s", got)
+	}
+	if !strings.Contains(got, "narrows a subscription") {
+		t.Errorf("the explanation should survive:\n%s", got)
+	}
+}
+
+// An action naming neither a connector nor a flow is rejected by the runtime,
+// so the generator must never produce one.
+func TestRenderAspect_ActionAlwaysNamesATarget(t *testing.T) {
+	addActionConnector, addActionFlow = "slack", ""
+	defer func() { addActionConnector, addActionFlow = "", "" }()
+
+	got := renderAspect("notify", "sync_*", "on_error", schema.AspectSchema())
+
+	if !strings.Contains(got, `connector = "slack"`) {
+		t.Errorf("the action target should be written out:\n%s", got)
+	}
+	if strings.Contains(got, `connector = ""`) {
+		t.Errorf("an empty connector is rejected by the parser and must not be generated:\n%s", got)
 	}
 }
