@@ -90,3 +90,61 @@ func TestLayoutAdvice_NilSafe(t *testing.T) {
 		t.Errorf("expected nil for nil config, got %v", got)
 	}
 }
+
+// The point of splitting is that the filename tells you where to look. A
+// flows/create_user.mycel holding delete_customer defeats it.
+func TestLayoutAdvice_FilenameShouldNameItsDeclaration(t *testing.T) {
+	out := LayoutAdvice(configWithSources(map[string][]string{
+		"flow:create_user": {"flows/delete_customer.mycel"},
+	}))
+
+	if len(out) != 1 {
+		t.Fatalf("expected 1 line of advice, got %v", out)
+	}
+	for _, want := range []string{"delete_customer.mycel", `flow "create_user"`, "create_user.mycel"} {
+		if !strings.Contains(out[0], want) {
+			t.Errorf("advice missing %q: %s", want, out[0])
+		}
+	}
+}
+
+func TestLayoutAdvice_MatchingFilenameIsSilent(t *testing.T) {
+	out := LayoutAdvice(configWithSources(map[string][]string{
+		"flow:create_user": {"flows/create_user.mycel"},
+	}))
+	if len(out) != 0 {
+		t.Errorf("a matching filename should say nothing, got %v", out)
+	}
+}
+
+// Names are scoped by kind, so a lock and a sequence_guard may share one. They
+// cannot share a filename, so qualifying it with the kind is correct — and is
+// what the production services measured against actually do.
+func TestLayoutAdvice_KindQualifiedFilenameIsAccepted(t *testing.T) {
+	for _, file := range []string{
+		"shared/collection_lock.mycel", // <name>_<kind>
+		"shared/lock_collection.mycel", // <kind>_<name>
+		"shared/collection.mycel",      // <name>
+	} {
+		out := LayoutAdvice(configWithSources(map[string][]string{
+			"lock:collection": {file},
+		}))
+		if len(out) != 0 {
+			t.Errorf("%s should be accepted, got %v", file, out)
+		}
+	}
+}
+
+// A collection file is exempt by construction: the rule only looks at files
+// holding exactly one declaration, so flows.mycel with five flows is untouched
+// without needing a name-based exception.
+func TestLayoutAdvice_CollectionFilesAreExempt(t *testing.T) {
+	out := LayoutAdvice(configWithSources(map[string][]string{
+		"flow:a": {"flows.mycel"},
+		"flow:b": {"flows.mycel"},
+		"flow:c": {"flows.mycel"},
+	}))
+	if len(out) != 0 {
+		t.Errorf("a multi-declaration file should not be name-checked, got %v", out)
+	}
+}

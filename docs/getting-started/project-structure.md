@@ -79,8 +79,22 @@ the three shapes that show up in practice.
 
 **The guideline that matters:** name the file after what it declares. When a
 flow misbehaves, you want `flows/style_update.mycel` to be an obvious place to
-look. Mycel will not help you here — it reports errors by file path, and that
-path is only useful if you chose it well.
+look, and a file called `retry.mycel` holding `flow "create_order"` defeats
+that.
+
+`mycel validate` mentions it when a file declaring exactly one thing is named
+after something else:
+
+```
+- delete_customer.mycel declares only flow "create_user" — renaming it
+  create_user.mycel would say so
+```
+
+A file holding several declarations is exempt: it is a collection, and
+`flows.mycel` is an honest name for one. Names are scoped by kind, so a lock
+and a sequence_guard may both be called `collection`; qualifying the file as
+`collection_lock.mycel` is correct and accepted, since they cannot share
+`collection.mycel`.
 
 ## Names are global
 

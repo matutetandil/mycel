@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/matutetandil/mycel/internal/parser"
@@ -51,7 +52,44 @@ func LayoutAdvice(config *parser.Configuration) []string {
 		}
 	}
 
+	// A file that declares exactly one named thing should be named after it.
+	// The point of splitting is that the filename tells you where to look; a
+	// flows/create_user.mycel holding delete_customer defeats it. Restricted
+	// to single-declaration files, so a collection file — flows.mycel with
+	// five flows — is exempt by construction rather than by a name rule.
+	names := map[string][]string{}
+	for key, files := range config.SourceFiles {
+		i := strings.IndexByte(key, ':')
+		if i < 0 {
+			continue
+		}
+		kind, name := key[:i], key[i+1:]
+		for _, f := range files {
+			names[f] = append(names[f], kind+" "+strconv.Quote(name))
+		}
+	}
+
 	var advice []string
+	for file, decls := range names {
+		if len(decls) != 1 {
+			continue
+		}
+		kind, quoted, _ := strings.Cut(decls[0], " ")
+		name, _ := strconv.Unquote(quoted)
+		base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
+		// Names are scoped by kind, so two kinds may share one: a lock and a
+		// sequence_guard both called "collection" cannot both live in
+		// collection.mycel. Qualifying the file with the kind is the correct
+		// convention there, and the production services this was measured
+		// against use it, so accept it as naming the contents.
+		if base == name || base == name+"_"+kind || base == kind+"_"+name {
+			continue
+		}
+		advice = append(advice, fmt.Sprintf(
+			"%s declares only %s %s — renaming it %s.mycel would say so",
+			filepath.Base(file), kind, quoted, name))
+	}
+
 	for file, n := range counts {
 		if n < crowdedFileThreshold {
 			continue
