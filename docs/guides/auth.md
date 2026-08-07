@@ -353,33 +353,101 @@ endpoints {
   prefix = "/auth"
 
   # Standard auth
-  login    { path = "/login",    method = "POST", enabled = true }
-  logout   { path = "/logout",   method = "POST", enabled = true }
-  register { path = "/register", method = "POST", enabled = true }
-  refresh  { path = "/refresh",  method = "POST", enabled = true }
-  me       { path = "/me",       method = "GET",  enabled = true }
+  login {
+    path    = "/login"
+    method  = "POST"
+    enabled = true
+  }
+  logout {
+    path    = "/logout"
+    method  = "POST"
+    enabled = true
+  }
+  register {
+    path    = "/register"
+    method  = "POST"
+    enabled = true
+  }
+  refresh {
+    path    = "/refresh"
+    method  = "POST"
+    enabled = true
+  }
+  me {
+    path    = "/me"
+    method  = "GET"
+    enabled = true
+  }
 
   # Sessions
-  sessions_list   { path = "/sessions",     method = "GET",    enabled = true }
-  sessions_revoke { path = "/sessions/:id", method = "DELETE", enabled = true }
+  sessions_list {
+    path    = "/sessions"
+    method  = "GET"
+    enabled = true
+  }
+  sessions_revoke {
+    path    = "/sessions/:id"
+    method  = "DELETE"
+    enabled = true
+  }
 
   # Password
-  password_change { path = "/change-password", method = "POST", enabled = true }
-  password_reset  { path = "/reset-password",  method = "POST", enabled = false }
+  password_change {
+    path    = "/change-password"
+    method  = "POST"
+    enabled = true
+  }
+  password_reset {
+    path    = "/reset-password"
+    method  = "POST"
+    enabled = false
+  }
 
   # MFA
-  mfa_setup    { path = "/mfa/setup",    method = "POST", enabled = true }
-  mfa_verify   { path = "/mfa/verify",   method = "POST", enabled = true }
-  mfa_disable  { path = "/mfa/disable",  method = "POST", enabled = true }
+  mfa_setup {
+    path    = "/mfa/setup"
+    method  = "POST"
+    enabled = true
+  }
+  mfa_verify {
+    path    = "/mfa/verify"
+    method  = "POST"
+    enabled = true
+  }
+  mfa_disable {
+    path    = "/mfa/disable"
+    method  = "POST"
+    enabled = true
+  }
 
   # SSO
-  sso_start    { path = "/sso/:provider",      method = "GET",    enabled = true }
-  sso_callback { path = "/callback/:provider", method = "GET",    enabled = true }
+  sso_start {
+    path    = "/sso/:provider"
+    method  = "GET"
+    enabled = true
+  }
+  sso_callback {
+    path    = "/callback/:provider"
+    method  = "GET"
+    enabled = true
+  }
 
   # Account linking
-  link_account   { path = "/link/:provider",   method = "POST",   enabled = true }
-  unlink_account { path = "/unlink/:provider", method = "DELETE", enabled = true }
-  linked_list    { path = "/linked-accounts",  method = "GET",    enabled = true }
+  link_account {
+    path    = "/link/:provider"
+    method  = "POST"
+    enabled = true
+  }
+  unlink_account {
+    path    = "/unlink/:provider"
+    method  = "DELETE"
+    enabled = true
+  }
+  linked_list {
+    path    = "/linked-accounts"
+    method  = "GET"
+    enabled = true
+  }
 }
 ```
 

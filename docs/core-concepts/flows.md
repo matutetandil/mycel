@@ -132,7 +132,10 @@ flow "process_all_orders" {
   from {
     connector = "rabbit"    # consumes whatever the connector's consumer{} block is bound to
   }
-  to { connector = "db", target = "orders" }
+  to {
+    connector = "db"
+    target    = "orders"
+  }
 }
 ```
 
@@ -216,7 +219,10 @@ flow "handle_type_a1" {
   }
 
   transform { ... }
-  to { connector = "db", target = "type_a1_table" }
+  to {
+    connector = "db"
+    target    = "type_a1_table"
+  }
 }
 
 # Flow B: only processes type B2
@@ -234,7 +240,10 @@ flow "handle_type_b2" {
   }
 
   transform { ... }
-  to { connector = "db", target = "type_b2_table" }
+  to {
+    connector = "db"
+    target    = "type_b2_table"
+  }
 }
 ```
 
