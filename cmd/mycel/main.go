@@ -308,11 +308,14 @@ func init() {
 	// Add subcommands
 	addCmd.AddCommand(addConnectorCmd)
 	addCmd.AddCommand(addFlowCmd)
+	addCmd.AddCommand(addAspectCmd)
 	addConnectorCmd.Flags().StringVar(&addType, "type", "", "Connector type (see --list)")
 	addConnectorCmd.Flags().StringVar(&addDriver, "driver", "", "Driver, for types that have one")
 	addConnectorCmd.Flags().BoolVar(&addListTypes, "list", false, "List available connector types")
 	addFlowCmd.Flags().StringVar(&addFrom, "from", "", "Source connector")
 	addFlowCmd.Flags().StringVar(&addTo, "to", "", "Destination connector")
+	addAspectCmd.Flags().StringVar(&addOn, "on", "", "Flow name patterns, comma-separated")
+	addAspectCmd.Flags().StringVar(&addWhen, "when", "", "When to execute (before, after, around, on_error, on_drop)")
 
 	// Add export subcommands
 	exportCmd.AddCommand(exportOpenAPICmd)

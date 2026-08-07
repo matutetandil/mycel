@@ -148,6 +148,7 @@ Add a connector or flow to an existing project, each in its own file.
 mycel add connector orders_db --type database --driver postgres
 mycel add connector rabbit --type mq --driver rabbitmq
 mycel add flow order_created --from rabbit --to orders_db
+mycel add aspect audit_log --on "create_*,update_*" --when after
 
 mycel add connector --list       # available types
 ```
@@ -159,8 +160,11 @@ mycel add connector --list       # available types
 | `--list` | `connector` | List available types and exit |
 | `--from` | `flow` | Source connector |
 | `--to` | `flow` | Destination connector |
+| `--on` | `aspect` | Flow name patterns, comma-separated (glob) |
+| `--when` | `aspect` | `before`, `after`, `around`, `on_error` or `on_drop` |
 
-Files land in `connectors/<name>.mycel` and `flows/<name>.mycel` under
+Files land in `connectors/<name>.mycel`, `flows/<name>.mycel` and
+`aspects/<name>.mycel` under
 `--config`. Mycel merges every `.mycel` file regardless of location, so this is
 a readability default, not a requirement — see
 [Project Structure](../getting-started/project-structure.md).
@@ -188,6 +192,11 @@ connector "orders_db" {
 Required string attributes default to `env("NAME")` rather than a literal:
 these are usually hosts and credentials, and a committed literal is how secrets
 reach a repository.
+
+An aspect always gets an `action` block, since one without an action does
+nothing; the optional nested blocks are listed as a comment. `--when` is checked
+against the schema, so a typo is caught here rather than becoming a silently
+inert aspect.
 
 Three things are refused before anything is written:
 

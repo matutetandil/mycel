@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matutetandil/mycel/internal/aspect"
 	"github.com/matutetandil/mycel/internal/runtime"
 	"github.com/matutetandil/mycel/pkg/schema"
 )
@@ -24,7 +25,7 @@ func TestRenderConnector_FromSchema(t *testing.T) {
 		`connector "orders_db" {`,
 		`type   = "database"`,
 		`driver = "postgres"`,
-		"database =",  // required by postgres, so it must be emitted
+		"database =",   // required by postgres, so it must be emitted
 		"// Optional:", // the rest listed, not guessed at
 	} {
 		if !strings.Contains(got, want) {
@@ -106,5 +107,77 @@ func TestRenderFlow_ExplainsOperation(t *testing.T) {
 
 	if !strings.Contains(got, "narrows a subscription") {
 		t.Errorf("the skeleton should explain what operation does on a stream source:\n%s", got)
+	}
+}
+
+// The `when` values come from the schema, not a literal in the generator.
+// That is what makes the skeleton unable to drift — and it is how on_drop,
+// which the runtime supported while the schema did not, reaches users.
+func TestRenderAspect_WhenValuesComeFromTheSchema(t *testing.T) {
+	got := renderAspect("audit", "create_*", "", schema.AspectSchema())
+
+	for _, want := range []string{"before", "after", "around", "on_error", "on_drop"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the when hint should offer %q:\n%s", want, got)
+		}
+	}
+}
+
+// The schema's allowed values must match the runtime's, which is the authority.
+// They drifted once: on_drop shipped without reaching the schema, so neither
+// completions nor this generator offered it.
+func TestAspectSchema_MatchesRuntimeWhenValues(t *testing.T) {
+	var declared []string
+	for _, a := range schema.AspectSchema().Attrs {
+		if a.Name == "when" {
+			declared = a.Values
+		}
+	}
+
+	runtimeValues := []string{
+		string(aspect.Before), string(aspect.After), string(aspect.Around),
+		string(aspect.OnError), string(aspect.OnDrop),
+	}
+	if len(declared) != len(runtimeValues) {
+		t.Fatalf("schema declares %v, runtime supports %v", declared, runtimeValues)
+	}
+	for _, want := range runtimeValues {
+		found := false
+		for _, d := range declared {
+			if d == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("schema is missing the runtime value %q", want)
+		}
+	}
+}
+
+// An aspect with no action does nothing at all, so one is always generated —
+// unlike the optional blocks, which are only mentioned.
+func TestRenderAspect_AlwaysGeneratesAnAction(t *testing.T) {
+	got := renderAspect("audit", "", "", schema.AspectSchema())
+
+	if !strings.Contains(got, "action {") {
+		t.Errorf("an action block must be generated:\n%s", got)
+	}
+	for _, optional := range []string{"cache { }", "invalidate { }"} {
+		if !strings.Contains(got, optional) {
+			t.Errorf("optional block %q should be mentioned:\n%s", optional, got)
+		}
+	}
+}
+
+func TestValidateAgainstSchema_RejectsUnknownWhen(t *testing.T) {
+	err := validateAgainstSchema(schema.AspectSchema(), "when", "whenever")
+	if err == nil {
+		t.Fatal("expected an unknown when value to be rejected")
+	}
+	if !strings.Contains(err.Error(), "on_drop") {
+		t.Errorf("the error should list the valid values, got: %v", err)
+	}
+	if err := validateAgainstSchema(schema.AspectSchema(), "when", "on_drop"); err != nil {
+		t.Errorf("on_drop is valid, got: %v", err)
 	}
 }

@@ -327,3 +327,132 @@ func listConnectorTypes(reg *schema.Registry) error {
 	fmt.Printf("mq: rabbitmq, kafka, redis). See the connector reference for each.\n")
 	return nil
 }
+
+var addAspectCmd = &cobra.Command{
+	Use:   "aspect <name>",
+	Short: "Add an aspect in aspects/<name>.mycel",
+	Long: `Generate an aspect skeleton.
+
+An aspect attaches behaviour to flows by name pattern instead of editing each
+flow — notifications, cache invalidation, audit trails.
+
+Examples:
+  mycel add aspect audit_log --on "create_*,update_*" --when after
+  mycel add aspect slack_error_notifier --on sync_orders --when on_error`,
+	Args: cobra.ExactArgs(1),
+	RunE: runAddAspect,
+}
+
+var (
+	addOn   string
+	addWhen string
+)
+
+func runAddAspect(cmd *cobra.Command, args []string) error {
+	name := args[0]
+
+	if err := ensureNameIsFree(name, "aspect"); err != nil {
+		return err
+	}
+
+	blk := schema.AspectSchema()
+	if addWhen != "" {
+		if err := validateAgainstSchema(blk, "when", addWhen); err != nil {
+			return err
+		}
+	}
+
+	return writeDeclaration(filepath.Join("aspects", name+".mycel"),
+		renderAspect(name, addOn, addWhen, blk))
+}
+
+// validateAgainstSchema rejects a flag value the schema does not allow, so the
+// mistake surfaces here rather than as a silently inert aspect.
+func validateAgainstSchema(blk schema.Block, attr, value string) error {
+	for _, a := range blk.Attrs {
+		if a.Name != attr || len(a.Values) == 0 {
+			continue
+		}
+		for _, v := range a.Values {
+			if v == value {
+				return nil
+			}
+		}
+		return fmt.Errorf("invalid --%s %q; one of: %s", attr, value, strings.Join(a.Values, ", "))
+	}
+	return nil
+}
+
+// renderAspect builds the HCL for an aspect from its schema.
+//
+// An aspect with no action does nothing at all, so one is always generated —
+// unlike the optional blocks, which are listed as comments. The `when` values
+// come from the schema rather than a literal here, which is how `on_drop`
+// reaches this skeleton now that the schema knows about it.
+func renderAspect(name, on, when string, blk schema.Block) string {
+	var b strings.Builder
+
+	if blk.Doc != "" {
+		fmt.Fprintf(&b, "// %s\n", blk.Doc)
+	}
+	fmt.Fprintf(&b, "aspect %q {\n", name)
+
+	if on != "" {
+		patterns := strings.Split(on, ",")
+		quoted := make([]string, 0, len(patterns))
+		for _, p := range patterns {
+			if p = strings.TrimSpace(p); p != "" {
+				quoted = append(quoted, fmt.Sprintf("%q", p))
+			}
+		}
+		fmt.Fprintf(&b, "  // Flow name patterns this attaches to (glob)\n")
+		fmt.Fprintf(&b, "  on   = [%s]\n", strings.Join(quoted, ", "))
+	} else {
+		fmt.Fprintf(&b, "  // Flow name patterns this attaches to (glob)\n")
+		fmt.Fprintf(&b, "  on   = [] // TODO — e.g. [\"create_*\", \"sync_orders\"]\n")
+	}
+
+	if when != "" {
+		fmt.Fprintf(&b, "  when = %q\n", when)
+	} else {
+		fmt.Fprintf(&b, "  when = \"after\" // %s\n", whenValues(blk))
+	}
+
+	b.WriteString("\n  // An aspect with no action does nothing.\n")
+	b.WriteString("  action {\n")
+	b.WriteString("    connector = \"\" // TODO — or use `flow = \"...\"` to invoke a flow\n")
+	b.WriteString("\n    transform {\n")
+	b.WriteString("      // CEL. Available: input, output, error (on_error), drop (on_drop), _flow\n")
+	b.WriteString("    }\n")
+	b.WriteString("  }\n")
+
+	if optional := optionalChildren(blk); len(optional) > 0 {
+		b.WriteString("\n  // Also available: " + strings.Join(optional, ", ") + "\n")
+	}
+
+	b.WriteString("}\n")
+	return b.String()
+}
+
+// whenValues renders the allowed `when` values as a hint.
+func whenValues(blk schema.Block) string {
+	for _, a := range blk.Attrs {
+		if a.Name == "when" && len(a.Values) > 0 {
+			return "one of: " + strings.Join(a.Values, ", ")
+		}
+	}
+	return ""
+}
+
+// optionalChildren lists the nested blocks an aspect may carry, minus the
+// action already generated.
+func optionalChildren(blk schema.Block) []string {
+	var names []string
+	for _, c := range blk.Children {
+		if c.Type != "action" {
+			names = append(names, c.Type+" { }")
+		}
+	}
+	sort.Strings(names)
+	return names
+}
