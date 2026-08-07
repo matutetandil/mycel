@@ -14,13 +14,13 @@ import (
 	"github.com/spf13/cobra"
 	"go.uber.org/automaxprocs/maxprocs"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/envdefaults"
-	"github.com/matutetandil/mycel/internal/export/asyncapi"
-	"github.com/matutetandil/mycel/internal/export/openapi"
-	"github.com/matutetandil/mycel/internal/logging"
-	"github.com/matutetandil/mycel/internal/parser"
-	"github.com/matutetandil/mycel/internal/runtime"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/envdefaults"
+	"github.com/matutetandil/mycel/v2/internal/export/asyncapi"
+	"github.com/matutetandil/mycel/v2/internal/export/openapi"
+	"github.com/matutetandil/mycel/v2/internal/logging"
+	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v2/internal/runtime"
 )
 
 // Environment variable names

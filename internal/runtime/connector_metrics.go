@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/metrics"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/metrics"
 )
 
 // The connector metrics were defined from the start and never recorded, so

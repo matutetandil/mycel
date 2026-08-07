@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
 var dedupeTestPayload = map[string]interface{}{

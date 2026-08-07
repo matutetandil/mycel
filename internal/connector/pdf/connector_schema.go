@@ -1,6 +1,6 @@
 package pdf
 
-import "github.com/matutetandil/mycel/pkg/schema"
+import "github.com/matutetandil/mycel/v2/pkg/schema"
 
 // ConnectorSchemaDef implements ConnectorSchemaProvider for PDF.
 type ConnectorSchemaDef struct{}

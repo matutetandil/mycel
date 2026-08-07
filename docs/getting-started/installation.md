@@ -52,7 +52,7 @@ Requires Go 1.21 or later.
 ### Install from source
 
 ```bash
-go install github.com/matutetandil/mycel/cmd/mycel@latest
+go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
 ```
 
 ### Build from repository

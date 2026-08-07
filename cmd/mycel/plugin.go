@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/matutetandil/mycel/internal/parser"
-	"github.com/matutetandil/mycel/internal/plugin"
+	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v2/internal/plugin"
 )
 
 var pluginCmd = &cobra.Command{

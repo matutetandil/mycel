@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/flow"
-	"github.com/matutetandil/mycel/internal/parser"
+	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/parser"
 )
 
 func TestInertFlowAttrs_ParamsOnToBlock(t *testing.T) {

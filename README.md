@@ -346,7 +346,7 @@ docker run -v $(pwd):/etc/mycel -p 3000:3000 mdenda/mycel
 
 **Go:**
 ```bash
-go install github.com/matutetandil/mycel/cmd/mycel@latest
+go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
 ```
 
 **Kubernetes (Helm):**

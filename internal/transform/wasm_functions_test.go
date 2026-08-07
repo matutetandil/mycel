@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/functions"
+	"github.com/matutetandil/mycel/v2/internal/functions"
 )
 
 // mockFunction implements functions.Function for testing

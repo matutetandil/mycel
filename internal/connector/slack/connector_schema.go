@@ -1,6 +1,6 @@
 package slack
 
-import "github.com/matutetandil/mycel/pkg/schema"
+import "github.com/matutetandil/mycel/v2/pkg/schema"
 
 // ConnectorSchemaDef implements ConnectorSchemaProvider for Slack.
 type ConnectorSchemaDef struct{}

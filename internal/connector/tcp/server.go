@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
 // HandlerFunc is the function signature for message handlers.

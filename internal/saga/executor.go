@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/transform"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
 // ConnectorGetter retrieves connectors by name.

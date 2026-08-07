@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/cel-go/cel"
 
-	"github.com/matutetandil/mycel/internal/transform"
+	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
 // sendFunc is what the batcher calls to actually deliver a message to Slack.

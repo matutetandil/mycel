@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	httpconn "github.com/matutetandil/mycel/internal/connector/http"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	httpconn "github.com/matutetandil/mycel/v2/internal/connector/http"
 )
 
 // TestRetryFailureMessageReportsActualAttempts: the previous code emitted

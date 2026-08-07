@@ -9,7 +9,7 @@ import (
 
 	"github.com/google/cel-go/cel"
 
-	"github.com/matutetandil/mycel/internal/transform"
+	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
 // ValidatorType represents the type of validator.

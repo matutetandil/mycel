@@ -1,6 +1,6 @@
 package mqtt
 
-import "github.com/matutetandil/mycel/pkg/schema"
+import "github.com/matutetandil/mycel/v2/pkg/schema"
 
 // ConnectorSchemaDef implements ConnectorSchemaProvider for MQTT.
 type ConnectorSchemaDef struct{}
