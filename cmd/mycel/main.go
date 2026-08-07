@@ -14,6 +14,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 	"go.uber.org/automaxprocs/maxprocs"
+	"golang.org/x/mod/module"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
 	"github.com/matutetandil/mycel/v2/internal/envdefaults"
@@ -65,9 +66,13 @@ func buildInfo(defVersion, defCommit string) (string, string) {
 	}
 
 	v := defVersion
-	// "(devel)" means a local build with no module version — the hardcoded
-	// value is the better answer there.
-	if mv := info.Main.Version; mv != "" && mv != "(devel)" {
+	// Only a real tagged release is a better answer than the source constant.
+	// "(devel)" is a build with no module version at all, and a pseudo-version
+	// (v2.13.1-0.20260807182040-21048d4ff956) is Go's synthetic stand-in for an
+	// untagged commit — accurate, but it would put a timestamp and a hash in
+	// the startup banner of every local build. The revision is reported
+	// separately as the commit, so nothing is lost by preferring the constant.
+	if mv := info.Main.Version; mv != "" && mv != "(devel)" && !module.IsPseudoVersion(mv) {
 		v = strings.TrimPrefix(mv, "v")
 	}
 
