@@ -297,12 +297,22 @@ func init() {
 
 	// Add commands
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(addCmd)
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(checkCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(pluginCmd)
+
+	// Add subcommands
+	addCmd.AddCommand(addConnectorCmd)
+	addCmd.AddCommand(addFlowCmd)
+	addConnectorCmd.Flags().StringVar(&addType, "type", "", "Connector type (see --list)")
+	addConnectorCmd.Flags().StringVar(&addDriver, "driver", "", "Driver, for types that have one")
+	addConnectorCmd.Flags().BoolVar(&addListTypes, "list", false, "List available connector types")
+	addFlowCmd.Flags().StringVar(&addFrom, "from", "", "Source connector")
+	addFlowCmd.Flags().StringVar(&addTo, "to", "", "Destination connector")
 
 	// Add export subcommands
 	exportCmd.AddCommand(exportOpenAPICmd)

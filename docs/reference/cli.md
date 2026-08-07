@@ -136,6 +136,64 @@ scaffold hands you the shape that stays readable as a service grows. See
 Refuses to overwrite existing files, and writes nothing at all if any would
 clash.
 
+### `mycel add`
+
+Add a connector or flow to an existing project, each in its own file.
+
+```bash
+mycel add connector orders_db --type database --driver postgres
+mycel add connector rabbit --type mq --driver rabbitmq
+mycel add flow order_created --from rabbit --to orders_db
+
+mycel add connector --list       # available types
+```
+
+| Flag | Applies to | Description |
+|------|-----------|-------------|
+| `--type` | `connector` | Connector type — required |
+| `--driver` | `connector` | Driver, for types that have one |
+| `--list` | `connector` | List available types and exit |
+| `--from` | `flow` | Source connector |
+| `--to` | `flow` | Destination connector |
+
+Files land in `connectors/<name>.mycel` and `flows/<name>.mycel` under
+`--config`. Mycel merges every `.mycel` file regardless of location, so this is
+a readability default, not a requirement — see
+[Project Structure](../getting-started/project-structure.md).
+
+The connector skeleton is generated from that connector's **own schema**, so
+required attributes are the ones the runtime actually requires and cannot drift
+from it. Required attributes are emitted with a placeholder; optional ones are
+listed as comments, so the file doubles as a reference:
+
+```hcl
+connector "orders_db" {
+  type   = "database"
+  driver = "postgres"
+
+  // Database name
+  database = env("DATABASE") // TODO
+
+  // Optional:
+  //   host — Database server host
+  //   port — Database server port
+  //   sslmode — SSL mode (disable, require, verify-ca, verify-full)
+}
+```
+
+Required string attributes default to `env("NAME")` rather than a literal:
+these are usually hosts and credentials, and a committed literal is how secrets
+reach a repository.
+
+Three things are refused before anything is written:
+
+- a name already used by another connector or flow, since
+  [names are global](../getting-started/project-structure.md#names-are-global)
+  across every file
+- a flow wired to a connector that does not exist — the error lists the ones
+  that do
+- overwriting an existing file
+
 ### `mycel version`
 
 Print the Mycel version, build commit, Go toolchain and platform.
