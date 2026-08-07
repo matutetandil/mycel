@@ -386,7 +386,7 @@ ERROR  Transform failed: no such key: user_name
 1. Check your type definition:
    ```hcl
    type "user_input" {
-     email = string { required = true, format = "email" }
+     email = string({ required = true, format = "email" })
    }
    ```
 

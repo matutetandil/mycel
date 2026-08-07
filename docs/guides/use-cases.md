@@ -539,9 +539,9 @@ connector "db" {
 ```hcl
 # types.mycel
 type "create_user_input" {
-  name  = string { min_length = 2, max_length = 100 }
-  email = string { format = "email" }
-  age   = number { min = 18, max = 150 }
+  name  = string({ min_length = 2, max_length = 100 })
+  email = string({ format = "email" })
+  age   = number({ min = 18, max = 150 })
 }
 ```
 
@@ -1639,15 +1639,15 @@ connector "db" {
 
 ```hcl
 type "User" {
-  id    = string { required = false }
+  id    = string({ required = false })
   name  = string
-  email = string { format = "email" }
-  role  = string { enum = ["admin", "user", "viewer"] }
+  email = string({ format = "email" })
+  role  = string({ enum = ["admin", "user", "viewer"] })
 }
 
 type "Post" {
-  id        = string { required = false }
-  title     = string { min_length = 1, max_length = 200 }
+  id        = string({ required = false })
+  title     = string({ min_length = 1, max_length = 200 })
   body      = string
   author_id = string
   published = boolean

@@ -212,15 +212,15 @@ Create `types.mycel`:
 
 ```hcl
 type "item_input" {
-  name = string {
+  name = string({
     required   = true
     min_length = 1
     max_length = 100
-  }
-  description = string {
+  })
+  description = string({
     required   = false
     max_length = 500
-  }
+  })
 }
 ```
 

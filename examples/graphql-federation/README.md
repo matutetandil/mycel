@@ -45,9 +45,9 @@ type "Product" {
   _key       = "sku"       # @key(fields: "sku")
   _shareable = true        # @shareable
 
-  sku   = string { required = true }
-  name  = string { required = true }
-  price = number { min = 0 }
+  sku   = string({ required = true })
+  name  = string({ required = true })
+  price = number({ min = 0 })
 }
 ```
 

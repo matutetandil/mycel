@@ -112,15 +112,15 @@ Define your types in HCL files, and Mycel automatically generates the GraphQL sc
 ```hcl
 type "User" {
   id         = id
-  email      = string { format = "email" }
-  name       = string { min_length = 1 }
+  email      = string({ format = "email" })
+  name       = string({ min_length = 1 })
   externalId = string
   createdAt  = string
 }
 
 type "UserInput" {
-  email = string { format = "email" }
-  name  = string { min_length = 1 }
+  email = string({ format = "email" })
+  name  = string({ min_length = 1 })
 }
 
 type "MutationResult" {

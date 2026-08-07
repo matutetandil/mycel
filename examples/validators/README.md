@@ -85,11 +85,11 @@ Reference validators in type definitions:
 
 ```hcl
 type "user" {
-  email    = string { validate = "validator.email" }
-  password = string { validate = "validator.strong_password" }
-  age      = number { validate = "validator.adult_age" }
-  phone    = string { validate = "validator.phone_ar" }
-  status   = string { validate = "validator.valid_status" }
+  email    = string({ validate = "validator.email" })
+  password = string({ validate = "validator.strong_password" })
+  age      = number({ validate = "validator.adult_age" })
+  phone    = string({ validate = "validator.phone_ar" })
+  status   = string({ validate = "validator.valid_status" })
 }
 ```
 
