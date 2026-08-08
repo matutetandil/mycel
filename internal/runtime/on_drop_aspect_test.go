@@ -9,12 +9,12 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/aspect"
-	"github.com/matutetandil/mycel/internal/connector"
-	httpconn "github.com/matutetandil/mycel/internal/connector/http"
-	"github.com/matutetandil/mycel/internal/flow"
-	msync "github.com/matutetandil/mycel/internal/sync"
-	"github.com/matutetandil/mycel/internal/transform"
+	"github.com/matutetandil/mycel/v2/internal/aspect"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	httpconn "github.com/matutetandil/mycel/v2/internal/connector/http"
+	"github.com/matutetandil/mycel/v2/internal/flow"
+	msync "github.com/matutetandil/mycel/v2/internal/sync"
+	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
 // dropCapturingWriter records every drop notification it sees so tests

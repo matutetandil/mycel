@@ -7,7 +7,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/matutetandil/mycel/internal/statemachine"
+	"github.com/matutetandil/mycel/v2/internal/statemachine"
 )
 
 // parseStateMachineBlock parses a state_machine block from HCL.

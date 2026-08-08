@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/transform"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
 // ConnectorFactory is a function that creates a connector from config.

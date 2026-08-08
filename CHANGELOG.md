@@ -28,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`mycel validate` gives readability advice**: a file past eight declarations, and a file declaring exactly one thing but named after something else. Advice, never a failure, and never shown by `mycel start` — where a declaration lives changes nothing at runtime, and a startup that warns about style is one whose real warnings get ignored. Calibrated against the production services it was written for: one advisory across 81 of their files.
 
+### Changed
+
+- **Type fields are described in the schema.** `TypeSchema` was open with nothing else declared; field types, string formats and constraints are now schema-level facts, which is what let `mycel add type` generate a correct field and what the IDE needs to complete one.
+
+- **Example files are named after what they declare**, and their READMEs updated. Twenty renames; filenames carry no meaning for the runtime, so no example behaves differently.
+
+- **Pull requests now build the Docker image and run the integration suite.** Unit tests already ran on every pull request, against the merge result; two things did not.
+
+  The runtime image was built for the first time *at tag time*, so a Dockerfile that no longer matched the source only failed once a tag existed — the expensive moment to find out. v2.10.0 shipped a `go.mod` requiring Go 1.25 against a `golang:1.24` base and the release had to be re-tagged, which meant disabling a tag-protection ruleset to do it. CI now builds it, and the integration mock server that broke in the same release, on every pull request: `linux/amd64` only and pushed nowhere, in a job that runs alongside the others. Measured at 98 seconds cold and 2 seconds cached.
+
+  The integration suite — 146 assertions against twelve real services — was `workflow_dispatch` only, so it ran when someone remembered. Nothing else exercises the connectors against real brokers, so a regression there was found after merging, if at all. It now runs on pull requests too.
+
 ### Fixed
 
 - **The type constraint syntax in the documentation never parsed.** Every example used `email = string { format = "email" }`; HCL reads that as an argument followed by a block, and a type body accepts only attributes. Constraints are call arguments — `string({ format = "email" })` — and that form works end to end, verified against a running service rejecting a bad address with 400. The feature was real; only the documented syntax was wrong, which is why it survived. 80 occurrences across 11 files; every `type` block in the docs now parses, against 7 of 11 before.
@@ -42,11 +54,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The startup banner described response and fan-out flows as `(echo)`** — including the first flow `mycel init` generates.
 
-### Changed
+- **`go install` installed v1.22.0 instead of the current release.** Go's semantic import versioning requires a module released at major version 2 or above to carry a `/vN` suffix in its path. Mycel has been on v2 since May with an unsuffixed module path, so every v2 tag was invisible to the toolchain and `go install github.com/matutetandil/mycel/cmd/mycel@latest` — the command in the README, the quick start, the installation guide and the debugging guide — silently handed people a release from April, fourteen versions behind.
 
-- **Type fields are described in the schema.** `TypeSchema` was open with nothing else declared; field types, string formats and constraints are now schema-level facts, which is what let `mycel add type` generate a correct field and what the IDE needs to complete one.
+  The module path is now `github.com/matutetandil/mycel/v2`, and the documented command is:
 
-- **Example files are named after what they declare**, and their READMEs updated. Twenty renames; filenames carry no meaning for the runtime, so no example behaves differently.
+  ```bash
+  go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
+  ```
+
+  This only affects `go install` and anyone importing Mycel as a library; Docker, Helm and the released binaries were never involved. It cannot repair the existing tags — v2.13.0 and earlier carry the old `go.mod` forever — so the corrected path starts resolving at the next release.
+
+- **`mycel version` reported `commit: dev` in every build, released images included.** Nothing set the version or commit through ldflags, so the commit was a placeholder and the version was whatever was hardcoded in the source — a guess for a `go install` binary, which reports what the source claimed rather than what was installed. Both now come from the build metadata Go already embeds: the module version for `go install`, and the VCS revision with a `-dirty` flag for a build from a checkout. `mycel --version` agreed with neither and now matches.
+
+### Documentation
+
+- **How to update.** There is no separate update command and nothing self-updates; re-running the install command is the update. Documented alongside pinning a version, and the Docker/Helm equivalent.
 
 ## [2.13.0] - 2026-08-06
 

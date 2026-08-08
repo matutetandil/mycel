@@ -7,7 +7,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/matutetandil/mycel/internal/aspect"
+	"github.com/matutetandil/mycel/v2/internal/aspect"
 )
 
 // parseAspectBlock parses an aspect block.

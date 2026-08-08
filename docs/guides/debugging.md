@@ -640,7 +640,7 @@ For the best debugging experience, **run Mycel locally**:
 
 ```bash
 # Install locally
-go install github.com/matutetandil/mycel/cmd/mycel@latest
+go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
 
 # Trace directly
 mycel trace create_user --input '{"email":"test@x.com"}'

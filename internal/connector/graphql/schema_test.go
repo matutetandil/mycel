@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/graphql-go/graphql"
-	"github.com/matutetandil/mycel/internal/validate"
+	"github.com/matutetandil/mycel/v2/internal/validate"
 )
 
 // TestSDLParser tests the SDL parser with various schemas.

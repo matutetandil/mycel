@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/graphql-go/graphql"
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/dataloader"
-	"github.com/matutetandil/mycel/internal/validate"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/dataloader"
+	"github.com/matutetandil/mycel/v2/internal/validate"
 )
 
 // TypeSchema is an alias for validate.TypeSchema for use in HCL-first mode.

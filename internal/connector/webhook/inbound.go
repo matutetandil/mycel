@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // WebhookHandler is called when a webhook is received

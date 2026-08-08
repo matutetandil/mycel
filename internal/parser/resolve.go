@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
 // ResolveReferences walks every flow and folds reusable-block references

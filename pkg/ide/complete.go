@@ -3,7 +3,7 @@ package ide
 import (
 	"fmt"
 
-	"github.com/matutetandil/mycel/pkg/schema"
+	"github.com/matutetandil/mycel/v2/pkg/schema"
 )
 
 // complete returns completion items based on cursor context.

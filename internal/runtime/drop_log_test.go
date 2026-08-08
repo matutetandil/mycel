@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
 func dropLogger(buf *bytes.Buffer, level slog.Level) *slog.Logger {

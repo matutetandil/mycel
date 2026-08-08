@@ -20,7 +20,7 @@ import (
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // Config holds configuration for an FTP/SFTP connector.

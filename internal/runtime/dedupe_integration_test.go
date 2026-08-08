@@ -9,12 +9,12 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/connector/cache/memory"
-	"github.com/matutetandil/mycel/internal/connector/cache/types"
-	"github.com/matutetandil/mycel/internal/flow"
-	msync "github.com/matutetandil/mycel/internal/sync"
-	"github.com/matutetandil/mycel/internal/transform"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector/cache/memory"
+	"github.com/matutetandil/mycel/v2/internal/connector/cache/types"
+	"github.com/matutetandil/mycel/v2/internal/flow"
+	msync "github.com/matutetandil/mycel/v2/internal/sync"
+	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
 // newDedupeHandler builds a FlowHandler wired with an in-memory cache and

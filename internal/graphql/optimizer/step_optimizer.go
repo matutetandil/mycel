@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
 // StepOptimizer analyzes flow steps and determines which can be skipped

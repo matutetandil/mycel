@@ -3,7 +3,7 @@
 // contains the complete set of ConnectorSchemaProvider implementations.
 package connectors
 
-import "github.com/matutetandil/mycel/pkg/schema"
+import "github.com/matutetandil/mycel/v2/pkg/schema"
 
 // ---------------------------------------------------------------------------
 // Shared helper blocks
@@ -1307,8 +1307,8 @@ func RegisterAll(reg *schema.Registry) {
 // Usage from Studio:
 //
 //	import (
-//	    "github.com/matutetandil/mycel/pkg/connectors"
-//	    "github.com/matutetandil/mycel/pkg/ide"
+//	    "github.com/matutetandil/mycel/v2/pkg/connectors"
+//	    "github.com/matutetandil/mycel/v2/pkg/ide"
 //	)
 //
 //	reg := connectors.FullRegistry()

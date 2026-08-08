@@ -7,20 +7,22 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 	"go.uber.org/automaxprocs/maxprocs"
+	"golang.org/x/mod/module"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/envdefaults"
-	"github.com/matutetandil/mycel/internal/export/asyncapi"
-	"github.com/matutetandil/mycel/internal/export/openapi"
-	"github.com/matutetandil/mycel/internal/logging"
-	"github.com/matutetandil/mycel/internal/parser"
-	"github.com/matutetandil/mycel/internal/runtime"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/envdefaults"
+	"github.com/matutetandil/mycel/v2/internal/export/asyncapi"
+	"github.com/matutetandil/mycel/v2/internal/export/openapi"
+	"github.com/matutetandil/mycel/v2/internal/logging"
+	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v2/internal/runtime"
 )
 
 // Environment variable names
@@ -29,10 +31,70 @@ const (
 )
 
 var (
-	// Version information (set at build time)
+	// Version is the release this source tree belongs to. It is the fallback:
+	// buildInfo() overrides both of these when the binary carries real build
+	// metadata, which it does for `go install` (module version) and for any
+	// build from a git checkout (VCS revision).
 	version = "2.13.0"
 	commit  = "dev"
 )
+
+// Runs before the init() further down, and before any command executes. It has
+// to also rewrite rootCmd.Version: that field is a package-variable
+// initializer, so it captured the fallback values before this ran, which left
+// `mycel --version` reporting "dev" while `mycel version` reported the real
+// revision.
+func init() {
+	version, commit = buildInfo(version, commit)
+	rootCmd.Version = fmt.Sprintf("%s (commit: %s)", version, commit)
+}
+
+// buildInfo reads the version and revision Go embeds in every binary.
+//
+// Nothing sets these through ldflags, so before this the commit was reported
+// as "dev" everywhere — including released images — and a `go install` binary
+// claimed whatever version happened to be hardcoded in the source at that tag.
+// Go records both already: the module version for `go install pkg@version`,
+// and the VCS revision plus a dirty flag for a build from a checkout.
+//
+// Falls back to the passed-in values when the binary has no build info, so
+// `go run` and tests keep working.
+func buildInfo(defVersion, defCommit string) (string, string) {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return defVersion, defCommit
+	}
+
+	v := defVersion
+	// Only a real tagged release is a better answer than the source constant.
+	// "(devel)" is a build with no module version at all, and a pseudo-version
+	// (v2.13.1-0.20260807182040-21048d4ff956) is Go's synthetic stand-in for an
+	// untagged commit — accurate, but it would put a timestamp and a hash in
+	// the startup banner of every local build. The revision is reported
+	// separately as the commit, so nothing is lost by preferring the constant.
+	if mv := info.Main.Version; mv != "" && mv != "(devel)" && !module.IsPseudoVersion(mv) {
+		v = strings.TrimPrefix(mv, "v")
+	}
+
+	c := defCommit
+	var dirty bool
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			if len(s.Value) >= 7 {
+				c = s.Value[:7]
+			} else if s.Value != "" {
+				c = s.Value
+			}
+		case "vcs.modified":
+			dirty = s.Value == "true"
+		}
+	}
+	if dirty && c != defCommit {
+		c += "-dirty"
+	}
+	return v, c
+}
 
 func main() {
 	// Cobra has already reported the error; just set the exit status.

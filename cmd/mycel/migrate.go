@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/matutetandil/mycel/internal/parser"
+	"github.com/matutetandil/mycel/v2/internal/parser"
 )
 
 var migrateCmd = &cobra.Command{

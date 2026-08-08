@@ -12,9 +12,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/matutetandil/mycel/internal/dap"
-	"github.com/matutetandil/mycel/internal/runtime"
-	"github.com/matutetandil/mycel/internal/trace"
+	"github.com/matutetandil/mycel/v2/internal/dap"
+	"github.com/matutetandil/mycel/v2/internal/runtime"
+	"github.com/matutetandil/mycel/v2/internal/trace"
 )
 
 var traceCmd = &cobra.Command{

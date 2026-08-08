@@ -12,8 +12,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/matutetandil/mycel/internal/functions"
-	myhcl "github.com/matutetandil/mycel/pkg/hcl"
+	"github.com/matutetandil/mycel/v2/internal/functions"
+	myhcl "github.com/matutetandil/mycel/v2/pkg/hcl"
 )
 
 // Loader handles loading plugins from various sources.

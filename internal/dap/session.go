@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/matutetandil/mycel/internal/trace"
+	"github.com/matutetandil/mycel/v2/internal/trace"
 )
 
 // Session manages the state of a single debug session.

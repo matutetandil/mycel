@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/matutetandil/mycel/internal/wasm"
+	"github.com/matutetandil/mycel/v2/internal/wasm"
 )
 
 // Config holds the configuration for a WASM functions module.

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 
 	_ "modernc.org/sqlite" // SQLite driver (pure Go)
 )

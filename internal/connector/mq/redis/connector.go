@@ -10,10 +10,10 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/connector/mq/types"
-	"github.com/matutetandil/mycel/internal/connector/mq/undispatched"
-	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector/mq/types"
+	"github.com/matutetandil/mycel/v2/internal/connector/mq/undispatched"
+	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
 // HandlerFunc is the function signature for message handlers.

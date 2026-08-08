@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/matutetandil/mycel/internal/parser"
+	"github.com/matutetandil/mycel/v2/internal/parser"
 )
 
 // crowdedFileThreshold is when a single file stops being easy to read. Below

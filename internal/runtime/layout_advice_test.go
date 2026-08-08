@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/parser"
+	"github.com/matutetandil/mycel/v2/internal/parser"
 )
 
 func configWithSources(sources map[string][]string) *parser.Configuration {
