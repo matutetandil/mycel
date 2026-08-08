@@ -10,11 +10,11 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/connector/mq/types"
-	"github.com/matutetandil/mycel/internal/connector/mq/undispatched"
-	"github.com/matutetandil/mycel/internal/flow"
-	"github.com/matutetandil/mycel/internal/tracing"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector/mq/types"
+	"github.com/matutetandil/mycel/v2/internal/connector/mq/undispatched"
+	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/tracing"
 )
 
 // HandlerFunc is the function signature for message handlers.

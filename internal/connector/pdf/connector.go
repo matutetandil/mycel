@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // Connector generates PDF documents from HTML templates.

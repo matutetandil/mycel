@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/parser"
+	"github.com/matutetandil/mycel/v2/internal/parser"
 )
 
 // TestRabbitMQConsumerDLQEndToEnd verifies the full pipeline: HCL parser →

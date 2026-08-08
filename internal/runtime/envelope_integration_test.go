@@ -11,9 +11,9 @@ import (
 	"sync"
 	"testing"
 
-	httpconn "github.com/matutetandil/mycel/internal/connector/http"
-	"github.com/matutetandil/mycel/internal/flow"
-	"github.com/matutetandil/mycel/internal/transform"
+	httpconn "github.com/matutetandil/mycel/v2/internal/connector/http"
+	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
 // TestEnvelopeAppliedOnHTTPCreate is the end-to-end test the v1.19.5 release

@@ -1,6 +1,6 @@
 package database
 
-import "github.com/matutetandil/mycel/pkg/schema"
+import "github.com/matutetandil/mycel/v2/pkg/schema"
 
 // PostgresSchema implements ConnectorSchemaProvider for PostgreSQL.
 type PostgresSchema struct{}

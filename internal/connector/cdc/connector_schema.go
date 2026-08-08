@@ -1,6 +1,6 @@
 package cdc
 
-import "github.com/matutetandil/mycel/pkg/schema"
+import "github.com/matutetandil/mycel/v2/pkg/schema"
 
 // ConnectorSchemaDef implements ConnectorSchemaProvider for CDC (Change Data Capture).
 type ConnectorSchemaDef struct{}

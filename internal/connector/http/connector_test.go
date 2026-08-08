@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // TestTLSInsecureSkipVerifySuccess: a connector pointed at a self-signed

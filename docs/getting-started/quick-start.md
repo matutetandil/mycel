@@ -88,7 +88,7 @@ docker run -v $(pwd):/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
 ### From source (requires Go 1.21+)
 
 ```bash
-go install github.com/matutetandil/mycel/cmd/mycel@latest
+go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
 mycel start
 ```
 

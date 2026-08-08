@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/matutetandil/mycel/internal/mock"
+	"github.com/matutetandil/mycel/v2/internal/mock"
 	"github.com/zclconf/go-cty/cty"
 )
 

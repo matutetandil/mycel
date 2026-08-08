@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // mockListener implements Listener for testing without a real database.

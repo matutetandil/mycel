@@ -1,6 +1,6 @@
 package s3
 
-import "github.com/matutetandil/mycel/pkg/schema"
+import "github.com/matutetandil/mycel/v2/pkg/schema"
 
 // ConnectorSchemaDef implements ConnectorSchemaProvider for S3.
 type ConnectorSchemaDef struct{}

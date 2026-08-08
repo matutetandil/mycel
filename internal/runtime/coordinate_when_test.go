@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	httpconn "github.com/matutetandil/mycel/internal/connector/http"
-	"github.com/matutetandil/mycel/internal/flow"
-	msync "github.com/matutetandil/mycel/internal/sync"
-	"github.com/matutetandil/mycel/internal/transform"
+	httpconn "github.com/matutetandil/mycel/v2/internal/connector/http"
+	"github.com/matutetandil/mycel/v2/internal/flow"
+	msync "github.com/matutetandil/mycel/v2/internal/sync"
+	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
 // newCoordinateHandler constructs a flow with a coordinate.wait against

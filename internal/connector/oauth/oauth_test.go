@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/auth"
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/auth"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // mockProvider implements auth.SocialProvider for testing.

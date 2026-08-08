@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
 // mockQueryReadWriter implements connector.ReadWriter and counts calls, so

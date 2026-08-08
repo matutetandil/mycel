@@ -15,12 +15,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/codec"
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/flow"
-	"github.com/matutetandil/mycel/internal/health"
-	"github.com/matutetandil/mycel/internal/metrics"
-	"github.com/matutetandil/mycel/internal/ratelimit"
+	"github.com/matutetandil/mycel/v2/internal/codec"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/health"
+	"github.com/matutetandil/mycel/v2/internal/metrics"
+	"github.com/matutetandil/mycel/v2/internal/ratelimit"
 )
 
 // HandlerFunc is a function that handles a flow request.

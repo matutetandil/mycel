@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/graphql-go/graphql"
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/validate"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/validate"
 )
 
 // SchemaMode defines how the schema is built.

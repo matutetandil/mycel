@@ -3,7 +3,7 @@ package ide
 import (
 	"fmt"
 
-	"github.com/matutetandil/mycel/pkg/schema"
+	"github.com/matutetandil/mycel/v2/pkg/schema"
 )
 
 // diagnoseFile returns diagnostics for a single file (parse errors + schema validation).

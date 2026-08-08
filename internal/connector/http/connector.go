@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/codec"
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/tracing"
+	"github.com/matutetandil/mycel/v2/internal/codec"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/tracing"
 )
 
 // Connector is an HTTP client for calling external REST APIs.

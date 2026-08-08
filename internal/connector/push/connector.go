@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 	"golang.org/x/net/http2"
 )
 

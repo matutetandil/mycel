@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	httpconn "github.com/matutetandil/mycel/internal/connector/http"
-	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	httpconn "github.com/matutetandil/mycel/v2/internal/connector/http"
+	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
 // newEHHandler builds a minimal FlowHandler carrying only an error_handling
