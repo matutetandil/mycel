@@ -35,7 +35,7 @@ var (
 	// buildInfo() overrides both of these when the binary carries real build
 	// metadata, which it does for `go install` (module version) and for any
 	// build from a git checkout (VCS revision).
-	version = "2.13.0"
+	version = "2.14.0"
 	commit  = "dev"
 )
 
