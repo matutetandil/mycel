@@ -2,6 +2,12 @@ name: Integration Tests
 
 on:
   workflow_dispatch:
+  # Ran by hand only, which meant it ran when someone remembered. Twelve
+  # services and 146 assertions are worth several minutes on a pull request:
+  # nothing else exercises the connectors against real brokers, so a
+  # regression there was previously found after merging, if at all.
+  pull_request:
+    branches: [main]
 
 defaults:
   run:
