@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`mycel init`** scaffolds a project in the recommended layout — `config.mycel`, `connectors/`, `flows/`, plus `.gitignore` and `.env.example`. The generated service runs as-is: start it and `GET /status` answers. It refuses to overwrite, and writes nothing at all if any file would clash.
+
+- **`mycel add connector | flow | aspect | type`** puts each new declaration in its own file. Anything supplied as a flag is written out, so a caller who knows what they want gets a finished file rather than one to edit:
+
+  ```bash
+  mycel add connector orders_db --type database --driver postgres
+  mycel add flow order_created --from rabbit --operation "orders.created" --to orders_db --target orders
+  mycel add aspect audit --on "create_*" --when after --action-connector audit_db
+  mycel add type user --fields "id:number,email:string:email"
+  ```
+
+  Skeletons are generated from the connector's or block's **own schema**, not from templates, so what they emit cannot drift from what the runtime accepts. Every reference is checked before anything is written — a connector or flow that does not exist, a name already taken, a `--when` or field type the schema rejects, and an `--on` pattern matching no flow, tested with the same matcher the aspect registry dispatches with.
+
+  Mycel does not require this layout and never will: it reads every `.mycel` file under the config directory and merges them, so a single file behaves identically. The commands make the maintainable shape the path of least resistance rather than a suggestion.
+
+- **[Project Structure](docs/getting-started/project-structure.md) documentation.** The loading rule — every `.mycel` file, recursive, merged — existed only as an architectural aside, never as an answer to "how do I lay this out?". Covers layouts by project size and the consequences that are not obvious: names are global rather than per file, directory names mean nothing to the runtime, and the few paths that are load-bearing anyway.
+
+- **`mycel validate` gives readability advice**: a file past eight declarations, and a file declaring exactly one thing but named after something else. Advice, never a failure, and never shown by `mycel start` — where a declaration lives changes nothing at runtime, and a startup that warns about style is one whose real warnings get ignored. Calibrated against the production services it was written for: one advisory across 81 of their files.
+
 ### Changed
+
+- **Type fields are described in the schema.** `TypeSchema` was open with nothing else declared; field types, string formats and constraints are now schema-level facts, which is what let `mycel add type` generate a correct field and what the IDE needs to complete one.
+
+- **Example files are named after what they declare**, and their READMEs updated. Twenty renames; filenames carry no meaning for the runtime, so no example behaves differently.
 
 - **Pull requests now build the Docker image and run the integration suite.** Unit tests already ran on every pull request, against the merge result; two things did not.
 
@@ -16,6 +41,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The integration suite — 146 assertions against twelve real services — was `workflow_dispatch` only, so it ran when someone remembered. Nothing else exercises the connectors against real brokers, so a regression there was found after merging, if at all. It now runs on pull requests too.
 
 ### Fixed
+
+- **The type constraint syntax in the documentation never parsed.** Every example used `email = string { format = "email" }`; HCL reads that as an argument followed by a block, and a type body accepts only attributes. Constraints are call arguments — `string({ format = "email" })` — and that form works end to end, verified against a running service rejecting a bad address with 400. The feature was real; only the documented syntax was wrong, which is why it survived. 80 occurrences across 11 files; every `type` block in the docs now parses, against 7 of 11 before.
+
+- **39 one-line blocks in the documentation could not parse.** A single-line block accepts exactly one argument, and these carried two or more — seventeen of them the auth endpoints table, where every entry was written that way. None were in `.mycel` files, which is why the examples kept validating.
+
+- **`environments/` overlays do not exist.** The environments page described a directory of per-environment files overriding a base config, selected by `MYCEL_ENV`. There is no such mechanism, and following it produced a config that would not parse — the documented example redeclared a connector, which is a duplicate name. Replaced with what works: `env()` for values and connector profiles for connectors that differ in shape.
+
+- **`mycel validate` now checks aspects the way startup does.** An aspect whose action named neither a connector nor a flow passed validate and then failed to start.
+
+- **`on_drop` was missing from the aspect schema.** The runtime has supported it since 1.21; the schema listed four `when` values, so the IDE offered four and a config using the fifth looked unrecognised. A test now fails if the two diverge again.
+
+- **The startup banner described response and fan-out flows as `(echo)`** — including the first flow `mycel init` generates.
 
 - **`go install` installed v1.22.0 instead of the current release.** Go's semantic import versioning requires a module released at major version 2 or above to carry a `/vN` suffix in its path. Mycel has been on v2 since May with an unsuffixed module path, so every v2 tag was invisible to the toolchain and `go install github.com/matutetandil/mycel/cmd/mycel@latest` — the command in the README, the quick start, the installation guide and the debugging guide — silently handed people a release from April, fourteen versions behind.
 

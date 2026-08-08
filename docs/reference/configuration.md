@@ -988,7 +988,7 @@ type "NAME" {
   _implements  = ["Node"]
 
   # Field definitions
-  field_name = base_type { constraint = value, ... }
+  field_name = base_type({ constraint = value, ... })
 }
 ```
 

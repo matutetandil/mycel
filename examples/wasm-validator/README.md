@@ -141,7 +141,7 @@ validator "argentina_cuit" {
 
 # types.mycel
 type "company" {
-  cuit = string { validate = "validator.argentina_cuit" }
+  cuit = string({ validate = "validator.argentina_cuit" })
 }
 ```
 

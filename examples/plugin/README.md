@@ -8,9 +8,9 @@ A Mycel plugin is a directory containing:
 
 ```
 my-plugin/
-├── plugin.mycel          # Plugin manifest (required)
-├── connector.wasm      # WASM connector module (required for connectors)
-└── functions.wasm      # WASM functions module (optional)
+├── plugin.mycel    # Plugin manifest (required)
+├── connector.wasm  # WASM connector module (required for connectors)
+└── functions.wasm  # WASM functions module (optional)
 ```
 
 ## Plugin Manifest (plugin.mycel)

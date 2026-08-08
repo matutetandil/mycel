@@ -69,13 +69,24 @@ Without `query`, the operation is inferred from the HTTP method or set explicitl
 
 ```hcl
 # INSERT — payload fields become columns
-to { connector = "db", target = "users" }
+to {
+  connector = "db"
+  target    = "users"
+}
 
 # UPDATE — filters from URL params, payload = SET clause
-to { connector = "db", target = "users", operation = "UPDATE" }
+to {
+  connector = "db"
+  target    = "users"
+  operation = "UPDATE"
+}
 
 # DELETE — filters from URL params
-to { connector = "db", target = "users", operation = "DELETE" }
+to {
+  connector = "db"
+  target    = "users"
+  operation = "DELETE"
+}
 ```
 
 ### PostgreSQL specifics
@@ -336,13 +347,23 @@ Template is resolved: payload `template` field > connector config `template` > `
 
 ```hcl
 # Broadcast to all clients
-to { connector = "ws", operation = "broadcast" }
+to {
+  connector = "ws"
+  operation = "broadcast"
+}
 
 # Send to specific room
-to { connector = "ws", operation = "send_to_room", target = "order-updates" }
+to {
+  connector = "ws"
+  operation = "send_to_room"
+  target    = "order-updates"
+}
 
 # Send to specific user (user_id from payload)
-to { connector = "ws", operation = "send_to_user" }
+to {
+  connector = "ws"
+  operation = "send_to_user"
+}
 ```
 
 For `send_to_user`, the payload or filters must include `user_id`.
@@ -357,7 +378,11 @@ For `send_to_user`, the payload or filters must include `user_id`.
 | **`operation`** | `broadcast`, `send_to_room` |
 
 ```hcl
-to { connector = "sse", operation = "send_to_room", target = "dashboard" }
+to {
+  connector = "sse"
+  operation = "send_to_room"
+  target    = "dashboard"
+}
 ```
 
 ---
@@ -391,7 +416,10 @@ Notification connectors receive the transformed payload as the message. The payl
 | `attachments` | array | `[{filename, content, content_type}]` |
 
 ```hcl
-to { connector = "email_smtp", operation = "send" }
+to {
+  connector = "email_smtp"
+  operation = "send"
+}
 ```
 
 Template resolution: payload `template` > connector config `template`.

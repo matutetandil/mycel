@@ -85,17 +85,17 @@ Expected response (validation error):
 
 ```
 basic/
-├── config.mycel              # Service name and version
+├── config.mycel  # Service name and version
 ├── connectors/
-│   ├── api.mycel             # REST API configuration
-│   └── database.mycel        # SQLite database connection
+│   ├── api.mycel     # REST API configuration
+│   └── sqlite.mycel  # SQLite database connection
 ├── flows/
-│   └── users.mycel           # User CRUD operations
+│   └── users.mycel  # User CRUD operations
 ├── types/
-│   └── user.mycel            # User input validation schema
+│   └── user.mycel  # User input validation schema
 ├── data/
-│   └── app.db              # SQLite database file (created automatically)
-└── setup.sql               # Initial database schema
+│   └── app.db  # SQLite database file (created automatically)
+└── setup.sql   # Initial database schema
 ```
 
 ## Configuration Explained
@@ -123,7 +123,7 @@ connector "api" {
 }
 ```
 
-### Database (`connectors/database.mycel`)
+### Database (`connectors/sqlite.mycel`)
 
 ```hcl
 connector "sqlite" {

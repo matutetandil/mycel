@@ -91,13 +91,13 @@ Expected: bell character (`\u0007`) is stripped; `name` stored as `"AliceBell"`.
 
 ```
 security/
-├── config.mycel              # Service name and version
-├── security.mycel            # Custom security thresholds
+├── config.mycel    # Service name and version
+├── security.mycel  # Custom security thresholds
 ├── connectors/
-│   ├── api.mycel             # REST API on port 3000
-│   └── database.mycel        # SQLite database
+│   ├── api.mycel     # REST API on port 3000
+│   └── sqlite.mycel  # SQLite database
 └── flows/
-    └── users.mycel           # User CRUD (security applies automatically)
+    └── users.mycel  # User CRUD (security applies automatically)
 ```
 
 ## Customizing Thresholds

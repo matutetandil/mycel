@@ -79,8 +79,22 @@ the three shapes that show up in practice.
 
 **The guideline that matters:** name the file after what it declares. When a
 flow misbehaves, you want `flows/style_update.mycel` to be an obvious place to
-look. Mycel will not help you here — it reports errors by file path, and that
-path is only useful if you chose it well.
+look, and a file called `retry.mycel` holding `flow "create_order"` defeats
+that.
+
+`mycel validate` mentions it when a file declaring exactly one thing is named
+after something else:
+
+```
+- delete_customer.mycel declares only flow "create_user" — renaming it
+  create_user.mycel would say so
+```
+
+A file holding several declarations is exempt: it is a collection, and
+`flows.mycel` is an honest name for one. Names are scoped by kind, so a lock
+and a sequence_guard may both be called `collection`; qualifying the file as
+`collection_lock.mycel` is correct and accepted, since they cannot share
+`collection.mycel`.
 
 ## Names are global
 
@@ -162,3 +176,18 @@ mycel validate --config ./my-service
 If a connector or flow you expected is missing from that list, the file
 declaring it is not being read — check the extension first, then that it is
 actually under `--config`.
+
+Once a single file passes eight declarations, validate also mentions it:
+
+```
+○ Readability (nothing is wrong):
+
+    - everything.mycel declares 10 things — consider splitting into connectors/ and flows/
+
+  Mycel merges every .mycel file, so this changes nothing at runtime.
+```
+
+It is advice, never a failure, and it appears only here — not in `mycel start`.
+Where a declaration lives changes nothing at runtime, so a running service has
+no business raising it, and a startup that warns about style is one whose real
+warnings get ignored.

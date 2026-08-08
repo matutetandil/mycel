@@ -57,6 +57,10 @@ mycel validate --config ./my-service
 # Config validation successful: 2 connectors, 5 flows, 3 types
 ```
 
+Also reports **readability advice** when a single file passes eight
+declarations — never a failure, and never shown by `mycel start`, since where a
+declaration lives changes nothing at runtime.
+
 ### `mycel check`
 
 Check connectivity to all configured connectors. Useful before deployment to verify all services are reachable.
@@ -106,6 +110,120 @@ resolved to nothing:
   ✗ products_api (http): factory failed to create connector products_api: http connector requires base_url
       → Missing environment variable "MERCURY_PRODUCTS_URL", required by connector "products_api" (base_url)
 ```
+
+### `mycel init`
+
+Scaffold a new project in the recommended layout.
+
+```bash
+mycel init my-service     # creates ./my-service and scaffolds into it
+mycel init                # scaffolds into the current directory
+```
+
+```
+  created my-service/config.mycel
+  created my-service/connectors/api.mycel
+  created my-service/flows/status.mycel
+  created my-service/.gitignore
+  created my-service/.env.example
+```
+
+The generated service runs as-is — start it and `GET /status` answers. The
+service name comes from the directory, since it reaches logs, metric labels and
+health output.
+
+Mycel does not require this layout; it reads every `.mycel` file under the
+config directory and merges them, so a single file behaves identically. The
+scaffold hands you the shape that stays readable as a service grows. See
+[Project Structure](../getting-started/project-structure.md).
+
+Refuses to overwrite existing files, and writes nothing at all if any would
+clash.
+
+### `mycel add`
+
+Add a connector or flow to an existing project, each in its own file.
+
+```bash
+mycel add connector orders_db --type database --driver postgres
+mycel add connector rabbit --type mq --driver rabbitmq
+mycel add flow order_created --from rabbit --operation "orders.created" --to orders_db --target orders
+mycel add type user --fields "id:number,email:string:email"
+mycel add aspect audit_log --on "create_*" --when after --action-connector audit_db
+
+mycel add connector --list       # available types
+```
+
+| Flag | Applies to | Description |
+|------|-----------|-------------|
+| `--type` | `connector` | Connector type — required |
+| `--driver` | `connector` | Driver, for types that have one |
+| `--list` | `connector` | List available types and exit |
+| `--from` | `flow` | Source connector |
+| `--to` | `flow` | Destination connector |
+| `--operation` | `flow` | Source operation, e.g. `"GET /orders"` |
+| `--target` | `flow` | Destination target, e.g. a table name |
+| `--on` | `aspect` | Flow name patterns, comma-separated (glob) — required |
+| `--when` | `aspect` | `before`, `after`, `around`, `on_error` or `on_drop` |
+| `--action-connector` | `aspect` | Connector the action calls |
+| `--action-flow` | `aspect` | Flow the action invokes |
+| `--fields` | `type` | Fields as `name:type[:format]`, comma-separated |
+
+Files land in `connectors/<name>.mycel`, `flows/<name>.mycel` and
+`aspects/<name>.mycel` under
+`--config`. Mycel merges every `.mycel` file regardless of location, so this is
+a readability default, not a requirement — see
+[Project Structure](../getting-started/project-structure.md).
+
+The connector skeleton is generated from that connector's **own schema**, so
+required attributes are the ones the runtime actually requires and cannot drift
+from it. Required attributes are emitted with a placeholder; optional ones are
+listed as comments, so the file doubles as a reference:
+
+```hcl
+connector "orders_db" {
+  type   = "database"
+  driver = "postgres"
+
+  // Database name
+  database = env("DATABASE") // TODO
+
+  // Optional:
+  //   host — Database server host
+  //   port — Database server port
+  //   sslmode — SSL mode (disable, require, verify-ca, verify-full)
+}
+```
+
+Required string attributes default to `env("NAME")` rather than a literal:
+these are usually hosts and credentials, and a committed literal is how secrets
+reach a repository.
+
+**Anything given as a flag is written out**, so a caller who knows what they
+want gets a finished file rather than one to edit. What is omitted stays a
+`TODO` with its explanation attached.
+
+Every reference is checked against the config before anything is written:
+
+- `--from`, `--to` and `--action-connector` must name a declared connector
+- `--action-flow` must name a declared flow
+- `--on` must match at least one flow, using the same glob matcher the runtime
+  dispatches with — a pattern matching nothing produces an aspect that never
+  fires
+- `--when` and `--fields` are checked against the schema
+
+An aspect requires `--action-connector` or `--action-flow`: one naming neither
+parses but is rejected at startup, so there is no useful aspect to generate
+without it.
+
+Three things are refused before anything is written:
+
+- a name already used by another connector or flow, since
+  [names are global](../getting-started/project-structure.md#names-are-global)
+  across every file
+- a flow wired to a connector that does not exist — the error lists the ones
+  that do
+- overwriting an existing file
 
 ### `mycel version`
 

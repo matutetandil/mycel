@@ -11,11 +11,11 @@ Both approaches produce the same result: a fully typed GraphQL API.
 
 ```
 graphql/
-├── config.mycel          # Service configuration
-├── connectors.mycel      # GraphQL server + SQLite database
-├── flows.mycel           # GraphQL operations (Query/Mutation)
-├── schema.graphql      # SDL schema (for schema-first approach)
-└── README.md           # This file
+├── config.mycel      # Service configuration
+├── connectors.mycel  # GraphQL server + SQLite database
+├── flows.mycel       # GraphQL operations (Query/Mutation)
+├── schema.graphql    # SDL schema (for schema-first approach)
+└── README.md         # This file
 ```
 
 ## Quick Start
@@ -112,15 +112,15 @@ Define your types in HCL files, and Mycel automatically generates the GraphQL sc
 ```hcl
 type "User" {
   id         = id
-  email      = string { format = "email" }
-  name       = string { min_length = 1 }
+  email      = string({ format = "email" })
+  name       = string({ min_length = 1 })
   externalId = string
   createdAt  = string
 }
 
 type "UserInput" {
-  email = string { format = "email" }
-  name  = string { min_length = 1 }
+  email = string({ format = "email" })
+  name  = string({ min_length = 1 })
 }
 
 type "MutationResult" {

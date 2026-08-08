@@ -74,15 +74,15 @@ Expected: `Accept-Query: application/json, application/xml` — responses on QUE
 
 ```
 query-method/
-├── config.mycel              # Service name and version
+├── config.mycel  # Service name and version
 ├── connectors/
-│   ├── api.mycel             # REST API configuration
-│   └── database.mycel        # SQLite database connection
+│   ├── api.mycel     # REST API configuration
+│   └── sqlite.mycel  # SQLite database connection
 ├── flows/
-│   └── search.mycel          # QUERY + GET flows
+│   └── search.mycel  # QUERY + GET flows
 ├── data/
-│   └── app.db                # SQLite database file
-└── setup.sql                 # Schema + sample products
+│   └── app.db  # SQLite database file
+└── setup.sql   # Schema + sample products
 ```
 
 ## How It Works

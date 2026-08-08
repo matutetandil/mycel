@@ -139,15 +139,15 @@ Expected response (JSON, enriched with legacy XML data):
 
 ```
 format/
-├── config.mycel              # Service name and version
+├── config.mycel  # Service name and version
 ├── connectors/
-│   ├── api.mycel             # REST API (default JSON)
-│   ├── database.mycel        # SQLite database
-│   └── soap_api.mycel        # External SOAP client (format = "xml")
+│   ├── api.mycel       # REST API (default JSON)
+│   ├── sqlite.mycel    # SQLite database
+│   └── soap_api.mycel  # External SOAP client (format = "xml")
 ├── flows/
 │   ├── json_crud.mycel       # Standard JSON CRUD
 │   ├── xml_endpoint.mycel    # XML endpoints (flow-level format)
-│   └── mixed_format.mycel    # JSON + XML in one flow (step-level format)
+│   └── enrich_product.mycel  # JSON + XML in one flow (step-level format)
 └── README.md
 ```
 

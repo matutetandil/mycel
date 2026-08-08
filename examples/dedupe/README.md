@@ -126,7 +126,7 @@ full effectiveness in a clustered deployment.
 |------|-------------|
 | `config.mycel` | Service configuration |
 | `connectors.mycel` | RabbitMQ, Magento HTTP, and the in-memory cache for fingerprints |
-| `flows.mycel` | The `item_update_with_dedupe` flow |
+| `item_update_with_dedupe.mycel` | The `item_update_with_dedupe` flow |
 
 ## Run locally
 

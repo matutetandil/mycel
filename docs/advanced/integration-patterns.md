@@ -1612,31 +1612,56 @@ Real-world systems combine multiple patterns:
 # 1. Receive order via API
 flow "receive_order" {
   from { connector.api = "POST /orders" }
-  to   { connector.rabbit = { exchange = "orders", routing_key = "order.received" } }
+  to {
+    connector.rabbit = {
+    exchange         = "orders",
+    routing_key      = "order.received" }
+  }
 }
 
 # 2. Validate inventory
 flow "validate_inventory" {
-  from { connector.rabbit = { queue = "orders.validation" } }
-  to   { connector.inventory_graphql = { query = "..." } }
+  from {
+    connector.rabbit = {
+    queue            = "orders.validation" }
+  }
+  to {
+    connector.inventory_graphql = {
+    query                       = "..." }
+  }
 }
 
 # 3. Process payment
 flow "process_payment" {
-  from { connector.rabbit = { queue = "orders.payment" } }
+  from {
+    connector.rabbit = {
+    queue            = "orders.payment" }
+  }
   to   { connector.payment_api = "POST /v1/charges" }
 }
 
 # 4. Generate invoice PDF
 flow "generate_invoice" {
-  from { connector.rabbit = { queue = "orders.invoice" } }
-  to   { connector.exec = { command = "./generate_invoice.py" } }
+  from {
+    connector.rabbit = {
+    queue            = "orders.invoice" }
+  }
+  to {
+    connector.exec = {
+    command        = "./generate_invoice.py" }
+  }
 }
 
 # 5. Notify customer
 flow "send_notification" {
-  from { connector.rabbit = { queue = "orders.notify" } }
-  to   { connector.email = { to = "${input.body.customer.email}" } }
+  from {
+    connector.rabbit = {
+    queue            = "orders.notify" }
+  }
+  to {
+    connector.email = {
+    to              = "${input.body.customer.email}" }
+  }
 }
 ```
 

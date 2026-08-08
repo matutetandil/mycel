@@ -358,12 +358,32 @@ func init() {
 	runtime.Version = version
 
 	// Add commands
+	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(addCmd)
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(checkCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(exportCmd)
 	rootCmd.AddCommand(pluginCmd)
+
+	// Add subcommands
+	addCmd.AddCommand(addConnectorCmd)
+	addCmd.AddCommand(addFlowCmd)
+	addCmd.AddCommand(addAspectCmd)
+	addCmd.AddCommand(addTypeCmd)
+	addConnectorCmd.Flags().StringVar(&addType, "type", "", "Connector type (see --list)")
+	addConnectorCmd.Flags().StringVar(&addDriver, "driver", "", "Driver, for types that have one")
+	addConnectorCmd.Flags().BoolVar(&addListTypes, "list", false, "List available connector types")
+	addFlowCmd.Flags().StringVar(&addFrom, "from", "", "Source connector")
+	addFlowCmd.Flags().StringVar(&addTo, "to", "", "Destination connector")
+	addFlowCmd.Flags().StringVar(&addOperation, "operation", "", "Source operation (e.g. \"GET /orders\")")
+	addFlowCmd.Flags().StringVar(&addTarget, "target", "", "Destination target (e.g. a table name)")
+	addAspectCmd.Flags().StringVar(&addOn, "on", "", "Flow name patterns, comma-separated")
+	addAspectCmd.Flags().StringVar(&addWhen, "when", "", "When to execute (before, after, around, on_error, on_drop)")
+	addAspectCmd.Flags().StringVar(&addActionConnector, "action-connector", "", "Connector the action calls")
+	addAspectCmd.Flags().StringVar(&addActionFlow, "action-flow", "", "Flow the action invokes")
+	addTypeCmd.Flags().StringVar(&addFields, "fields", "", "Fields as name:type[:format], comma-separated")
 
 	// Add export subcommands
 	exportCmd.AddCommand(exportOpenAPICmd)
@@ -525,6 +545,13 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed: %d flow error(s)", len(errs))
 	}
 
+	// Aspects are checked with the same registry startup uses, so a config
+	// cannot pass validate and then refuse to start.
+	if err := runtime.ValidateAspects(config); err != nil {
+		fmt.Printf("\n✗ Configuration is invalid:\n\n    - %s\n\n", err)
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
 	// Attributes that parse but do nothing. Inert, so not a failure, but the
 	// config gives no hint that they are inert.
 	if warnings := runtime.InertFlowAttrs(config); len(warnings) > 0 {
@@ -539,6 +566,18 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	// config alone cannot tell you that an attribute silently resolved to "",
 	// so report them rather than letting the run look entirely clean.
 	printMissingEnvWarnings(config.Connectors)
+
+	// Layout advice. Authoring-time only — it never reaches `mycel start`,
+	// where an opinion about file organisation would be noise on a restart.
+	if advice := runtime.LayoutAdvice(config); len(advice) > 0 {
+		fmt.Printf("\n○ Readability (nothing is wrong):\n\n")
+		for _, a := range advice {
+			fmt.Printf("    - %s\n", a)
+		}
+		fmt.Printf("\n  Mycel merges every .mycel file, so this changes nothing at runtime.\n")
+		fmt.Printf("  `mycel add connector <name>` and `mycel add flow <name>` place new\n")
+		fmt.Printf("  declarations in their own file.\n")
+	}
 
 	// Report success
 	fmt.Printf("\n✓ Configuration is valid!\n\n")

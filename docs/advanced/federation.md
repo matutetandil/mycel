@@ -42,9 +42,9 @@ If your types don't use `_key`, the service works as a subgraph — the gateway 
 ```hcl
 # products service — standalone subgraph, no cross-references
 type "Product" {
-  id    = string { required = true }
-  name  = string {}
-  price = number {}
+  id    = string({ required = true })
+  name  = string({})
+  price = number({})
 }
 
 flow "get_products" {
@@ -69,9 +69,9 @@ type "Product" {
   _key       = "sku"     # @key(fields: "sku") — gateway routes _entities queries here
   _shareable = true      # @shareable — multiple subgraphs can resolve this type
 
-  sku   = string { required = true }
-  name  = string {}
-  price = number {}
+  sku   = string({ required = true })
+  name  = string({})
+  price = number({})
 }
 
 # Entity resolver — called by the gateway when another subgraph needs a Product
@@ -99,16 +99,16 @@ The Orders subgraph can include a `product` field that references a Product owne
 type "Order" {
   _key = "id"
 
-  id      = string { required = true }
-  user_id = string {}
-  sku     = string {}
+  id      = string({ required = true })
+  user_id = string({})
+  sku     = string({})
 
   # Reference to Product entity owned by products service
-  product = object {
-    sku       = string { _external = true }  # @external — owned by products service
-    name      = string { _external = true }
-    price     = number { _external = true }
-  }
+  product = object({
+    sku       = string({ _external = true })  # @external — owned by products service
+    name      = string({ _external = true })
+    price     = number({ _external = true })
+  })
 }
 ```
 
@@ -147,8 +147,8 @@ flow "broadcast_price_update" {
 
 # Define the subscription in the type system
 type "PriceUpdate" {
-  sku   = string {}
-  price = number {}
+  sku   = string({})
+  price = number({})
 }
 ```
 

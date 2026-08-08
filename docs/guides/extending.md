@@ -45,9 +45,9 @@ validator "luhn_check" {
 
 ```hcl
 type "invoice" {
-  number       = string { validate = "luhn_check" }
-  supplier_tax = string { validate = "cuit" }
-  contact      = string { validate = "company_email" }
+  number       = string({ validate = "luhn_check" })
+  supplier_tax = string({ validate = "cuit" })
+  contact      = string({ validate = "company_email" })
 }
 ```
 

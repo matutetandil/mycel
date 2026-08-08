@@ -286,8 +286,8 @@ graphql-optimization/
 ├── connectors.mycel  # GraphQL server + databases
 ├── flows.mycel       # Flows with optimization examples
 ├── types.mycel       # GraphQL type definitions
-├── setup.sql       # Database schema + sample data
-└── README.md       # This file
+├── setup.sql         # Database schema + sample data
+└── README.md         # This file
 ```
 
 ## Troubleshooting

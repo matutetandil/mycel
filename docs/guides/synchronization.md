@@ -293,17 +293,27 @@ Example:
 
 ```hcl
 flow "style_create" {
-  from { connector = "rabbit" target = "all.in.magento.q" }
+  from {
+    connector = "rabbit"
+    target    = "all.in.magento.q"
+  }
 
   transform {
     sku  = "input.body.payload.styleNumber"
     name = "input.body.payload.styleName"
   }
 
-  to { connector = "magento" target = "/rest/V1/products" operation = "POST" }
+  to {
+    connector = "magento"
+    target    = "/rest/V1/products"
+    operation = "POST"
+  }
 
   coordinate {
-    storage { driver = "redis" url = env("REDIS_URL", "...") }
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "...")
+    }
     signal {
       when = "true"
       emit = "'parent_ready:' + output.sku"   # output.sku = the transform mapping above
