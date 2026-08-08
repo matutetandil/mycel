@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/flow"
-	"github.com/matutetandil/mycel/internal/parser"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/parser"
 )
 
 // newConfig builds a Configuration with one connector and one flow reading from it.

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/wasm"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/wasm"
 )
 
 // WASMConnector implements connector.Connector using a WASM module.

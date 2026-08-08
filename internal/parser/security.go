@@ -5,7 +5,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 
-	"github.com/matutetandil/mycel/internal/security"
+	"github.com/matutetandil/mycel/v2/internal/security"
 )
 
 // parseSecurityBlock parses a security block from HCL configuration.

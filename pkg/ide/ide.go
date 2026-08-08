@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/matutetandil/mycel/pkg/schema"
+	"github.com/matutetandil/mycel/v2/pkg/schema"
 )
 
 // Engine is the IDE intelligence engine. It indexes a Mycel project directory

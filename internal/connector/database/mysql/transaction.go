@@ -3,7 +3,7 @@ package mysql
 import (
 	"context"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // RunInTx implements connector.TxRunner: it runs fn inside a single pinned

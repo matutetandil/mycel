@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 func TestResolveMethodPath(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // Connector executes external commands locally or via SSH.

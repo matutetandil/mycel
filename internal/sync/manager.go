@@ -10,7 +10,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/matutetandil/mycel/internal/metrics"
+	"github.com/matutetandil/mycel/v2/internal/metrics"
 )
 
 // SyncStorageConfig defines inline storage configuration for sync primitives.

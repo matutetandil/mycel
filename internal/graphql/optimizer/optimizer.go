@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/matutetandil/mycel/internal/graphql/analyzer"
+	"github.com/matutetandil/mycel/v2/internal/graphql/analyzer"
 )
 
 // SQLOptimizer optimizes SQL queries based on requested fields.

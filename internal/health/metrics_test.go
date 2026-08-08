@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/metrics"
+	"github.com/matutetandil/mycel/v2/internal/metrics"
 )
 
 type fakeChecker struct {

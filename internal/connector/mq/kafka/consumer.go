@@ -12,9 +12,9 @@ import (
 	"github.com/segmentio/kafka-go/sasl/plain"
 	"github.com/segmentio/kafka-go/sasl/scram"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/connector/mq/undispatched"
-	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector/mq/undispatched"
+	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
 // startConsumer starts consuming messages from the configured topics.

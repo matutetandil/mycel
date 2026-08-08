@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 func newTestConnector(t *testing.T) (*Connector, *httptest.Server) {

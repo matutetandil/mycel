@@ -1,7 +1,7 @@
 package dap
 
 import (
-	"github.com/matutetandil/mycel/internal/trace"
+	"github.com/matutetandil/mycel/v2/internal/trace"
 )
 
 // DAPBreakpoint implements the trace.Breakpoint interface but is controlled

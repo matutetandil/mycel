@@ -5,7 +5,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
-	"github.com/matutetandil/mycel/internal/auth"
+	"github.com/matutetandil/mycel/v2/internal/auth"
 )
 
 // parseAuthBlock parses an auth configuration block

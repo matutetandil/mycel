@@ -1,6 +1,6 @@
 package mq
 
-import "github.com/matutetandil/mycel/pkg/schema"
+import "github.com/matutetandil/mycel/v2/pkg/schema"
 
 var mqSourceSchema = &schema.Block{
 	Open: true,

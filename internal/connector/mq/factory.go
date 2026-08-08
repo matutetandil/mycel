@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/connector/mq/kafka"
-	"github.com/matutetandil/mycel/internal/connector/mq/rabbitmq"
-	mqredis "github.com/matutetandil/mycel/internal/connector/mq/redis"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector/mq/kafka"
+	"github.com/matutetandil/mycel/v2/internal/connector/mq/rabbitmq"
+	mqredis "github.com/matutetandil/mycel/v2/internal/connector/mq/redis"
 )
 
 // Factory creates message queue connectors from configuration.

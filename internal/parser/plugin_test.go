@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/plugin"
+	"github.com/matutetandil/mycel/v2/internal/plugin"
 )
 
 func TestParsePluginBlock(t *testing.T) {

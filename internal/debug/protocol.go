@@ -7,7 +7,7 @@ package debug
 import (
 	"encoding/json"
 
-	"github.com/matutetandil/mycel/internal/trace"
+	"github.com/matutetandil/mycel/v2/internal/trace"
 )
 
 // JSON-RPC 2.0 types

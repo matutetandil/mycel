@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/auth"
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/auth"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // stateEntry holds a pending OAuth state with expiry.

@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/flow"
-	"github.com/matutetandil/mycel/internal/trace"
-	"github.com/matutetandil/mycel/internal/transform"
-	"github.com/matutetandil/mycel/internal/validate"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/trace"
+	"github.com/matutetandil/mycel/v2/internal/transform"
+	"github.com/matutetandil/mycel/v2/internal/validate"
 )
 
 // --- Mock RuntimeInspector ---
