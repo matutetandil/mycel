@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
 // reusableKind describes one nameable + referenceable inline block (dedupe,

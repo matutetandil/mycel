@@ -1,6 +1,6 @@
 package http
 
-import "github.com/matutetandil/mycel/pkg/schema"
+import "github.com/matutetandil/mycel/v2/pkg/schema"
 
 // Schema implements ConnectorSchemaProvider for HTTP client.
 type Schema struct{}

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // mockConnector implements connector.ReadWriter and Caller for saga tests.

@@ -23,7 +23,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/matutetandil/mycel/internal/metrics"
+	"github.com/matutetandil/mycel/v2/internal/metrics"
 )
 
 // Event describes one dropped message.

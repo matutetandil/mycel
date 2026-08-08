@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // mockConnector implements the connector interfaces for testing.

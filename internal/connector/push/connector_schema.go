@@ -1,6 +1,6 @@
 package push
 
-import "github.com/matutetandil/mycel/pkg/schema"
+import "github.com/matutetandil/mycel/v2/pkg/schema"
 
 // ConnectorSchemaDef implements ConnectorSchemaProvider for Push notifications.
 type ConnectorSchemaDef struct{}

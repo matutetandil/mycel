@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // Factory creates ProfiledConnector instances.

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 func TestGenerateBytes_SimpleHTML(t *testing.T) {

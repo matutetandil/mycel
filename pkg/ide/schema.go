@@ -1,6 +1,6 @@
 package ide
 
-import "github.com/matutetandil/mycel/pkg/schema"
+import "github.com/matutetandil/mycel/v2/pkg/schema"
 
 // Type aliases — pkg/ide uses the same types as pkg/schema.
 // This avoids breaking the existing public API while delegating to the canonical source.

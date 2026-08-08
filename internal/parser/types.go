@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/matutetandil/mycel/internal/validate"
+	"github.com/matutetandil/mycel/v2/internal/validate"
 )
 
 // coerceInt converts a cty.Value to int, accepting either a number or a

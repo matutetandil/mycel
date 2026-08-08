@@ -6,7 +6,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
-	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
 // parseTransactionBlock parses a `to { transaction { } }` block into an ordered

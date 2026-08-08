@@ -3,7 +3,7 @@ package optimizer
 import (
 	"testing"
 
-	"github.com/matutetandil/mycel/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
 func TestStepOptimizer_AnalyzeDependencies(t *testing.T) {

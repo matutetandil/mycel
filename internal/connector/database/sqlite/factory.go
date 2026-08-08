@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // Factory creates SQLite connectors from configuration.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/matutetandil/mycel/internal/wasm"
+	"github.com/matutetandil/mycel/v2/internal/wasm"
 )
 
 // WASMValidator validates values using a WebAssembly module.

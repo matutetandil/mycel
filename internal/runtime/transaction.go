@@ -8,11 +8,11 @@ import (
 
 	"github.com/google/cel-go/cel"
 
-	"github.com/matutetandil/mycel/internal/connector"
-	"github.com/matutetandil/mycel/internal/flow"
-	"github.com/matutetandil/mycel/internal/trace"
-	"github.com/matutetandil/mycel/internal/tracing"
-	"github.com/matutetandil/mycel/internal/transform"
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/trace"
+	"github.com/matutetandil/mycel/v2/internal/tracing"
+	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
 // handleTransaction executes a `to { transaction { } }` block as the write of

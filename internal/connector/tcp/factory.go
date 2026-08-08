@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/matutetandil/mycel/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
 // Factory creates TCP connectors from configuration.
