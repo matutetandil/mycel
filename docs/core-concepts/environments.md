@@ -8,7 +8,7 @@ Mycel reads these variables at startup:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MYCEL_ENV` | `development` | Active environment name. Selects the overlay from `environments/` |
+| `MYCEL_ENV` | `development` | Active environment name. Drives environment-aware defaults and profile selection — it does not load different files |
 | `MYCEL_LOG_LEVEL` | `info` | Log verbosity: `debug`, `info`, `warn`, `error` |
 | `MYCEL_LOG_FORMAT` | `text` | Log format: `text` (human-readable) or `json` (structured) |
 | `NO_COLOR` | unset | Set to any value to disable colored output |
@@ -117,39 +117,78 @@ MYCEL_ENV=development
 MYCEL_LOG_LEVEL=debug
 ```
 
-## Environment Overlays
+## Per-Environment Configuration
 
-The `environments/` directory holds per-environment HCL files that override base configuration. When `MYCEL_ENV=staging` is set, Mycel loads `environments/staging.mycel` after loading all base files.
+There is **no per-environment directory and no overlay mechanism.** Mycel reads
+every `.mycel` file under the config directory and merges them into one service
+— see [Project Structure](../getting-started/project-structure.md). Declaring
+the same connector in a "base" file and an "override" file is a duplicate name,
+and fails at parse time:
 
 ```
-my-service/
-├── config.mycel          # Base configuration
-├── connectors.mycel      # Base connectors
-├── environments/
-│   ├── dev.mycel         # Development overrides
-│   ├── staging.mycel     # Staging overrides
-│   └── prod.mycel        # Production overrides
+duplicate connector name "db": defined in connectors.mycel and environments/prod.mycel
 ```
 
-Example `environments/prod.mycel`:
+The same config runs in every environment. What differs is supplied two ways.
+
+### 1. `env()` — for values that differ
+
+Hosts, credentials, ports, queue names. Give a default where one is safe:
 
 ```hcl
-# Override the database connector with production settings
 connector "db" {
   type     = "database"
   driver   = "postgres"
-  host     = env("PROD_DB_HOST")
-  database = "app_prod"
-  user     = env("PROD_DB_USER")
-  password = env("PROD_DB_PASSWORD")
-  ssl_mode = "verify-full"
+  host     = env("DB_HOST", "localhost")
+  database = env("DB_NAME", "app_dev")
+  user     = env("DB_USER")
+  password = env("DB_PASSWORD")
+}
+```
 
-  pool {
-    max = 50
-    min = 10
+An `env()` with no default and no value set resolves to an empty string.
+Startup fails if that leaves a required attribute empty, and names the variable:
+
+```
+✗ failed to register connector db: postgres connector requires user
+      → Missing environment variable "DB_USER", required by connector "db" (user)
+```
+
+`mycel validate` lists them as warnings, so you can catch a missing variable
+without a deployment environment.
+
+### 2. Profiles — for connectors that differ in shape
+
+When an environment needs something structurally different — a local database in
+development, a remote API in production — use a
+[connector profile](../connectors/profile.md). One connector, several
+implementations, selected at startup:
+
+```hcl
+connector "pricing" {
+  type    = "profiled"
+  select  = "env('PRICE_SOURCE')"
+  default = "erp"
+
+  profile "erp" {
+    type     = "database"
+    driver   = "postgres"
+    host     = env("ERP_DB_HOST", "localhost")
+    database = "erp"
+    user     = env("ERP_DB_USER")
+    password = env("ERP_DB_PASSWORD")
+  }
+
+  profile "magento" {
+    type     = "http"
+    driver   = "client"
+    base_url = env("MAGENTO_URL")
   }
 }
 ```
+
+Everything referencing `connector = "pricing"` is unchanged; only the selection
+differs per environment.
 
 ## Starting with a Specific Environment
 

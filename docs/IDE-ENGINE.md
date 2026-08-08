@@ -240,7 +240,7 @@ Given `(file, line, col)`, the engine:
 ### Five Completion Modes
 
 **1. Root level** — Cursor is not inside any block:
-- Returns all 17 valid root block types: `connector`, `flow`, `type`, `transform`, `aspect`, `service`, `validator`, `saga`, `state_machine`, `functions`, `plugin`, `auth`, `security`, `mocks`, `cache`, `environment`
+- Returns all 17 valid root block types: `connector`, `flow`, `type`, `transform`, `aspect`, `service`, `validator`, `saga`, `state_machine`, `functions`, `plugin`, `auth`, `security`, `mocks`, `cache`, `workflow`
 - InsertText includes snippet: `flow "name" {\n  \n}`
 
 **2. Inside a block** — Cursor is inside a block body (not in a value):
