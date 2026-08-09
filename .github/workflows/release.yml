@@ -126,3 +126,70 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
+
+  # Keeps the Homebrew tap pointing at the release just published.
+  #
+  # Runs after create-release rather than alongside it, so a failure here — a
+  # missing or expired token being the likely one — leaves the image, the chart
+  # and the GitHub release already published. A red mark on this job then means
+  # exactly one thing: the tap was not updated. It is deliberately not skipped
+  # when the secret is absent; a step that quietly does nothing is how a tap
+  # ends up months behind without anyone noticing.
+  homebrew:
+    runs-on: ubuntu-latest
+    needs: create-release
+
+    steps:
+      - name: Resolve version and source checksum
+        id: src
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
+
+          # GitHub generates this tarball per tag; it is what the formula
+          # builds from, so no release artifact is needed beyond it.
+          sha=$(curl -fsSL "$url" | sha256sum | cut -d' ' -f1)
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "url=$url"         >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha"      >> "$GITHUB_OUTPUT"
+          echo "Formula will point at $version ($sha)"
+
+      - name: Checkout tap
+        uses: actions/checkout@v6
+        with:
+          repository: matutetandil/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Update formula
+        working-directory: tap
+        run: |
+          set -euo pipefail
+          formula=Formula/mycel.rb
+
+          sed -i -E "s|^  url \".*\"|  url \"${{ steps.src.outputs.url }}\"|"       "$formula"
+          sed -i -E "s|^  sha256 \".*\"|  sha256 \"${{ steps.src.outputs.sha256 }}\"|" "$formula"
+
+          # Fail rather than commit a formula the edit did not actually land in:
+          # a sed that silently matches nothing would leave the tap on the old
+          # version while reporting success.
+          grep -q "${GITHUB_REF_NAME}.tar.gz"          "$formula"
+          grep -q "${{ steps.src.outputs.sha256 }}"    "$formula"
+
+          git diff --stat
+
+      - name: Commit and push
+        working-directory: tap
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "Formula already at ${{ steps.src.outputs.version }}; nothing to do."
+            exit 0
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "mycel ${{ steps.src.outputs.version }}"
+          git push

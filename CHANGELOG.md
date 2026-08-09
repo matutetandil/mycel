@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Homebrew install.** `brew install matutetandil/tap/mycel`, from a new [tap](https://github.com/matutetandil/homebrew-tap). The formula builds from the source tarball GitHub generates for each tag, so it needs no release artifact that did not already exist.
+
+  No code signing or notarization is involved. Homebrew requires both for **casks**, and makes them mandatory for the official cask tap from September 2026, but a command-line **formula** is exempt — and a Go binary is ad-hoc signed, which cannot be notarized at all. Verified on the installed binary: `Signature=adhoc`, `TeamIdentifier=not set`, and it runs without Gatekeeper intervening.
+
+  The release workflow updates the formula's version and checksum when a tag is published, so the tap cannot drift behind. It runs after the release is complete, so a failure there leaves the image, chart and GitHub release published and means only that the tap needs attention.
+
 ## [2.14.0] - 2026-08-08
 
 ### Added
