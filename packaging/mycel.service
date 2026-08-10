@@ -1,0 +1,36 @@
+[Unit]
+Description=Mycel — declarative microservice runtime
+Documentation=https://matutetandil.github.io/mycel/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mycel
+Group=mycel
+
+# Mycel reads every .mycel file under this directory, recursively.
+Environment=MYCEL_ENV=production
+Environment=MYCEL_LOG_FORMAT=json
+ExecStart=/usr/bin/mycel start --config /etc/mycel
+
+Restart=on-failure
+RestartSec=5s
+
+# The runtime needs nothing but its config and the network. Everything below
+# is what it does not need, denied explicitly.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadOnlyPaths=/etc/mycel
+# SQLite databases and file connectors write here; nothing else is writable.
+StateDirectory=mycel
+WorkingDirectory=/var/lib/mycel
+
+[Install]
+WantedBy=multi-user.target

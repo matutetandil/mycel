@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Linux packages and prebuilt binaries.** Every release now attaches `.deb`, `.rpm`, `.apk` and `tar.gz` archives for linux and darwin on amd64 and arm64, with checksums. Until now the only artifact was the Helm chart, so installing without Docker or a Go toolchain was not possible.
+
+  The packages carry more than the binary — a systemd unit, an unprivileged `mycel` user, `/etc/mycel` and `/var/lib/mycel` — so a server install is a service rather than a loose executable:
+
+  ```bash
+  sudo dpkg -i mycel_2.15.0_linux_amd64.deb
+  sudo systemctl enable --now mycel
+  ```
+
+  Verified by installing into Debian 12 and Rocky Linux 9 containers: the binary runs, the `mycel` user exists, the unit lands in the right place per packager, and a scaffolded project validates.
+
+  There is no apt or yum repository, so `apt install` and `apt upgrade` still do not apply — that needs hosting, repository metadata and a GPG signing key, and is worth doing only if the demand appears.
+
+- **`install.sh`** for `curl -fsSL … | sh`. Detects platform and architecture, resolves the latest release, and installs to `/usr/local/bin`, reaching for `sudo` only when that directory is not already writable. `MYCEL_VERSION` pins a version and `MYCEL_INSTALL_DIR` relocates it.
+
+- **Homebrew is documented in the installation guide**, which it was not when the tap was published.
+
 - **Homebrew install.** `brew install matutetandil/tap/mycel`, from a new [tap](https://github.com/matutetandil/homebrew-tap). The formula builds from the source tarball GitHub generates for each tag, so it needs no release artifact that did not already exist.
 
   No code signing or notarization is involved. Homebrew requires both for **casks**, and makes them mandatory for the official cask tap from September 2026, but a command-line **formula** is exempt — and a Go binary is ad-hoc signed, which cannot be notarized at all. Verified on the installed binary: `Signature=adhoc`, `TeamIdentifier=not set`, and it runs without Gatekeeper intervening.
