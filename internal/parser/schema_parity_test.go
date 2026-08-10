@@ -26,12 +26,10 @@ import (
 // It is the reverse of the drift that bit on_drop, where the runtime knew about
 // a value the schema did not. Both directions now have a test.
 func TestSchemaParity(t *testing.T) {
-	for _, blk := range []schema.Block{
-		schema.SagaSchema(),
-		schema.StateMachineSchema(),
-		schema.ValidatorSchema(),
-		schema.TransformSchema(),
-	} {
+	// Every root block, not a chosen few: the schema is the single source of
+	// truth for the whole language, and a block left out of this loop is one
+	// where it can quietly stop being true.
+	for _, blk := range schema.BuiltinRootSchemas() {
 		t.Run(blk.Type, func(t *testing.T) {
 			assertSchemaParses(t, blk, "example")
 		})
@@ -42,10 +40,14 @@ func TestSchemaParity(t *testing.T) {
 func assertSchemaParses(t *testing.T, blk schema.Block, name string) {
 	t.Helper()
 
-	doc := renderBlockFromSchema(blk, []string{name}, 0)
-	t.Logf("rendered from schema:\n%s", doc)
+	labels := make([]string, blk.Labels)
+	for i := range labels {
+		labels[i] = name
+	}
+	doc := renderBlockFromSchema(blk, labels, 0, true)
 
-	// Not mustParse: the failure is the point, and it should name the block.
+	// Not mustParse: the failure is the point, and it should name the block
+	// and show what was rendered.
 	cfg, err := tryParse(t, doc)
 	if err != nil {
 		t.Fatalf("the %s schema describes something the parser rejects: %v\n\n%s",
@@ -62,14 +64,10 @@ func assertSchemaParses(t *testing.T, blk schema.Block, name string) {
 // nested one level deep. Depth is capped because schemas are recursive — a
 // transform can hold a transform — and the goal is coverage of each declared
 // name, not of every path through them.
-func renderBlockFromSchema(blk schema.Block, labels []string, depth int) string {
+func renderBlockFromSchema(blk schema.Block, labels []string, depth int, withChildren bool) string {
 	var b strings.Builder
 
-	header := blk.Type
-	for _, l := range labels {
-		header += fmt.Sprintf(" %q", l)
-	}
-	b.WriteString(header + " {\n")
+	b.WriteString(blockHeader(blk, labels) + " {\n")
 
 	indent := strings.Repeat("  ", depth+1)
 
@@ -81,24 +79,66 @@ func renderBlockFromSchema(blk schema.Block, labels []string, depth int) string 
 		if skipAttrForParity(blk.Type, a.Name) {
 			continue
 		}
+		// In the children variant, an attribute a child block excludes is left
+		// out; the attribute-only variant covers it.
+		if withChildren && excludedByAChild(blk, a.Name) {
+			continue
+		}
 		fmt.Fprintf(&b, "%s%s = %s\n", indent, a.Name, sampleValue(a))
 	}
 
-	if depth < 3 {
+	// An Open block's content is named by the author, so the schema lists none
+	// — but some require at least one, like a dedupe fingerprint. Rendering a
+	// sample keeps those blocks representable.
+	if blk.Open && len(blk.Attrs) == 0 {
+		fmt.Fprintf(&b, "%sexample = %q\n", indent, "input.id")
+	}
+
+	if withChildren && depth < 5 {
 		for _, child := range blk.Children {
 			childLabels := make([]string, child.Labels)
 			for i := range childLabels {
 				childLabels[i] = fmt.Sprintf("%s_%d", child.Type, i)
 			}
-			nested := renderBlockFromSchema(child, childLabels, depth+1)
+			nested := renderBlockFromSchema(child, childLabels, depth+1, true)
 			for _, line := range strings.Split(strings.TrimRight(nested, "\n"), "\n") {
 				b.WriteString(indent + line + "\n")
+			}
+
+			// A child whose presence excludes some of its parent's attributes
+			// leaves those attributes untested, so a second copy of the same
+			// block carries them, with no children of its own. A flow may
+			// declare several destinations, so two `to` blocks is valid config
+			// rather than a trick: one writes via a transaction, the other
+			// via query.
+			if childExcludesAttrs(child) {
+				alt := renderBlockFromSchema(child, childLabels, depth+1, false)
+				for _, line := range strings.Split(strings.TrimRight(alt, "\n"), "\n") {
+					b.WriteString(indent + line + "\n")
+				}
 			}
 		}
 	}
 
 	b.WriteString(strings.Repeat("  ", depth) + "}\n")
 	return b.String()
+}
+
+// blockHeader renders the block's opening line.
+//
+// Most blocks are `type "label"`, but a few have a shape of their own — an
+// each block reads `each "<var>" in "<listExpr>"`, three labels where the
+// middle one is the keyword `in`. The schema records the count; the form is
+// documented in its Doc, so it is spelled out here.
+func blockHeader(blk schema.Block, labels []string) string {
+	if blk.Type == "each" && blk.Labels == 3 {
+		return `each "item" in "input.items"`
+	}
+	header := blk.Type
+	for _, l := range labels {
+		header += fmt.Sprintf(" %q", l)
+	}
+	return header
 }
 
 // sampleValue produces a literal of the attribute's declared type. A declared
@@ -131,7 +171,46 @@ func skipAttrForParity(blockType, attr string) bool {
 	// `use` points at a named block declared elsewhere; rendering it next to
 	// inline attributes asks the parser to resolve a reference this document
 	// does not contain.
-	return attr == "use"
+	if attr == "use" {
+		return true
+	}
+
+	// An action calls a connector or a flow, never both — the parser says so
+	// by name. Rendering every attribute at once would ask for both, so one is
+	// dropped and the other still gets exercised.
+	if blockType == "action" && attr == "flow" {
+		return true
+	}
+
+	return false
+}
+
+// excludedByAChild reports whether one of the block's children forbids this
+// attribute. The exclusions are the language's, and each is stated in the
+// child's own documentation.
+func excludedByAChild(blk schema.Block, attr string) bool {
+	for _, c := range blk.Children {
+		if c.Type != "transaction" {
+			continue
+		}
+		// A transaction is the write; there is nothing left for these to say.
+		switch attr {
+		case "query", "target", "operation", "envelope":
+			return true
+		}
+	}
+	return false
+}
+
+// childExcludesAttrs reports whether rendering this block will have dropped
+// attributes its own children forbid.
+func childExcludesAttrs(blk schema.Block) bool {
+	for _, a := range blk.Attrs {
+		if excludedByAChild(blk, a.Name) {
+			return true
+		}
+	}
+	return false
 }
 
 // tryParse parses without failing the test, so the caller can report the

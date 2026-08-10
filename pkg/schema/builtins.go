@@ -19,7 +19,6 @@ func BuiltinRootSchemas() []Block {
 		SecuritySchema(),
 		MocksSchema(),
 		CacheDefSchema(),
-		EnvironmentSchema(),
 	}
 }
 
@@ -498,11 +497,11 @@ func AspectSchema() Block {
 		Doc:    "Cross-cutting concern applied via flow name pattern matching (AOP)",
 		Labels: 1,
 		Attrs: []Attr{
-			{Name: "on", Doc: "Flow name patterns to match (glob)", Type: TypeList},
+			{Name: "on", Doc: "Flow name patterns to match (glob)", Type: TypeList, Required: true},
 			// Kept in step with internal/aspect.When, which is the authority.
 			// on_drop was added to the runtime and never reached here, so
 			// completions and generated skeletons did not offer it.
-			{Name: "when", Doc: "When to execute", Type: TypeString, Values: []string{"before", "after", "around", "on_error", "on_drop"}},
+			{Name: "when", Doc: "When to execute", Type: TypeString, Required: true, Values: []string{"before", "after", "around", "on_error", "on_drop"}},
 			{Name: "if", Doc: "CEL condition for conditional execution", Type: TypeString},
 			{Name: "priority", Doc: "Execution priority (lower = first)", Type: TypeNumber},
 		},
@@ -519,9 +518,22 @@ func AspectSchema() Block {
 				{Name: "keys", Doc: "Specific keys to invalidate", Type: TypeList},
 				{Name: "patterns", Doc: "Key patterns to invalidate", Type: TypeList},
 			}},
-			{Type: "rate_limit", Doc: "Rate limiting", Open: true},
-			{Type: "circuit_breaker", Doc: "Circuit breaker", Open: true},
-			{Type: "response", Doc: "Response modification (headers, fields)", Open: true},
+			{Type: "rate_limit", Doc: "Rate limiting", Attrs: []Attr{
+				{Name: "key", Doc: "CEL expression the limit is counted per (e.g. the caller's IP)", Type: TypeString, Required: true},
+				{Name: "requests_per_second", Doc: "Sustained rate allowed", Type: TypeNumber, Required: true},
+				{Name: "burst", Doc: "How far above the rate a short spike may go", Type: TypeNumber},
+			}},
+			{Type: "circuit_breaker", Doc: "Circuit breaker", Attrs: []Attr{
+				{Name: "name", Doc: "Breaker name, shared by every flow naming it", Type: TypeString},
+				{Name: "failure_threshold", Doc: "Consecutive failures that open the circuit", Type: TypeNumber, Required: true},
+				{Name: "success_threshold", Doc: "Successes needed to close it again", Type: TypeNumber},
+				{Name: "timeout", Doc: "How long the circuit stays open before a trial call", Type: TypeDuration, Required: true},
+			}},
+			{Type: "response", Doc: "Response modification: headers, plus any field as a CEL expression",
+				Open: true, // every other attribute is an output field
+				Attrs: []Attr{
+					{Name: "headers", Doc: "Map of header name -> value", Type: TypeMap},
+				}},
 		},
 	}
 }
@@ -606,7 +618,15 @@ func ServiceSchema() Block {
 			{Name: "admin_port", Doc: "Admin server port (health, metrics, debug)", Type: TypeNumber},
 		},
 		Children: []Block{
-			{Type: "rate_limit", Doc: "Global rate limiting", Open: true},
+			{Type: "rate_limit", Doc: "Global rate limiting", Attrs: []Attr{
+				{Name: "enabled", Doc: "Whether the limit applies", Type: TypeBool},
+				{Name: "requests_per_second", Doc: "Sustained rate allowed", Type: TypeNumber},
+				{Name: "burst", Doc: "How far above the rate a short spike may go", Type: TypeNumber},
+				{Name: "key_extractor", Doc: "What the limit is counted per (e.g. the caller's IP)", Type: TypeString},
+				{Name: "exclude_paths", Doc: "Paths the limit does not apply to", Type: TypeList},
+				{Name: "enable_headers", Doc: "Send the standard rate-limit response headers", Type: TypeBool},
+				{Name: "storage", Doc: "Connector holding the counters; shared across instances", Type: TypeString, Ref: RefConnector},
+			}},
 			{Type: "workflow", Doc: "Workflow engine configuration", Attrs: []Attr{
 				{Name: "storage", Doc: "Workflow persistence connector", Type: TypeString, Ref: RefConnector},
 			}},
@@ -745,12 +765,20 @@ func stateMachineActionAttrs() []Attr {
 	}
 }
 
+// FunctionsSchema describes the functions block, which registers the exports of
+// a WASM module as CEL functions.
+//
+// Not Open: the parser reads this body with Content, so the two attributes
+// below are the only ones it accepts, and it requires both.
 func FunctionsSchema() Block {
 	return Block{
 		Type:   "functions",
-		Doc:    "Custom CEL functions",
+		Doc:    "Custom CEL functions from a WASM module",
 		Labels: 1,
-		Open:   true,
+		Attrs: []Attr{
+			{Name: "wasm", Doc: "Path to the .wasm module", Type: TypeString, Required: true},
+			{Name: "exports", Doc: "Exported function names to register as CEL functions", Type: TypeList, Required: true},
+		},
 	}
 }
 
@@ -766,19 +794,83 @@ func PluginSchema() Block {
 	}
 }
 
+// AuthSchema describes the auth block. Transcribed from authSchema in
+// internal/parser/auth.go, which reads this body with Content — so it is not
+// Open, and an attribute not listed here is rejected.
+//
+// The nested blocks are named but their contents are not described yet; auth is
+// by far the largest block in the language. Naming them is still worth more
+// than the Open it replaces, which claimed every attribute was valid.
 func AuthSchema() Block {
 	return Block{
 		Type: "auth",
 		Doc:  "Authentication configuration",
-		Open: true,
+		Attrs: []Attr{
+			{Name: "preset", Doc: "Baseline to start from", Type: TypeString, Values: []string{"strict", "standard", "relaxed", "development"}},
+			{Name: "secret", Doc: "Signing secret for issued tokens", Type: TypeString},
+			{Name: "storage", Doc: "Connector used to store users and sessions", Type: TypeString, Ref: RefConnector},
+		},
+		Children: []Block{
+			{Type: "storage", Doc: "Where users and sessions are kept", Attrs: []Attr{
+				{Name: "driver", Doc: "Storage backend", Type: TypeString, Required: true, Values: []string{"memory", "redis", "database"}},
+				{Name: "address", Doc: "Server address (redis)", Type: TypeString},
+				{Name: "password", Doc: "Server password (redis)", Type: TypeString},
+				{Name: "db", Doc: "Database index (redis)", Type: TypeNumber},
+				{Name: "connector", Doc: "Connector to store into (database)", Type: TypeString, Ref: RefConnector},
+				{Name: "table", Doc: "Table name (database)", Type: TypeString},
+			}},
+			{Type: "users", Doc: "Where user records live"},
+			{Type: "jwt", Doc: "Token issuing and validation"},
+			{Type: "password", Doc: "Hashing and password policy"},
+			{Type: "mfa", Doc: "Multi-factor authentication; present means enabled"},
+			{Type: "security", Doc: "Lockout, rate limiting and related defences"},
+			{Type: "sessions", Doc: "Session lifetime and limits"},
+			{Type: "social", Doc: "Social login providers"},
+			{Type: "sso", Doc: "Single sign-on"},
+			{Type: "provider", Doc: "Validate a credential against an external HTTP endpoint", Labels: 1},
+			{Type: "account_linking", Doc: "Joining identities that belong to one person"},
+			{Type: "endpoints", Doc: "Paths the auth routes are served on"},
+			{Type: "hooks", Doc: "Flows invoked around auth events"},
+			{Type: "audit", Doc: "What to record", Attrs: []Attr{
+				{Name: "connector", Doc: "Where audit records are written", Type: TypeString, Required: true, Ref: RefConnector},
+				{Name: "enabled", Doc: "Whether auditing runs", Type: TypeBool},
+				{Name: "table", Doc: "Table or collection to write into", Type: TypeString},
+				{Name: "events", Doc: "Events to record", Type: TypeList},
+				{Name: "include", Doc: "Extra fields to include on each record", Type: TypeList},
+				{Name: "retention", Doc: "How long records are kept", Type: TypeDuration},
+				{Name: "stream_to", Doc: "Connector to stream records to as well", Type: TypeString, Ref: RefConnector},
+			}},
+		},
 	}
 }
 
+// SecuritySchema describes the security block. Transcribed from
+// internal/parser/security.go; the parser reads it with Content, so it is not
+// Open.
 func SecuritySchema() Block {
 	return Block{
 		Type: "security",
-		Doc:  "Security and sanitization rules",
-		Open: true,
+		Doc:  "Input limits and sanitization rules",
+		Attrs: []Attr{
+			{Name: "max_input_length", Doc: "Largest accepted payload, in bytes", Type: TypeNumber},
+			{Name: "max_field_length", Doc: "Largest accepted single field, in bytes", Type: TypeNumber},
+			{Name: "max_field_depth", Doc: "How deeply nested a payload may be", Type: TypeNumber},
+			{Name: "allowed_control_chars", Doc: "Control characters to let through rather than strip", Type: TypeList},
+		},
+		Children: []Block{
+			{Type: "sanitizer", Doc: "A named sanitization rule", Labels: 1, Attrs: []Attr{
+				{Name: "source", Doc: "Built-in sanitizer to use", Type: TypeString},
+				{Name: "wasm", Doc: "Path to a .wasm module implementing it", Type: TypeString},
+				{Name: "entrypoint", Doc: "Exported function to call in the module", Type: TypeString},
+				{Name: "apply_to", Doc: "Which payloads it applies to", Type: TypeList},
+				{Name: "fields", Doc: "Specific fields it applies to", Type: TypeList},
+			}},
+			{Type: "flow", Doc: "Per-flow overrides of the limits above", Labels: 1, Attrs: []Attr{
+				{Name: "max_input_length", Doc: "Largest accepted payload for this flow, in bytes", Type: TypeNumber},
+				{Name: "max_field_length", Doc: "Largest accepted single field for this flow, in bytes", Type: TypeNumber},
+				{Name: "sanitizers", Doc: "Sanitizers to run for this flow", Type: TypeList},
+			}},
+		},
 	}
 }
 
@@ -803,12 +895,21 @@ func CacheDefSchema() Block {
 	}
 }
 
+// EnvironmentSchema is deliberately not in BuiltinRootSchemas: no `environment`
+// block exists. The parser accepts no such block type, so a document containing
+// one fails outright — but the schema advertised it, which is what feeds
+// completions and generated documentation.
+//
+// Per-environment configuration is done with connector profiles and env(),
+// selected by `--env`. Kept only so a caller referencing it keeps building;
+// there is nothing to describe.
+//
+// Deprecated: there is no environment block.
 func EnvironmentSchema() Block {
 	return Block{
 		Type:   "environment",
-		Doc:    "Environment-specific variables",
+		Doc:    "Not a block Mycel accepts — use connector profiles and env() with --env",
 		Labels: 1,
-		Open:   true,
 	}
 }
 

@@ -13,8 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The saga, state machine, validator and transform blocks are described in the schema.** They were declared `Open`, meaning "any attribute goes", so completions offered nothing inside them and a generator had nothing to read. Each is now transcribed from its parser, which remains the authority. `transform` keeps `Open` — its attributes are CEL mappings named by the author — but gains the `enrich` child block.
 - **`mycel validate` reports sagas, state machines, validators and transforms.** It listed connectors, flows and types only, so a project whose saga had just been added got no acknowledgement that the file was read.
 
+- **Every root block is now checked against the parser.** The parity test covers all fifteen, not the four that were rewritten, so a schema that stops matching its parser fails the build.
+
 ### Fixed
 
+- **The schema advertised an `environment` block that does not exist.** No such block type is accepted anywhere, so a document containing one fails to parse — but completions offered it, and a test asserted it was there. Per-environment configuration is connector profiles and `env()`, selected with `--env`.
+- **`auth`, `security`, `service.rate_limit`, `functions` and the aspect's `rate_limit` and `circuit_breaker` were declared `Open`,** meaning any attribute is valid. Their parsers accept a fixed set and reject the rest, so nothing inside them was ever checked or completed. Each is now described; `auth`'s fourteen nested blocks are named, with `storage` and `audit` described in full.
 - **A named `transform` holding an `enrich` block never parsed.** The runtime reads those enrichments when a flow references the transform, and the documentation shows one, but `hcl.Body.JustAttributes` refuses a body containing any block — including the `enrich` blocks the parser had just consumed itself. Found by the new schema parity test on its first run.
 - **A saga with no `from` block was skipped at registration in silence.** Nothing else triggers a saga, so it loaded, validated and never ran. It now says so by name at startup, and `mycel add saga` requires `--from` rather than generating one.
 

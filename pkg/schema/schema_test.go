@@ -4,8 +4,8 @@ import "testing"
 
 func TestBuiltinRootSchemas(t *testing.T) {
 	schemas := BuiltinRootSchemas()
-	if len(schemas) < 16 {
-		t.Errorf("expected at least 16 root schemas, got %d", len(schemas))
+	if len(schemas) < 15 {
+		t.Errorf("expected at least 15 root schemas, got %d", len(schemas))
 	}
 
 	// Verify key block types exist
@@ -16,11 +16,20 @@ func TestBuiltinRootSchemas(t *testing.T) {
 
 	expected := []string{"connector", "flow", "type", "transform", "aspect", "service",
 		"validator", "saga", "state_machine", "functions", "plugin", "auth",
-		"security", "mocks", "cache", "environment"}
+		"security", "mocks", "cache"}
 	for _, e := range expected {
 		if !types[e] {
 			t.Errorf("missing root block type %q", e)
 		}
+	}
+
+	// "environment" used to be in the list above. There is no such block: the
+	// parser accepts no block of that type, so a document containing one fails
+	// to parse. Advertising it produced completions for something unwritable —
+	// per-environment configuration is connector profiles and env(), chosen
+	// with --env.
+	if types["environment"] {
+		t.Error("environment is not a block Mycel accepts; it must not be advertised as one")
 	}
 }
 
