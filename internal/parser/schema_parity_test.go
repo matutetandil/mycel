@@ -25,8 +25,17 @@ import (
 //
 // It is the reverse of the drift that bit on_drop, where the runtime knew about
 // a value the schema did not. Both directions now have a test.
-func TestSchemaParity_SagaIsParseable(t *testing.T) {
-	assertSchemaParses(t, schema.SagaSchema(), "example")
+func TestSchemaParity(t *testing.T) {
+	for _, blk := range []schema.Block{
+		schema.SagaSchema(),
+		schema.StateMachineSchema(),
+		schema.ValidatorSchema(),
+		schema.TransformSchema(),
+	} {
+		t.Run(blk.Type, func(t *testing.T) {
+			assertSchemaParses(t, blk, "example")
+		})
+	}
 }
 
 // assertSchemaParses renders the block from its schema and parses it.

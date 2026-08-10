@@ -1747,10 +1747,16 @@ func parseNamedTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfor
 		}
 	}
 
-	// Parse remaining attributes as transform mappings
-	attrs, diags := remain.JustAttributes()
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("transform block attributes error: %s", diags.Error())
+	// Parse remaining attributes as transform mappings.
+	//
+	// Not remain.JustAttributes(): on an hclsyntax body that rejects the whole
+	// document the moment it contains any block, whatever PartialContent
+	// already consumed. That made the enrich blocks parsed just above
+	// unreachable — the runtime reads them (flow_registry: named transform
+	// enrichments) and the docs show them, but no such file ever parsed.
+	attrs, err := bodyAttributes(remain)
+	if err != nil {
+		return nil, fmt.Errorf("transform block attributes error: %w", err)
 	}
 
 	for name, attr := range attrs {

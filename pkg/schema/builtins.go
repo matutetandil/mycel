@@ -578,12 +578,21 @@ func FieldConstraints() []Attr {
 	}
 }
 
+// TransformSchema describes the named, reusable transform block.
+//
+// Open is not a placeholder here: every attribute is a CEL field mapping whose
+// name is chosen by the author, so there is no fixed set to declare. What was
+// missing is the enrich child block, which the parser accepts and the schema
+// did not mention.
 func TransformSchema() Block {
 	return Block{
 		Type:   "transform",
 		Doc:    "Reusable named transformation (CEL expressions)",
 		Labels: 1,
-		Open:   true, // attributes are CEL mappings
+		Open:   true, // attributes are CEL mappings: output_field = "<CEL>"
+		Children: []Block{
+			EnrichSchema(),
+		},
 	}
 }
 
@@ -605,12 +614,26 @@ func ServiceSchema() Block {
 	}
 }
 
+// ValidatorSchema describes the validator block. Transcribed from
+// internal/parser/validator.go, which is the authority.
+//
+// Which attribute is required depends on `type`, and the schema has no way to
+// say "required when type is regex" — so the three carriers are declared
+// optional and their pairing is documented. The parser rejects the wrong
+// combination by name, which is where that check belongs.
 func ValidatorSchema() Block {
 	return Block{
 		Type:   "validator",
 		Doc:    "Custom validation rule (regex, CEL, or WASM)",
 		Labels: 1,
-		Open:   true,
+		Attrs: []Attr{
+			{Name: "type", Doc: "How the rule is expressed", Type: TypeString, Required: true, Values: []string{"regex", "cel", "wasm"}},
+			{Name: "pattern", Doc: "Regular expression the value must match (type = regex)", Type: TypeString},
+			{Name: "expr", Doc: "CEL expression that must return true (type = cel)", Type: TypeString},
+			{Name: "wasm", Doc: "Path to the .wasm module (type = wasm)", Type: TypeString},
+			{Name: "entrypoint", Doc: "Exported function to call in the module", Type: TypeString, Default: "validate"},
+			{Name: "message", Doc: "Error message shown when validation fails", Type: TypeString},
+		},
 	}
 }
 
@@ -681,12 +704,44 @@ func sagaActionAttrs() []Attr {
 	}
 }
 
+// StateMachineSchema describes the state_machine block. Transcribed from
+// internal/parser/statemachine.go, which is the authority.
 func StateMachineSchema() Block {
 	return Block{
 		Type:   "state_machine",
 		Doc:    "Entity lifecycle with guards, actions, and final states",
 		Labels: 1,
-		Open:   true,
+		Attrs: []Attr{
+			{Name: "initial", Doc: "State an entity starts in", Type: TypeString, Required: true},
+		},
+		Children: []Block{
+			{Type: "state", Doc: "One state of the lifecycle", Labels: 1, Attrs: []Attr{
+				{Name: "final", Doc: "No transition may leave this state", Type: TypeBool},
+			}, Children: []Block{
+				{Type: "on", Doc: `Transition taken when this event arrives, written as: on "<event>" { }`, Labels: 1, Attrs: []Attr{
+					{Name: "transition_to", Doc: "State to move to", Type: TypeString, Required: true},
+					{Name: "guard", Doc: "CEL condition; the transition is refused when it does not hold", Type: TypeString},
+				}, Children: []Block{
+					{Type: "action", Doc: "Side effect to run on the transition", Attrs: stateMachineActionAttrs()},
+				}},
+			}},
+		},
+	}
+}
+
+// stateMachineActionAttrs is the action shape a transition can carry. It is a
+// subset of the saga action — no query, set or where — so it is written out
+// rather than shared, which would let one grow attributes the other rejects.
+func stateMachineActionAttrs() []Attr {
+	return []Attr{
+		{Name: "connector", Doc: "Connector to call", Type: TypeString, Ref: RefConnector},
+		{Name: "operation", Doc: "Operation to perform", Type: TypeString},
+		{Name: "target", Doc: "Table, queue, path or endpoint to act on", Type: TypeString},
+		{Name: "data", Doc: "Values to write, as CEL expressions", Type: TypeMap},
+		{Name: "body", Doc: "Request body, as CEL expressions", Type: TypeMap},
+		{Name: "params", Doc: "Named query parameters, as CEL expressions", Type: TypeMap},
+		{Name: "template", Doc: "Notification template name", Type: TypeString},
+		{Name: "to", Doc: "Notification recipient", Type: TypeString},
 	}
 }
 
