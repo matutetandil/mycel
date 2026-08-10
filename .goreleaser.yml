@@ -1,0 +1,87 @@
+version: 2
+
+project_name: mycel
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: mycel
+    main: ./cmd/mycel
+    binary: mycel
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    # The binary reads its version from build metadata when there is any, and
+    # falls back to these. A release archive is built from a checkout rather
+    # than `go install`, so the module version is absent and these are what
+    # `mycel version` reports.
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+
+archives:
+  - id: mycel
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+# Packages carry more than the binary: without the unit file, the config
+# directory and an unprivileged user, installing on a VM leaves the operator to
+# invent all three.
+nfpms:
+  - id: mycel
+    package_name: mycel
+    vendor: Matias Denda
+    homepage: https://github.com/matutetandil/mycel
+    maintainer: Matias Denda <matutetandil@gmail.com>
+    description: |-
+      Declarative microservice runtime.
+      Describe what connects to what in HCL, and Mycel runs the service.
+    license: MIT
+    formats: [deb, rpm, apk]
+    bindir: /usr/bin
+
+    contents:
+      - src: packaging/mycel.service
+        dst: /lib/systemd/system/mycel.service
+        packager: deb
+      - src: packaging/mycel.service
+        dst: /usr/lib/systemd/system/mycel.service
+        packager: rpm
+
+      # Config lives here and survives removal — it is the operator's, not the
+      # package's.
+      - dst: /etc/mycel
+        type: dir
+        file_info:
+          mode: 0755
+          owner: mycel
+          group: mycel
+
+      - dst: /var/lib/mycel
+        type: dir
+        file_info:
+          mode: 0750
+          owner: mycel
+          group: mycel
+
+    scripts:
+      preinstall: packaging/preinstall.sh
+      postremove: packaging/postremove.sh
+
+checksum:
+  name_template: checksums.txt
+
+# The release is created by the workflow, which also attaches the Helm chart.
+# goreleaser only builds here; the artifacts are uploaded alongside it.
+release:
+  disable: true
+
+changelog:
+  disable: true

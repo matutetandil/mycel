@@ -125,6 +125,68 @@ what you are actually running: the module version for a `go install` binary,
 and the git revision — with a `-dirty` suffix for uncommitted changes — for a
 build from a checkout.
 
+## Homebrew
+
+```bash
+brew install matutetandil/tap/mycel
+```
+
+The [formula](https://github.com/matutetandil/homebrew-tap) builds from source,
+so Homebrew installs Go as a build dependency and compiles — expect about a
+minute the first time. No Apple Developer account or code signing is involved:
+those apply to Homebrew *casks*, not to command-line formulae.
+
+Update with `brew upgrade mycel`.
+
+## Linux packages
+
+`.deb`, `.rpm` and `.apk` are attached to every
+[release](https://github.com/matutetandil/mycel/releases). They carry more than
+the binary — a systemd unit, an unprivileged `mycel` user, `/etc/mycel` and
+`/var/lib/mycel` — so a server install is a service rather than a loose
+executable:
+
+```bash
+# Debian, Ubuntu
+curl -LO https://github.com/matutetandil/mycel/releases/latest/download/mycel_2.15.0_linux_amd64.deb
+sudo dpkg -i mycel_2.15.0_linux_amd64.deb
+
+# RHEL, Fedora, Rocky, Alma
+sudo rpm -i mycel_2.15.0_linux_amd64.rpm
+
+# Alpine
+sudo apk add --allow-untrusted mycel_2.15.0_linux_amd64.apk
+```
+
+Then:
+
+```bash
+sudo systemctl enable --now mycel
+sudo systemctl status mycel
+```
+
+The service reads `/etc/mycel`, runs as the `mycel` user, and writes only to
+`/var/lib/mycel`. Put your `.mycel` files in `/etc/mycel` and restart it.
+
+There is **no apt or yum repository yet**, so `apt install mycel` and
+`apt upgrade` do not work — installing and upgrading are the commands above.
+
+## Install script
+
+For a plain binary with no service wrapper:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/matutetandil/mycel/main/install.sh | sh
+```
+
+Detects your platform, downloads the latest release into `/usr/local/bin`, and
+reaches for `sudo` only if that directory is not already writable. Set
+`MYCEL_VERSION` to pin a version and `MYCEL_INSTALL_DIR` to install elsewhere —
+`MYCEL_INSTALL_DIR="$HOME/.local/bin"` needs no elevation at all.
+
+On a server, prefer the packages above: this gives you the binary and nothing
+else.
+
 ## Helm (Kubernetes)
 
 The official Helm chart installs Mycel on any Kubernetes cluster:

@@ -193,3 +193,44 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "mycel ${{ steps.src.outputs.version }}"
           git push
+
+  # Binaries and Linux packages, attached to the release create-release just
+  # made. goreleaser only builds here — the release itself, its notes and the
+  # Helm chart are owned by the jobs above.
+  #
+  # The packages carry more than the binary: a systemd unit, an unprivileged
+  # user and /etc/mycel. Installing on a VM otherwise leaves the operator to
+  # invent all three.
+  packages:
+    runs-on: ubuntu-latest
+    needs: create-release
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build archives and packages
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: release --clean
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
+            dist/*.apk
+            dist/checksums.txt
