@@ -614,12 +614,70 @@ func ValidatorSchema() Block {
 	}
 }
 
+// SagaSchema describes the saga block. Transcribed from internal/parser/saga.go,
+// which is the authority: every attribute and child here is one the parser
+// accepts, and nothing the parser rejects appears.
 func SagaSchema() Block {
 	return Block{
 		Type:   "saga",
 		Doc:    "Distributed transaction with automatic compensation",
 		Labels: 1,
-		Open:   true,
+		Attrs: []Attr{
+			{Name: "timeout", Doc: "Deadline for the saga as a whole", Type: TypeDuration},
+		},
+		Children: []Block{
+			{Type: "from", Doc: "What starts the saga", Attrs: []Attr{
+				{Name: "connector", Doc: "Connector the saga listens on", Type: TypeString, Required: true, Ref: RefConnector},
+				{Name: "operation", Doc: "Operation to trigger on", Type: TypeString},
+				{Name: "filter", Doc: "CEL condition; the saga runs only when it holds", Type: TypeString},
+			}},
+			SagaStepSchema(),
+			{Type: "on_complete", Doc: "Action to run once every step has succeeded", Attrs: sagaActionAttrs()},
+			{Type: "on_failure", Doc: "Action to run after compensation has unwound the saga", Attrs: sagaActionAttrs()},
+		},
+	}
+}
+
+// SagaStepSchema describes one step of a saga.
+//
+// A step must carry an action, a delay or an await — the parser rejects one
+// with none of the three — but no single one of them can be marked Required,
+// so the constraint lives in the docs and in what the generator emits.
+func SagaStepSchema() Block {
+	return Block{
+		Type:   "step",
+		Doc:    "One step of the saga, executed in declaration order",
+		Labels: 1,
+		Attrs: []Attr{
+			{Name: "timeout", Doc: "Deadline for this step", Type: TypeDuration},
+			// The executor tests for "skip" and compensates on anything else,
+			// so those are the two behaviours there are (internal/saga/executor.go).
+			{Name: "on_error", Doc: "What a failure does: compensate the saga, or skip the step and carry on", Type: TypeString, Values: []string{"compensate", "skip"}},
+			{Name: "delay", Doc: "Wait this long before continuing; a step with only a delay needs no action", Type: TypeDuration},
+			{Name: "await", Doc: "Pause until an external signal with this event name arrives", Type: TypeString},
+		},
+		Children: []Block{
+			{Type: "action", Doc: "The work this step performs", Attrs: sagaActionAttrs()},
+			{Type: "compensate", Doc: "How to undo this step when a later one fails", Attrs: sagaActionAttrs()},
+		},
+	}
+}
+
+// sagaActionAttrs is the shape shared by action, compensate, on_complete and
+// on_failure — the parser reads all four with the same function.
+func sagaActionAttrs() []Attr {
+	return []Attr{
+		{Name: "connector", Doc: "Connector to call", Type: TypeString, Ref: RefConnector},
+		{Name: "operation", Doc: "Operation to perform", Type: TypeString},
+		{Name: "target", Doc: "Table, queue, path or endpoint to act on", Type: TypeString},
+		{Name: "query", Doc: "Raw query, for database connectors", Type: TypeString},
+		{Name: "data", Doc: "Values to write, as CEL expressions", Type: TypeMap},
+		{Name: "body", Doc: "Request body, as CEL expressions", Type: TypeMap},
+		{Name: "set", Doc: "Columns to update, as CEL expressions", Type: TypeMap},
+		{Name: "where", Doc: "Row selection, as CEL expressions", Type: TypeMap},
+		{Name: "params", Doc: "Named query parameters, as CEL expressions", Type: TypeMap},
+		{Name: "template", Doc: "Notification template name", Type: TypeString},
+		{Name: "to", Doc: "Notification recipient", Type: TypeString},
 	}
 }
 
