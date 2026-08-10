@@ -606,6 +606,35 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("    - %s (%d fields)\n", t.Name, len(t.Fields))
 	}
 
+	// The rest, listed only when present. A validate that acknowledges the
+	// connectors and flows but says nothing about the saga just added reads as
+	// though the file was not picked up.
+	for _, s := range config.Sagas {
+		if s == nil {
+			continue
+		}
+		trigger := "no from block — it will not run"
+		if s.From != nil {
+			trigger = s.From.Connector
+		}
+		fmt.Printf("  Saga: %s (%d steps, from %s)\n", s.Name, len(s.Steps), trigger)
+	}
+	for _, m := range config.StateMachines {
+		if m != nil {
+			fmt.Printf("  State machine: %s (%d states, initial %s)\n", m.Name, len(m.States), m.Initial)
+		}
+	}
+	for _, v := range config.Validators {
+		if v != nil {
+			fmt.Printf("  Validator: %s (%s)\n", v.Name, v.Type)
+		}
+	}
+	for _, tr := range config.Transforms {
+		if tr != nil {
+			fmt.Printf("  Transform: %s (%d mappings)\n", tr.Name, len(tr.Mappings))
+		}
+	}
+
 	return nil
 }
 

@@ -276,6 +276,30 @@ func ensureNameIsFree(name, kind string) error {
 				return fmt.Errorf("a flow named %q already exists — names are global across every .mycel file", name)
 			}
 		}
+	case "saga":
+		for _, s := range cfg.Sagas {
+			if s != nil && s.Name == name {
+				return fmt.Errorf("a saga named %q already exists — names are global across every .mycel file", name)
+			}
+		}
+	case "state_machine":
+		for _, m := range cfg.StateMachines {
+			if m != nil && m.Name == name {
+				return fmt.Errorf("a state machine named %q already exists — names are global across every .mycel file", name)
+			}
+		}
+	case "validator":
+		for _, v := range cfg.Validators {
+			if v != nil && v.Name == name {
+				return fmt.Errorf("a validator named %q already exists — names are global across every .mycel file", name)
+			}
+		}
+	case "transform":
+		for _, tr := range cfg.Transforms {
+			if tr != nil && tr.Name == name {
+				return fmt.Errorf("a transform named %q already exists — names are global across every .mycel file", name)
+			}
+		}
 	}
 	return nil
 }

@@ -20,7 +20,12 @@ func (r *Runtime) registerSagas() error {
 	sagaExecutor := saga.NewExecutor(r.connectors)
 
 	for _, cfg := range r.config.Sagas {
+		// A saga is triggered by its from block and by nothing else — no flow
+		// invokes one. Without it there is nothing to register, and the saga
+		// loads, validates, and never runs. Saying so beats leaving someone to
+		// wonder why their compensation never fired.
 		if cfg.From == nil {
+			fmt.Printf("      %s — not registered: no from block, so nothing triggers it\n", cfg.Name)
 			continue
 		}
 
