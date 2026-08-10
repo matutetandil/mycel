@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`mycel add saga`, `add state-machine`, `add validator` and `add transform`.** The four blocks that were left out of the scaffolding in 2.14.0, now that their schemas describe them. As with the other generators, the shape, the allowed values and the comments come from `pkg/schema` — nothing is a template, so nothing can drift from the parser.
+- **The saga, state machine, validator and transform blocks are described in the schema.** They were declared `Open`, meaning "any attribute goes", so completions offered nothing inside them and a generator had nothing to read. Each is now transcribed from its parser, which remains the authority. `transform` keeps `Open` — its attributes are CEL mappings named by the author — but gains the `enrich` child block.
+- **`mycel validate` reports sagas, state machines, validators and transforms.** It listed connectors, flows and types only, so a project whose saga had just been added got no acknowledgement that the file was read.
+
+### Fixed
+
+- **A named `transform` holding an `enrich` block never parsed.** The runtime reads those enrichments when a flow references the transform, and the documentation shows one, but `hcl.Body.JustAttributes` refuses a body containing any block — including the `enrich` blocks the parser had just consumed itself. Found by the new schema parity test on its first run.
+- **A saga with no `from` block was skipped at registration in silence.** Nothing else triggers a saga, so it loaded, validated and never ran. It now says so by name at startup, and `mycel add saga` requires `--from` rather than generating one.
+
+### Changed
+
+- **`mycel add validator` requires the rule for the type chosen** (`--pattern`, `--expr` or `--wasm`). The parser rejects an empty one by name, so generating a placeholder there produced a file that could not be parsed.
+
 ## [2.15.0] - 2026-08-10
 
 ### Added

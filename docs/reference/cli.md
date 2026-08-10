@@ -142,7 +142,7 @@ clash.
 
 ### `mycel add`
 
-Add a connector or flow to an existing project, each in its own file.
+Add a declaration to an existing project, each in its own file.
 
 ```bash
 mycel add connector orders_db --type database --driver postgres
@@ -150,6 +150,11 @@ mycel add connector rabbit --type mq --driver rabbitmq
 mycel add flow order_created --from rabbit --operation "orders.created" --to orders_db --target orders
 mycel add type user --fields "id:number,email:string:email"
 mycel add aspect audit_log --on "create_*" --when after --action-connector audit_db
+
+mycel add saga place_order --from rabbit --steps reserve_stock,charge_card,ship
+mycel add state-machine order --states pending,paid,shipped,delivered
+mycel add validator adult --type cel --expr "input.age >= 18"
+mycel add transform normalize_user --fields id,email,created_at
 
 mycel add connector --list       # available types
 ```
@@ -168,12 +173,31 @@ mycel add connector --list       # available types
 | `--action-connector` | `aspect` | Connector the action calls |
 | `--action-flow` | `aspect` | Flow the action invokes |
 | `--fields` | `type` | Fields as `name:type[:format]`, comma-separated |
+| `--from` | `saga` | Connector that triggers the saga — required |
+| `--steps` | `saga` | Step names in order, comma-separated |
+| `--states` | `state-machine` | States in lifecycle order, comma-separated |
+| `--initial` | `state-machine` | Starting state (default: the first) |
+| `--type` | `validator` | `regex`, `cel` or `wasm` (default `regex`) |
+| `--pattern` / `--expr` / `--wasm` | `validator` | The rule itself — one is required, matching `--type` |
+| `--fields` | `transform` | Output field names, comma-separated |
 
-Files land in `connectors/<name>.mycel`, `flows/<name>.mycel` and
-`aspects/<name>.mycel` under
-`--config`. Mycel merges every `.mycel` file regardless of location, so this is
-a readability default, not a requirement — see
+Files land in the directory named after the kind — `connectors/<name>.mycel`,
+`flows/<name>.mycel`, `sagas/<name>.mycel`, `state_machines/<name>.mycel` and so
+on — under `--config`. Mycel merges every `.mycel` file regardless of location,
+so this is a readability default, not a requirement — see
 [Project Structure](../getting-started/project-structure.md).
+
+### What `add` refuses to generate
+
+Some blocks parse but cannot work, and the generator will not write one:
+
+| Refused | Why |
+|---|---|
+| An aspect with no action | Parses, then fails to register at startup |
+| A validator with no `--pattern`, `--expr` or `--wasm` | The parser rejects an empty rule by name |
+| A saga with no `--from` | Nothing triggers it; registration skips it and it never runs |
+
+The alternative is a file that loads, validates, and quietly does nothing.
 
 The connector skeleton is generated from that connector's **own schema**, so
 required attributes are the ones the runtime actually requires and cannot drift
