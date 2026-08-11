@@ -21,7 +21,7 @@
 #
 # Until step 3 the chart is still listed and indexed; only the badge waits.
 
-# repositoryID: <paste from the Artifact Hub repositories tab>
+repositoryID: 5cf3b74a-f71f-4846-b8c2-9d44fa5cf61d
 
 owners:
   - name: Matias Denda
