@@ -102,11 +102,11 @@ func TestPasswordStrength(t *testing.T) {
 		minScore int
 	}{
 		{"a", 0},
-		{"abcdefgh", 20},      // length + lowercase
-		{"Abcdefgh", 30},      // + uppercase
-		{"Abcdefg1", 40},      // + number
-		{"Abcdefg1!", 50},     // + special
-		{"AbCdEfGh1!@#", 70},  // longer, more unique
+		{"abcdefgh", 20},     // length + lowercase
+		{"Abcdefgh", 30},     // + uppercase
+		{"Abcdefg1", 40},     // + number
+		{"Abcdefg1!", 50},    // + special
+		{"AbCdEfGh1!@#", 70}, // longer, more unique
 	}
 
 	for _, tt := range tests {

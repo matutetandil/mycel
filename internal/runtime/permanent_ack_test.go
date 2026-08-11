@@ -128,5 +128,5 @@ type joinErr struct {
 	wrapped error
 }
 
-func (j joinErr) Error() string  { return j.base.Error() }
-func (j joinErr) Unwrap() error  { return j.wrapped }
+func (j joinErr) Error() string { return j.base.Error() }
+func (j joinErr) Unwrap() error { return j.wrapped }

@@ -78,10 +78,10 @@ type FlowSequenceGuardConfig struct {
 // strictly greater than the stored one. The caller is expected to translate
 // this into an MQ ack/reject/requeue based on the configured OnOlder policy.
 type SequenceGuardSkippedError struct {
-	Key            string
-	StoredSequence int64
+	Key             string
+	StoredSequence  int64
 	CurrentSequence int64
-	Policy         SequenceGuardOnOlder
+	Policy          SequenceGuardOnOlder
 }
 
 func (e *SequenceGuardSkippedError) Error() string {

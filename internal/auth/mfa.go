@@ -13,11 +13,11 @@ import (
 
 // MFA errors
 var (
-	ErrMFANotEnabled       = errors.New("MFA is not enabled for this user")
-	ErrMFAAlreadyEnabled   = errors.New("MFA is already enabled")
-	ErrInvalidRecoveryCode = errors.New("invalid recovery code")
-	ErrNoRecoveryCodesLeft = errors.New("no recovery codes remaining")
-	ErrMFASetupIncomplete  = errors.New("MFA setup not completed")
+	ErrMFANotEnabled         = errors.New("MFA is not enabled for this user")
+	ErrMFAAlreadyEnabled     = errors.New("MFA is already enabled")
+	ErrInvalidRecoveryCode   = errors.New("invalid recovery code")
+	ErrNoRecoveryCodesLeft   = errors.New("no recovery codes remaining")
+	ErrMFASetupIncomplete    = errors.New("MFA setup not completed")
 	ErrWebAuthnNotConfigured = errors.New("WebAuthn not configured")
 )
 
@@ -32,34 +32,34 @@ const (
 
 // MFAStatus represents a user's MFA status
 type MFAStatus struct {
-	Enabled          bool        `json:"enabled"`
-	Methods          []MFAMethod `json:"methods"`
-	TOTPConfigured   bool        `json:"totp_configured"`
-	WebAuthnConfigured bool      `json:"webauthn_configured"`
-	RecoveryCodesLeft int        `json:"recovery_codes_left"`
-	RequiredByPolicy bool        `json:"required_by_policy"`
+	Enabled            bool        `json:"enabled"`
+	Methods            []MFAMethod `json:"methods"`
+	TOTPConfigured     bool        `json:"totp_configured"`
+	WebAuthnConfigured bool        `json:"webauthn_configured"`
+	RecoveryCodesLeft  int         `json:"recovery_codes_left"`
+	RequiredByPolicy   bool        `json:"required_by_policy"`
 }
 
 // MFASetup represents MFA setup data
 type MFASetup struct {
-	Method        MFAMethod `json:"method"`
-	Secret        string    `json:"secret,omitempty"`        // For TOTP
-	QRCode        string    `json:"qr_code,omitempty"`       // Base64 PNG for TOTP
-	ProvisioningURI string  `json:"provisioning_uri,omitempty"` // otpauth:// URI
-	RecoveryCodes []string  `json:"recovery_codes,omitempty"` // For recovery
+	Method          MFAMethod `json:"method"`
+	Secret          string    `json:"secret,omitempty"`           // For TOTP
+	QRCode          string    `json:"qr_code,omitempty"`          // Base64 PNG for TOTP
+	ProvisioningURI string    `json:"provisioning_uri,omitempty"` // otpauth:// URI
+	RecoveryCodes   []string  `json:"recovery_codes,omitempty"`   // For recovery
 }
 
 // MFAUserData stores MFA data for a user
 type MFAUserData struct {
-	UserID           string    `json:"user_id"`
-	TOTPSecret       string    `json:"totp_secret,omitempty"`
-	TOTPEnabled      bool      `json:"totp_enabled"`
-	TOTPVerifiedAt   time.Time `json:"totp_verified_at,omitempty"`
-	RecoveryCodes    []string  `json:"recovery_codes,omitempty"` // Hashed codes
-	RecoveryCodesGen time.Time `json:"recovery_codes_generated,omitempty"`
+	UserID              string               `json:"user_id"`
+	TOTPSecret          string               `json:"totp_secret,omitempty"`
+	TOTPEnabled         bool                 `json:"totp_enabled"`
+	TOTPVerifiedAt      time.Time            `json:"totp_verified_at,omitempty"`
+	RecoveryCodes       []string             `json:"recovery_codes,omitempty"` // Hashed codes
+	RecoveryCodesGen    time.Time            `json:"recovery_codes_generated,omitempty"`
 	WebAuthnCredentials []WebAuthnCredential `json:"webauthn_credentials,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	CreatedAt           time.Time            `json:"created_at"`
+	UpdatedAt           time.Time            `json:"updated_at"`
 }
 
 // WebAuthnCredential stores a WebAuthn credential

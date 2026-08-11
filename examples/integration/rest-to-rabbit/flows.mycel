@@ -31,7 +31,7 @@ flow "receive_webhook" {
   }
 
   transform {
-    provider    = "input.params.provider"
+    provider    = "input.provider"
     event_type  = "input.headers['x-event-type'] ?? input.body.type ?? 'unknown'"
     payload     = "input.body"
     received_at = "now()"

@@ -386,8 +386,8 @@ type testConnectorFactory struct {
 	conn connector.Connector
 }
 
-func (f testConnectorFactory) Type() string                       { return f.name }
-func (f testConnectorFactory) Supports(t, _ string) bool          { return t == f.name }
+func (f testConnectorFactory) Type() string              { return f.name }
+func (f testConnectorFactory) Supports(t, _ string) bool { return t == f.name }
 func (f testConnectorFactory) Create(_ context.Context, _ *connector.Config) (connector.Connector, error) {
 	return f.conn, nil
 }
@@ -397,11 +397,11 @@ type countingWriter struct {
 	errorHits *atomic.Int32
 }
 
-func (w *countingWriter) Name() string                           { return "slack" }
-func (w *countingWriter) Type() string                           { return "fake-slack" }
-func (w *countingWriter) Connect(_ context.Context) error        { return nil }
-func (w *countingWriter) Close(_ context.Context) error          { return nil }
-func (w *countingWriter) Health(_ context.Context) error         { return nil }
+func (w *countingWriter) Name() string                    { return "slack" }
+func (w *countingWriter) Type() string                    { return "fake-slack" }
+func (w *countingWriter) Connect(_ context.Context) error { return nil }
+func (w *countingWriter) Close(_ context.Context) error   { return nil }
+func (w *countingWriter) Health(_ context.Context) error  { return nil }
 func (w *countingWriter) Write(_ context.Context, data *connector.Data) (*connector.Result, error) {
 	if data.Payload == nil {
 		return &connector.Result{}, nil

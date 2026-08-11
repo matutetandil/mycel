@@ -144,8 +144,8 @@ type Email struct {
 	Headers map[string]string `json:"headers,omitempty"`
 
 	// Tracking
-	TrackOpens  bool   `json:"track_opens,omitempty"`
-	TrackClicks bool   `json:"track_clicks,omitempty"`
+	TrackOpens  bool     `json:"track_opens,omitempty"`
+	TrackClicks bool     `json:"track_clicks,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
 
 	// Scheduling

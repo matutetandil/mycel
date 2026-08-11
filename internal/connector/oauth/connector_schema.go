@@ -26,4 +26,4 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 }
 
 func (ConnectorSchemaDef) SourceSchema() *schema.Block { return nil }
-func (ConnectorSchemaDef) TargetSchema() *schema.Block  { return nil }
+func (ConnectorSchemaDef) TargetSchema() *schema.Block { return nil }

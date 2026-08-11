@@ -14,11 +14,11 @@ func TestStepOptimizer_AnalyzeDependencies(t *testing.T) {
 	}
 
 	transformExprs := map[string]string{
-		"id":       "input.id",
-		"name":     "input.name",
-		"orders":   "step.orders",
-		"reviews":  "step.reviews",
-		"inStock":  "step.inventory.quantity > 0",
+		"id":      "input.id",
+		"name":    "input.name",
+		"orders":  "step.orders",
+		"reviews": "step.reviews",
+		"inStock": "step.inventory.quantity > 0",
 	}
 
 	t.Run("all fields requested - all steps needed", func(t *testing.T) {

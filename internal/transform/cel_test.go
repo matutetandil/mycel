@@ -190,7 +190,7 @@ func TestCELTransformer_ListOperations(t *testing.T) {
 	}
 
 	input := map[string]interface{}{
-		"items": []interface{}{"apple", "banana", "cherry"},
+		"items":   []interface{}{"apple", "banana", "cherry"},
 		"numbers": []interface{}{1, 2, 3, 4, 5},
 	}
 

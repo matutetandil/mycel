@@ -16,8 +16,8 @@ type RateLimitConfig struct {
 	Enabled bool `hcl:"enabled,optional"`
 
 	// Default rate limit for all endpoints
-	DefaultRate  int    `hcl:"rate,optional"`  // requests per window
-	DefaultBurst int    `hcl:"burst,optional"` // burst size
+	DefaultRate  int    `hcl:"rate,optional"`   // requests per window
+	DefaultBurst int    `hcl:"burst,optional"`  // burst size
 	Window       string `hcl:"window,optional"` // time window (e.g., "1m", "1h")
 
 	// Per-endpoint overrides

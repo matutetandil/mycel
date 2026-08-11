@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`llms.txt` at the documentation root.** An index written for assistants rather than browsers: what Mycel is, the handful of facts that stop a model from inventing syntax — expressions are quoted CEL, `input` is shaped by the source, output fields are the left-hand side, the parser is the authority — and a described link to every page worth fetching. Served at <https://matutetandil.github.io/mycel/llms.txt>.
+- **The Helm chart is publishable on Artifact Hub.** The release pushes an `artifacthub-repo.yml` to the chart's OCI repository under the reserved `artifacthub.io` tag, and `Chart.yaml` now carries the category, image, link and maintainer annotations Artifact Hub renders. The image tag in the annotation is rewritten from the git tag alongside `version` and `appVersion`, so it cannot go stale.
+
+### Fixed
+
+- **Transform fields were evaluated in random order.** A field may reference one computed above it through `output` — `tax = "output.subtotal * 0.21"` — which the documentation shows and the examples use. But the mappings were held in a map and the rule list was built by ranging over it, so every message picked a fresh order and a backward reference resolved, or silently didn't, at random: the same config and the same payload produced the intended value on twelve of fifteen requests and a missing field on the other three. The parser now records the order the fields were written in and every site that turns mappings into rules honours it — `transform` (inline and named), `response` (inline and named), per-destination `transform`, `fallback` transform and `error_response` body.
+- **A non-string mapping value panicked the binary.** `transform { count = 5 }` — or a `response` or `error_response` body holding a number, a boolean or an object — crashed with a Go stack trace out of cty's `AsString`, which every mapping value went through once HCL had evaluated it. Bare numbers and booleans are now kept as the constants they obviously are; anything else names the field and says to quote the expression.
+- **An unquoted expression could lose half of itself.** `upper(input.name)` was stored as `input.name` and `output.total > 1000` as `output.total`, because the parser rebuilt the expression from its single variable reference rather than its text. Nothing errored — what remained was still valid CEL — so the transform wrote the un-uppercased name and the conditional write fired on a truthy number. Affects every unquoted expression the parser accepts: transform and response mappings, `to.when`, `dedupe.key` and fingerprints, `cache.key`, transaction `exec.when` and aspect `on` entries. Quoted expressions, the documented form, were never affected.
+
+### Documentation
+
+- **`input` and `output` are explained.** Every flow uses them and nothing introduced them: the first appearance in the learning path was a bare `input.name` in the quick start. The new [Input and Output](docs/core-concepts/input-and-output.md) page covers where `input` comes from and how its shape differs per source, why the field name on the left of a transform line is never written as `output.name`, what `output` means in each block that can read it, the order fields are evaluated in, and why expressions are quoted.
+- **`output.field = ...` was shown as valid in nine pages.** HCL attribute names are single identifiers, so those forty-odd lines are not a Mycel-level mistake — the file does not parse at all. Rewritten to the bare field name, and the unquoted right-hand sides in the same snippets were quoted.
+- **`input.params.*` and `input.query.*` do not exist.** A REST request arrives flattened onto `input`: path parameters, query parameters and body fields all sit at the top level. The forty-two occurrences across the documentation were a hard `no such key: params` at runtime, and seven of them were in example configurations that validate but fail on the first request.
+- **The integration patterns page was never migrated.** Its second half described a language that has not existed for several releases: `connector.rabbit = { ... }` in place of `connector` + `operation` (twenty-seven times, a hard parse error), a `foreach` block and a `response { status, body }` block that were never implemented, queue and DLQ settings written inside the flow rather than on the connector, and `rate_limit`, `circuit_breaker` and `semaphore` attributes that no parser accepts. Rewritten against the runnable configurations in `examples/integration/`, with every block checked by the parser. The first half also read an MQ payload as `input.field` rather than `input.body.field`.
+- **`ctx` is documented as reserved rather than usable.** It is declared in the expression environment and older examples show `ctx.user_id`, but nothing has ever filled it — it always evaluates as an empty map. Request headers are read from `input.headers`.
+
 ## [2.16.0] - 2026-08-10
 
 ### Added

@@ -115,10 +115,10 @@ type JWK struct {
 	Kid string `json:"kid"`
 	Use string `json:"use"`
 	Alg string `json:"alg"`
-	N   string `json:"n"` // RSA modulus
-	E   string `json:"e"` // RSA exponent
-	X   string `json:"x"` // EC x coordinate
-	Y   string `json:"y"` // EC y coordinate
+	N   string `json:"n"`   // RSA modulus
+	E   string `json:"e"`   // RSA exponent
+	X   string `json:"x"`   // EC x coordinate
+	Y   string `json:"y"`   // EC y coordinate
 	Crv string `json:"crv"` // EC curve
 }
 

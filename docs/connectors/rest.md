@@ -205,7 +205,7 @@ flow "upload_avatar" {
   }
 
   transform {
-    user_id      = "input.params.id"
+    user_id      = "input.id"
     filename     = "input.files.avatar.filename"
     content_type = "input.files.avatar.content_type"
     size         = "input.files.avatar.size"

@@ -16,12 +16,12 @@ import (
 // NestJS uses: {length}#{json_payload}
 // Where json_payload is: {"pattern": "...", "data": {...}, "id": "..."}
 type NestJSMessage struct {
-	Pattern interface{}            `json:"pattern"`          // Can be string or {"cmd": "..."}
-	Data    map[string]interface{} `json:"data"`             // Message payload
-	ID      string                 `json:"id,omitempty"`     // Request ID for request-response
-	Err     interface{}            `json:"err,omitempty"`    // Error field for responses
-	IsDisposed bool                `json:"isDisposed,omitempty"` // NestJS internal
-	Response   interface{}         `json:"response,omitempty"`   // Response data
+	Pattern    interface{}            `json:"pattern"`              // Can be string or {"cmd": "..."}
+	Data       map[string]interface{} `json:"data"`                 // Message payload
+	ID         string                 `json:"id,omitempty"`         // Request ID for request-response
+	Err        interface{}            `json:"err,omitempty"`        // Error field for responses
+	IsDisposed bool                   `json:"isDisposed,omitempty"` // NestJS internal
+	Response   interface{}            `json:"response,omitempty"`   // Response data
 }
 
 // NestJSFramer handles NestJS TCP protocol framing.

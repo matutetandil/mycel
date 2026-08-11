@@ -67,7 +67,7 @@ flow "get_user_cached" {
 
   cache {
     connector = "redis_cache"
-    key       = "'user:' + input.params.id"
+    key       = "'user:' + input.id"
     ttl       = "10m"
   }
 

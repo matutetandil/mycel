@@ -59,8 +59,8 @@ flow "on_user_created" {
     operation = "INSERT:users"
   }
   transform {
-    output.event = "'user.created'"
-    output.data  = "input.new"
+    event = "'user.created'"
+    data  = "input.new"
   }
   to {
     connector = "events_db"
@@ -75,9 +75,9 @@ flow "on_order_updated" {
     operation = "UPDATE:orders"
   }
   transform {
-    output.event  = "'order.updated'"
-    output.before = "input.old"
-    output.after  = "input.new"
+    event  = "'order.updated'"
+    before = "input.old"
+    after  = "input.new"
   }
   to {
     connector = "rabbit"

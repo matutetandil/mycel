@@ -33,8 +33,9 @@ helm install my-mycel ./helm/mycel -n mycel --create-namespace
 # Install latest version
 helm install my-mycel oci://ghcr.io/matutetandil/charts/mycel
 
-# Install specific version
-helm install my-mycel oci://ghcr.io/matutetandil/charts/mycel --version 1.0.0
+# Install a specific version. The chart version is the Mycel version:
+# chart 2.16.0 packages Mycel 2.16.0.
+helm install my-mycel oci://ghcr.io/matutetandil/charts/mycel --version 2.16.0
 
 # Install with custom values
 helm install my-mycel oci://ghcr.io/matutetandil/charts/mycel -f values.yaml
@@ -400,15 +401,16 @@ mycel:
 
 ## Upgrading
 
-### To 0.2.0
+The chart carries the same version as the runtime it packages, so what
+changes between chart 2.15.0 and 2.16.0 is what changed in Mycel between
+those releases. See the [changelog](https://github.com/matutetandil/mycel/blob/main/CHANGELOG.md).
 
-- Added `mycel.config.existingConfigMap` to reference a pre-existing ConfigMap.
-- Added `--set-file` documentation for loading HCL files directly.
-- No breaking changes.
+```bash
+helm upgrade my-mycel oci://ghcr.io/matutetandil/charts/mycel --version 2.16.0 -f values.yaml
+```
 
-### To 0.1.0
-
-Initial release.
+Changes to the chart's own templates or values are called out in the
+changelog entry for the release that carries them.
 
 ## License
 

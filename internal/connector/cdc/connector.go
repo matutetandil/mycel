@@ -280,11 +280,11 @@ func (c *Connector) dispatchEvent(event *Event) {
 
 	// Try matches in order of specificity
 	keys := []string{
-		trigger + ":" + table,   // exact: INSERT:users
-		"*:" + table,            // wildcard trigger: *:users
-		trigger + ":*",          // wildcard table: INSERT:*
-		"*:*",                   // global wildcard
-		"*",                     // shorthand global wildcard
+		trigger + ":" + table, // exact: INSERT:users
+		"*:" + table,          // wildcard trigger: *:users
+		trigger + ":*",        // wildcard table: INSERT:*
+		"*:*",                 // global wildcard
+		"*",                   // shorthand global wildcard
 	}
 
 	for _, key := range keys {

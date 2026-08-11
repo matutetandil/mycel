@@ -7,16 +7,22 @@ Complete reference for all functions available in Mycel transforms and condition
 | Variable | Description |
 |----------|-------------|
 | `input` | Incoming data (request body, message payload, query result) |
-| `output` | Already-computed output fields in the current transform |
-| `ctx` | Request context: headers, path params, user info |
+| `output` | Output fields computed above this line, or the previous stage's result — see [Input and Output](../core-concepts/input-and-output.md#referring-to-output) |
 | `enriched` | Data fetched from `enrich` blocks |
 | `step` | Results from named `step` blocks |
-| `result` | Flow result (in aspect conditions) |
-| `error` | Error message string (in aspect conditions) |
+| `result` | Flow result (in `after` aspects) |
+| `error` | Error object: `error.message`, `error.code`, `error.type` |
+| `drop` | Deflected message: `drop.reason`, `drop.policy`, `drop.message_id` (in `on_drop` aspects) |
 | `_flow` | Flow name (in aspects) |
 | `_operation` | Operation name (in aspects) |
 | `_target` | Target name (in aspects) |
 | `_timestamp` | Unix timestamp (in aspects) |
+
+`ctx` is declared in the expression environment but never populated — it always
+evaluates as an empty map. Read request headers from `input.headers`.
+
+For where each variable comes from and what `output` means in each block, see
+[Input and Output](../core-concepts/input-and-output.md).
 
 ## Mycel Built-in Functions
 

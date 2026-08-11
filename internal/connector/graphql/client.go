@@ -22,11 +22,11 @@ import (
 
 // ClientConnector calls external GraphQL APIs.
 type ClientConnector struct {
-	name       string
-	config     *ClientConfig
-	client     *http.Client
-	logger     *slog.Logger
-	mu         sync.RWMutex
+	name   string
+	config *ClientConfig
+	client *http.Client
+	logger *slog.Logger
+	mu     sync.RWMutex
 
 	// OAuth2 token management
 	accessToken string

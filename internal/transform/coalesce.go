@@ -8,15 +8,17 @@ import "strings"
 // expressions before handing them to the CEL compiler.
 //
 // Two cases:
+//
 //   - When the left-hand side is a simple dotted path (e.g.
 //     `input.body.payload.jobId`), the rewrite uses CEL's `has()` macro so
 //     missing intermediate fields fall back to the default rather than
 //     raising a "no such key" error. The full form is:
 //
-//         has(path) ? coalesce(path, default) : default
+//     has(path) ? coalesce(path, default) : default
 //
 //     The inner `coalesce()` still catches present-but-null and present-but-
 //     empty-string values, matching existing behavior.
+//
 //   - For any other left-hand side (function calls, parenthesized
 //     expressions, arithmetic), the rewrite is just `coalesce(lhs, rhs)`.
 //     CEL evaluates lhs eagerly in this form, so callers must guarantee it

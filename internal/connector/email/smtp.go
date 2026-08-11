@@ -19,8 +19,8 @@ type SMTPConnector struct {
 	config *Config
 
 	// Connection pool
-	pool    chan *smtpConn
-	poolMu  sync.Mutex
+	pool   chan *smtpConn
+	poolMu sync.Mutex
 }
 
 type smtpConn struct {

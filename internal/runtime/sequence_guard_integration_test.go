@@ -63,7 +63,7 @@ func newGuardedHandler(t *testing.T) (*FlowHandler, *int, func()) {
 		},
 		Transform: &flow.TransformConfig{
 			Mappings: map[string]string{
-				"sku": "input.body.payload.sku",
+				"sku":   "input.body.payload.sku",
 				"jobId": "input.body.payload.jobId",
 			},
 		},

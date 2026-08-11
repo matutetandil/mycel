@@ -234,9 +234,9 @@ func (s *SQLBatchLoader) CreateBatchFunc(execFn func(ctx context.Context, query 
 // SQLManyBatchLoader is a helper for loading multiple items by a foreign key.
 // For example: loading all orders for multiple users in a single query.
 type SQLManyBatchLoader struct {
-	Query       string // SQL query with IN clause placeholder, e.g., "SELECT * FROM orders WHERE user_id IN (?)"
-	ForeignKey  string // Field name for the foreign key in results, e.g., "user_id"
-	OrderBy     string // Optional: ORDER BY clause to append
+	Query      string // SQL query with IN clause placeholder, e.g., "SELECT * FROM orders WHERE user_id IN (?)"
+	ForeignKey string // Field name for the foreign key in results, e.g., "user_id"
+	OrderBy    string // Optional: ORDER BY clause to append
 }
 
 // CreateBatchFunc creates a batch function that returns slices of results per key.

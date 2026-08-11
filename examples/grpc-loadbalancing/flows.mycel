@@ -8,7 +8,7 @@ flow "get_user" {
   }
 
   transform {
-    user_id = "input.params.id"
+    user_id = "input.id"
   }
 
   # This call is load-balanced across all healthy backends

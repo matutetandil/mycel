@@ -27,7 +27,7 @@ func NewHandler(manager *Manager) *Handler {
 // DefaultEndpointsConfig returns the default endpoints configuration
 func DefaultEndpointsConfig() *EndpointsConfig {
 	return &EndpointsConfig{
-		Prefix: "/auth",
+		Prefix:         "/auth",
 		Login:          &EndpointConfig{Path: "/login", Method: "POST", Enabled: true},
 		Logout:         &EndpointConfig{Path: "/logout", Method: "POST", Enabled: true},
 		Register:       &EndpointConfig{Path: "/register", Method: "POST", Enabled: true},

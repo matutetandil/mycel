@@ -22,8 +22,8 @@ flow "google_callback" {
     connector = "google_auth"
     operation = "callback"
     params = {
-      code  = "input.query.code"
-      state = "input.query.state"
+      code  = "input.code"
+      state = "input.state"
     }
   }
 
@@ -65,8 +65,8 @@ flow "github_callback" {
     connector = "github_auth"
     operation = "callback"
     params = {
-      code  = "input.query.code"
-      state = "input.query.state"
+      code  = "input.code"
+      state = "input.state"
     }
   }
 

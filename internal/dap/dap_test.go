@@ -356,11 +356,11 @@ type pipeConn struct {
 	w io.WriteCloser
 }
 
-func (p *pipeConn) Write(b []byte) (int, error) { return p.w.Write(b) }
-func (p *pipeConn) Read([]byte) (int, error)     { return 0, io.EOF }
-func (p *pipeConn) Close() error                 { return p.w.Close() }
-func (p *pipeConn) LocalAddr() net.Addr          { return nil }
-func (p *pipeConn) RemoteAddr() net.Addr         { return nil }
-func (p *pipeConn) SetDeadline(time.Time) error  { return nil }
+func (p *pipeConn) Write(b []byte) (int, error)      { return p.w.Write(b) }
+func (p *pipeConn) Read([]byte) (int, error)         { return 0, io.EOF }
+func (p *pipeConn) Close() error                     { return p.w.Close() }
+func (p *pipeConn) LocalAddr() net.Addr              { return nil }
+func (p *pipeConn) RemoteAddr() net.Addr             { return nil }
+func (p *pipeConn) SetDeadline(time.Time) error      { return nil }
 func (p *pipeConn) SetReadDeadline(time.Time) error  { return nil }
 func (p *pipeConn) SetWriteDeadline(time.Time) error { return nil }

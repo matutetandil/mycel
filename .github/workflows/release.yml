@@ -93,6 +93,9 @@ jobs:
         run: |
           sed -i "s/^version:.*/version: ${{ steps.version.outputs.version }}/" helm/mycel/Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.version }}\"/" helm/mycel/Chart.yaml
+          # The artifacthub.io/images annotation names the same image, and a
+          # stale tag there is what Artifact Hub shows on the chart page.
+          sed -i "s|image: mdenda/mycel:.*|image: mdenda/mycel:${{ steps.version.outputs.version }}|" helm/mycel/Chart.yaml
           cat helm/mycel/Chart.yaml
 
       - name: Package Helm chart
@@ -106,6 +109,25 @@ jobs:
       - name: Push Helm chart to GHCR
         run: |
           helm push .helm-packages/mycel-${{ steps.version.outputs.version }}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+
+      # Artifact Hub reads its repository metadata from a reserved tag on the
+      # same OCI repository as the chart, not from a file in the chart. The
+      # media types below are the ones it looks for; it ignores anything else.
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@v1
+
+      # `helm registry login` writes to Helm's own credential store, which oras
+      # does not read, so this login is not redundant.
+      - name: Log ORAS in to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Push Artifact Hub repository metadata
+        run: |
+          oras push \
+            ghcr.io/${{ github.repository_owner }}/charts/mycel:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            helm/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
 
       - name: Upload Helm chart to GitHub Release
         uses: softprops/action-gh-release@v3

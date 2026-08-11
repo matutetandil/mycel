@@ -35,10 +35,11 @@ Each line assigns a CEL expression to an output field. Expressions have access t
 | Variable | Description |
 |----------|-------------|
 | `input` | Incoming data (request body, message payload, query result) |
-| `output` | Already-computed output fields (reference previous transform results) |
-| `ctx` | Request context: `ctx.user_id`, `ctx.headers`, etc. |
+| `output` | Output fields computed **above this line** in the same block |
 | `enriched` | Data fetched from external services via `enrich` blocks |
 | `step` | Results of named `step` blocks |
+
+**New to `input` and `output`?** [Input and Output](input-and-output.md) explains where they come from, what `output` means in each block, and why the field name on the left is never written as `output.name`.
 
 ## Named (Reusable) Transforms
 
@@ -360,7 +361,11 @@ transform {
 }
 ```
 
-Note that `output.subtotal` references a field computed earlier in the same transform block.
+Fields are evaluated top to bottom in the order you wrote them, and each result
+is added to `output` before the next line runs — so `tax` can reference
+`output.subtotal` and `total` can reference both. A field cannot reference one
+declared **below** it; that value is simply absent. See
+[Input and Output](input-and-output.md#order-of-evaluation).
 
 ### Conditional Routing
 

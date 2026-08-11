@@ -125,11 +125,11 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "use_replicas"}, // Enable read replicas
 
 			// Email connector specific
-			{Name: "from"},       // From email address
-			{Name: "from_name"},  // From display name
-			{Name: "reply_to"},   // Reply-to address
-			{Name: "api_key"},    // SendGrid API key
-			{Name: "pool_size"},  // Connection pool size
+			{Name: "from"},      // From email address
+			{Name: "from_name"}, // From display name
+			{Name: "reply_to"},  // Reply-to address
+			{Name: "api_key"},   // SendGrid API key
+			{Name: "pool_size"}, // Connection pool size
 
 			// Slack/Discord connector specific
 			{Name: "webhook_url"}, // Webhook URL

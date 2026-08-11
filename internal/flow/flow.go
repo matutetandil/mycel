@@ -146,6 +146,10 @@ type Config struct {
 	// For echo flows (no "to" block), only input is available.
 	Response map[string]string
 
+	// ResponseOrder lists the Response keys in the order they were declared,
+	// for the same reason as TransformConfig.Order.
+	ResponseOrder []string
+
 	// ResponseUse, when set, names a top-level reusable response block whose
 	// mappings form the base for Response. The flow's own Response entries (if
 	// any) override the named base key by key, same as transform. It is a
@@ -323,6 +327,10 @@ type ResponseConfig struct {
 	// Mappings holds the field = "<celExpr>" pairs, same shape as a flow's
 	// inline response block.
 	Mappings map[string]string
+
+	// Order lists the Mappings keys in declaration order. See
+	// TransformConfig.Order.
+	Order []string
 }
 
 // Accept runs after filter but before transform, for business-level decisions.
@@ -465,6 +473,10 @@ type ToConfig struct {
 	// If specified, this transform is applied instead of the flow's main transform.
 	Transform map[string]string
 
+	// TransformOrder lists the Transform keys in declaration order. See
+	// TransformConfig.Order.
+	TransformOrder []string
+
 	// Parallel indicates if this destination should be written in parallel with others.
 	// Default is true. Set to false for sequential writes.
 	Parallel bool
@@ -544,6 +556,13 @@ type TransformConfig struct {
 	// Mappings are inline transformation rules.
 	// Keys are output field paths, values are expressions.
 	Mappings map[string]string
+
+	// Order lists the Mappings keys in the order they were declared in the
+	// source file. Expressions are evaluated in this order and each result is
+	// visible to the ones below it as `output.<field>`, so a map alone would
+	// make a backward reference resolve at random. Empty for configs built in
+	// code, which fall back to sorted order.
+	Order []string
 
 	// Enrichments are data lookups from other connectors.
 	// These are executed before mappings and results are available as enriched.*
@@ -634,6 +653,10 @@ type ErrorResponseConfig struct {
 
 	// Body is a map of CEL expressions that build the response body.
 	Body map[string]string
+
+	// BodyOrder lists the Body keys in declaration order. See
+	// TransformConfig.Order.
+	BodyOrder []string
 }
 
 // RetryConfig holds retry settings.
@@ -669,6 +692,10 @@ type FallbackConfig struct {
 
 	// Transform is an optional transformation to apply before sending to fallback.
 	Transform map[string]string
+
+	// TransformOrder lists the Transform keys in declaration order. See
+	// TransformConfig.Order.
+	TransformOrder []string
 }
 
 // FlowError wraps an error with custom response configuration.

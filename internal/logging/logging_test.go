@@ -146,9 +146,9 @@ func TestNewLogger_JSONFormat(t *testing.T) {
 
 func TestNewLogger_LevelFiltering(t *testing.T) {
 	tests := []struct {
-		configLevel   string
-		logLevel      slog.Level
-		shouldAppear  bool
+		configLevel  string
+		logLevel     slog.Level
+		shouldAppear bool
 	}{
 		{"debug", slog.LevelDebug, true},
 		{"debug", slog.LevelInfo, true},

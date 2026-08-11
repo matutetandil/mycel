@@ -38,7 +38,7 @@ flow "get_product" {
   cache {
     storage = "redis_cache"
     ttl     = "5m"
-    key     = "'product:' + input.params.id"
+    key     = "'product:' + input.id"
   }
 
   to {
@@ -68,10 +68,10 @@ The cache key must uniquely identify the request:
 
 ```hcl
 # Simple ID-based key
-key = "'product:' + input.params.id"
+key = "'product:' + input.id"
 
 # Multiple parameters
-key = "'users:' + input.params.id + ':orders:' + input.query.status"
+key = "'users:' + input.id + ':orders:' + input.status"
 
 # Context-aware (per-user cache)
 key = "'user_data:' + ctx.user_id"
@@ -131,8 +131,8 @@ flow "get_user" {
   cache {
     storage       = "redis_cache"
     ttl           = "15m"
-    key           = "'user:' + input.params.id"
-    invalidate_on = ["user.updated:${input.params.id}", "user.deleted:${input.params.id}"]
+    key           = "'user:' + input.id"
+    invalidate_on = ["user.updated:${input.id}", "user.deleted:${input.id}"]
   }
 
   to {
@@ -160,7 +160,7 @@ flow "update_product" {
   after {
     invalidate {
       storage  = "redis_cache"
-      keys     = ["product:${input.params.id}"]
+      keys     = ["product:${input.id}"]
       patterns = ["products:list:*"]
     }
   }
@@ -281,7 +281,7 @@ flow "get_product" {
   cache {
     storage = "redis_cache"
     ttl     = "10m"
-    key     = "'product:' + input.params.id"
+    key     = "'product:' + input.id"
   }
 
   to {
@@ -304,7 +304,7 @@ flow "update_product" {
   after {
     invalidate {
       storage = "redis_cache"
-      keys    = ["product:${input.params.id}"]
+      keys    = ["product:${input.id}"]
     }
   }
 }

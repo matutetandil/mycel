@@ -127,10 +127,10 @@ The resulting map is available in transforms and step references as normal:
 
 ```hcl
 transform {
-  output.product_id   = input.product["@id"]
-  output.product_name = input.product.name
-  output.currency     = input.product.price["@currency"]
-  output.price        = input.product.price["#text"]
+  product_id   = "input.product['@id']"
+  product_name = "input.product.name"
+  currency     = "input.product.price['@currency']"
+  price        = "input.product.price['#text']"
 }
 ```
 

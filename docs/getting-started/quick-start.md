@@ -188,6 +188,8 @@ flow "create_item" {
 }
 ```
 
+Two variables appear here that nothing declared. `input` is the data that arrived — for a REST source, the request body, path and query parameters, all flat. The field name on the left of each line is what gets written out. See [Input and Output](../core-concepts/input-and-output.md) for the full picture.
+
 Test it:
 
 ```bash

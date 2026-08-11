@@ -62,7 +62,7 @@ flow "get_order" {
   }
 
   transform {
-    output.OrderID = input.id
+    OrderID = "input.id"
   }
 
   to {
@@ -109,9 +109,9 @@ flow "handle_create_order" {
   }
 
   transform {
-    output.id    = uuid()
-    output.name  = input.OrderName
-    output.total = input.OrderTotal
+    id    = "uuid()"
+    name  = "input.OrderName"
+    total = "input.OrderTotal"
   }
 
   to {

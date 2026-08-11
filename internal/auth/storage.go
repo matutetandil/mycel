@@ -108,8 +108,8 @@ type BruteForceStore interface {
 
 // MemoryUserStore implements UserStore in memory (for development/testing)
 type MemoryUserStore struct {
-	mu    sync.RWMutex
-	users map[string]*User
+	mu      sync.RWMutex
+	users   map[string]*User
 	byEmail map[string]string // email -> id
 }
 

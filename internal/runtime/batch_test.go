@@ -17,11 +17,11 @@ type mockBatchReader struct {
 	err  error
 }
 
-func (m *mockBatchReader) Name() string                        { return m.name }
-func (m *mockBatchReader) Type() string                        { return "mock" }
-func (m *mockBatchReader) Connect(ctx context.Context) error   { return nil }
-func (m *mockBatchReader) Close(ctx context.Context) error     { return nil }
-func (m *mockBatchReader) Health(ctx context.Context) error    { return nil }
+func (m *mockBatchReader) Name() string                      { return m.name }
+func (m *mockBatchReader) Type() string                      { return "mock" }
+func (m *mockBatchReader) Connect(ctx context.Context) error { return nil }
+func (m *mockBatchReader) Close(ctx context.Context) error   { return nil }
+func (m *mockBatchReader) Health(ctx context.Context) error  { return nil }
 
 func (m *mockBatchReader) Read(ctx context.Context, query connector.Query) (*connector.Result, error) {
 	if m.err != nil {
@@ -58,11 +58,11 @@ type mockBatchWriter struct {
 	writeCount int // tracks total write calls (including failures)
 }
 
-func (m *mockBatchWriter) Name() string                        { return m.name }
-func (m *mockBatchWriter) Type() string                        { return "mock" }
-func (m *mockBatchWriter) Connect(ctx context.Context) error   { return nil }
-func (m *mockBatchWriter) Close(ctx context.Context) error     { return nil }
-func (m *mockBatchWriter) Health(ctx context.Context) error    { return nil }
+func (m *mockBatchWriter) Name() string                      { return m.name }
+func (m *mockBatchWriter) Type() string                      { return "mock" }
+func (m *mockBatchWriter) Connect(ctx context.Context) error { return nil }
+func (m *mockBatchWriter) Close(ctx context.Context) error   { return nil }
+func (m *mockBatchWriter) Health(ctx context.Context) error  { return nil }
 
 func (m *mockBatchWriter) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
 	if m.failAt >= 0 && m.writeCount == m.failAt {
@@ -196,9 +196,9 @@ func TestBatchWithTransform(t *testing.T) {
 		OnError:   "stop",
 		Transform: &flow.TransformConfig{
 			Mappings: map[string]string{
-				"id":        "input.id",
-				"email":     "input.email.lowerAscii()",
-				"migrated":  "true",
+				"id":       "input.id",
+				"email":    "input.email.lowerAscii()",
+				"migrated": "true",
 			},
 		},
 		To: &flow.ToConfig{

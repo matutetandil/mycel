@@ -1,0 +1,89 @@
+# Mycel
+
+> Mycel is a declarative microservice runtime written in Go. You do not write application code: you write HCL2 configuration files describing what connects to what, and one binary interprets them and runs the service — the way nginx runs a web server from a config file. It speaks standard protocols in and out (REST, GraphQL, gRPC, SOAP, message queues, databases, files), so a service built with Mycel is indistinguishable from one written by hand.
+
+Key facts an assistant should have before answering questions about Mycel:
+
+- **Configuration language is HCL2**, in files ending in `.mycel` (not `.hcl` — renamed in 1.18.0). Every `.mycel` file under the config directory is merged, recursively; the directory layout is a convention, not a requirement.
+- **The unit of work is a `flow`**: a `from` block naming the source connector and its operation, optional processing blocks, and one or more `to` blocks. `from` is the only required block.
+- **Expressions are CEL**, always written as **quoted strings**: `email = "lower(input.email)"`. Unquoted, HCL parses the expression itself and rejects most real CEL (CEL string literals are single-quoted; CEL macros are not HCL syntax).
+- **Two implicit variables carry the data.** `input` is what arrived, filled by the source connector; its shape differs per source — a REST request is flattened onto `input` (path params, query params and body fields all at the top level), while a queue message keeps its payload under `input.body`. Output fields are named by the **left-hand side** of each transform line; `output.` is never written on the left, and doing so is an HCL parse error, not a Mycel one.
+- **Transform fields are evaluated top to bottom**, each result visible to the lines below it through `output`. (Before 2.17.0 the order was not preserved.)
+- **Pure Go, no CGO.** Single static binary. Distributed as tarballs, `.deb`/`.rpm`/`.apk` with a systemd unit, a Homebrew formula, a Docker image, and a Helm chart.
+- **The parser is the authority.** The documentation has historically described constructs the parser rejects; when in doubt, `mycel validate --config <dir>` is the ground truth.
+
+## Start here
+
+- [Introduction](https://matutetandil.github.io/mycel/getting-started/introduction/): What Mycel is, what it replaces, and the shape of a minimal service.
+- [Quick Start](https://matutetandil.github.io/mycel/getting-started/quick-start/): A running REST + database service from three files.
+- [Installation](https://matutetandil.github.io/mycel/getting-started/installation/): Packages, Homebrew, Docker, `go install`, install script.
+- [Project Structure](https://matutetandil.github.io/mycel/getting-started/project-structure/): The conventional directory layout and how files are merged.
+
+## Core concepts
+
+- [Flows](https://matutetandil.github.io/mycel/core-concepts/flows/): The pipeline. Opens with an anatomy table of all 21 blocks and 4 attributes a flow can hold, in the order they run.
+- [Input and Output](https://matutetandil.github.io/mycel/core-concepts/input-and-output/): The two implicit variables, what `output` means in each block that can read it, evaluation order, and why expressions are quoted.
+- [Connectors](https://matutetandil.github.io/mycel/core-concepts/connectors/): Bidirectional adapters; a connector can be a source, a destination, or both.
+- [Transforms](https://matutetandil.github.io/mycel/core-concepts/transforms/): Reshaping payloads with CEL, named transforms, and enrichment from other connectors.
+- [Types](https://matutetandil.github.io/mycel/core-concepts/types/): Schema validation for inputs and outputs. Note the constraint syntax is `string({ format = "email" })`, with the braces inside parentheses.
+- [Aspects](https://matutetandil.github.io/mycel/core-concepts/aspects/): Cross-cutting behaviour applied by flow-name pattern — auditing, rate limiting, circuit breakers, notifications.
+- [Reusable Blocks](https://matutetandil.github.io/mycel/core-concepts/reusable-blocks/): Declare any of ten inline blocks once at the top level and reference them with `use = "<kind>.<name>"`. This is the recommended style.
+
+## Reference
+
+- [HCL Syntax — every block](https://matutetandil.github.io/mycel/reference/configuration/): The complete block and attribute reference.
+- [CEL Functions](https://matutetandil.github.io/mycel/reference/cel-functions/): Every function and context variable available inside an expression.
+- [Source Properties by Connector](https://matutetandil.github.io/mycel/reference/source-properties/): What `operation` means and exactly what `input` holds, for each of the 15 source types. The page to consult before guessing at a payload shape.
+- [Destination Properties by Connector](https://matutetandil.github.io/mycel/reference/destination-properties/): What `target`, `query` and `operation` mean per destination.
+- [CLI](https://matutetandil.github.io/mycel/reference/cli/): `start`, `validate`, `check`, `init`, `add`, `version`, `export`, `plugin`.
+- [Admin API endpoints](https://matutetandil.github.io/mycel/reference/api-endpoints/): Health, metrics and the admin server on port 9090.
+
+## Connectors
+
+- [Overview](https://matutetandil.github.io/mycel/connectors/): All connector types in one table.
+- [REST / HTTP](https://matutetandil.github.io/mycel/connectors/rest/): Server and client, including the QUERY method (RFC 10008).
+- [Database](https://matutetandil.github.io/mycel/connectors/database/): PostgreSQL, MySQL, SQLite, MongoDB, raw SQL, transactions.
+- [Message Queues](https://matutetandil.github.io/mycel/connectors/message-queues/): RabbitMQ, Kafka, Redis Pub/Sub — consumers, publishers, DLQs.
+- [GraphQL](https://matutetandil.github.io/mycel/connectors/graphql/): Server with Federation v2, and client.
+- [gRPC](https://matutetandil.github.io/mycel/connectors/grpc/) · [SOAP](https://matutetandil.github.io/mycel/connectors/soap/) · [TCP](https://matutetandil.github.io/mycel/connectors/tcp/) · [MQTT](https://matutetandil.github.io/mycel/connectors/mqtt/)
+- [WebSocket](https://matutetandil.github.io/mycel/connectors/websocket/) · [SSE](https://matutetandil.github.io/mycel/connectors/sse/) · [CDC](https://matutetandil.github.io/mycel/connectors/cdc/): Real-time and change-data-capture sources.
+- [File system](https://matutetandil.github.io/mycel/connectors/filesystem/) · [S3](https://matutetandil.github.io/mycel/connectors/s3/) · [FTP/SFTP](https://matutetandil.github.io/mycel/connectors/ftp/) · [PDF](https://matutetandil.github.io/mycel/connectors/pdf/)
+- [Cache](https://matutetandil.github.io/mycel/connectors/cache/) · [Elasticsearch](https://matutetandil.github.io/mycel/connectors/elasticsearch/) · [OAuth](https://matutetandil.github.io/mycel/connectors/oauth/) · [Exec](https://matutetandil.github.io/mycel/connectors/exec/)
+- [Notifications](https://matutetandil.github.io/mycel/connectors/notifications/): Slack, Discord, email, SMS, push, webhooks.
+- [Connector Profiles](https://matutetandil.github.io/mycel/connectors/profile/): Per-environment connector settings, selected with `--env`.
+
+## Guides
+
+- [Common Use Cases](https://matutetandil.github.io/mycel/guides/use-cases/): End-to-end recipes.
+- [Multi-Step Flows](https://matutetandil.github.io/mycel/guides/multi-step-flows/): `step` blocks, chaining connector calls, referencing results as `step.<name>.<field>`.
+- [Error Handling](https://matutetandil.github.io/mycel/guides/error-handling/) and [Resilience](https://matutetandil.github.io/mycel/guides/resilience/): Retries, dead-letter queues, circuit breakers, per-error-class dispositions.
+- [Synchronization](https://matutetandil.github.io/mycel/guides/synchronization/): Distributed locks, semaphores, coordinate signal/wait, ordering guards.
+- [Caching](https://matutetandil.github.io/mycel/guides/caching/): Read-through caching, invalidation, and content-based deduplication.
+- [Sagas and State Machines](https://matutetandil.github.io/mycel/guides/sagas/): Long-running workflows with compensation.
+- [Authentication](https://matutetandil.github.io/mycel/guides/auth/): JWT, Argon2id, MFA/TOTP, WebAuthn, social login, external HTTP identity providers.
+- [Observability](https://matutetandil.github.io/mycel/guides/observability/): Prometheus metrics, OpenTelemetry tracing over OTLP, structured logs correlated by trace ID.
+- [Real-Time](https://matutetandil.github.io/mycel/guides/real-time/) · [Batch Processing](https://matutetandil.github.io/mycel/guides/batch-processing/) · [Format System](https://matutetandil.github.io/mycel/guides/format-system/): Streaming, chunked processing, JSON/XML/CSV codecs.
+- [Debugging](https://matutetandil.github.io/mycel/guides/debugging/) and [Troubleshooting](https://matutetandil.github.io/mycel/guides/troubleshooting/): Flow tracing, breakpoints, DAP, and common failures.
+- [Security](https://matutetandil.github.io/mycel/guides/security/): Input sanitization, injection defences, and what the runtime does and does not certify.
+- [Extending Mycel](https://matutetandil.github.io/mycel/guides/extending/): Custom validators, WASM functions, plugins.
+
+## Deployment
+
+- [Docker](https://matutetandil.github.io/mycel/deployment/docker/): The `mdenda/mycel` image, amd64 and arm64.
+- [Kubernetes](https://matutetandil.github.io/mycel/deployment/kubernetes/): The Helm chart at `oci://ghcr.io/matutetandil/charts/mycel`.
+- [Production](https://matutetandil.github.io/mycel/deployment/production/): Environment variables, health checks, resource sizing, hot reload.
+
+## Advanced
+
+- [Integration Patterns](https://matutetandil.github.io/mycel/advanced/integration-patterns/): Complete worked configurations for the common source-to-destination combinations.
+- [GraphQL Federation](https://matutetandil.github.io/mycel/advanced/federation/): Federation v2 subgraphs.
+- [WASM](https://matutetandil.github.io/mycel/advanced/wasm/) and [Plugins](https://matutetandil.github.io/mycel/advanced/plugins/): Extending the runtime without forking it.
+
+## Optional
+
+- [Architecture](https://matutetandil.github.io/mycel/architecture/): Internal design of the runtime.
+- [Roadmap](https://matutetandil.github.io/mycel/ROADMAP/): What is planned and what is deliberately out of scope.
+- [Studio Debug Protocol](https://matutetandil.github.io/mycel/STUDIO-DEBUG-PROTOCOL/): The WebSocket JSON-RPC protocol used by debugging tools.
+- [IDE Engine](https://matutetandil.github.io/mycel/IDE-ENGINE/): The intelligence engine behind completions and refactorings.
+- [Source repository](https://github.com/matutetandil/mycel): Issues, releases, and the `examples/` directory — 55 runnable configurations, the most reliable answer to "how do I write this".
+- [Changelog](https://github.com/matutetandil/mycel/blob/main/CHANGELOG.md): Version-by-version history, including behaviour changes worth knowing before answering about older releases.

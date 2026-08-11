@@ -57,7 +57,7 @@ flow "search_products" {
     body = {
       "query" = {
         "multi_match" = {
-          "query"  = "input.query.q"
+          "query"  = "input.q"
           "fields" = ["name^2", "description"]
         }
       }

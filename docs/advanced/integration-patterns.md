@@ -337,9 +337,9 @@ connector "users_rest" {
   base_url = "https://api.example.com"
 
   auth {
-    type   = "api_key"
-    header = "X-API-Key"
-    key    = env("USERS_API_KEY")
+    type           = "api_key"
+    api_key_header = "X-API-Key"
+    api_key        = env("USERS_API_KEY")
   }
 
   timeout = "30s"
@@ -535,10 +535,10 @@ flow "process_order" {
   }
 
   transform {
-    id           = "input.order_id"
-    product      = "input.product"
-    quantity     = "input.quantity"
-    customer     = "input.customer.email"
+    id           = "input.body.order_id"
+    product      = "input.body.product"
+    quantity     = "input.body.quantity"
+    customer     = "input.body.customer.email"
     status       = "'pending'"
     received_at  = "now()"
   }
@@ -557,10 +557,10 @@ flow "new_order_notification" {
   }
 
   transform {
-    order_id   = "input.order_id"
-    email      = "input.customer.email"
+    order_id   = "input.body.order_id"
+    email      = "input.body.customer.email"
     subject    = "'New Order Received'"
-    message    = "'Your order ' + input.order_id + ' has been received.'"
+    message    = "'Your order ' + input.body.order_id + ' has been received.'"
     created_at = "now()"
   }
 
@@ -1149,8 +1149,10 @@ flow "name" {
   # Optional: enrich from external services
   enrich "name" {
     connector = "other_connector"
-    operation = "..."
-    params { ... }
+    operation = "GET /lookup"
+    params {
+      id = "input.id"
+    }
   }
 
   # Optional: transform data
@@ -1205,10 +1207,13 @@ transform {
 - [Transformations Guide](../core-concepts/transforms.md)
 
 ---
-
 ## Event-Driven Integration Patterns
 
-The following patterns show complete, production-ready examples for event-driven architectures with RabbitMQ as the central message broker. All examples are available in `examples/integration/`.
+The following patterns show complete examples for event-driven architectures with RabbitMQ as the central message broker. Each one is backed by a runnable configuration in `examples/integration/`.
+
+A note that applies to all of them: queue, exchange and consumer settings live on the **connector**, not inside the flow's `from` block. A flow names a connector and an operation — for a queue consumer the operation is the routing key or queue it handles, and for a publisher it is the routing key to publish under.
+
+A message consumed from a queue arrives as `input.body` (the decoded payload), plus `input.routing_key`, `input.exchange`, `input.headers` and `input.properties`. See [Input and Output](../core-concepts/input-and-output.md).
 
 ### Pattern: RabbitMQ → REST
 
@@ -1223,58 +1228,63 @@ The following patterns show complete, production-ready examples for event-driven
 connector "rabbit" {
   type   = "mq"
   driver = "rabbitmq"
-  host   = env("RABBIT_HOST")
-  # ...
+
+  host     = env("RABBIT_HOST", "localhost")
+  port     = env("RABBIT_PORT", 5672)
+  username = env("RABBIT_USER", "guest")
+  password = env("RABBIT_PASS", "guest")
+
+  queue {
+    name    = "orders.pending"
+    durable = true
+  }
+
+  exchange {
+    name        = "orders"
+    type        = "topic"
+    durable     = true
+    routing_key = "order.created"
+  }
+
+  consumer {
+    auto_ack = false
+    prefetch = 10
+
+    dlq {
+      enabled     = true
+      queue       = "orders.pending.dlq"
+      max_retries = 3
+    }
+  }
 }
 
 connector "fulfillment_api" {
-  type     = "rest"
-  mode     = "client"
+  type     = "http"
   base_url = env("FULFILLMENT_API_URL")
+  timeout  = "30s"
 
   auth {
-    type = "bearer"
-    bearer { token = env("API_TOKEN") }
-  }
-
-  retry {
-    attempts = 3
-    backoff  = "exponential"
-  }
-
-  circuit_breaker {
-    threshold = 5
-    timeout   = "30s"
+    type  = "bearer"
+    token = env("API_TOKEN")
   }
 }
 
 flow "process_order" {
   from {
-    connector.rabbit = {
-      queue   = "orders.pending"
-      durable = true
-
-      bind {
-        exchange    = "orders"
-        routing_key = "order.created"
-      }
-
-      dlq {
-        enabled     = true
-        queue       = "orders.pending.dlq"
-        max_retries = 3
-      }
-    }
+    connector = "rabbit"
+    operation = "orders.pending"
   }
 
   transform {
-    output.external_id = "input.body.order_id"
-    output.customer    = "input.body.customer"
-    output.items       = "input.body.items"
+    external_id = "input.body.order_id"
+    customer    = "input.body.customer"
+    items       = "input.body.items"
+    priority    = "input.body.priority == 'express' ? 'high' : 'normal'"
   }
 
   to {
-    connector.fulfillment_api = "POST /v1/shipments"
+    connector = "fulfillment_api"
+    operation = "POST /v1/shipments"
   }
 }
 ```
@@ -1292,46 +1302,31 @@ flow "process_order" {
 - Sync user data to Hasura/Apollo backend
 - Trigger mutations based on domain events
 
+The transform builds the mutation's variables; the `to` block names the operation on the remote schema.
+
 ```hcl
 connector "inventory_graphql" {
   type     = "graphql"
   mode     = "client"
   endpoint = env("INVENTORY_GRAPHQL_URL")
-
-  auth {
-    type = "bearer"
-    bearer { token = env("GRAPHQL_TOKEN") }
-  }
+  timeout  = "30s"
 }
 
 flow "update_inventory" {
   from {
-    connector.rabbit = {
-      queue   = "inventory.updates"
-      durable = true
+    connector = "rabbit"
+    operation = "inventory.updates"
+  }
 
-      bind {
-        exchange    = "inventory"
-        routing_key = "stock.changed"
-      }
-    }
+  transform {
+    sku       = "input.body.sku"
+    quantity  = "input.body.new_quantity"
+    warehouse = "input.body.warehouse_id"
   }
 
   to {
-    connector.inventory_graphql = {
-      query = <<GRAPHQL
-        mutation UpdateStock($sku: String!, $quantity: Int!) {
-          updateInventory(input: { sku: $sku, quantity: $quantity }) {
-            success
-            inventory { id, sku, quantity }
-          }
-        }
-      GRAPHQL
-      variables {
-        sku      = "${input.body.sku}"
-        quantity = "${input.body.new_quantity}"
-      }
-    }
+    connector = "inventory_graphql"
+    operation = "updateInventory"
   }
 }
 ```
@@ -1350,43 +1345,45 @@ flow "update_inventory" {
 - Execute legacy system integrations
 - Trigger batch jobs
 
+The command belongs to the connector, so one connector describes one script. The semaphore caps how many run at once.
+
 ```hcl
-connector "exec" {
-  type        = "exec"
-  working_dir = "/app/scripts"
-  timeout     = "5m"
-  shell       = "/bin/bash"
+connector "image_processor" {
+  type   = "exec"
+  driver = "local"
+
+  command       = "./process_image.sh"
+  working_dir   = env("SCRIPTS_DIR", "/app/scripts")
+  timeout       = "3m"
+  shell         = "/bin/bash"
+  input_format  = "json"
+  output_format = "json"
 }
 
 flow "process_image" {
-  # Limit concurrent image processing
+  # At most three images being processed at any moment.
   semaphore {
-    key     = "image_processing"
-    permits = 3
-    storage = "memory"
-    on_fail = "wait"
+    storage {
+      driver = "memory"
+    }
+    key         = "'image_processing'"
+    max_permits = 3
+    timeout     = "5m"
   }
 
   from {
-    connector.rabbit = {
-      queue = "images.processing"
-      bind {
-        exchange    = "images"
-        routing_key = "image.*"
-      }
-    }
+    connector = "rabbit"
+    operation = "images.processing"
+  }
+
+  transform {
+    source_path = "input.body.source_path"
+    dest_path   = "input.body.dest_path"
+    operation   = "input.body.operation"
   }
 
   to {
-    connector.exec = {
-      command = "./process_image.sh"
-      args    = [
-        "${input.body.source_path}",
-        "${input.body.dest_path}",
-        "${input.body.operation}"
-      ]
-      timeout = "3m"
-    }
+    connector = "image_processor"
   }
 }
 ```
@@ -1404,22 +1401,33 @@ flow "process_image" {
 - Webhook receivers that queue events for async processing
 - Command endpoints that trigger background jobs
 
+A REST request arrives flattened onto `input` — path parameters, query parameters and body fields all at the top level — so a `:provider` in the route is read as `input.provider`.
+
 ```hcl
+service {
+  name = "api-gateway"
+
+  rate_limit {
+    enabled             = true
+    requests_per_second = 1000
+    burst               = 200
+    key_extractor       = "ip"
+  }
+}
+
 connector "api" {
   type = "rest"
   mode = "server"
-  port = 8080
-
-  rate_limit {
-    requests = 1000
-    window   = "1m"
-    by       = "ip"
-  }
+  port = env("API_PORT", 8080)
 }
 
 connector "rabbit" {
   type   = "mq"
   driver = "rabbitmq"
+
+  host     = env("RABBIT_HOST", "localhost")
+  username = env("RABBIT_USER", "guest")
+  password = env("RABBIT_PASS", "guest")
 
   exchange {
     name    = "events"
@@ -1430,59 +1438,52 @@ connector "rabbit" {
 
 flow "create_order" {
   from {
-    connector.api = "POST /orders"
+    connector = "api"
+    operation = "POST /orders"
   }
 
   transform {
-    output.order_id   = "input.order_id ?? uuid()"
-    output.customer   = "input.customer"
-    output.items      = "input.items"
-    output.created_at = "now()"
+    order_id   = "input.order_id ?? uuid()"
+    customer   = "input.customer"
+    items      = "input.items"
+    created_at = "now()"
   }
 
   to {
-    connector.rabbit = {
-      exchange    = "events"
-      routing_key = "order.created"
-      persistent  = true
-
-      headers {
-        "x-request-id" = "${context.request_id}"
-      }
-    }
+    connector  = "rabbit"
+    operation  = "order.created"
+    persistent = true
   }
 
+  # The response block shapes what the caller gets back. Each field is a CEL
+  # expression, and `output` here is what the destination returned.
   response {
-    status = 202
-    body = {
-      message  = "Order received"
-      order_id = "${output.order_id}"
-    }
+    message  = "'Order received'"
+    order_id = "output.order_id"
   }
 }
 
 flow "receive_webhook" {
   from {
-    connector.api = "POST /webhooks/:provider"
+    connector = "api"
+    operation = "POST /webhooks/:provider"
   }
 
   transform {
-    output.provider   = "input.params.provider"
-    output.event_type = "input.headers['x-event-type']"
-    output.payload    = "input.body"
+    provider   = "input.provider"
+    event_type = "input.headers['x-event-type']"
+    payload    = "input"
+    created_at = "now()"
   }
 
   to {
-    connector.rabbit = {
-      exchange    = "events"
-      routing_key = "'webhook.' + output.provider + '.' + output.event_type"
-      persistent  = true
-    }
+    connector  = "rabbit"
+    operation  = "webhook.received"
+    persistent = true
   }
 
   response {
-    status = 200
-    body   = { received = true }
+    received = "true"
   }
 }
 ```
@@ -1493,23 +1494,31 @@ flow "receive_webhook" {
 
 ### Pattern: File → RabbitMQ (Scheduled Import)
 
-**Use case:** Read files periodically and publish content to queue.
+**Use case:** Read files periodically and publish content to a queue.
 
 **Common scenarios:**
 - Process drop folders (CSV imports, data feeds)
 - Watch for new files and trigger processing
 - Batch file processing on schedule
-- Log file tailing and event streaming
+
+A flow with a `when` attribute runs on a cron schedule instead of waiting for an event. A file source sets `input._path`, `input._name` and `input._event`; a multi-row file such as a CSV also sets `input.rows`, while a single-row file is flattened onto `input` directly.
 
 ```hcl
 connector "files" {
-  type      = "file"
-  base_path = "/data"
+  type = "file"
+
+  base_path   = env("FILES_BASE_PATH", "/data")
+  format      = "csv"
+  create_dirs = true
 }
 
 connector "rabbit" {
   type   = "mq"
   driver = "rabbitmq"
+
+  host     = env("RABBIT_HOST", "localhost")
+  username = env("RABBIT_USER", "guest")
+  password = env("RABBIT_PASS", "guest")
 
   exchange {
     name    = "imports"
@@ -1518,63 +1527,49 @@ connector "rabbit" {
   }
 }
 
+# Every day at 6am.
 flow "process_daily_import" {
-  when = "0 6 * * *"  # Every day at 6am
+  when = "0 6 * * *"
 
   from {
-    connector.files = {
-      path   = "imports/daily/*.csv"
-      format = "csv"
-      glob   = true
-
-      csv {
-        delimiter = ","
-        header    = true
-      }
-
-      on_success { move_to = "imports/archive/" }
-      on_error   { move_to = "imports/failed/" }
-    }
+    connector = "files"
+    operation = "imports/daily/*.csv"
   }
 
-  foreach "row" in "input.rows" {
-    transform {
-      output.record_id   = "row.id ?? uuid()"
-      output.data        = "row"
-      output.source      = "input.file_name"
-      output.imported_at = "now()"
-    }
-
-    to {
-      connector.rabbit = {
-        exchange    = "imports"
-        routing_key = "import.daily.record"
-        persistent  = true
-      }
-    }
-  }
-}
-
-flow "watch_drop_folder" {
-  when = "@every 30s"
-
-  from {
-    connector.files = {
-      path = "dropbox/*.json"
-      glob = true
-
-      filter {
-        newer_than = "30s"
-      }
-    }
+  transform {
+    batch_id    = "uuid()"
+    source      = "input._name"
+    rows        = "input.rows"
+    row_count   = "size(input.rows)"
+    imported_at = "now()"
   }
 
   to {
-    connector.rabbit = {
-      exchange    = "imports"
-      routing_key = "file.dropped"
-      persistent  = true
-    }
+    connector  = "rabbit"
+    operation  = "import.daily.batch"
+    persistent = true
+  }
+}
+
+# A watcher publishes one message per file as it lands.
+flow "watch_drop_folder" {
+  from {
+    connector = "files"
+    operation = "dropbox/*.json"
+  }
+
+  transform {
+    file_id      = "uuid()"
+    file_name    = "input._name"
+    file_path    = "input._path"
+    event        = "input._event"
+    processed_at = "now()"
+  }
+
+  to {
+    connector  = "rabbit"
+    operation  = "file.dropped"
+    persistent = true
   }
 }
 ```
@@ -1608,59 +1603,111 @@ Real-world systems combine multiple patterns:
 
 ### Example: Order Processing Pipeline
 
+Five flows, each consuming what the previous one published. The stages are wired
+by routing key, so no flow knows about the next one.
+
 ```hcl
-# 1. Receive order via API
+# 1. Receive the order over HTTP and publish it.
 flow "receive_order" {
-  from { connector.api = "POST /orders" }
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+
+  transform {
+    order_id   = "input.order_id ?? uuid()"
+    customer   = "input.customer"
+    items      = "input.items"
+    received_at = "now()"
+  }
+
   to {
-    connector.rabbit = {
-    exchange         = "orders",
-    routing_key      = "order.received" }
+    connector  = "rabbit"
+    operation  = "order.received"
+    persistent = true
   }
 }
 
-# 2. Validate inventory
+# 2. Reserve stock through the inventory service.
 flow "validate_inventory" {
   from {
-    connector.rabbit = {
-    queue            = "orders.validation" }
+    connector = "rabbit"
+    operation = "order.received"
   }
+
+  transform {
+    orderId = "input.body.order_id"
+    items   = "input.body.items"
+  }
+
   to {
-    connector.inventory_graphql = {
-    query                       = "..." }
+    connector = "inventory_graphql"
+    operation = "reserveStock"
   }
 }
 
-# 3. Process payment
+# 3. Charge the customer. The lock keeps a redelivered message from
+#    charging twice.
 flow "process_payment" {
-  from {
-    connector.rabbit = {
-    queue            = "orders.payment" }
+  lock {
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
+    key     = "'payment:' + input.body.order_id"
+    timeout = "5m"
   }
-  to   { connector.payment_api = "POST /v1/charges" }
+
+  from {
+    connector = "rabbit"
+    operation = "order.validated"
+  }
+
+  transform {
+    amount   = "input.body.total"
+    currency = "input.body.currency ?? 'USD'"
+    customer = "input.body.customer_id"
+  }
+
+  to {
+    connector = "payment_api"
+    operation = "POST /v1/charges"
+  }
 }
 
-# 4. Generate invoice PDF
+# 4. Generate the invoice PDF.
 flow "generate_invoice" {
   from {
-    connector.rabbit = {
-    queue            = "orders.invoice" }
+    connector = "rabbit"
+    operation = "order.paid"
   }
+
+  transform {
+    order_id = "input.body.order_id"
+    customer = "input.body.customer"
+    total    = "input.body.total"
+  }
+
   to {
-    connector.exec = {
-    command        = "./generate_invoice.py" }
+    connector = "invoice_generator"
   }
 }
 
-# 5. Notify customer
+# 5. Tell the customer.
 flow "send_notification" {
   from {
-    connector.rabbit = {
-    queue            = "orders.notify" }
+    connector = "rabbit"
+    operation = "order.invoiced"
   }
+
+  transform {
+    to      = "input.body.customer.email"
+    subject = "'Your order ' + input.body.order_id"
+    body    = "'Thanks! Your invoice is attached.'"
+  }
+
   to {
-    connector.email = {
-    to              = "${input.body.customer.email}" }
+    connector = "email"
   }
 }
 ```
@@ -1671,10 +1718,23 @@ flow "send_notification" {
 
 ### 1. Always Use DLQ for Critical Flows
 
+A message that keeps failing has to go somewhere other than back onto the queue.
+The dead-letter queue is configured on the consumer, alongside the retry count
+that decides when a message has failed enough times.
+
 ```hcl
-from {
-  connector.rabbit = {
-    queue = "critical.queue"
+connector "rabbit" {
+  type   = "mq"
+  driver = "rabbitmq"
+  host   = env("RABBIT_HOST", "localhost")
+
+  queue {
+    name    = "critical.queue"
+    durable = true
+  }
+
+  consumer {
+    auto_ack = false
 
     dlq {
       enabled     = true
@@ -1694,12 +1754,26 @@ flow "call_rate_limited_api" {
       driver = "redis"
       url    = env("REDIS_URL", "redis://localhost:6379")
     }
-    key     = "external_api"
-    permits = 5  # Max 5 concurrent calls
+    key         = "'external_api'"
+    max_permits = 5           # At most five concurrent calls
+    timeout     = "30s"       # How long to wait for a permit
   }
-  # ...
+
+  from {
+    connector = "rabbit"
+    operation = "api.calls"
+  }
+
+  to {
+    connector = "external_api"
+    operation = "POST /v1/items"
+  }
 }
 ```
+
+`key` is a CEL expression, which is why the constant above is quoted twice —
+once for HCL, once for CEL. Make it depend on the message to get one permit
+pool per tenant, account or resource.
 
 ### 3. Use Locks for Non-Idempotent Operations
 
@@ -1712,21 +1786,35 @@ flow "process_payment" {
     }
     key     = "'payment:' + input.body.payment_id"
     timeout = "5m"
+    wait    = false           # Fail fast rather than queue behind the holder
   }
-  # ...
+
+  from {
+    connector = "rabbit"
+    operation = "payments.pending"
+  }
+
+  to {
+    connector = "payment_api"
+    operation = "POST /v1/charges"
+  }
 }
 ```
 
 ### 4. Configure Circuit Breakers for External Services
 
+A circuit breaker is an aspect, so one declaration covers every flow whose name
+matches — you do not repeat it per flow.
+
 ```hcl
-connector "external_api" {
-  type = "rest"
+aspect "protect_external_calls" {
+  when = "around"
+  on   = ["call_*", "sync_*"]
 
   circuit_breaker {
-    threshold         = 5
-    timeout           = "30s"
-    success_threshold = 2
+    failure_threshold = 5      # Consecutive failures that open the circuit
+    success_threshold = 2      # Successes needed to close it again
+    timeout           = "30s"  # How long it stays open before a trial call
   }
 }
 ```
@@ -1734,17 +1822,19 @@ connector "external_api" {
 ### 5. Use Appropriate Message Persistence
 
 ```hcl
-# Critical messages - persistent
+# Critical messages — survive a broker restart.
 to {
-  connector.rabbit = {
-    persistent = true  # Survives broker restart
-  }
+  connector  = "rabbit"
+  operation  = "order.created"
+  persistent = true
 }
+```
 
-# Ephemeral messages - non-persistent
+```hcl
+# Ephemeral messages — faster, lost on restart.
 to {
-  connector.rabbit = {
-    persistent = false  # Faster, but lost on restart
-  }
+  connector  = "rabbit"
+  operation  = "metrics.sample"
+  persistent = false
 }
 ```

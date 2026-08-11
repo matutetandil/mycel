@@ -482,9 +482,9 @@ flow "import_csv" {
   }
 
   transform {
-    output.file   = input._path
-    output.name   = input._name
-    output.data   = input.rows
+    file = "input._path"
+    name = "input._name"
+    data = "input.rows"
   }
 
   to {

@@ -748,10 +748,7 @@ func (h *FlowHandler) sendToFallback(ctx context.Context, input map[string]inter
 
 	// Apply transform if configured
 	if len(fb.Transform) > 0 && h.Transformer != nil {
-		rules := make([]transform.Rule, 0, len(fb.Transform))
-		for target, expr := range fb.Transform {
-			rules = append(rules, transform.Rule{Target: target, Expression: expr})
-		}
+		rules := transform.RulesFromMappings(fb.Transform, fb.TransformOrder)
 		// Build context with input and error
 		data := map[string]interface{}{
 			"input": input,
@@ -810,10 +807,7 @@ func (h *FlowHandler) wrapErrorResponse(ctx context.Context, input map[string]in
 	// Build response body using CEL transforms
 	var body map[string]interface{}
 	if len(er.Body) > 0 && h.Transformer != nil {
-		rules := make([]transform.Rule, 0, len(er.Body))
-		for target, expr := range er.Body {
-			rules = append(rules, transform.Rule{Target: target, Expression: expr})
-		}
+		rules := transform.RulesFromMappings(er.Body, er.BodyOrder)
 
 		data := map[string]interface{}{
 			"input": input,
@@ -1949,12 +1943,7 @@ func (h *FlowHandler) executeBatch(ctx context.Context, input map[string]interfa
 	// Build transform rules for per-item transforms if configured
 	var itemRules []transform.Rule
 	if batch.Transform != nil && batch.Transform.Mappings != nil {
-		for target, expr := range batch.Transform.Mappings {
-			itemRules = append(itemRules, transform.Rule{
-				Target:     target,
-				Expression: expr,
-			})
-		}
+		itemRules = transform.RulesFromMappings(batch.Transform.Mappings, batch.Transform.Order)
 	}
 
 	batchResult := &flow.BatchResult{}
@@ -2180,13 +2169,7 @@ func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]inte
 	}
 
 	// Build transform rules from mappings
-	var rules []transform.Rule
-	for target, expr := range h.Config.Transform.Mappings {
-		rules = append(rules, transform.Rule{
-			Target:     target,
-			Expression: expr,
-		})
-	}
+	rules := transform.RulesFromMappings(h.Config.Transform.Mappings, h.Config.Transform.Order)
 
 	// Create CEL transformer if not already available
 	celTransformer := h.Transformer
@@ -2637,13 +2620,7 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 		transformInput["output"] = basePayload
 
 		// Convert map[string]string to []transform.Rule
-		var rules []transform.Rule
-		for target, expr := range destConfig.Transform {
-			rules = append(rules, transform.Rule{
-				Target:     target,
-				Expression: expr,
-			})
-		}
+		rules := transform.RulesFromMappings(destConfig.Transform, destConfig.TransformOrder)
 
 		transformedPayload, err := h.Transformer.TransformWithSteps(ctx, transformInput, nil, nil, rules)
 		if err != nil {
@@ -3282,10 +3259,7 @@ func (h *FlowHandler) applyResponseTransform(ctx context.Context, input map[stri
 	}
 
 	// Build rules from response config
-	rules := make([]transform.Rule, 0, len(h.Config.Response))
-	for target, expr := range h.Config.Response {
-		rules = append(rules, transform.Rule{Target: target, Expression: expr})
-	}
+	rules := transform.RulesFromMappings(h.Config.Response, h.Config.ResponseOrder)
 
 	// Build context: input = original request, output = destination result
 	output := make(map[string]interface{})
@@ -3379,30 +3353,30 @@ func (h *FlowHandler) applyTransformsWithSteps(ctx context.Context, input map[st
 		return input, stepResults, nil
 	}
 
-	// Build transform rules from config
-	var rules []transform.Rule
+	// Build transform rules from config. A named transform supplies the base
+	// mappings and the inline block layers over it: a field declared in both
+	// takes the inline expression but keeps the named block's position, so the
+	// fields below it see the same `output` either way.
+	mappings := h.Config.Transform.Mappings
+	order := h.Config.Transform.Order
 
-	// Check if using a named transform
 	if h.Config.Transform.Use != "" {
 		named, ok := h.NamedTransforms[h.Config.Transform.Use]
 		if !ok {
 			return nil, nil, fmt.Errorf("named transform not found: %s", h.Config.Transform.Use)
 		}
+		merged := make(map[string]string, len(named.Mappings)+len(mappings))
 		for target, expr := range named.Mappings {
-			rules = append(rules, transform.Rule{
-				Target:     target,
-				Expression: expr,
-			})
+			merged[target] = expr
 		}
+		for target, expr := range mappings {
+			merged[target] = expr
+		}
+		mappings = merged
+		order = transform.MergeOrder(named.Order, order)
 	}
 
-	// Add inline mappings (can extend named transform)
-	for target, expr := range h.Config.Transform.Mappings {
-		rules = append(rules, transform.Rule{
-			Target:     target,
-			Expression: expr,
-		})
-	}
+	rules := transform.RulesFromMappings(mappings, order)
 
 	// No rules to apply
 	if len(rules) == 0 {

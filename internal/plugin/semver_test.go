@@ -19,7 +19,7 @@ func TestParseVersion(t *testing.T) {
 		{"1.0", 1, 0, 0, false},
 		{"1", 1, 0, 0, false},
 		{"v10.20.30", 10, 20, 30, false},
-		{"1.2.3-beta.1", 1, 2, 3, false},   // pre-release stripped
+		{"1.2.3-beta.1", 1, 2, 3, false},    // pre-release stripped
 		{"1.2.3+build.123", 1, 2, 3, false}, // build metadata stripped
 		{"", 0, 0, 0, true},
 		{"abc", 0, 0, 0, true},

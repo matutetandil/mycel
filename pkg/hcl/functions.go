@@ -13,12 +13,12 @@ import (
 // Functions returns the custom HCL functions available in Mycel configs.
 func Functions() map[string]function.Function {
 	return map[string]function.Function{
-		"env":        EnvFunc,
-		"coalesce":   CoalesceFunc,
-		"file":       FileFunc,
+		"env":          EnvFunc,
+		"coalesce":     CoalesceFunc,
+		"file":         FileFunc,
 		"base64decode": Base64DecodeFunc,
 		"base64encode": Base64EncodeFunc,
-		"abspath":    AbsPathFunc,
+		"abspath":      AbsPathFunc,
 	}
 }
 

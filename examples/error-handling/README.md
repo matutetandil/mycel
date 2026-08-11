@@ -57,8 +57,8 @@ error_handling {
     status = 503
     headers = { "Retry-After" = "30" }
     body {
-      output.error   = "'service_unavailable'"
-      output.message = "'Payment service is temporarily unavailable.'"
+      error   = "'service_unavailable'"
+      message = "'Payment service is temporarily unavailable.'"
     }
   }
 }

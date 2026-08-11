@@ -15,9 +15,9 @@ func TestResolvePath_TraversalProtection(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		input     string
-		mustBeIn  string // resolved path must start with this
+		name     string
+		input    string
+		mustBeIn string // resolved path must start with this
 	}{
 		{
 			name:     "simple relative path",

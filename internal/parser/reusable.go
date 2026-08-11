@@ -5,6 +5,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
 // reusableKind describes one nameable + referenceable inline block (dedupe,
@@ -331,6 +332,7 @@ var reusableKinds = []reusableKind{
 					merged[k] = v
 				}
 				f.Response = merged
+				f.ResponseOrder = transform.MergeOrder(base.Order, f.ResponseOrder)
 				return nil
 			}
 		},

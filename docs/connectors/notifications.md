@@ -380,7 +380,7 @@ flow "send_order_confirmation" {
   step "order" {
     connector = "db"
     query     = "SELECT * FROM orders WHERE id = :id"
-    params    = { id = "input.params.id" }
+    params    = { id = "input.id" }
   }
 
   transform {
