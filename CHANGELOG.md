@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **Every vulnerability the image reported is fixed.** Publishing the chart on Artifact Hub turned on its Trivy scan, and 2.17.0 came back with 2 critical, 14 high, 13 medium and 5 low — all of them with a fix already released. The two critical ones were in the PostgreSQL driver. Bumped: `jackc/pgx` 5.8.0 → 5.9.2, `golang.org/x/crypto` 0.51.0 → 0.53.0 (nine highs), `golang.org/x/text` 0.37.0 → 0.39.0, `google.golang.org/grpc` 1.81.1 → 1.82.1, `xuri/excelize` 2.10.1 → 2.11.0, `mongo-driver` 1.17.6 → 1.17.7, `aws-sdk-go-v2` and `service/s3`, `filippo.io/edwards25519` 1.1.0 → 1.1.1, and `cel-go` 0.26.1 → 0.29.0. The runtime base moved from `alpine:3.19`, which is where the musl findings came from, to `alpine:3.22`. The rebuilt image scans clean at every severity.
+- The `cel-go` bump moves the engine every transform runs on, so it was checked beyond the unit tests: the same configuration was run against binaries built either side of the bump, exercising macros, `??`, string and aggregate functions, a chained `output` reference, `has()` and the CEL extensions. The results are identical.
+
 ## [2.17.0] - 2026-08-11
 
 ### Added
