@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The Helm chart mounted configuration the runtime ignores.** The ConfigMap wrote `service.hcl`, `connectors.hcl`, `flows.hcl` and `types.hcl`, and auto-discovery globbed `config/**.hcl` — but the runtime has only parsed `.mycel` since 1.18.0. Deploying with the chart mounted those files at `/etc/mycel` and started a service with an empty configuration, silently: no error, no warning, zero connectors and zero flows. Keys are now written as `.mycel`, and files dropped in `config/` are matched on both extensions and renamed, so a chart directory left over from before the rename keeps working.
+- **The chart's own default configuration did not parse.** `mycel.config.service` shipped a `service` block with a `port` attribute, which the parser rejects — the block takes `name`, `version` and `admin_port`, and a listening port belongs to the connector that listens. The extension bug had been hiding it, since the file was never read in the first place.
+
+### Added
+
+- **The Helm chart is signed.** Every release now signs the chart and both container images with cosign, keyless: the workflow's OIDC token is exchanged for a short-lived Fulcio certificate, so there is no private key to store or rotate. Signing is by digest, which covers every tag pointing at the same manifest. This is also what Artifact Hub looks for to mark the chart as signed.
+- **`values.schema.json` for the Helm chart.** Helm validates values against it on `install`, `upgrade`, `template` and `lint`, so a typo or a wrong type fails with a precise message — `additional properties 'replicasCount' not allowed` — instead of rendering broken manifests. Enums are pinned where the chart only accepts a fixed set (`logLevel`, `env`, `pullPolicy`, `service.type`, `pathType`), ports are range-checked, durations and paths are pattern-checked, and the keys of `mycel.config.extra` must end in `.mycel` for the same reason the ConfigMap fix exists. Artifact Hub renders it as a browsable reference.
+
 ## [2.17.1] - 2026-08-11
 
 ### Security

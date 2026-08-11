@@ -62,26 +62,26 @@ helm uninstall my-mycel
 
 ## Configuration
 
-Mycel on Kubernetes works exactly like Mycel locally: the same `.hcl` files define your service. The Helm chart takes care of packaging them into a Kubernetes ConfigMap and mounting them at `/etc/mycel` so the Mycel binary can read them.
+Mycel on Kubernetes works exactly like Mycel locally: the same `.mycel` files define your service. The Helm chart takes care of packaging them into a Kubernetes ConfigMap and mounting them at `/etc/mycel` so the Mycel binary can read them.
 
 There are three ways to provide your HCL configuration, from simplest to most flexible.
 
 ### Option 1: From Your HCL Directory (Recommended)
 
-Copy or symlink your project's `.hcl` files into the chart's `config/` directory. The chart auto-discovers every `.hcl` file and packages them into a ConfigMap — no listing, no flags.
+Copy or symlink your project's `.mycel` files into the chart's `config/` directory. The chart auto-discovers every `.mycel` file and packages them into a ConfigMap — no listing, no flags.
 
 **Example:** given a typical Mycel project:
 
 ```
 my-service/
-├── config.hcl
+├── config.mycel
 ├── connectors/
-│   ├── api.hcl
-│   └── database.hcl
+│   ├── api.mycel
+│   └── database.mycel
 ├── flows/
-│   └── users.hcl
+│   └── users.mycel
 └── types/
-    └── user.hcl
+    └── user.mycel
 ```
 
 Deploy it:
@@ -94,7 +94,7 @@ cp -r my-service/* helm/mycel/config/
 helm install my-service ./helm/mycel -f values.yaml
 ```
 
-The chart finds all `.hcl` files under `config/` recursively and flattens them into the ConfigMap (e.g., `connectors/api.hcl` becomes key `connectors_api.hcl`). Mycel reads them all regardless of filename.
+The chart finds all `.mycel` files under `config/` recursively and flattens them into the ConfigMap (e.g., `connectors/api.mycel` becomes key `connectors_api.mycel`). Mycel reads them all regardless of filename.
 
 > **Tip:** The `config/` directory is gitignored by default so each SysOps/environment can use different HCL files without committing them to the chart repo.
 
@@ -160,15 +160,15 @@ mycel:
     existingConfigMap: "my-mycel-config"
 ```
 
-The chart will skip creating its own ConfigMap and mount yours at `/etc/mycel`. Your ConfigMap must contain keys matching HCL filenames (e.g., `service.hcl`, `connectors.hcl`).
+The chart will skip creating its own ConfigMap and mount yours at `/etc/mycel`. Your ConfigMap must contain keys matching HCL filenames (e.g., `service.mycel`, `connectors.mycel`).
 
 Create it from your project directory:
 
 ```bash
 kubectl create configmap my-mycel-config \
-  --from-file=service.hcl=config.hcl \
-  --from-file=connectors.hcl=connectors/api.hcl \
-  --from-file=flows.hcl=flows/users.hcl
+  --from-file=service.mycel=config.mycel \
+  --from-file=connectors.mycel=connectors/api.mycel \
+  --from-file=flows.mycel=flows/users.mycel
 
 helm install my-service ./helm/mycel \
   --set mycel.config.existingConfigMap=my-mycel-config
@@ -317,10 +317,10 @@ podDisruptionBudget:
 | `mycel.hotReload` | Enable hot reload | `false` |
 | `mycel.config.enabled` | Enable ConfigMap | `true` |
 | `mycel.config.existingConfigMap` | Use an existing ConfigMap instead of creating one | `""` |
-| `mycel.config.service` | service.hcl content (supports `--set-file`) | See values.yaml |
-| `mycel.config.connectors` | connectors.hcl content | `""` |
-| `mycel.config.flows` | flows.hcl content | `""` |
-| `mycel.config.types` | types.hcl content | `""` |
+| `mycel.config.service` | service.mycel content (supports `--set-file`) | See values.yaml |
+| `mycel.config.connectors` | connectors.mycel content | `""` |
+| `mycel.config.flows` | flows.mycel content | `""` |
+| `mycel.config.types` | types.mycel content | `""` |
 | `mycel.config.extra` | Additional HCL files | `{}` |
 | `mycel.secrets.enabled` | Enable secrets | `false` |
 | `mycel.secrets.env` | Secret environment variables | `{}` |
