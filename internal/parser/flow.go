@@ -921,7 +921,11 @@ func parseTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Transfor
 		if !diags.HasErrors() {
 			// HCL evaluated it successfully - use the string value
 			// This handles quoted strings: "lower(input.email)" -> lower(input.email)
-			transform.Mappings[name] = val.AsString()
+			expr, err := mappingExpression(name, val)
+			if err != nil {
+				return nil, fmt.Errorf("transform block: %w", err)
+			}
+			transform.Mappings[name] = expr
 		} else {
 			// Try to extract raw expression for unquoted expressions
 			exprStr := extractExpressionText(attr.Expr)
@@ -934,6 +938,34 @@ func parseTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Transfor
 	}
 
 	return transform, nil
+}
+
+// mappingExpression turns an evaluated attribute value into the CEL expression
+// text stored for a mapping field.
+//
+// A mapping is normally a quoted string that HCL hands back verbatim. A bare
+// number or boolean is unambiguous — `count = 5` means the constant 5, and its
+// literal text is the CEL for it — so accept those too. Anything else has no
+// expression text, and calling AsString on it panics the whole binary with a Go
+// stack trace, so name the field and say what to do instead.
+func mappingExpression(field string, val cty.Value) (string, error) {
+	if val.IsNull() || !val.IsKnown() {
+		return "", fmt.Errorf("field %q has no value", field)
+	}
+	switch val.Type() {
+	case cty.String:
+		return val.AsString(), nil
+	case cty.Number:
+		return val.AsBigFloat().Text('f', -1), nil
+	case cty.Bool:
+		if val.True() {
+			return "true", nil
+		}
+		return "false", nil
+	default:
+		return "", fmt.Errorf("field %q must be a CEL expression in quotes, "+
+			"e.g. %s = \"input.value\" — got a %s", field, field, val.Type().FriendlyName())
+	}
 }
 
 // dropName removes a single name from a declaration-order list. Used for the
@@ -1441,7 +1473,11 @@ func parseTransformMappings(block *hcl.Block, ctx *hcl.EvalContext) (map[string]
 		attr := attrs[name]
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			mappings[name] = val.AsString()
+			expr, err := mappingExpression(name, val)
+			if err != nil {
+				return nil, nil, err
+			}
+			mappings[name] = expr
 		} else {
 			// Try to extract raw expression
 			exprStr := extractExpressionText(attr.Expr)
@@ -1802,7 +1838,11 @@ func parseNamedTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfor
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
 			// HCL evaluated it - use the string value
-			cfg.Mappings[name] = val.AsString()
+			expr, err := mappingExpression(name, val)
+			if err != nil {
+				return nil, fmt.Errorf("transform %q: %w", block.Labels[0], err)
+			}
+			cfg.Mappings[name] = expr
 		} else {
 			// Extract raw expression text for unquoted expressions
 			exprStr := extractExpressionText(attr.Expr)

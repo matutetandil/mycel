@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -218,4 +219,65 @@ flow "create_payment" {
 `)
 	assertOrder(t, cfg.Flows[0].ErrorHandling.Fallback.TransformOrder,
 		[]string{"reason", "payload", "summary"})
+}
+
+// A mapping value that is not a string used to reach cty's AsString and panic
+// the whole binary with a Go stack trace. A bare number or boolean is
+// unambiguous and is kept; anything else has to say so.
+
+func TestBareNumberAndBooleanMappingsAreKept(t *testing.T) {
+	cfg := parseOne(t, `
+flow "f" {
+  from {
+    connector = "api"
+    operation = "POST /x"
+  }
+  transform {
+    count  = 5
+    ratio  = 0.25
+    active = true
+    off    = false
+  }
+  to {
+    connector = "db"
+    target    = "t"
+  }
+}
+`)
+	m := cfg.Flows[0].Transform.Mappings
+	for field, want := range map[string]string{
+		"count": "5", "ratio": "0.25", "active": "true", "off": "false",
+	} {
+		if m[field] != want {
+			t.Errorf("%s = %q, want %q", field, m[field], want)
+		}
+	}
+}
+
+func TestObjectMappingReportsTheFieldInsteadOfPanicking(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "flows.mycel")
+	if err := os.WriteFile(path, []byte(`
+flow "f" {
+  from {
+    connector = "api"
+    operation = "POST /x"
+  }
+  transform {
+    body = { message = "ok" }
+  }
+}
+`), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	_, err := NewHCLParser().ParseFile(context.Background(), path)
+	if err == nil {
+		t.Fatal("expected an error, got none")
+	}
+	for _, want := range []string{`"body"`, "quotes"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %s", err, want)
+		}
+	}
 }
