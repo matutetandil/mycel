@@ -964,22 +964,31 @@ func extractExpressionText(expr hcl.Expression) string {
 	// However, since we don't have direct access to file bytes here,
 	// we'll use expression traversal to reconstruct simple cases
 
-	// Try to get variables from the expression
-	vars := expr.Variables()
-
-	// If it's a simple variable reference, construct the path
-	if len(vars) == 1 {
-		var parts []string
-		for _, t := range vars[0] {
-			switch tt := t.(type) {
-			case hcl.TraverseRoot:
-				parts = append(parts, tt.Name)
-			case hcl.TraverseAttr:
-				parts = append(parts, tt.Name)
+	// If the expression is nothing but a variable reference, rebuild the path
+	// from the traversal.
+	//
+	// The type assertion is what keeps this honest. Reconstructing from
+	// expr.Variables() alone matches any expression containing exactly one
+	// variable, so `upper(input.name)` and `output.total > 1000` also took this
+	// branch and came back as `input.name` and `output.total` — the function
+	// call and the comparison silently dropped, leaving an expression that
+	// still evaluated and still produced a plausible wrong answer. Anything
+	// beyond a bare traversal falls through to reading the source text, which
+	// is the only reading that keeps the whole expression.
+	if _, bare := expr.(*hclsyntax.ScopeTraversalExpr); bare {
+		if vars := expr.Variables(); len(vars) == 1 {
+			var parts []string
+			for _, t := range vars[0] {
+				switch tt := t.(type) {
+				case hcl.TraverseRoot:
+					parts = append(parts, tt.Name)
+				case hcl.TraverseAttr:
+					parts = append(parts, tt.Name)
+				}
 			}
-		}
-		if len(parts) > 0 {
-			return strings.Join(parts, ".")
+			if len(parts) > 0 {
+				return strings.Join(parts, ".")
+			}
 		}
 	}
 
