@@ -6,28 +6,41 @@ metadata:
   labels:
     {{- include "mycel.labels" . | nindent 4 }}
 data:
-  {{- /* Auto-discover HCL files from config/ directory */}}
-  {{- $files := .Files.Glob "config/**.hcl" }}
-  {{- range $path, $bytes := $files }}
+  {{- /*
+    Keys must end in .mycel. The runtime only parses that extension
+    (internal/parser: isConfigFile), so a key named service.hcl is mounted into
+    /etc/mycel and then ignored — the service starts with an empty
+    configuration and says nothing about it.
+
+    Files dropped in config/ are matched on both extensions and renamed, so a
+    chart directory left over from before the 1.18 rename still works.
+  */}}
+  {{- $mycelFiles := .Files.Glob "config/**.mycel" }}
+  {{- $legacyFiles := .Files.Glob "config/**.hcl" }}
+  {{- range $path, $bytes := $mycelFiles }}
   {{ trimPrefix "config/" $path | replace "/" "_" }}: |
     {{- toString $bytes | nindent 4 }}
   {{- end }}
+  {{- range $path, $bytes := $legacyFiles }}
+  {{ trimPrefix "config/" $path | replace "/" "_" | replace ".hcl" ".mycel" }}: |
+    {{- toString $bytes | nindent 4 }}
+  {{- end }}
   {{- /* Inline values from values.yaml (only when no files discovered) */}}
-  {{- if not $files }}
+  {{- if and (not $mycelFiles) (not $legacyFiles) }}
   {{- if .Values.mycel.config.service }}
-  service.hcl: |
+  service.mycel: |
     {{- .Values.mycel.config.service | nindent 4 }}
   {{- end }}
   {{- if .Values.mycel.config.connectors }}
-  connectors.hcl: |
+  connectors.mycel: |
     {{- .Values.mycel.config.connectors | nindent 4 }}
   {{- end }}
   {{- if .Values.mycel.config.flows }}
-  flows.hcl: |
+  flows.mycel: |
     {{- .Values.mycel.config.flows | nindent 4 }}
   {{- end }}
   {{- if .Values.mycel.config.types }}
-  types.hcl: |
+  types.mycel: |
     {{- .Values.mycel.config.types | nindent 4 }}
   {{- end }}
   {{- range $filename, $content := .Values.mycel.config.extra }}

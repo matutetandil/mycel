@@ -17,6 +17,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Keyless signing: cosign exchanges this OIDC token for a short-lived
+      # Fulcio certificate, so there is no private key to store or rotate.
+      id-token: write
 
     steps:
       - name: Checkout
@@ -56,6 +59,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -66,12 +70,27 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      # Signing by digest rather than by tag covers every tag pointing at this
+      # manifest at once, and cannot drift if a tag is later moved. The digest
+      # is content-addressed, so it is the same in both registries.
+      - name: Sign the images
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${REGISTRY_GITHUB}/${IMAGE_NAME_GITHUB}@${DIGEST}"
+          cosign sign --yes "${IMAGE_NAME_DOCKERHUB}@${DIGEST}"
+
   helm-release:
     runs-on: ubuntu-latest
     needs: build-and-push
     permissions:
       contents: write
       packages: write
+      # See the note on the same permission in build-and-push.
+      id-token: write
 
     steps:
       - name: Checkout
@@ -106,9 +125,38 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
+      # helm push reports the digest on stderr; capture it rather than
+      # re-resolving the tag, so the signature is tied to exactly what was
+      # just pushed.
       - name: Push Helm chart to GHCR
+        id: chart
         run: |
-          helm push .helm-packages/mycel-${{ steps.version.outputs.version }}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
+          # Without pipefail the pipeline reports tee's exit code, so a failed
+          # push would sail through. Actions' default shell does not set it.
+          set -euo pipefail
+          helm push .helm-packages/mycel-${{ steps.version.outputs.version }}.tgz \
+            oci://ghcr.io/${{ github.repository_owner }}/charts 2>&1 | tee /tmp/helm-push.log
+          # `|| true` so that a missing digest reaches the check below with its
+          # own message, instead of errexit killing the step on grep's status.
+          DIGEST=$(grep -oE 'sha256:[0-9a-f]{64}' /tmp/helm-push.log | head -1 || true)
+          if [ -z "$DIGEST" ]; then
+            echo "could not read the chart digest from helm push output" >&2
+            cat /tmp/helm-push.log >&2
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+          echo "Chart digest: $DIGEST"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      # This is what flips the "signed" flag on the Artifact Hub chart page:
+      # for an OCI repository it looks for cosign signatures attached to the
+      # chart by cosign's tag-based discovery.
+      - name: Sign the Helm chart
+        run: |
+          cosign sign --yes \
+            "ghcr.io/${{ github.repository_owner }}/charts/mycel@${{ steps.chart.outputs.digest }}"
 
       # Artifact Hub reads its repository metadata from a reserved tag on the
       # same OCI repository as the chart, not from a file in the chart. The

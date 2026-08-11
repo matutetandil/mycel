@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Mycel Helm chart values",
+  "description": "Helm validates values against this schema on install, upgrade, template and lint, so a mistyped value fails with a clear message instead of producing broken manifests.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of replicas. Ignored when autoscaling.enabled is true."
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+        "tag": { "type": "string", "description": "Defaults to the chart appVersion when empty." }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": { "name": { "type": "string" } },
+        "required": ["name"]
+      }
+    },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "annotations": { "type": "object" },
+        "name": { "type": "string" }
+      }
+    },
+    "podAnnotations": { "type": "object" },
+    "podLabels": { "type": "object" },
+    "podSecurityContext": { "type": "object" },
+    "securityContext": { "type": "object" },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer", "ExternalName"] },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "targetPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "nodePort": {
+          "type": ["integer", "string"],
+          "description": "Only used when type is NodePort. Empty string means let Kubernetes choose.",
+          "anyOf": [
+            { "type": "integer", "minimum": 30000, "maximum": 32767 },
+            { "type": "string", "maxLength": 0 }
+          ]
+        },
+        "annotations": { "type": "object" }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "annotations": { "type": "object" },
+        "hosts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "host": { "type": "string", "minLength": 1 },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": { "type": "string", "minLength": 1 },
+                    "pathType": { "type": "string", "enum": ["Exact", "Prefix", "ImplementationSpecific"] }
+                  },
+                  "required": ["path"]
+                }
+              }
+            },
+            "required": ["host"]
+          }
+        },
+        "tls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "secretName": { "type": "string" },
+              "hosts": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "resources": { "type": "object" },
+    "autoscaling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minReplicas": { "type": "integer", "minimum": 1 },
+        "maxReplicas": { "type": "integer", "minimum": 1 },
+        "targetCPUUtilizationPercentage": {
+          "anyOf": [
+            { "type": "integer", "minimum": 1, "maximum": 100 },
+            { "type": "string", "maxLength": 0 }
+          ]
+        },
+        "targetMemoryUtilizationPercentage": {
+          "description": "Empty string disables the memory metric.",
+          "anyOf": [
+            { "type": "integer", "minimum": 1, "maximum": 100 },
+            { "type": "string", "maxLength": 0 }
+          ]
+        }
+      }
+    },
+    "nodeSelector": { "type": "object" },
+    "tolerations": { "type": "array", "items": { "type": "object" } },
+    "affinity": { "type": "object" },
+    "mycel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "env": {
+          "type": "string",
+          "enum": ["development", "staging", "production"],
+          "description": "Sets MYCEL_ENV, which selects environment-aware defaults."
+        },
+        "logLevel": { "type": "string", "enum": ["debug", "info", "warn", "error"] },
+        "logFormat": { "type": "string", "enum": ["text", "json"] },
+        "hotReload": { "type": "boolean" },
+        "config": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "existingConfigMap": {
+              "type": "string",
+              "description": "Name of a ConfigMap you manage yourself. Its keys must end in .mycel or the runtime ignores them."
+            },
+            "service": { "type": "string" },
+            "connectors": { "type": "string" },
+            "flows": { "type": "string" },
+            "types": { "type": "string" },
+            "extra": {
+              "type": "object",
+              "description": "Extra configuration files, keyed by filename.",
+              "additionalProperties": { "type": "string" },
+              "propertyNames": {
+                "pattern": "\\.mycel$",
+                "description": "The runtime only parses files ending in .mycel."
+              }
+            }
+          }
+        },
+        "secrets": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "env": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "healthCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "liveness": { "$ref": "#/definitions/probe" },
+        "readiness": { "$ref": "#/definitions/probe" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "path": { "type": "string", "pattern": "^/" },
+        "serviceMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "namespace": { "type": "string" },
+            "labels": { "type": "object" },
+            "interval": { "$ref": "#/definitions/duration" },
+            "scrapeTimeout": { "$ref": "#/definitions/duration" }
+          }
+        }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minAvailable": { "$ref": "#/definitions/replicaBound" },
+        "maxUnavailable": {
+          "description": "Alternative to minAvailable. Empty string leaves it unset.",
+          "$ref": "#/definitions/replicaBound"
+        }
+      }
+    },
+    "extraEnv": {
+      "type": "array",
+      "description": "Raw Kubernetes EnvVar entries.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "value": { "type": "string" },
+          "valueFrom": { "type": "object" }
+        },
+        "required": ["name"]
+      }
+    },
+    "extraVolumeMounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "mountPath": { "type": "string", "minLength": 1 }
+        },
+        "required": ["name", "mountPath"]
+      }
+    },
+    "extraVolumes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": { "name": { "type": "string", "minLength": 1 } },
+        "required": ["name"]
+      }
+    },
+    "initContainers": { "type": "array", "items": { "type": "object" } },
+    "sidecarContainers": { "type": "array", "items": { "type": "object" } }
+  },
+  "definitions": {
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": { "type": "string", "pattern": "^/" },
+        "initialDelaySeconds": { "type": "integer", "minimum": 0 },
+        "periodSeconds": { "type": "integer", "minimum": 1 },
+        "timeoutSeconds": { "type": "integer", "minimum": 1 },
+        "failureThreshold": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "duration": {
+      "type": "string",
+      "pattern": "^[0-9]+(ms|s|m|h)$",
+      "description": "A Prometheus duration, e.g. 30s or 1m."
+    },
+    "replicaBound": {
+      "anyOf": [
+        { "type": "integer", "minimum": 0 },
+        { "type": "string", "pattern": "^([0-9]+%?)?$" }
+      ]
+    }
+  }
+}
