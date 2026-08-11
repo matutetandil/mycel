@@ -35,6 +35,12 @@ type Config struct {
 	// Keys are output field paths, values are expressions.
 	Mappings map[string]string
 
+	// Order lists the Mappings keys in the order they were declared in the
+	// source file, so that an expression referencing a field computed above it
+	// through `output` resolves the same way on every message. See
+	// RulesFromMappings.
+	Order []string
+
 	// Enrichments are data lookups from external sources.
 	// These are executed before mappings and results are available as enriched.*
 	Enrichments []*EnrichConfig

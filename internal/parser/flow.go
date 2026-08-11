@@ -185,7 +185,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			config.Transform = transform
 
 		case "response":
-			mappings, err := parseTransformMappings(nestedBlock, ctx)
+			mappings, order, err := parseTransformMappings(nestedBlock, ctx)
 			if err != nil {
 				return nil, fmt.Errorf("response block error: %w", err)
 			}
@@ -197,8 +197,10 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			if ref, ok := mappings["use"]; ok {
 				config.ResponseUse = parseRefName("response", ref)
 				delete(mappings, "use")
+				order = dropName(order, "use")
 			}
 			config.Response = mappings
+			config.ResponseOrder = order
 
 		case "require":
 			require, err := parseRequireBlock(nestedBlock, ctx)
@@ -518,7 +520,7 @@ func parseNamedResponseBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Resp
 	if len(block.Labels) < 1 {
 		return nil, fmt.Errorf("response block requires a name label when declared at top level")
 	}
-	mappings, err := parseTransformMappings(block, ctx)
+	mappings, order, err := parseTransformMappings(block, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("response %q error: %w", block.Labels[0], err)
 	}
@@ -528,7 +530,7 @@ func parseNamedResponseBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Resp
 	if len(mappings) == 0 {
 		return nil, fmt.Errorf("top-level response %q must define at least one field mapping", block.Labels[0])
 	}
-	cfg := &flow.ResponseConfig{Mappings: mappings}
+	cfg := &flow.ResponseConfig{Mappings: mappings, Order: order}
 	cfg.Name = block.Labels[0]
 	return cfg, nil
 }
@@ -614,11 +616,12 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 	for _, nestedBlock := range content.Blocks {
 		switch nestedBlock.Type {
 		case "transform":
-			transformMappings, err := parseTransformMappings(nestedBlock, ctx)
+			transformMappings, order, err := parseTransformMappings(nestedBlock, ctx)
 			if err != nil {
 				return nil, fmt.Errorf("to transform error: %w", err)
 			}
 			to.Transform = transformMappings
+			to.TransformOrder = order
 		case "transaction":
 			tx, err := parseTransactionBlock(nestedBlock, ctx)
 			if err != nil {
@@ -898,7 +901,8 @@ func parseTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Transfor
 		Mappings: make(map[string]string),
 	}
 
-	for name, attr := range attrs {
+	for _, name := range attributeOrder(attrs) {
+		attr := attrs[name]
 		// First try to evaluate as a simple value (for quoted strings)
 		val, diags := attr.Expr.Value(ctx)
 
@@ -921,13 +925,28 @@ func parseTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Transfor
 		} else {
 			// Try to extract raw expression for unquoted expressions
 			exprStr := extractExpressionText(attr.Expr)
-			if exprStr != "" {
-				transform.Mappings[name] = exprStr
+			if exprStr == "" {
+				continue
 			}
+			transform.Mappings[name] = exprStr
 		}
+		transform.Order = append(transform.Order, name)
 	}
 
 	return transform, nil
+}
+
+// dropName removes a single name from a declaration-order list. Used for the
+// `use` key, which shares the block with real field mappings but is a
+// reference marker rather than an output field.
+func dropName(order []string, name string) []string {
+	out := order[:0]
+	for _, n := range order {
+		if n != name {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // parseTransformReference parses a transform reference like "transform.foo" → "foo".
@@ -1326,11 +1345,12 @@ func parseFallbackConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Fal
 	// Parse optional transform block
 	for _, nestedBlock := range content.Blocks {
 		if nestedBlock.Type == "transform" {
-			mappings, err := parseTransformMappings(nestedBlock, ctx)
+			mappings, order, err := parseTransformMappings(nestedBlock, ctx)
 			if err != nil {
 				return nil, fmt.Errorf("fallback transform error: %w", err)
 			}
 			fallback.Transform = mappings
+			fallback.TransformOrder = order
 		}
 	}
 
@@ -1383,40 +1403,48 @@ func parseErrorResponseBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Erro
 
 	for _, nestedBlock := range content.Blocks {
 		if nestedBlock.Type == "body" {
-			mappings, err := parseTransformMappings(nestedBlock, ctx)
+			mappings, order, err := parseTransformMappings(nestedBlock, ctx)
 			if err != nil {
 				return nil, fmt.Errorf("error_response body error: %w", err)
 			}
 			errResp.Body = mappings
+			errResp.BodyOrder = order
 		}
 	}
 
 	return errResp, nil
 }
 
-// parseTransformMappings parses transform mappings as map[string]string.
-func parseTransformMappings(block *hcl.Block, ctx *hcl.EvalContext) (map[string]string, error) {
+// parseTransformMappings parses transform mappings as map[string]string, plus
+// the order the fields were written in. The order is what lets a later
+// expression reference an earlier field through `output`; see
+// transform.RulesFromMappings.
+func parseTransformMappings(block *hcl.Block, ctx *hcl.EvalContext) (map[string]string, []string, error) {
 	attrs, diags := block.Body.JustAttributes()
 	if diags.HasErrors() {
-		return nil, fmt.Errorf("transform attributes error: %s", diags.Error())
+		return nil, nil, fmt.Errorf("transform attributes error: %s", diags.Error())
 	}
 
 	mappings := make(map[string]string)
+	order := make([]string, 0, len(attrs))
 
-	for name, attr := range attrs {
+	for _, name := range attributeOrder(attrs) {
+		attr := attrs[name]
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
 			mappings[name] = val.AsString()
 		} else {
 			// Try to extract raw expression
 			exprStr := extractExpressionText(attr.Expr)
-			if exprStr != "" {
-				mappings[name] = exprStr
+			if exprStr == "" {
+				continue
 			}
+			mappings[name] = exprStr
 		}
+		order = append(order, name)
 	}
 
-	return mappings, nil
+	return mappings, order, nil
 }
 
 // parseDedupeBlock parses a dedupe block for deduplication configuration.
@@ -1759,7 +1787,8 @@ func parseNamedTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfor
 		return nil, fmt.Errorf("transform block attributes error: %w", err)
 	}
 
-	for name, attr := range attrs {
+	for _, name := range attributeOrder(attrs) {
+		attr := attrs[name]
 		// Try to evaluate as simple value (for quoted strings)
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
@@ -1768,10 +1797,12 @@ func parseNamedTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfor
 		} else {
 			// Extract raw expression text for unquoted expressions
 			exprStr := extractExpressionText(attr.Expr)
-			if exprStr != "" {
-				cfg.Mappings[name] = exprStr
+			if exprStr == "" {
+				continue
 			}
+			cfg.Mappings[name] = exprStr
 		}
+		cfg.Order = append(cfg.Order, name)
 	}
 
 	return cfg, nil

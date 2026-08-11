@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -33,4 +34,30 @@ func bodyAttributes(body hcl.Body) (hcl.Attributes, error) {
 		return nil, fmt.Errorf("%s", diags.Error())
 	}
 	return attrs, nil
+}
+
+// attributeOrder returns the attribute names in the order they appear in the
+// source file.
+//
+// hcl.Attributes is a map, so a block that is written top to bottom arrives
+// unordered. Blocks whose attributes are CEL expressions evaluated in sequence
+// — transform, response, error_response body — need that order back, because a
+// later expression may reference an earlier field through `output`. Each
+// attribute carries the byte offset where it was written, which is all the
+// ordering needs.
+func attributeOrder(attrs hcl.Attributes) []string {
+	names := make([]string, 0, len(attrs))
+	for name := range attrs {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		a, b := attrs[names[i]].Range.Start.Byte, attrs[names[j]].Range.Start.Byte
+		if a != b {
+			return a < b
+		}
+		// Synthetic bodies (tests, JSON) may carry no ranges at all; falling
+		// back to the name keeps the result stable instead of arbitrary.
+		return names[i] < names[j]
+	})
+	return names
 }
