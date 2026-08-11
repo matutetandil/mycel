@@ -174,7 +174,7 @@ jobs:
       # same OCI repository as the chart, not from a file in the chart. The
       # media types below are the ones it looks for; it ignores anything else.
       - name: Set up ORAS
-        uses: oras-project/setup-oras@v1
+        uses: oras-project/setup-oras@v2
 
       # `helm registry login` writes to Helm's own credential store, which oras
       # does not read, so this login is not redundant.
@@ -302,7 +302,7 @@ jobs:
           cache: true
 
       - name: Build archives and packages
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           version: latest
           args: release --clean
