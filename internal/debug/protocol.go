@@ -166,7 +166,7 @@ type ConsumeParams struct {
 
 // ReadyResult is returned after a successful debug.ready handshake.
 type ReadyResult struct {
-	OK      bool              `json:"ok"`
+	OK      bool               `json:"ok"`
 	Sources []SourceCapability `json:"sources,omitempty"`
 }
 
@@ -187,17 +187,17 @@ type InspectFlowParams struct {
 
 // FlowInfo describes a flow for the IDE.
 type FlowInfo struct {
-	Name       string            `json:"name"`
-	From       *FlowEndpoint     `json:"from,omitempty"`
-	To         *FlowEndpoint     `json:"to,omitempty"`
-	Accept     *AcceptInfo       `json:"accept,omitempty"`
-	HasSteps   bool              `json:"hasSteps"`
-	StepCount  int               `json:"stepCount"`
-	Transform  map[string]string `json:"transform,omitempty"`
-	Response   map[string]string `json:"response,omitempty"`
-	Validate   *ValidateInfo     `json:"validate,omitempty"`
-	HasCache   bool              `json:"hasCache"`
-	HasRetry   bool              `json:"hasRetry"`
+	Name      string            `json:"name"`
+	From      *FlowEndpoint     `json:"from,omitempty"`
+	To        *FlowEndpoint     `json:"to,omitempty"`
+	Accept    *AcceptInfo       `json:"accept,omitempty"`
+	HasSteps  bool              `json:"hasSteps"`
+	StepCount int               `json:"stepCount"`
+	Transform map[string]string `json:"transform,omitempty"`
+	Response  map[string]string `json:"response,omitempty"`
+	Validate  *ValidateInfo     `json:"validate,omitempty"`
+	HasCache  bool              `json:"hasCache"`
+	HasRetry  bool              `json:"hasRetry"`
 }
 
 // AcceptInfo describes the accept gate configuration.

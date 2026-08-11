@@ -54,12 +54,12 @@ type ClientConfig struct {
 	MaxSend    int // Max send message size in MB
 
 	// Connection settings
-	Insecure        bool // Use insecure connection (no TLS)
-	WaitForReady    bool // Wait for server to be ready
-	ConnectTimeout  time.Duration
-	KeepAlive       *KeepAliveConfig
-	RetryCount      int
-	RetryBackoff    time.Duration
+	Insecure       bool // Use insecure connection (no TLS)
+	WaitForReady   bool // Wait for server to be ready
+	ConnectTimeout time.Duration
+	KeepAlive      *KeepAliveConfig
+	RetryCount     int
+	RetryBackoff   time.Duration
 
 	// Load balancing
 	LoadBalancing *LoadBalancingConfig

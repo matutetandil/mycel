@@ -103,34 +103,34 @@ func TestSQLOptimizer_OptimizeQuery(t *testing.T) {
 	optimizer := NewSQLOptimizer(fields)
 
 	tests := []struct {
-		name        string
-		query       string
-		expected    string
-		shouldOpt   bool
+		name      string
+		query     string
+		expected  string
+		shouldOpt bool
 	}{
 		{
-			name:        "simple SELECT *",
-			query:       "SELECT * FROM users",
-			expected:    "SELECT id, name, email FROM users",
-			shouldOpt:   true,
+			name:      "simple SELECT *",
+			query:     "SELECT * FROM users",
+			expected:  "SELECT id, name, email FROM users",
+			shouldOpt: true,
 		},
 		{
-			name:        "SELECT * with WHERE",
-			query:       "SELECT * FROM users WHERE id = 1",
-			expected:    "SELECT id, name, email FROM users WHERE id = 1",
-			shouldOpt:   true,
+			name:      "SELECT * with WHERE",
+			query:     "SELECT * FROM users WHERE id = 1",
+			expected:  "SELECT id, name, email FROM users WHERE id = 1",
+			shouldOpt: true,
 		},
 		{
-			name:        "already specific columns",
-			query:       "SELECT id, name FROM users",
-			expected:    "SELECT id, name FROM users",
-			shouldOpt:   false,
+			name:      "already specific columns",
+			query:     "SELECT id, name FROM users",
+			expected:  "SELECT id, name FROM users",
+			shouldOpt: false,
 		},
 		{
-			name:        "INSERT query",
-			query:       "INSERT INTO users (name) VALUES ('John')",
-			expected:    "INSERT INTO users (name) VALUES ('John')",
-			shouldOpt:   false,
+			name:      "INSERT query",
+			query:     "INSERT INTO users (name) VALUES ('John')",
+			expected:  "INSERT INTO users (name) VALUES ('John')",
+			shouldOpt: false,
 		},
 	}
 

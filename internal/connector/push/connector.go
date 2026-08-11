@@ -110,23 +110,23 @@ type Message struct {
 
 // AndroidConfig for Android-specific options
 type AndroidConfig struct {
-	Priority     string            `json:"priority,omitempty"` // "high" or "normal"
-	TTL          string            `json:"ttl,omitempty"`      // e.g., "86400s"
-	CollapseKey  string            `json:"collapse_key,omitempty"`
+	Priority     string               `json:"priority,omitempty"` // "high" or "normal"
+	TTL          string               `json:"ttl,omitempty"`      // e.g., "86400s"
+	CollapseKey  string               `json:"collapse_key,omitempty"`
 	Notification *AndroidNotification `json:"notification,omitempty"`
-	Data         map[string]string `json:"data,omitempty"`
+	Data         map[string]string    `json:"data,omitempty"`
 }
 
 // AndroidNotification for Android notification display
 type AndroidNotification struct {
-	Title        string `json:"title,omitempty"`
-	Body         string `json:"body,omitempty"`
-	Icon         string `json:"icon,omitempty"`
-	Color        string `json:"color,omitempty"`
-	Sound        string `json:"sound,omitempty"`
-	Tag          string `json:"tag,omitempty"`
-	ClickAction  string `json:"click_action,omitempty"`
-	ChannelID    string `json:"channel_id,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Body        string `json:"body,omitempty"`
+	Icon        string `json:"icon,omitempty"`
+	Color       string `json:"color,omitempty"`
+	Sound       string `json:"sound,omitempty"`
+	Tag         string `json:"tag,omitempty"`
+	ClickAction string `json:"click_action,omitempty"`
+	ChannelID   string `json:"channel_id,omitempty"`
 }
 
 // APNSConfig for iOS-specific options
@@ -137,7 +137,7 @@ type APNSConfig struct {
 
 // APNSPayload for iOS notification payload
 type APNSPayload struct {
-	Aps  *Aps              `json:"aps,omitempty"`
+	Aps  *Aps                   `json:"aps,omitempty"`
 	Data map[string]interface{} `json:"data,omitempty"`
 }
 
@@ -286,10 +286,10 @@ func (c *FCMConnector) Send(ctx context.Context, msg *Message) (*SendResult, err
 	}
 
 	var result struct {
-		MessageID    int64 `json:"message_id"`
-		Success      int   `json:"success"`
-		Failure      int   `json:"failure"`
-		Results      []struct {
+		MessageID int64 `json:"message_id"`
+		Success   int   `json:"success"`
+		Failure   int   `json:"failure"`
+		Results   []struct {
 			MessageID string `json:"message_id"`
 			Error     string `json:"error"`
 		} `json:"results"`

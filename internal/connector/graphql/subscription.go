@@ -16,12 +16,12 @@ import (
 
 // SubscriptionManager manages GraphQL subscriptions over WebSocket.
 type SubscriptionManager struct {
-	schema    *graphql.Schema
-	logger    *slog.Logger
-	upgrader  websocket.Upgrader
-	mu        sync.RWMutex
-	clients   map[*wsClient]bool
-	pubsub    *PubSub
+	schema   *graphql.Schema
+	logger   *slog.Logger
+	upgrader websocket.Upgrader
+	mu       sync.RWMutex
+	clients  map[*wsClient]bool
+	pubsub   *PubSub
 }
 
 // wsClient represents a WebSocket client connection.
@@ -37,24 +37,24 @@ type wsClient struct {
 // graphql-ws protocol message types
 const (
 	// Client -> Server
-	msgConnectionInit      = "connection_init"
-	msgPing                = "ping"
-	msgPong                = "pong"
-	msgSubscribe           = "subscribe"
-	msgComplete            = "complete"
+	msgConnectionInit = "connection_init"
+	msgPing           = "ping"
+	msgPong           = "pong"
+	msgSubscribe      = "subscribe"
+	msgComplete       = "complete"
 
 	// Server -> Client
-	msgConnectionAck       = "connection_ack"
-	msgNext                = "next"
-	msgError               = "error"
-	msgComplete_           = "complete"
+	msgConnectionAck = "connection_ack"
+	msgNext          = "next"
+	msgError         = "error"
+	msgComplete_     = "complete"
 )
 
 // wsMessage represents a graphql-ws protocol message.
 type wsMessage struct {
-	ID      string                 `json:"id,omitempty"`
-	Type    string                 `json:"type"`
-	Payload json.RawMessage        `json:"payload,omitempty"`
+	ID      string          `json:"id,omitempty"`
+	Type    string          `json:"type"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 // subscribePayload is the payload for subscribe messages.

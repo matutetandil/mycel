@@ -13,9 +13,9 @@ type CleanupService struct {
 	interval time.Duration
 	logger   *slog.Logger
 
-	stopCh chan struct{}
-	doneCh chan struct{}
-	mu     sync.Mutex
+	stopCh  chan struct{}
+	doneCh  chan struct{}
+	mu      sync.Mutex
 	running bool
 }
 

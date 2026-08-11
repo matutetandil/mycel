@@ -110,9 +110,9 @@ func parseAuthConfig(props map[string]interface{}) *AuthConfig {
 // parseJWTAuthConfig parses JWT authentication configuration.
 func parseJWTAuthConfig(props map[string]interface{}) *JWTAuthConfig {
 	cfg := &JWTAuthConfig{
-		Secret:   getString(props, "secret", ""),
-		JWKSURL:  getString(props, "jwks_url", ""),
-		Issuer:   getString(props, "issuer", ""),
+		Secret:  getString(props, "secret", ""),
+		JWKSURL: getString(props, "jwks_url", ""),
+		Issuer:  getString(props, "issuer", ""),
 	}
 
 	// Audience can be string or array

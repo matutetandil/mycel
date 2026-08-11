@@ -15,9 +15,9 @@ import (
 
 // SESConnector sends emails via AWS SES
 type SESConnector struct {
-	name      string
-	emailCfg  *Config
-	client    *sesv2.Client
+	name     string
+	emailCfg *Config
+	client   *sesv2.Client
 }
 
 // NewSESConnector creates a new SES connector

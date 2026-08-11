@@ -70,13 +70,13 @@ type SchemaBuilder struct {
 // NewSchemaBuilder creates a new schema builder.
 func NewSchemaBuilder() *SchemaBuilder {
 	return &SchemaBuilder{
-		mode:               SchemaModeAuto,
-		queryFields:        make(graphql.Fields),
-		mutationFields:     make(graphql.Fields),
+		mode:                SchemaModeAuto,
+		queryFields:         make(graphql.Fields),
+		mutationFields:      make(graphql.Fields),
 		subscriptionFields:  make(graphql.Fields),
-		types:              make(map[string]*graphql.Object),
-		handlers:           make(map[string]HandlerFunc),
-		pubsub:             NewPubSub(),
+		types:               make(map[string]*graphql.Object),
+		handlers:            make(map[string]HandlerFunc),
+		pubsub:              NewPubSub(),
 		subscriptionFilters: make(map[string]string),
 	}
 }

@@ -54,11 +54,11 @@ func NewCELTransformerWithOptions(additionalOptions ...cel.EnvOption) (*CELTrans
 func baseCELOptions() []cel.EnvOption {
 	return []cel.EnvOption{
 		// CEL Standard Extensions - provides full CEL functionality
-		ext.Strings(),   // charAt, indexOf, lastIndexOf, join, quote, replace, split, substring, trim, upperAscii, lowerAscii, reverse
-		ext.Encoders(),  // base64.encode, base64.decode
-		ext.Math(),      // math.least, math.greatest, math.ceil, math.floor, math.round, math.abs, math.sign, math.isNaN, math.isInf
-		ext.Lists(),     // lists.range, slice, flatten
-		ext.Sets(),      // sets.contains, sets.equivalent, sets.intersects
+		ext.Strings(),  // charAt, indexOf, lastIndexOf, join, quote, replace, split, substring, trim, upperAscii, lowerAscii, reverse
+		ext.Encoders(), // base64.encode, base64.decode
+		ext.Math(),     // math.least, math.greatest, math.ceil, math.floor, math.round, math.abs, math.sign, math.isNaN, math.isInf
+		ext.Lists(),    // lists.range, slice, flatten
+		ext.Sets(),     // sets.contains, sets.equivalent, sets.intersects
 
 		// Input variable - the request data
 		cel.Variable("input", cel.MapType(cel.StringType, cel.DynType)),

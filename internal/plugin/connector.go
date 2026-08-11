@@ -12,13 +12,13 @@ import (
 
 // WASMConnector implements connector.Connector using a WASM module.
 type WASMConnector struct {
-	name       string
-	typeName   string
-	wasmPath   string
-	config     map[string]interface{}
-	module     *wasm.Module
-	mu         sync.RWMutex
-	connected  bool
+	name      string
+	typeName  string
+	wasmPath  string
+	config    map[string]interface{}
+	module    *wasm.Module
+	mu        sync.RWMutex
+	connected bool
 }
 
 // wasmRuntime is the shared WASM runtime for all plugin connectors.
@@ -323,7 +323,7 @@ func (c *WASMConnector) parseResult(result interface{}) (*connector.Result, erro
 
 // Ensure WASMConnector implements the required interfaces.
 var (
-	_ connector.Connector  = (*WASMConnector)(nil)
-	_ connector.Reader     = (*WASMConnector)(nil)
-	_ connector.Writer     = (*WASMConnector)(nil)
+	_ connector.Connector = (*WASMConnector)(nil)
+	_ connector.Reader    = (*WASMConnector)(nil)
+	_ connector.Writer    = (*WASMConnector)(nil)
 )

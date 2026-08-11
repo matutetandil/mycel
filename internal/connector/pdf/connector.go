@@ -60,11 +60,11 @@ func New(name string, config *Config) *Connector {
 	return &Connector{name: name, config: config}
 }
 
-func (c *Connector) Name() string                       { return c.name }
-func (c *Connector) Type() string                       { return "pdf" }
-func (c *Connector) Connect(_ context.Context) error    { return nil }
-func (c *Connector) Close(_ context.Context) error      { return nil }
-func (c *Connector) Health(_ context.Context) error      { return nil }
+func (c *Connector) Name() string                    { return c.name }
+func (c *Connector) Type() string                    { return "pdf" }
+func (c *Connector) Connect(_ context.Context) error { return nil }
+func (c *Connector) Close(_ context.Context) error   { return nil }
+func (c *Connector) Health(_ context.Context) error  { return nil }
 
 // Write generates a PDF.
 //

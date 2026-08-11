@@ -69,19 +69,19 @@ type Message struct {
 
 // Embed represents a Discord embed
 type Embed struct {
-	Title       string          `json:"title,omitempty"`
-	Type        string          `json:"type,omitempty"` // "rich" by default
-	Description string          `json:"description,omitempty"`
-	URL         string          `json:"url,omitempty"`
-	Timestamp   string          `json:"timestamp,omitempty"` // ISO8601
-	Color       int             `json:"color,omitempty"`     // Decimal color
-	Footer      *EmbedFooter    `json:"footer,omitempty"`
-	Image       *EmbedMedia     `json:"image,omitempty"`
-	Thumbnail   *EmbedMedia     `json:"thumbnail,omitempty"`
-	Video       *EmbedMedia     `json:"video,omitempty"`
-	Provider    *EmbedProvider  `json:"provider,omitempty"`
-	Author      *EmbedAuthor    `json:"author,omitempty"`
-	Fields      []EmbedField    `json:"fields,omitempty"`
+	Title       string         `json:"title,omitempty"`
+	Type        string         `json:"type,omitempty"` // "rich" by default
+	Description string         `json:"description,omitempty"`
+	URL         string         `json:"url,omitempty"`
+	Timestamp   string         `json:"timestamp,omitempty"` // ISO8601
+	Color       int            `json:"color,omitempty"`     // Decimal color
+	Footer      *EmbedFooter   `json:"footer,omitempty"`
+	Image       *EmbedMedia    `json:"image,omitempty"`
+	Thumbnail   *EmbedMedia    `json:"thumbnail,omitempty"`
+	Video       *EmbedMedia    `json:"video,omitempty"`
+	Provider    *EmbedProvider `json:"provider,omitempty"`
+	Author      *EmbedAuthor   `json:"author,omitempty"`
+	Fields      []EmbedField   `json:"fields,omitempty"`
 }
 
 // EmbedFooter represents embed footer
@@ -127,14 +127,14 @@ type AllowedMentions struct {
 
 // Component represents an interactive component
 type Component struct {
-	Type       int          `json:"type"`
-	Style      int          `json:"style,omitempty"`
-	Label      string       `json:"label,omitempty"`
-	Emoji      *Emoji       `json:"emoji,omitempty"`
-	CustomID   string       `json:"custom_id,omitempty"`
-	URL        string       `json:"url,omitempty"`
-	Disabled   bool         `json:"disabled,omitempty"`
-	Components []Component  `json:"components,omitempty"`
+	Type       int         `json:"type"`
+	Style      int         `json:"style,omitempty"`
+	Label      string      `json:"label,omitempty"`
+	Emoji      *Emoji      `json:"emoji,omitempty"`
+	CustomID   string      `json:"custom_id,omitempty"`
+	URL        string      `json:"url,omitempty"`
+	Disabled   bool        `json:"disabled,omitempty"`
+	Components []Component `json:"components,omitempty"`
 }
 
 // Emoji represents a Discord emoji

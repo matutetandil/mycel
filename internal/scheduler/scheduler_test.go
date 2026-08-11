@@ -29,8 +29,8 @@ func TestParseWhen_Always(t *testing.T) {
 
 func TestParseWhen_Interval(t *testing.T) {
 	tests := []struct {
-		input    string
-		wantErr  bool
+		input   string
+		wantErr bool
 	}{
 		{"@every 5m", false},
 		{"@every 1h", false},

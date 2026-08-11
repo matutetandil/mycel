@@ -445,7 +445,7 @@ func (PostgresSchema) ConnectorSchema() schema.Block {
 }
 
 func (PostgresSchema) SourceSchema() *schema.Block { return dbSourceSchema() }
-func (PostgresSchema) TargetSchema() *schema.Block  { return dbTargetSchema() }
+func (PostgresSchema) TargetSchema() *schema.Block { return dbTargetSchema() }
 
 // ---------------------------------------------------------------------------
 // Database: MySQL
@@ -473,7 +473,7 @@ func (MySQLSchema) ConnectorSchema() schema.Block {
 }
 
 func (MySQLSchema) SourceSchema() *schema.Block { return dbSourceSchema() }
-func (MySQLSchema) TargetSchema() *schema.Block  { return dbTargetSchema() }
+func (MySQLSchema) TargetSchema() *schema.Block { return dbTargetSchema() }
 
 // ---------------------------------------------------------------------------
 // Database: SQLite
@@ -491,7 +491,7 @@ func (SQLiteSchema) ConnectorSchema() schema.Block {
 }
 
 func (SQLiteSchema) SourceSchema() *schema.Block { return dbSourceSchema() }
-func (SQLiteSchema) TargetSchema() *schema.Block  { return dbTargetSchema() }
+func (SQLiteSchema) TargetSchema() *schema.Block { return dbTargetSchema() }
 
 // ---------------------------------------------------------------------------
 // Database: MongoDB
@@ -521,7 +521,7 @@ func (MongoDBSchema) ConnectorSchema() schema.Block {
 }
 
 func (MongoDBSchema) SourceSchema() *schema.Block { return dbSourceSchema() }
-func (MongoDBSchema) TargetSchema() *schema.Block  { return dbTargetSchema() }
+func (MongoDBSchema) TargetSchema() *schema.Block { return dbTargetSchema() }
 
 // ---------------------------------------------------------------------------
 // MQ: RabbitMQ
@@ -594,7 +594,7 @@ func (RabbitMQSchema) ConnectorSchema() schema.Block {
 }
 
 func (RabbitMQSchema) SourceSchema() *schema.Block { return mqSourceSchema }
-func (RabbitMQSchema) TargetSchema() *schema.Block  { return mqTargetSchema }
+func (RabbitMQSchema) TargetSchema() *schema.Block { return mqTargetSchema }
 
 // ---------------------------------------------------------------------------
 // MQ: Kafka
@@ -639,7 +639,7 @@ func (KafkaSchema) ConnectorSchema() schema.Block {
 }
 
 func (KafkaSchema) SourceSchema() *schema.Block { return mqSourceSchema }
-func (KafkaSchema) TargetSchema() *schema.Block  { return mqTargetSchema }
+func (KafkaSchema) TargetSchema() *schema.Block { return mqTargetSchema }
 
 // ---------------------------------------------------------------------------
 // MQ: Redis Pub/Sub
@@ -662,7 +662,7 @@ func (RedisPubSubSchema) ConnectorSchema() schema.Block {
 }
 
 func (RedisPubSubSchema) SourceSchema() *schema.Block { return mqSourceSchema }
-func (RedisPubSubSchema) TargetSchema() *schema.Block  { return mqTargetSchema }
+func (RedisPubSubSchema) TargetSchema() *schema.Block { return mqTargetSchema }
 
 // ---------------------------------------------------------------------------
 // File
@@ -854,7 +854,7 @@ func (CacheSchema) ConnectorSchema() schema.Block {
 }
 
 func (CacheSchema) SourceSchema() *schema.Block { return nil }
-func (CacheSchema) TargetSchema() *schema.Block  { return nil }
+func (CacheSchema) TargetSchema() *schema.Block { return nil }
 
 // ---------------------------------------------------------------------------
 // PDF
@@ -951,7 +951,7 @@ func (OAuthSchema) ConnectorSchema() schema.Block {
 }
 
 func (OAuthSchema) SourceSchema() *schema.Block { return nil }
-func (OAuthSchema) TargetSchema() *schema.Block  { return nil }
+func (OAuthSchema) TargetSchema() *schema.Block { return nil }
 
 // ---------------------------------------------------------------------------
 // CDC (Change Data Capture)

@@ -9,21 +9,26 @@ import (
 
 // mockConnector implements the connector interfaces for testing.
 type mockConnector struct {
-	name       string
-	connType   string
-	readResult *connector.Result
-	readErr    error
+	name        string
+	connType    string
+	readResult  *connector.Result
+	readErr     error
 	writeResult *connector.Result
-	writeErr   error
-	connected  bool
-	healthy    bool
+	writeErr    error
+	connected   bool
+	healthy     bool
 }
 
-func (m *mockConnector) Name() string                        { return m.name }
-func (m *mockConnector) Type() string                        { return m.connType }
-func (m *mockConnector) Connect(ctx context.Context) error   { m.connected = true; return nil }
-func (m *mockConnector) Close(ctx context.Context) error     { m.connected = false; return nil }
-func (m *mockConnector) Health(ctx context.Context) error    { if !m.healthy { return context.DeadlineExceeded }; return nil }
+func (m *mockConnector) Name() string                      { return m.name }
+func (m *mockConnector) Type() string                      { return m.connType }
+func (m *mockConnector) Connect(ctx context.Context) error { m.connected = true; return nil }
+func (m *mockConnector) Close(ctx context.Context) error   { m.connected = false; return nil }
+func (m *mockConnector) Health(ctx context.Context) error {
+	if !m.healthy {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
 func (m *mockConnector) Read(ctx context.Context, q connector.Query) (*connector.Result, error) {
 	return m.readResult, m.readErr
 }

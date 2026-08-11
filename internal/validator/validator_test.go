@@ -6,11 +6,11 @@ import (
 
 func TestRegexValidator(t *testing.T) {
 	tests := []struct {
-		name     string
-		pattern  string
-		value    string
-		valid    bool
-		message  string
+		name    string
+		pattern string
+		value   string
+		valid   bool
+		message string
 	}{
 		{
 			name:    "valid email",
@@ -198,11 +198,11 @@ func TestCELValidator_StrongPassword(t *testing.T) {
 	}{
 		{"Abc123!@", true},
 		{"StrongP@ss1", true},
-		{"weakpass", false},     // no uppercase, number, or special
-		{"ALLCAPS1!", false},    // no lowercase
-		{"alllower1!", false},   // no uppercase
-		{"NoSpecial1", false},   // no special char
-		{"Short1!", false},      // too short
+		{"weakpass", false},   // no uppercase, number, or special
+		{"ALLCAPS1!", false},  // no lowercase
+		{"alllower1!", false}, // no uppercase
+		{"NoSpecial1", false}, // no special char
+		{"Short1!", false},    // too short
 	}
 
 	for _, tt := range tests {

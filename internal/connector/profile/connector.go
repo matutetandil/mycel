@@ -22,11 +22,11 @@ type ProfiledConnector struct {
 	profiles map[string]connector.Connector
 	cel      *transform.CELTransformer
 
-	mu           sync.RWMutex
-	activeCache  string // Cached active profile name
-	statsLock    sync.RWMutex
-	requestCount map[string]int64
-	errorCount   map[string]int64
+	mu            sync.RWMutex
+	activeCache   string // Cached active profile name
+	statsLock     sync.RWMutex
+	requestCount  map[string]int64
+	errorCount    map[string]int64
 	fallbackCount map[string]int64
 }
 

@@ -3,11 +3,11 @@ package asyncapi
 
 // Spec represents an AsyncAPI 2.6 specification.
 type Spec struct {
-	AsyncAPI string              `json:"asyncapi" yaml:"asyncapi"`
-	Info     Info                `json:"info" yaml:"info"`
-	Servers  map[string]Server   `json:"servers,omitempty" yaml:"servers,omitempty"`
-	Channels map[string]Channel  `json:"channels" yaml:"channels"`
-	Components *Components       `json:"components,omitempty" yaml:"components,omitempty"`
+	AsyncAPI   string             `json:"asyncapi" yaml:"asyncapi"`
+	Info       Info               `json:"info" yaml:"info"`
+	Servers    map[string]Server  `json:"servers,omitempty" yaml:"servers,omitempty"`
+	Channels   map[string]Channel `json:"channels" yaml:"channels"`
+	Components *Components        `json:"components,omitempty" yaml:"components,omitempty"`
 }
 
 // Info provides metadata about the API.
@@ -34,9 +34,9 @@ type License struct {
 
 // Server represents a message broker server.
 type Server struct {
-	URL         string                 `json:"url" yaml:"url"`
-	Protocol    string                 `json:"protocol" yaml:"protocol"` // amqp, kafka, etc.
-	Description string                 `json:"description,omitempty" yaml:"description,omitempty"`
+	URL         string                    `json:"url" yaml:"url"`
+	Protocol    string                    `json:"protocol" yaml:"protocol"` // amqp, kafka, etc.
+	Description string                    `json:"description,omitempty" yaml:"description,omitempty"`
 	Variables   map[string]ServerVariable `json:"variables,omitempty" yaml:"variables,omitempty"`
 }
 
@@ -49,33 +49,33 @@ type ServerVariable struct {
 
 // Channel describes a message channel (queue, topic, etc.).
 type Channel struct {
-	Description string     `json:"description,omitempty" yaml:"description,omitempty"`
-	Subscribe   *Operation `json:"subscribe,omitempty" yaml:"subscribe,omitempty"`
-	Publish     *Operation `json:"publish,omitempty" yaml:"publish,omitempty"`
+	Description string               `json:"description,omitempty" yaml:"description,omitempty"`
+	Subscribe   *Operation           `json:"subscribe,omitempty" yaml:"subscribe,omitempty"`
+	Publish     *Operation           `json:"publish,omitempty" yaml:"publish,omitempty"`
 	Parameters  map[string]Parameter `json:"parameters,omitempty" yaml:"parameters,omitempty"`
 	Bindings    *ChannelBindings     `json:"bindings,omitempty" yaml:"bindings,omitempty"`
 }
 
 // Operation describes a subscribe or publish operation.
 type Operation struct {
-	OperationID string              `json:"operationId,omitempty" yaml:"operationId,omitempty"`
-	Summary     string              `json:"summary,omitempty" yaml:"summary,omitempty"`
-	Description string              `json:"description,omitempty" yaml:"description,omitempty"`
-	Message     *Message            `json:"message,omitempty" yaml:"message,omitempty"`
-	Bindings    *OperationBindings  `json:"bindings,omitempty" yaml:"bindings,omitempty"`
+	OperationID string             `json:"operationId,omitempty" yaml:"operationId,omitempty"`
+	Summary     string             `json:"summary,omitempty" yaml:"summary,omitempty"`
+	Description string             `json:"description,omitempty" yaml:"description,omitempty"`
+	Message     *Message           `json:"message,omitempty" yaml:"message,omitempty"`
+	Bindings    *OperationBindings `json:"bindings,omitempty" yaml:"bindings,omitempty"`
 }
 
 // Message describes a message payload.
 type Message struct {
-	Name          string                `json:"name,omitempty" yaml:"name,omitempty"`
-	Title         string                `json:"title,omitempty" yaml:"title,omitempty"`
-	Summary       string                `json:"summary,omitempty" yaml:"summary,omitempty"`
-	Description   string                `json:"description,omitempty" yaml:"description,omitempty"`
-	ContentType   string                `json:"contentType,omitempty" yaml:"contentType,omitempty"`
-	Payload       *Schema               `json:"payload,omitempty" yaml:"payload,omitempty"`
-	Headers       *Schema               `json:"headers,omitempty" yaml:"headers,omitempty"`
-	CorrelationID *CorrelationID        `json:"correlationId,omitempty" yaml:"correlationId,omitempty"`
-	Bindings      *MessageBindings      `json:"bindings,omitempty" yaml:"bindings,omitempty"`
+	Name          string           `json:"name,omitempty" yaml:"name,omitempty"`
+	Title         string           `json:"title,omitempty" yaml:"title,omitempty"`
+	Summary       string           `json:"summary,omitempty" yaml:"summary,omitempty"`
+	Description   string           `json:"description,omitempty" yaml:"description,omitempty"`
+	ContentType   string           `json:"contentType,omitempty" yaml:"contentType,omitempty"`
+	Payload       *Schema          `json:"payload,omitempty" yaml:"payload,omitempty"`
+	Headers       *Schema          `json:"headers,omitempty" yaml:"headers,omitempty"`
+	CorrelationID *CorrelationID   `json:"correlationId,omitempty" yaml:"correlationId,omitempty"`
+	Bindings      *MessageBindings `json:"bindings,omitempty" yaml:"bindings,omitempty"`
 }
 
 // CorrelationID specifies how to find the correlation ID in a message.
@@ -122,8 +122,8 @@ type ChannelBindings struct {
 
 // AMQPChannelBinding contains AMQP-specific channel binding.
 type AMQPChannelBinding struct {
-	Is       string           `json:"is,omitempty" yaml:"is,omitempty"` // queue, routingKey
-	Queue    *AMQPQueueConfig `json:"queue,omitempty" yaml:"queue,omitempty"`
+	Is       string              `json:"is,omitempty" yaml:"is,omitempty"` // queue, routingKey
+	Queue    *AMQPQueueConfig    `json:"queue,omitempty" yaml:"queue,omitempty"`
 	Exchange *AMQPExchangeConfig `json:"exchange,omitempty" yaml:"exchange,omitempty"`
 }
 
@@ -158,13 +158,13 @@ type OperationBindings struct {
 
 // AMQPOperationBinding contains AMQP-specific operation binding.
 type AMQPOperationBinding struct {
-	Expiration   int    `json:"expiration,omitempty" yaml:"expiration,omitempty"`
-	UserID       string `json:"userId,omitempty" yaml:"userId,omitempty"`
+	Expiration   int      `json:"expiration,omitempty" yaml:"expiration,omitempty"`
+	UserID       string   `json:"userId,omitempty" yaml:"userId,omitempty"`
 	CC           []string `json:"cc,omitempty" yaml:"cc,omitempty"`
-	Priority     int    `json:"priority,omitempty" yaml:"priority,omitempty"`
-	DeliveryMode int    `json:"deliveryMode,omitempty" yaml:"deliveryMode,omitempty"`
-	Mandatory    bool   `json:"mandatory,omitempty" yaml:"mandatory,omitempty"`
-	Ack          bool   `json:"ack,omitempty" yaml:"ack,omitempty"`
+	Priority     int      `json:"priority,omitempty" yaml:"priority,omitempty"`
+	DeliveryMode int      `json:"deliveryMode,omitempty" yaml:"deliveryMode,omitempty"`
+	Mandatory    bool     `json:"mandatory,omitempty" yaml:"mandatory,omitempty"`
+	Ack          bool     `json:"ack,omitempty" yaml:"ack,omitempty"`
 }
 
 // KafkaOperationBinding contains Kafka-specific operation binding.

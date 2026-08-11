@@ -214,4 +214,3 @@ type BruteForceStats struct {
 	LockoutRemaining time.Duration
 	CurrentDelay     time.Duration
 }
-

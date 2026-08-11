@@ -96,15 +96,15 @@ func (g *Generator) connectorToServer(conn *connector.Config) *Server {
 		host := getStringProp(props, "host", "localhost")
 		port := getIntProp(props, "port", 5672)
 		return &Server{
-			URL:      fmt.Sprintf("%s:%d", host, port),
-			Protocol: "amqp",
+			URL:         fmt.Sprintf("%s:%d", host, port),
+			Protocol:    "amqp",
 			Description: "RabbitMQ server",
 		}
 	case "kafka":
 		brokers := getStringProp(props, "brokers", "localhost:9092")
 		return &Server{
-			URL:      brokers,
-			Protocol: "kafka",
+			URL:         brokers,
+			Protocol:    "kafka",
 			Description: "Kafka cluster",
 		}
 	}

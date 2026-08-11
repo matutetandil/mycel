@@ -393,7 +393,7 @@ func (c *Connector) parseLinesOutput(output []byte) ([]map[string]interface{}, e
 
 // Ensure Connector implements the required interfaces.
 var (
-	_ connector.Connector  = (*Connector)(nil)
-	_ connector.Reader     = (*Connector)(nil)
-	_ connector.Writer     = (*Connector)(nil)
+	_ connector.Connector = (*Connector)(nil)
+	_ connector.Reader    = (*Connector)(nil)
+	_ connector.Writer    = (*Connector)(nil)
 )

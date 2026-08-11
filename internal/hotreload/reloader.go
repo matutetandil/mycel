@@ -15,12 +15,12 @@ type Reloader struct {
 	configPath string
 
 	// Hooks
-	onLoad      func(ctx context.Context, configPath string) error
-	onValidate  func(ctx context.Context) error
-	onPrepare   func(ctx context.Context) error
-	onSwitch    func(ctx context.Context) error
-	onRollback  func(ctx context.Context, err error)
-	onComplete  func(ctx context.Context)
+	onLoad     func(ctx context.Context, configPath string) error
+	onValidate func(ctx context.Context) error
+	onPrepare  func(ctx context.Context) error
+	onSwitch   func(ctx context.Context) error
+	onRollback func(ctx context.Context, err error)
+	onComplete func(ctx context.Context)
 
 	// State
 	mu          sync.RWMutex

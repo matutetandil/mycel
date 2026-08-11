@@ -266,8 +266,8 @@ func TestGetDocument(t *testing.T) {
 		}
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"_id":    "doc123",
-			"found":  true,
+			"_id":   "doc123",
+			"found": true,
 			"_source": map[string]interface{}{
 				"name":  "Test",
 				"email": "test@example.com",

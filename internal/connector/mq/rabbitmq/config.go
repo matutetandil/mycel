@@ -42,10 +42,10 @@ type Config struct {
 	Publisher *PublisherConfig
 
 	// Connection settings
-	Heartbeat       time.Duration
-	ConnectionName  string
-	ReconnectDelay  time.Duration
-	MaxReconnects   int
+	Heartbeat      time.Duration
+	ConnectionName string
+	ReconnectDelay time.Duration
+	MaxReconnects  int
 }
 
 // TLSConfig holds TLS configuration options.

@@ -28,8 +28,8 @@ func (PostgresSchema) ConnectorSchema() schema.Block {
 	}
 }
 
-func (PostgresSchema) SourceSchema() *schema.Block  { return dbSourceSchema() }
-func (PostgresSchema) TargetSchema() *schema.Block   { return dbTargetSchema() }
+func (PostgresSchema) SourceSchema() *schema.Block { return dbSourceSchema() }
+func (PostgresSchema) TargetSchema() *schema.Block { return dbTargetSchema() }
 
 // MySQLSchema implements ConnectorSchemaProvider for MySQL.
 type MySQLSchema struct{}
@@ -52,8 +52,8 @@ func (MySQLSchema) ConnectorSchema() schema.Block {
 	}
 }
 
-func (MySQLSchema) SourceSchema() *schema.Block  { return dbSourceSchema() }
-func (MySQLSchema) TargetSchema() *schema.Block   { return dbTargetSchema() }
+func (MySQLSchema) SourceSchema() *schema.Block { return dbSourceSchema() }
+func (MySQLSchema) TargetSchema() *schema.Block { return dbTargetSchema() }
 
 // SQLiteSchema implements ConnectorSchemaProvider for SQLite.
 type SQLiteSchema struct{}
@@ -66,8 +66,8 @@ func (SQLiteSchema) ConnectorSchema() schema.Block {
 	}
 }
 
-func (SQLiteSchema) SourceSchema() *schema.Block  { return dbSourceSchema() }
-func (SQLiteSchema) TargetSchema() *schema.Block   { return dbTargetSchema() }
+func (SQLiteSchema) SourceSchema() *schema.Block { return dbSourceSchema() }
+func (SQLiteSchema) TargetSchema() *schema.Block { return dbTargetSchema() }
 
 // MongoDBSchema implements ConnectorSchemaProvider for MongoDB.
 type MongoDBSchema struct{}
@@ -92,8 +92,8 @@ func (MongoDBSchema) ConnectorSchema() schema.Block {
 	}
 }
 
-func (MongoDBSchema) SourceSchema() *schema.Block  { return dbSourceSchema() }
-func (MongoDBSchema) TargetSchema() *schema.Block   { return dbTargetSchema() }
+func (MongoDBSchema) SourceSchema() *schema.Block { return dbSourceSchema() }
+func (MongoDBSchema) TargetSchema() *schema.Block { return dbTargetSchema() }
 
 // Shared helpers
 

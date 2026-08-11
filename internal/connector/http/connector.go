@@ -37,9 +37,9 @@ type Connector struct {
 	codec      codec.Codec // codec for encoding/decoding
 
 	// Token management for OAuth2
-	mu           sync.RWMutex
-	accessToken  string
-	tokenExpiry  time.Time
+	mu          sync.RWMutex
+	accessToken string
+	tokenExpiry time.Time
 }
 
 // AuthConfig holds authentication configuration.

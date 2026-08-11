@@ -50,7 +50,7 @@ func (v Version) Compare(other Version) int {
 
 // Constraint represents a single version constraint (e.g., ">= 1.0.0").
 type Constraint struct {
-	Op      string  // "=", ">=", ">", "<=", "<", "!=", "^", "~"
+	Op      string // "=", ">=", ">", "<=", "<", "!=", "^", "~"
 	Version Version
 }
 

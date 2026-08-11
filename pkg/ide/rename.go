@@ -2,9 +2,9 @@ package ide
 
 // RenameEdit represents a text edit for a rename operation.
 type RenameEdit struct {
-	File     string `json:"file"`
-	Range    Range  `json:"range"`
-	NewText  string `json:"newText"`
+	File    string `json:"file"`
+	Range   Range  `json:"range"`
+	NewText string `json:"newText"`
 }
 
 // Rename renames an entity and returns all edits needed across the project.

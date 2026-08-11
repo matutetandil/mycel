@@ -10,14 +10,14 @@ import (
 
 // LockFile represents the plugins.lock file.
 type LockFile struct {
-	Version int                    `json:"version"`
+	Version int                   `json:"version"`
 	Plugins map[string]*LockEntry `json:"plugins"`
 }
 
 // LockEntry represents a locked plugin version.
 type LockEntry struct {
 	Source   string `json:"source"`
-	Version string `json:"version"`
+	Version  string `json:"version"`
 	Resolved string `json:"resolved"`
 	LockedAt string `json:"locked_at"`
 }

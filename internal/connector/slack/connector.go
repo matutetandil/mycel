@@ -84,12 +84,12 @@ type Message struct {
 
 // Block represents a Slack block element
 type Block struct {
-	Type     string      `json:"type"`
-	Text     *TextObject `json:"text,omitempty"`
-	BlockID  string      `json:"block_id,omitempty"`
-	Elements []Element   `json:"elements,omitempty"`
-	Fields   []TextObject `json:"fields,omitempty"`
-	Accessory *Element   `json:"accessory,omitempty"`
+	Type      string       `json:"type"`
+	Text      *TextObject  `json:"text,omitempty"`
+	BlockID   string       `json:"block_id,omitempty"`
+	Elements  []Element    `json:"elements,omitempty"`
+	Fields    []TextObject `json:"fields,omitempty"`
+	Accessory *Element     `json:"accessory,omitempty"`
 }
 
 // TextObject represents text in Slack
@@ -111,20 +111,20 @@ type Element struct {
 
 // Attachment represents a legacy attachment
 type Attachment struct {
-	Color      string `json:"color,omitempty"`
-	Pretext    string `json:"pretext,omitempty"`
-	AuthorName string `json:"author_name,omitempty"`
-	AuthorLink string `json:"author_link,omitempty"`
-	AuthorIcon string `json:"author_icon,omitempty"`
-	Title      string `json:"title,omitempty"`
-	TitleLink  string `json:"title_link,omitempty"`
-	Text       string `json:"text,omitempty"`
+	Color      string            `json:"color,omitempty"`
+	Pretext    string            `json:"pretext,omitempty"`
+	AuthorName string            `json:"author_name,omitempty"`
+	AuthorLink string            `json:"author_link,omitempty"`
+	AuthorIcon string            `json:"author_icon,omitempty"`
+	Title      string            `json:"title,omitempty"`
+	TitleLink  string            `json:"title_link,omitempty"`
+	Text       string            `json:"text,omitempty"`
 	Fields     []AttachmentField `json:"fields,omitempty"`
-	ImageURL   string `json:"image_url,omitempty"`
-	ThumbURL   string `json:"thumb_url,omitempty"`
-	Footer     string `json:"footer,omitempty"`
-	FooterIcon string `json:"footer_icon,omitempty"`
-	Timestamp  int64  `json:"ts,omitempty"`
+	ImageURL   string            `json:"image_url,omitempty"`
+	ThumbURL   string            `json:"thumb_url,omitempty"`
+	Footer     string            `json:"footer,omitempty"`
+	FooterIcon string            `json:"footer_icon,omitempty"`
+	Timestamp  int64             `json:"ts,omitempty"`
 }
 
 // AttachmentField represents a field in an attachment

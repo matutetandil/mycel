@@ -250,13 +250,13 @@ func (s *AccountLinkingService) createUserFromProvider(ctx context.Context, user
 		CreatedAt: now,
 		UpdatedAt: now,
 		Metadata: map[string]interface{}{
-			"provider":     userInfo.Provider,
-			"provider_id":  userInfo.ID,
-			"name":         userInfo.Name,
-			"picture":      userInfo.Picture,
-			"created_via":  "social_login",
-			"given_name":   userInfo.GivenName,
-			"family_name":  userInfo.FamilyName,
+			"provider":    userInfo.Provider,
+			"provider_id": userInfo.ID,
+			"name":        userInfo.Name,
+			"picture":     userInfo.Picture,
+			"created_via": "social_login",
+			"given_name":  userInfo.GivenName,
+			"family_name": userInfo.FamilyName,
 		},
 	}
 

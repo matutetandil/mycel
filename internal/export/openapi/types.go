@@ -3,12 +3,12 @@ package openapi
 
 // Spec represents an OpenAPI 3.0 specification.
 type Spec struct {
-	OpenAPI    string                `json:"openapi" yaml:"openapi"`
-	Info       Info                  `json:"info" yaml:"info"`
-	Servers    []Server              `json:"servers,omitempty" yaml:"servers,omitempty"`
-	Paths      map[string]PathItem   `json:"paths" yaml:"paths"`
-	Components *Components           `json:"components,omitempty" yaml:"components,omitempty"`
-	Tags       []Tag                 `json:"tags,omitempty" yaml:"tags,omitempty"`
+	OpenAPI    string              `json:"openapi" yaml:"openapi"`
+	Info       Info                `json:"info" yaml:"info"`
+	Servers    []Server            `json:"servers,omitempty" yaml:"servers,omitempty"`
+	Paths      map[string]PathItem `json:"paths" yaml:"paths"`
+	Components *Components         `json:"components,omitempty" yaml:"components,omitempty"`
+	Tags       []Tag               `json:"tags,omitempty" yaml:"tags,omitempty"`
 }
 
 // Info provides metadata about the API.

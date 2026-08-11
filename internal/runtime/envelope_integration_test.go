@@ -24,9 +24,9 @@ import (
 func TestEnvelopeAppliedOnHTTPCreate(t *testing.T) {
 	// Capture the body the connector posts.
 	var (
-		mu       sync.Mutex
-		gotBody  []byte
-		gotPath  string
+		mu        sync.Mutex
+		gotBody   []byte
+		gotPath   string
 		gotMethod string
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

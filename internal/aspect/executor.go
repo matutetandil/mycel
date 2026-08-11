@@ -14,9 +14,9 @@ import (
 	gqlconn "github.com/matutetandil/mycel/v2/internal/connector/graphql"
 	httpconn "github.com/matutetandil/mycel/v2/internal/connector/http"
 	"github.com/matutetandil/mycel/v2/internal/flow"
-	myerrors "github.com/matutetandil/mycel/v2/pkg/errors"
 	"github.com/matutetandil/mycel/v2/internal/ratelimit"
 	"github.com/matutetandil/mycel/v2/internal/transform"
+	myerrors "github.com/matutetandil/mycel/v2/pkg/errors"
 )
 
 // FlowFunc is a function that executes a flow and returns the result.

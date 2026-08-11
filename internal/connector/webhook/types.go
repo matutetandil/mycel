@@ -166,10 +166,10 @@ type WebhookResponse struct {
 // DefaultRetryConfig returns sensible retry defaults
 func DefaultRetryConfig() *RetryConfig {
 	return &RetryConfig{
-		MaxAttempts:   3,
-		InitialDelay:  1 * time.Second,
-		MaxDelay:      30 * time.Second,
-		Multiplier:    2.0,
+		MaxAttempts:  3,
+		InitialDelay: 1 * time.Second,
+		MaxDelay:     30 * time.Second,
+		Multiplier:   2.0,
 		RetryableStatuses: []int{
 			408, // Request Timeout
 			429, // Too Many Requests

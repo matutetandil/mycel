@@ -121,7 +121,7 @@ func MinimalValidatorWASM() []byte {
 	// === Function Section (id=3) ===
 	// 3 functions: type indices [0, 1, 2]
 	funcSection := []byte{
-		0x03,       // count: 3 functions
+		0x03,             // count: 3 functions
 		0x00, 0x01, 0x02, // type indices
 	}
 	w = append(w, 0x03)

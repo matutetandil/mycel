@@ -87,7 +87,7 @@ func (RabbitMQSchema) ConnectorSchema() schema.Block {
 }
 
 func (RabbitMQSchema) SourceSchema() *schema.Block { return mqSourceSchema }
-func (RabbitMQSchema) TargetSchema() *schema.Block  { return mqTargetSchema }
+func (RabbitMQSchema) TargetSchema() *schema.Block { return mqTargetSchema }
 
 // KafkaSchema implements ConnectorSchemaProvider for Kafka.
 type KafkaSchema struct{}
@@ -128,7 +128,7 @@ func (KafkaSchema) ConnectorSchema() schema.Block {
 }
 
 func (KafkaSchema) SourceSchema() *schema.Block { return mqSourceSchema }
-func (KafkaSchema) TargetSchema() *schema.Block  { return mqTargetSchema }
+func (KafkaSchema) TargetSchema() *schema.Block { return mqTargetSchema }
 
 // RedisPubSubSchema implements ConnectorSchemaProvider for Redis Pub/Sub.
 type RedisPubSubSchema struct{}
@@ -147,7 +147,7 @@ func (RedisPubSubSchema) ConnectorSchema() schema.Block {
 }
 
 func (RedisPubSubSchema) SourceSchema() *schema.Block { return mqSourceSchema }
-func (RedisPubSubSchema) TargetSchema() *schema.Block  { return mqTargetSchema }
+func (RedisPubSubSchema) TargetSchema() *schema.Block { return mqTargetSchema }
 
 // Shared
 

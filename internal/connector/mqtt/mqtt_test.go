@@ -20,13 +20,17 @@ type mockMessage struct {
 	ack       func()
 }
 
-func (m *mockMessage) Duplicate() bool  { return m.duplicate }
-func (m *mockMessage) Qos() byte        { return m.qos }
-func (m *mockMessage) Retained() bool   { return m.retained }
-func (m *mockMessage) Topic() string    { return m.topic }
+func (m *mockMessage) Duplicate() bool   { return m.duplicate }
+func (m *mockMessage) Qos() byte         { return m.qos }
+func (m *mockMessage) Retained() bool    { return m.retained }
+func (m *mockMessage) Topic() string     { return m.topic }
 func (m *mockMessage) MessageID() uint16 { return m.messageID }
-func (m *mockMessage) Payload() []byte  { return m.payload }
-func (m *mockMessage) Ack()             { if m.ack != nil { m.ack() } }
+func (m *mockMessage) Payload() []byte   { return m.payload }
+func (m *mockMessage) Ack() {
+	if m.ack != nil {
+		m.ack()
+	}
+}
 
 func TestMQTTDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
@@ -162,7 +166,7 @@ func TestMQTTMessageParsingJSON(t *testing.T) {
 	payload := map[string]interface{}{
 		"temperature": 23.5,
 		"humidity":    60.0,
-		"sensor":     "s1",
+		"sensor":      "s1",
 	}
 	body, _ := json.Marshal(payload)
 

@@ -59,7 +59,7 @@ type Config struct {
 
 // StorageConfig defines token/session storage
 type StorageConfig struct {
-	Driver   string `hcl:"driver"`   // memory, redis, database
+	Driver   string `hcl:"driver"` // memory, redis, database
 	Address  string `hcl:"address,optional"`
 	Password string `hcl:"password,optional"`
 	DB       int    `hcl:"db,optional"`
@@ -88,8 +88,8 @@ type FieldsConfig struct {
 // JWTConfig defines JWT token settings
 type JWTConfig struct {
 	// Signing
-	Algorithm  string `hcl:"algorithm,optional"`  // HS256, RS256, ES256, etc.
-	Secret     string `hcl:"secret,optional"`     // For HS* algorithms
+	Algorithm  string `hcl:"algorithm,optional"`   // HS256, RS256, ES256, etc.
+	Secret     string `hcl:"secret,optional"`      // For HS* algorithms
 	PrivateKey string `hcl:"private_key,optional"` // For RS*/ES* algorithms
 	PublicKey  string `hcl:"public_key,optional"`  // For RS*/ES* algorithms
 
@@ -145,9 +145,9 @@ type PasswordConfig struct {
 
 // MFAConfig defines multi-factor authentication
 type MFAConfig struct {
-	Enabled  bool     `hcl:"enabled,optional"`  // Enables MFA support
-	Required string   `hcl:"required,optional"` // true, false, optional, admin_only
-	Methods  []string `hcl:"methods,optional"`  // totp, webauthn, sms, email, push
+	Enabled    bool     `hcl:"enabled,optional"`  // Enables MFA support
+	Required   string   `hcl:"required,optional"` // true, false, optional, admin_only
+	Methods    []string `hcl:"methods,optional"`  // totp, webauthn, sms, email, push
 	RequireFor []string `hcl:"require_for,optional"`
 
 	// Multiple factors
@@ -202,8 +202,8 @@ type WebAuthnConfig struct {
 	MaxCredentials int `hcl:"max_credentials,optional"`
 
 	// Attestation
-	Attestation    string   `hcl:"attestation,optional"`      // none, indirect, direct
-	AllowedAAGUIDs []string `hcl:"allowed_aaguids,optional"`  // Whitelist of hardware keys
+	Attestation    string   `hcl:"attestation,optional"`     // none, indirect, direct
+	AllowedAAGUIDs []string `hcl:"allowed_aaguids,optional"` // Whitelist of hardware keys
 
 	// Timeout in milliseconds (default: 60000)
 	Timeout int `hcl:"timeout,optional"`
@@ -248,12 +248,12 @@ type FirebaseConfig struct {
 
 // SecurityConfig defines security features
 type SecurityConfig struct {
-	BruteForce        *BruteForceConfig        `hcl:"brute_force,block"`
-	ImpossibleTravel  *ImpossibleTravelConfig  `hcl:"impossible_travel,block"`
-	DeviceBinding     *DeviceBindingConfig     `hcl:"device_binding,block"`
-	ReplayProtection  *ReplayProtectionConfig  `hcl:"replay_protection,block"`
-	IPRules           *IPRulesConfig           `hcl:"ip_rules,block"`
-	RateLimit         *AuthRateLimitConfig     `hcl:"rate_limit,block"`
+	BruteForce       *BruteForceConfig       `hcl:"brute_force,block"`
+	ImpossibleTravel *ImpossibleTravelConfig `hcl:"impossible_travel,block"`
+	DeviceBinding    *DeviceBindingConfig    `hcl:"device_binding,block"`
+	ReplayProtection *ReplayProtectionConfig `hcl:"replay_protection,block"`
+	IPRules          *IPRulesConfig          `hcl:"ip_rules,block"`
+	RateLimit        *AuthRateLimitConfig    `hcl:"rate_limit,block"`
 }
 
 // BruteForceConfig defines brute force protection
@@ -278,9 +278,9 @@ type ProgressiveDelayConfig struct {
 
 // ImpossibleTravelConfig detects suspicious logins
 type ImpossibleTravelConfig struct {
-	Enabled     bool   `hcl:"enabled,optional"`
-	MaxSpeedKMH int    `hcl:"max_speed_kmh,optional"`
-	OnDetect    string `hcl:"on_detect,optional"` // block, challenge, notify
+	Enabled     bool         `hcl:"enabled,optional"`
+	MaxSpeedKMH int          `hcl:"max_speed_kmh,optional"`
+	OnDetect    string       `hcl:"on_detect,optional"` // block, challenge, notify
 	GeoIP       *GeoIPConfig `hcl:"geoip,block"`
 }
 
@@ -323,14 +323,14 @@ type AuthRateLimitConfig struct {
 
 // SessionsConfig defines session management
 type SessionsConfig struct {
-	MaxActive       int    `hcl:"max_active,optional"`
-	IdleTimeout     string `hcl:"idle_timeout,optional"`
-	AbsoluteTimeout string `hcl:"absolute_timeout,optional"`
-	AllowList       bool   `hcl:"allow_list,optional"`
-	AllowRevoke     bool   `hcl:"allow_revoke,optional"`
-	Track           []string `hcl:"track,optional"`
-	OnMaxReached    string `hcl:"on_max_reached,optional"` // revoke_oldest, reject_new
-	ExtendOnActivity bool  `hcl:"extend_on_activity,optional"`
+	MaxActive        int      `hcl:"max_active,optional"`
+	IdleTimeout      string   `hcl:"idle_timeout,optional"`
+	AbsoluteTimeout  string   `hcl:"absolute_timeout,optional"`
+	AllowList        bool     `hcl:"allow_list,optional"`
+	AllowRevoke      bool     `hcl:"allow_revoke,optional"`
+	Track            []string `hcl:"track,optional"`
+	OnMaxReached     string   `hcl:"on_max_reached,optional"` // revoke_oldest, reject_new
+	ExtendOnActivity bool     `hcl:"extend_on_activity,optional"`
 }
 
 // SocialConfig defines social login providers
@@ -384,12 +384,12 @@ type SAMLConfig struct {
 
 // ProviderConfig for external identity providers
 type ProviderConfig struct {
-	Name     string                 `hcl:"name,label"`
-	Type     string                 `hcl:"type"`      // http
-	Validate string                 `hcl:"validate"`  // URL pattern
-	Request  map[string]string      `hcl:"request,optional"`
+	Name     string                  `hcl:"name,label"`
+	Type     string                  `hcl:"type"`     // http
+	Validate string                  `hcl:"validate"` // URL pattern
+	Request  map[string]string       `hcl:"request,optional"`
 	Response *ProviderResponseConfig `hcl:"response,block"`
-	SyncTo   string                 `hcl:"sync_to,optional"`
+	SyncTo   string                  `hcl:"sync_to,optional"`
 }
 
 // ProviderResponseConfig maps provider response
@@ -441,10 +441,10 @@ type EndpointConfig struct {
 
 // HooksConfig defines lifecycle hooks
 type HooksConfig struct {
-	BeforeLogin        *HookConfig `hcl:"before_login,block"`
-	AfterLogin         *HookConfig `hcl:"after_login,block"`
-	AfterRegister      *HookConfig `hcl:"after_register,block"`
-	OnFailedLogin      *HookConfig `hcl:"on_failed_login,block"`
+	BeforeLogin          *HookConfig `hcl:"before_login,block"`
+	AfterLogin           *HookConfig `hcl:"after_login,block"`
+	AfterRegister        *HookConfig `hcl:"after_register,block"`
+	OnFailedLogin        *HookConfig `hcl:"on_failed_login,block"`
 	OnSuspiciousActivity *HookConfig `hcl:"on_suspicious_activity,block"`
 	BeforePasswordChange *HookConfig `hcl:"before_password_change,block"`
 	AfterPasswordChange  *HookConfig `hcl:"after_password_change,block"`
@@ -489,16 +489,16 @@ type User struct {
 
 // Session represents an active session
 type Session struct {
-	ID          string                 `json:"id"`
-	UserID      string                 `json:"user_id"`
-	DeviceID    string                 `json:"device_id,omitempty"`
-	IP          string                 `json:"ip,omitempty"`
-	UserAgent   string                 `json:"user_agent,omitempty"`
-	Location    string                 `json:"location,omitempty"`
-	CreatedAt   time.Time              `json:"created_at"`
-	LastActiveAt time.Time             `json:"last_active_at"`
-	ExpiresAt   time.Time              `json:"expires_at"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	ID           string                 `json:"id"`
+	UserID       string                 `json:"user_id"`
+	DeviceID     string                 `json:"device_id,omitempty"`
+	IP           string                 `json:"ip,omitempty"`
+	UserAgent    string                 `json:"user_agent,omitempty"`
+	Location     string                 `json:"location,omitempty"`
+	CreatedAt    time.Time              `json:"created_at"`
+	LastActiveAt time.Time              `json:"last_active_at"`
+	ExpiresAt    time.Time              `json:"expires_at"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // TokenPair represents access and refresh tokens

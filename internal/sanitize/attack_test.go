@@ -244,8 +244,8 @@ func TestAttack_ControlCharInjection(t *testing.T) {
 		absent   string
 	}{
 		{
-			name:   "header injection via CRLF",
-			input:  "value\r\nX-Injected: evil",
+			name:     "header injection via CRLF",
+			input:    "value\r\nX-Injected: evil",
 			contains: "value\r\nX-Injected: evil", // CR and LF are allowed by default
 		},
 		{
@@ -456,8 +456,8 @@ func TestAttack_RealisticPayloads(t *testing.T) {
 	t.Run("nested malicious payload", func(t *testing.T) {
 		input := map[string]interface{}{
 			"user": map[string]interface{}{
-				"name":    "Admin\x00",
-				"email":   "admin@evil.com\x01",
+				"name":  "Admin\x00",
+				"email": "admin@evil.com\x01",
 				"profile": map[string]interface{}{
 					"bio":    "Hello\x07World",
 					"avatar": "image\u202E.png",

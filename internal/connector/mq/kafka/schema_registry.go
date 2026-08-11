@@ -20,8 +20,8 @@ type SchemaRegistryClient struct {
 
 	// Cache for schemas
 	mu          sync.RWMutex
-	schemaCache map[int]string    // ID -> schema
-	idCache     map[string]int    // subject-version -> ID
+	schemaCache map[int]string // ID -> schema
+	idCache     map[string]int // subject-version -> ID
 	subjectLock map[string]*sync.Mutex
 }
 

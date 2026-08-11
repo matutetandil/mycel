@@ -256,4 +256,3 @@ func ParseAllowedControlChars(names []string) map[byte]bool {
 	}
 	return result
 }
-
