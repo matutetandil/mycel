@@ -2,8 +2,10 @@ apiVersion: v2
 name: mycel
 description: Mycel — a declarative microservice runtime. Describe what connects to what in HCL and it runs the service.
 type: application
-# version and appVersion are rewritten from the tag by .github/workflows/release.yml.
-version: 0.2.0
+# The chart is versioned with the runtime: release.yml rewrites both of these
+# from the git tag, so a published chart X.Y.Z always packages Mycel X.Y.Z.
+# The values committed here are the last released ones.
+version: 2.16.0
 appVersion: "2.16.0"
 
 home: https://matutetandil.github.io/mycel
