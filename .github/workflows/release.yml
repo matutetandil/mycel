@@ -121,9 +121,21 @@ jobs:
         run: |
           helm package helm/mycel --destination .helm-packages
 
-      - name: Login to GitHub Container Registry
+      # Two logins, deliberately. `helm registry login` writes to Helm's own
+      # credential store, which nothing else reads; cosign and oras read the
+      # Docker config. Signing the chart failed in the 2.18.0 release with
+      # "UNAUTHORIZED: unauthenticated" for exactly this reason — the images
+      # signed fine because docker/login-action had already run in that job.
+      - name: Login to GitHub Container Registry (Helm)
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Login to GitHub Container Registry (Docker config, for cosign and oras)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # helm push reports the digest on stderr; capture it rather than
       # re-resolving the tag, so the signature is tied to exactly what was
