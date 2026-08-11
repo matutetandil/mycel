@@ -19,7 +19,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o mycel ./cmd/mycel
 
 # Final stage
-FROM alpine:3.19
+FROM alpine:3.22
 
 # Add ca-certificates for HTTPS and tzdata for timezones
 RUN apk add --no-cache ca-certificates tzdata
