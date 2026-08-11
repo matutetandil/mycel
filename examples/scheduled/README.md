@@ -95,8 +95,8 @@ flow "health_ping" {
   when = "@every 5m"    # Every 5 minutes
 
   transform {
-    output.service = "scheduled-jobs-service"
-    output.status  = "alive"
+    service = "scheduled-jobs-service"
+    status  = "alive"
   }
 
   to {

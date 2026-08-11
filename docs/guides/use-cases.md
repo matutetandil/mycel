@@ -1440,7 +1440,7 @@ flow "get_product_detail" {
   step "product" {
     connector = "db"
     query     = "SELECT * FROM products WHERE id = :id"
-    params    = { id = "input.params.id" }
+    params    = { id = "input.id" }
   }
 
   # Step 2: Get inventory from external service
@@ -1931,13 +1931,13 @@ flow "get_invoice_pdf" {
   step "invoice" {
     connector = "db"
     query     = "SELECT * FROM invoices WHERE id = :id"
-    params    = { id = "input.params.id" }
+    params    = { id = "input.id" }
   }
 
   step "items" {
     connector = "db"
     query     = "SELECT * FROM invoice_items WHERE invoice_id = :id"
-    params    = { id = "input.params.id" }
+    params    = { id = "input.id" }
   }
 
   transform {
@@ -2120,10 +2120,10 @@ flow "process_payment" {
   }
 
   transform {
-    output.payment_id = input.payment_id
-    output.amount     = input.amount
-    output.status     = "completed"
-    output.created_at = now()
+    payment_id = "input.payment_id"
+    amount     = "input.amount"
+    status     = "completed"
+    created_at = "now()"
   }
 }
 ```

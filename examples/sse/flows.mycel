@@ -21,7 +21,7 @@ flow "notify_room" {
   to {
     connector = "events"
     operation = "send_to_room"
-    target    = "input.params.room"
+    target    = "input.room"
   }
 }
 
@@ -35,6 +35,6 @@ flow "notify_user" {
   to {
     connector = "events"
     operation = "send_to_user"
-    target    = "input.params.user_id"
+    target    = "input.user_id"
   }
 }

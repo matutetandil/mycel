@@ -64,13 +64,13 @@ flow "google_callback" {
   step "auth" {
     connector = "google"
     operation = "callback"
-    params    = { code = "input.query.code", state = "input.query.state" }
+    params    = { code = "input.code", state = "input.state" }
   }
 
   transform {
-    output.email       = "step.auth.email"
-    output.name        = "step.auth.name"
-    output.provider_id = "step.auth.provider_id"
+    email       = "step.auth.email"
+    name        = "step.auth.name"
+    provider_id = "step.auth.provider_id"
   }
 
   to {

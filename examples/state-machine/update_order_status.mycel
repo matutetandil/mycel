@@ -10,7 +10,7 @@ flow "update_order_status" {
   state_transition {
     machine = "order_status"
     entity  = "orders"
-    id      = "input.params.id"
+    id      = "input.id"
     event   = "input.event"
     data    = "input.data"
   }

@@ -684,7 +684,7 @@ step "NAME" {
   operation = "query"
   query     = "SELECT * FROM users WHERE id = ?"
   target    = "users"
-  params    = [input.params.id]
+  params    = [input.id]
   body      = { key = "value" }
   format    = "json"
   when      = "input.include_details == true"
@@ -757,7 +757,7 @@ require {
 cache {
   storage       = "redis_cache"       # Required
   ttl           = "5m"
-  key           = "'product:' + input.params.id"
+  key           = "'product:' + input.id"
   invalidate_on = ["product.updated"]
   use           = "cache.products"    # Reference named cache
 }
@@ -769,7 +769,7 @@ cache {
 after {
   invalidate {
     storage  = "redis_cache"    # Required
-    keys     = ["product:${input.params.id}"]
+    keys     = ["product:${input.id}"]
     patterns = ["products:list:*"]
   }
 }
@@ -969,7 +969,7 @@ batch {
 state_transition {
   machine = "order_status"      # state_machine block name
   entity  = "orders"            # Database table
-  id      = "input.params.id"
+  id      = "input.id"
   event   = "input.event"
   data    = "input.data"
 }

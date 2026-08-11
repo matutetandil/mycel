@@ -28,7 +28,7 @@ flow "get_session" {
   }
 
   transform {
-    key = "'session:' + input.params.user_id"
+    key = "'session:' + input.user_id"
   }
 
   to {
@@ -66,7 +66,7 @@ flow "cache_product" {
 
   transform {
     # Key determines which cluster node stores this
-    key   = "'product:' + input.params.id"
+    key   = "'product:' + input.id"
     value = "input.body"
     ttl   = "300"  # 5 minutes
   }

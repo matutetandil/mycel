@@ -362,7 +362,7 @@ ERROR  Transform failed: no such key: user_name
 3. Common input structures:
    - REST body: `input.field_name`
    - URL params: `input.id` (from `/users/:id`)
-   - Query params: `input.query.limit`
+   - Query params: `input.limit`
    - Headers: `input.headers.authorization`
 
 ---

@@ -15,7 +15,7 @@ flow "get_order_detail" {
     connector = "db"
     operation = "query"
     query     = "SELECT * FROM orders WHERE id = ?"
-    params    = [input.params.id]
+    params    = [input.id]
   }
 
   step "customer" {
@@ -68,7 +68,7 @@ flow "get_product" {
   step "product" {
     connector = "db"
     query     = "SELECT * FROM products WHERE id = ?"
-    params    = [input.params.id]
+    params    = [input.id]
   }
 
   step "inventory" {
@@ -79,7 +79,7 @@ flow "get_product" {
 
   step "reviews" {
     connector = "reviews_api"
-    operation = "GET /reviews/${input.params.id}"
+    operation = "GET /reviews/${input.id}"
     when      = "input.include_reviews == true"
   }
 
@@ -165,7 +165,7 @@ flow "update_product" {
   after {
     invalidate {
       storage  = "redis_cache"
-      keys     = ["product:${input.params.id}"]
+      keys     = ["product:${input.id}"]
       patterns = ["products:list:*"]
     }
   }

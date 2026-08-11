@@ -54,7 +54,7 @@ flow "download_invoice" {
   step "invoice" {
     connector = "db"
     query     = "SELECT * FROM invoices WHERE id = ?"
-    params    = [input.params.id]
+    params    = [input.id]
   }
 
   transform {
@@ -220,13 +220,13 @@ flow "get_invoice_pdf" {
   step "invoice" {
     connector = "db"
     query     = "SELECT * FROM invoices WHERE id = ?"
-    params    = [input.params.id]
+    params    = [input.id]
   }
 
   step "items" {
     connector = "db"
     query     = "SELECT * FROM invoice_items WHERE invoice_id = ?"
-    params    = [input.params.id]
+    params    = [input.id]
   }
 
   transform {

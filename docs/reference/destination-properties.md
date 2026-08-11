@@ -165,7 +165,7 @@ to {
 }
 ```
 
-The transformed payload becomes the request body. URL parameters from `input.params` become query string parameters.
+The transformed payload becomes the request body. For read verbs, which carry no body, the payload's fields become query string parameters instead.
 
 ---
 

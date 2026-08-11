@@ -140,7 +140,7 @@ Cache keys support variable interpolation from the input:
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `${input.id}` | Path parameter | `/products/:id` → `product:123` |
-| `${input.query.page}` | Query parameter | `?page=2` → `products:page=2` |
+| `${input.page}` | Query parameter | `?page=2` → `products:page=2` |
 | `${input.data.field}` | Request body field | `{"category": "toys"}` → `category:toys` |
 | `${result.id}` | Result field (invalidation only) | After insert → `product:456` |
 

@@ -1268,9 +1268,9 @@ flow "process_order" {
   }
 
   transform {
-    output.external_id = "input.body.order_id"
-    output.customer    = "input.body.customer"
-    output.items       = "input.body.items"
+    external_id = "input.body.order_id"
+    customer    = "input.body.customer"
+    items       = "input.body.items"
   }
 
   to {
@@ -1434,10 +1434,10 @@ flow "create_order" {
   }
 
   transform {
-    output.order_id   = "input.order_id ?? uuid()"
-    output.customer   = "input.customer"
-    output.items      = "input.items"
-    output.created_at = "now()"
+    order_id   = "input.order_id ?? uuid()"
+    customer   = "input.customer"
+    items      = "input.items"
+    created_at = "now()"
   }
 
   to {
@@ -1467,9 +1467,9 @@ flow "receive_webhook" {
   }
 
   transform {
-    output.provider   = "input.params.provider"
-    output.event_type = "input.headers['x-event-type']"
-    output.payload    = "input.body"
+    provider   = "input.provider"
+    event_type = "input.headers['x-event-type']"
+    payload    = "input.body"
   }
 
   to {
@@ -1539,10 +1539,10 @@ flow "process_daily_import" {
 
   foreach "row" in "input.rows" {
     transform {
-      output.record_id   = "row.id ?? uuid()"
-      output.data        = "row"
-      output.source      = "input.file_name"
-      output.imported_at = "now()"
+      record_id   = "row.id ?? uuid()"
+      data        = "row"
+      source      = "input.file_name"
+      imported_at = "now()"
     }
 
     to {

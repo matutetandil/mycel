@@ -157,7 +157,7 @@ flow "update_order_status" {
   state_transition {
     machine = "order_status"  # Name of the state_machine block
     entity  = "orders"        # Database table
-    id      = "input.params.id"
+    id      = "input.id"
     event   = "input.event"   # e.g., "pay", "ship", "cancel"
     data    = "input.data"    # Additional data for guards and actions
   }

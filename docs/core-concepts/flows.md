@@ -64,6 +64,10 @@ scheduled and retried; `after` runs once the write succeeds.
 Any of these blocks can also be declared once at the top level and reused across
 flows with `use = "<kind>.<name>"` — see [Reusable Blocks](reusable-blocks.md).
 
+Most of these blocks hold CEL expressions, and every expression is evaluated
+against the same set of variables — `input` for what arrived, `output` for what
+is being built. See [Input and Output](input-and-output.md).
+
 ### Flow-level attributes
 
 | Attribute | What it does | Where it's documented |
@@ -664,7 +668,7 @@ flow "get_order_detail" {
     connector = "db"
     operation = "query"
     query     = "SELECT * FROM orders WHERE id = ?"
-    params    = [input.params.id]
+    params    = [input.id]
   }
 
   step "customer" {
@@ -761,7 +765,7 @@ flow "get_product" {
   cache {
     storage      = "redis_cache"
     ttl          = "5m"
-    key          = "'product:' + input.params.id"
+    key          = "'product:' + input.id"
     invalidate_on = ["product.updated", "product.deleted"]
   }
 
@@ -792,7 +796,7 @@ flow "update_product" {
   after {
     invalidate {
       storage  = "redis_cache"
-      keys     = ["product:${input.params.id}"]
+      keys     = ["product:${input.id}"]
       patterns = ["products:list:*"]
     }
   }
@@ -911,7 +915,7 @@ flow "update_order_status" {
   state_transition {
     machine = "order_status"
     entity  = "orders"
-    id      = "input.params.id"
+    id      = "input.id"
     event   = "input.event"
     data    = "input.data"
   }
