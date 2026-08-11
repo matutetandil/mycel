@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`llms.txt` at the documentation root.** An index written for assistants rather than browsers: what Mycel is, the handful of facts that stop a model from inventing syntax — expressions are quoted CEL, `input` is shaped by the source, output fields are the left-hand side, the parser is the authority — and a described link to every page worth fetching. Served at <https://matutetandil.github.io/mycel/llms.txt>.
+- **The Helm chart is publishable on Artifact Hub.** The release pushes an `artifacthub-repo.yml` to the chart's OCI repository under the reserved `artifacthub.io` tag, and `Chart.yaml` now carries the category, image, link and maintainer annotations Artifact Hub renders. The image tag in the annotation is rewritten from the git tag alongside `version` and `appVersion`, so it cannot go stale.
+
 ### Fixed
 
 - **Transform fields were evaluated in random order.** A field may reference one computed above it through `output` — `tax = "output.subtotal * 0.21"` — which the documentation shows and the examples use. But the mappings were held in a map and the rule list was built by ranging over it, so every message picked a fresh order and a backward reference resolved, or silently didn't, at random: the same config and the same payload produced the intended value on twelve of fifteen requests and a missing field on the other three. The parser now records the order the fields were written in and every site that turns mappings into rules honours it — `transform` (inline and named), `response` (inline and named), per-destination `transform`, `fallback` transform and `error_response` body.

@@ -1,0 +1,28 @@
+# Artifact Hub repository metadata.
+#
+# This file is not part of the chart — it sits outside helm/mycel/ so that
+# `helm package` never bundles it. The release workflow pushes it to the
+# OCI registry under the reserved `artifacthub.io` tag, alongside the chart
+# versions, where Artifact Hub looks for it:
+#
+#   oci://ghcr.io/matutetandil/charts/mycel
+#
+# It is what proves to Artifact Hub that whoever publishes the chart also
+# controls the repository, which is what the "Verified Publisher" badge means.
+#
+# Setup, in order — the ID does not exist until the repository is registered:
+#
+#   1. Sign in at https://artifacthub.io with the email in `owners` below.
+#   2. Control Panel -> Repositories -> Add, kind "Helm charts", URL
+#      oci://ghcr.io/matutetandil/charts/mycel
+#   3. Copy the repository ID from the repository's card and uncomment
+#      `repositoryID` below.
+#   4. The next release pushes this file and the badge appears.
+#
+# Until step 3 the chart is still listed and indexed; only the badge waits.
+
+# repositoryID: <paste from the Artifact Hub repositories tab>
+
+owners:
+  - name: Matias Denda
+    email: matutetandil@gmail.com

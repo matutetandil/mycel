@@ -1,11 +1,14 @@
 apiVersion: v2
 name: mycel
-description: A Helm chart for Mycel - Declarative Microservice Framework
+description: Mycel — a declarative microservice runtime. Describe what connects to what in HCL and it runs the service.
 type: application
+# version and appVersion are rewritten from the tag by .github/workflows/release.yml.
 version: 0.2.0
-appVersion: "1.0.0"
+appVersion: "2.16.0"
 
-home: https://github.com/matutetandil/mycel
+# No `icon:` yet — Artifact Hub renders a placeholder. Point it at a committed,
+# publicly reachable PNG to get a real card image.
+home: https://matutetandil.github.io/mycel
 sources:
   - https://github.com/matutetandil/mycel
 
@@ -15,15 +18,37 @@ maintainers:
 
 keywords:
   - microservices
-  - api-gateway
   - integration
   - declarative
   - hcl
+  - api-gateway
+  - etl
+  - message-queue
+  - graphql
+  - grpc
+  - rest
 
 annotations:
+  # One of Artifact Hub's fixed set; this is the closest to what Mycel does.
+  artifacthub.io/category: integration-delivery
   artifacthub.io/license: MIT
+  # Helps the search match the phrase people actually type.
+  artifacthub.io/alternativeName: mycel-runtime
+  artifacthub.io/images: |
+    - name: mycel
+      image: mdenda/mycel:2.16.0
+      platforms:
+        - linux/amd64
+        - linux/arm64
   artifacthub.io/links: |
     - name: Documentation
-      url: https://github.com/matutetandil/mycel/blob/main/README.md
+      url: https://matutetandil.github.io/mycel
+    - name: Source
+      url: https://github.com/matutetandil/mycel
+    - name: Changelog
+      url: https://github.com/matutetandil/mycel/blob/main/CHANGELOG.md
     - name: Docker Hub
       url: https://hub.docker.com/r/mdenda/mycel
+  artifacthub.io/maintainers: |
+    - name: Matias Denda
+      email: matutetandil@gmail.com
