@@ -6,9 +6,10 @@ type: application
 version: 0.2.0
 appVersion: "2.16.0"
 
-# No `icon:` yet — Artifact Hub renders a placeholder. Point it at a committed,
-# publicly reachable PNG to get a real card image.
 home: https://matutetandil.github.io/mycel
+# Served from the repository rather than the docs site so the card does not
+# depend on a Pages deploy. raw.githubusercontent returns image/svg+xml.
+icon: https://raw.githubusercontent.com/matutetandil/mycel/main/docs/assets/logo.svg
 sources:
   - https://github.com/matutetandil/mycel
 
