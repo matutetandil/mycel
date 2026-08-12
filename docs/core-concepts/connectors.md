@@ -304,10 +304,69 @@ connector "db" {
 }
 ```
 
-Each parameter is its own `param` block, named by its label. `required` is
-checked before the operation runs and `default` is filled in when the caller
-omits the value; `type` and `description` are recorded for documentation and
-tooling.
+Each parameter is its own `param` block, named by its label. The block is a
+contract, applied before the flow runs: defaults fill in what was not sent, and
+what was sent is converted to the declared type and checked against the
+constraints.
+
+| Attribute | Applies to | Description |
+|---|---|---|
+| `type` | any | `string`, `number`, `boolean`, `array` or `object`. A value that can be converted is — see below. |
+| `required` | any | Reject the request when the parameter is absent and no `default` covers it. |
+| `default` | any | Value used when the parameter is not supplied. A parameter with a default is never missing. |
+| `in` | any | Where the value comes from: `path`, `query`, `header` or `body`. |
+| `min`, `max` | numbers | Smallest and largest allowed value. |
+| `min_length`, `max_length` | strings | Shortest and longest allowed value. |
+| `pattern` | strings | Regular expression the value must match. |
+| `enum` | strings | The complete set of allowed values. |
+| `description` | any | Documentation, carried into the exported OpenAPI spec. |
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 8080
+
+  operation "search_users" {
+    method = "GET"
+    path   = "/users"
+
+    param "limit" {
+      type    = "number"
+      default = 100
+      min     = 1
+      max     = 500
+    }
+
+    param "sort" {
+      type    = "string"
+      enum    = ["name", "email", "created_at"]
+      default = "name"
+    }
+
+    param "tenant" {
+      type       = "string"
+      required   = true
+      min_length = 3
+    }
+  }
+}
+```
+
+`GET /users?limit=600` is answered with `400` and
+`invalid parameters: limit: value must be at most 500`, before the flow runs.
+Every problem in a request is reported at once, so a caller is not made to fix
+one per round trip.
+
+**The declared type converts.** Path and query parameters arrive as strings —
+always — so `type = "number"` would reject every request that uses it if it
+were enforced literally. `?limit=25` reaches the flow as the number `25`, and
+`?limit=abc` is a `400` naming the parameter. The same applies to `boolean`,
+which accepts `true` and `false` as written in a query string.
+
+!!! note "Parameters are checked on the source"
+    The contract belongs to the operation a flow reads from, since that is the
+    request being made. An operation used as a destination formats the write;
+    its parameters are supplied by the flow, not by a caller.
 
 Then in flows:
 

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Named operations never reached the connectors.** A connector may declare its operations once and have flows refer to them by name, which the documentation covers and an example ships. The resolver that turns `get_user` into `GET /users/:id` was written and only the startup banner ever called it — everything that runs read the flow configuration directly, so the name arrived at the connector verbatim. On a REST source that meant registering a route literally called `get_user`, which panics the HTTP mux while the service is still starting: the shipped `examples/named-operations` validated and then crashed the binary. Names are now folded into their inline form before flows are registered, which fixes sources, destinations and steps together, and a database operation is routed to the parameter matching what it declares — a raw query into `query`, a table into `target` — since a query left under `target` is used as a table name. An operation that cannot be formatted fails at startup naming the flow, the operation and the connector.
+- **A flow serving `/health` panicked the service.** Registering the same pattern twice on an `http.ServeMux` is fatal, and the built-in health and metrics endpoints were registered unconditionally. They now come last and yield to a path a flow claimed, which is the reading that matches the configuration: an explicit flow is a deliberate choice.
+- **`param` blocks were parsed and never enforced.** A parameter contract — `param "limit" { type = "number", default = 100, max = 500 }` — had `required` checked by a function nothing called, `default` computed into a value nothing read, and `min`, `max`, `min_length`, `max_length`, `pattern` and `enum` stored on the definition and never looked at, under a comment marking where the check would go. The block documented protection that was not there. Defaults are now applied and constraints enforced before the flow runs, using the same constraint implementations the `type` block uses; every problem in a request is reported at once, as a `400`. The declared type converts rather than rejects — path and query parameters arrive as strings, so `type = "number"` would otherwise reject every request that uses it.
+
+### Added
+
+- **Named operations are in the schema.** The connector schema declared no `operation` block at all, so a feature that was parsed, documented and exampled was invisible to completions, `mycel add` and anything else built on the schema. Both directions are now tested: every attribute the schema offers is rendered and parsed, and every attribute the parser accepts is checked for in the schema.
+
 ### Security
 
 - **A gRPC server whose TLS could not be built started in plaintext.** `buildServerOptions` discarded the result of `credentials.NewServerTLSFromFile` with an `if err == nil`, so when the certificate failed to load the listener came up unencrypted while the configuration said otherwise. It failed routinely rather than rarely: the parser accepted none of the attribute names that connector reads, so the certificate paths were always empty. The error is now returned and the server refuses to start, and TLS enabled with no certificate at all is reported as such.

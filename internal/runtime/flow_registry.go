@@ -298,6 +298,18 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 	// payload passes through, so it works regardless of source.
 	h.logIncomingPayload(ctx, input)
 
+	// Apply the contract the source operation declares for its parameters:
+	// defaults for what was not sent, then types and constraints for what was.
+	// Nothing happens unless the flow's source is a named operation with param
+	// blocks.
+	if h.Config.From != nil {
+		if op := OperationDefFor(h.Config.From.ConnectorParams); op != nil {
+			if err := applyOperationParams(op, input); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	// Attach Studio debug context when a debug client is connected.
 	// This takes priority over verbose flow to ensure breakpoints work.
 	var debugThread *debug.DebugThread
