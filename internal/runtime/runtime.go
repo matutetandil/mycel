@@ -752,6 +752,10 @@ func (r *Runtime) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to register flows: %w", err)
 	}
 
+	// Mount the auth endpoints, after flows so that a flow claiming one of
+	// those paths keeps it.
+	r.mountAuthEndpoints()
+
 	// Wire flow invoker into aspect executor (allows aspects to invoke flows)
 	if r.aspectExecutor != nil {
 		r.aspectExecutor.SetFlowInvoker(r.flows)

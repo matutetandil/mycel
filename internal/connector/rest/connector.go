@@ -32,6 +32,7 @@ type Connector struct {
 	port          int
 	server        *http.Server
 	mux           *http.ServeMux
+	mounted       map[string]http.HandlerFunc
 	cors          *CORSConfig
 	authConfig    *AuthConfig
 	logger        *slog.Logger
@@ -64,6 +65,7 @@ func New(name string, port int, cors *CORSConfig, logger *slog.Logger) *Connecto
 		name:       name,
 		port:       port,
 		mux:        http.NewServeMux(),
+		mounted:    make(map[string]http.HandlerFunc),
 		cors:       cors,
 		logger:     logger,
 		handlers:   make(map[string]HandlerFunc),
@@ -120,6 +122,18 @@ func (c *Connector) RegisterRoute(operation string, handler func(ctx context.Con
 	} else {
 		c.handlers[operation] = handler
 	}
+}
+
+// MountHandler attaches a plain HTTP handler at an exact path.
+//
+// Flows are the usual way a path comes to exist, but some belong to the service
+// rather than to a flow — the auth endpoints are the case this exists for. They
+// are registered when the server starts, and a flow that claims the same path
+// wins, on the same reasoning as the built-in health endpoints.
+func (c *Connector) MountHandler(pattern string, handler http.HandlerFunc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mounted[pattern] = handler
 }
 
 // SetHealthManager sets the health manager for this connector.
@@ -238,6 +252,14 @@ func (c *Connector) setupRoutes() {
 			return true
 		}
 		return false
+	}
+
+	// Handlers the service mounted itself, such as the auth endpoints.
+	for pattern, handler := range c.mounted {
+		if claimed(pattern) {
+			continue
+		}
+		c.mux.HandleFunc(pattern, handler)
 	}
 
 	// Health check endpoints

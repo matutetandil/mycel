@@ -236,3 +236,17 @@ func parseString(t *testing.T, hcl string) (*Configuration, error) {
 	}
 	return NewHCLParser().ParseFile(context.Background(), path)
 }
+
+// tryParseFiles parses a directory of files through the real loader, which is
+// where Merge runs. Parsing a single file bypasses it entirely, so a field
+// dropped by the merge looks fine to every single-file test.
+func tryParseFiles(t *testing.T, files map[string]string) (*Configuration, error) {
+	t.Helper()
+	dir := t.TempDir()
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	return NewHCLParser().Parse(context.Background(), dir)
+}

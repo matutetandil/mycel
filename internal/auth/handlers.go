@@ -45,8 +45,19 @@ func DefaultEndpointsConfig() *EndpointsConfig {
 	}
 }
 
-// RegisterRoutes registers all auth routes on the given mux
-func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+// Mux is whatever the routes are mounted on. *http.ServeMux satisfies it, and
+// so does an adapter over a connector that owns its own router.
+type Mux interface {
+	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
+}
+
+// RegisterRoutes mounts the endpoints the configuration asks for.
+//
+// Nothing called this until 2.19.0. The manager and the handler were both
+// built at startup, the log said "auth system initialized", and every endpoint
+// the auth block promises — login, register, refresh, me, the session and MFA
+// routes — answered 404, because the routes were never attached to a server.
+func (h *Handler) RegisterRoutes(mux Mux) {
 	prefix := h.config.Prefix
 	if prefix == "" {
 		prefix = "/auth"

@@ -219,6 +219,9 @@ func (c *Configuration) Merge(other *Configuration) {
 	if other.MockConfig != nil {
 		c.MockConfig = other.MockConfig
 	}
+	if other.Auth != nil {
+		c.Auth = other.Auth
+	}
 	if other.Security != nil {
 		c.Security = other.Security
 	}
