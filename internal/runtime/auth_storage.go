@@ -37,14 +37,13 @@ func (r *Runtime) buildAuthStores(cfg *auth.Config) ([]auth.ManagerOption, error
 		return nil, nil
 
 	case "redis":
-		// Only the brute-force store matches what the manager takes. The Redis
-		// session and token stores were written against an earlier shape of
-		// those interfaces — different method names, and a refresh-token store
-		// where the manager wants a blacklist — so they do not fit the slots
-		// they were built for and are left out rather than half-wired.
 		client := auth.NewRedisClient(cfg.Storage.Address, cfg.Storage.Password, cfg.Storage.DB)
-		opts = append(opts, auth.WithBruteForceStore(auth.NewRedisBruteForceStore(client, "mycel:auth:bf")))
-		persistent = append(persistent, "brute-force counters")
+		opts = append(opts,
+			auth.WithSessionStore(auth.NewRedisSessionStore(client, "mycel:auth:session")),
+			auth.WithTokenStore(auth.NewRedisTokenStore(client, "mycel:auth:token")),
+			auth.WithBruteForceStore(auth.NewRedisBruteForceStore(client, "mycel:auth:bf")),
+		)
+		persistent = append(persistent, "sessions", "tokens", "brute-force counters")
 
 	case "database":
 		db, driver, err := r.authDatabase(cfg.Storage.Connector)
