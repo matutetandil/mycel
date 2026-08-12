@@ -260,12 +260,17 @@ connector "storage" {
   region = env("AWS_REGION")
 
   # For MinIO or custom S3-compatible
-  endpoint          = env("S3_ENDPOINT")
-  access_key        = env("S3_ACCESS_KEY")
-  secret_key        = env("S3_SECRET_KEY")
-  force_path_style  = true
+  endpoint       = env("S3_ENDPOINT")
+  access_key     = env("S3_ACCESS_KEY")
+  secret_key     = env("S3_SECRET_KEY")
+  use_path_style = true
 }
 ```
+
+`use_path_style` addresses objects as `endpoint/bucket/key` instead of
+`bucket.endpoint/key`, which MinIO and most S3-compatible stores require. If you
+are arriving from the AWS SDK v1 or an older Terraform provider, this is the
+setting they call `force_path_style`.
 
 ## Named Operations
 

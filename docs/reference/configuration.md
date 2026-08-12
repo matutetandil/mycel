@@ -445,7 +445,7 @@ connector "s3" {
   access_key        = env("AWS_ACCESS_KEY_ID")
   secret_key        = env("AWS_SECRET_ACCESS_KEY")
   endpoint          = env("S3_ENDPOINT")        # For MinIO/custom
-  force_path_style  = true                       # Required for MinIO
+  use_path_style    = true                       # Required for MinIO
 }
 ```
 
