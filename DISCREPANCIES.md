@@ -23,6 +23,7 @@ Status: `open` = found, not decided · `decided` = we know which side is right �
 | 3 | `docs/core-concepts/connectors.md:255` | S3 `force_path_style` | the accepted name is `use_path_style` (see `examples/integration/file-to-rabbit`) | — |
 | 4 | `docs/core-concepts/connectors.md:273` | an `operation` block attribute the parser rejects | rejected at parse time | — |
 | 5 | `docs/core-concepts/connectors.md:312,337` | `profile` blocks | a required argument is missing from the examples | — |
+| 9 | aspect `if` | `pkg/schema` advertises it as "CEL condition for conditional execution"; the natural expression is `input.field` | the flow input is bound one level deeper — `evaluateCondition` builds a map with an `input` key and hands the whole map to `EvaluateExpression`, which binds it as `input`, so the flow input is at **`input.input.field`**. `input.field` resolves against a map without that key and the condition **silently evaluates false** | code, almost certainly — but check nobody relies on the current shape |
 | 6 | connector `retry` | flow-level `error_handling.retry` takes `attempts`/`delay`/`max_delay`/`backoff` | the **connector-level** one takes only `attempts` | Is the thin one a gap, or deliberate? |
 | 7 | connector `tls` | — | accepts `ca_cert`, not `ca_file` | which name is intended? |
 | 8 | connector `mock` | — | accepts `source`, not `dir` | which name is intended? |
@@ -43,6 +44,15 @@ is ~127 uncovered statements in `functions.go` alone that are being counted
 against a percentage while not being part of the running product.
 
 ### Notes on the open ones
+
+**#9 is a silent false, which is the worst kind.** An aspect whose condition
+never matches does not error and does not log: the audit entry is simply never
+written, the notification never sent. Nothing in the docs or the examples uses
+`input.x` inside an aspect `if` — the one real example uses `result.affected`,
+which works because `result` is hoisted to the top level — so this is a latent
+trap rather than a broken documented feature. Two tests in
+`internal/aspect/executor_test.go` pin the current behaviour so that a fix has
+to come past them deliberately.
 
 **#6 is the one worth thinking about, not just fixing.** A connector that
 retries with no backoff hammers a failing dependency at full rate. If the
