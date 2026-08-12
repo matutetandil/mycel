@@ -595,8 +595,52 @@ connector "webhooks_in" {
   type = "webhook"
   mode = "inbound"
   path = "/webhooks/events"
+
+  # Reject anything not signed with this secret
+  secret              = env("STRIPE_WEBHOOK_SECRET")
+  signature_header    = "X-Webhook-Signature"
+  signature_algorithm = "hmac-sha256"
+}
+
+flow "record_event" {
+  from {
+    connector = "webhooks_in"
+  }
+  to {
+    connector = "db"
+    target    = "events"
+  }
 }
 ```
+
+### Inbound Options
+
+An inbound webhook is served by the REST connector in the same service, so it is
+one more path on the port already listening rather than a second one. Without a
+REST connector it says so at startup.
+
+| Option | Type | Required | Default | Description |
+|--------|------|----------|---------|-------------|
+| `path` | string | **yes** | — | Path the sender posts to |
+| `secret` | string | optional | — | Reject anything not signed with it. Absent, every request is accepted |
+| `signature_header` | string | optional | `X-Webhook-Signature` | Header carrying the signature |
+| `signature_algorithm` | string | optional | `hmac-sha256` | `hmac-sha256`, `hmac-sha1` |
+| `allowed_ips` | list | optional | — | Addresses allowed to post; others are refused |
+
+A request with a bad signature or from an address that is not allowed is refused
+before any flow runs. What the flow receives is:
+
+| Field | Description |
+|---|---|
+| `input.id` | Identifier assigned on arrival |
+| `input.type` | Event type, from the header or the body |
+| `input.source` | Address it came from |
+| `input.headers` | The request headers |
+| `input.body` | The parsed JSON body |
+
+The sender is answered once the flow returns, and a flow that fails answers with
+a failure — senders retry on those, and reporting success for an event that was
+not processed would lose it.
 
 ### Outbound Options
 

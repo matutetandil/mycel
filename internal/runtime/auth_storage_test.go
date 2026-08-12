@@ -152,3 +152,19 @@ func TestInitAuthBuildsTheManagerAndHandler(t *testing.T) {
 		t.Errorf("Stop: %v", err)
 	}
 }
+
+// A source whose type is not on this list has its payload dropped without a
+// word — the failure mode that bit websocket, sse and tcp in 2.1.1. An inbound
+// webhook is a source like any other.
+func TestWebhookCountsAsAnEventDrivenSource(t *testing.T) {
+	for _, connType := range []string{"mq", "mqtt", "cdc", "file", "websocket", "sse", "tcp", "webhook"} {
+		if !isEventDrivenSource(connType) {
+			t.Errorf("%q is not treated as event-driven, so its payload would be discarded", connType)
+		}
+	}
+	for _, connType := range []string{"rest", "http", "database", "graphql"} {
+		if isEventDrivenSource(connType) {
+			t.Errorf("%q was treated as event-driven", connType)
+		}
+	}
+}

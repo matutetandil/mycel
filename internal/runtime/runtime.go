@@ -749,9 +749,10 @@ func (r *Runtime) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to register flows: %w", err)
 	}
 
-	// Mount the auth endpoints, after flows so that a flow claiming one of
-	// those paths keeps it.
+	// Mount the auth endpoints and the inbound webhooks, after flows so that a
+	// flow claiming one of those paths keeps it.
 	r.mountAuthEndpoints()
+	r.mountInboundWebhooks()
 
 	// Wire flow invoker into aspect executor (allows aspects to invoke flows)
 	if r.aspectExecutor != nil {

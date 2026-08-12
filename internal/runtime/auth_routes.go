@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/matutetandil/mycel/v2/internal/connector/rest"
+	"github.com/matutetandil/mycel/v2/internal/connector/webhook"
 )
 
 // mountAuthEndpoints attaches the auth endpoints to every REST server.
@@ -54,4 +55,55 @@ type restMux struct {
 
 func (m restMux) HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
 	m.conn.MountHandler(pattern, handler)
+}
+
+// mountInboundWebhooks gives every inbound webhook connector a path to be
+// reached at.
+//
+// The connector verifies signatures, checks the allowed addresses and builds
+// the event — and nothing served it: the server that mounts its path was never
+// constructed, so a webhook connector in inbound mode could be configured,
+// could start, and could not receive anything.
+//
+// They are mounted on the REST servers rather than on a listener of their own,
+// so that a service exposes one port and a webhook is one more path on it.
+func (r *Runtime) mountInboundWebhooks() {
+	var servers []*rest.Connector
+	for _, name := range r.connectors.Names() {
+		conn, err := r.connectors.Get(name)
+		if err != nil {
+			continue
+		}
+		if server, ok := conn.(*rest.Connector); ok {
+			servers = append(servers, server)
+		}
+	}
+
+	for _, name := range r.connectors.Names() {
+		conn, err := r.connectors.Get(name)
+		if err != nil {
+			continue
+		}
+		inbound, ok := conn.(*webhook.InboundConnector)
+		if !ok {
+			continue
+		}
+
+		if len(servers) == 0 {
+			slog.Warn("an inbound webhook has no rest connector to be reached through",
+				"connector", name, "path", inbound.Path())
+			continue
+		}
+		for _, server := range servers {
+			server.MountHandler(inbound.Path(), inbound.HandleHTTP)
+		}
+
+		// And connect the flows that read from it. The usual registration only
+		// covers connectors that start a listener of their own, and this one is
+		// served by the REST connector above, so it would otherwise receive
+		// requests with no flow behind them.
+		r.registerFlowHandlers(name, inbound)
+
+		slog.Info("inbound webhook mounted", "connector", name, "path", inbound.Path())
+	}
 }

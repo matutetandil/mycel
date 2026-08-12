@@ -335,3 +335,26 @@ func (s *WebhookServer) Get(name string) (*InboundConnector, bool) {
 	c, ok := s.connectors[name]
 	return c, ok
 }
+
+// RegisterRoute connects a flow to this webhook.
+//
+// The signature is the one every source connector uses, so the runtime wires a
+// webhook the same way it wires a queue or a socket. The operation is ignored:
+// a webhook endpoint is one path, and which event arrived is in the payload
+// rather than in the route.
+//
+// Without this the connector could be created and never reached — its handler
+// was set by nothing, and the server that mounts its path was built by nobody.
+func (c *InboundConnector) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
+	c.SetHandler(func(ctx context.Context, event *WebhookEvent) error {
+		_, err := handler(ctx, map[string]interface{}{
+			"id":        event.ID,
+			"type":      event.Type,
+			"source":    event.Source,
+			"timestamp": event.Timestamp,
+			"headers":   event.Headers,
+			"body":      event.Payload,
+		})
+		return err
+	})
+}
