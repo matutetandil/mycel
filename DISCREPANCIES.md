@@ -23,7 +23,6 @@ Status: `open` = found, not decided · `decided` = we know which side is right �
 | # | Where | Doc says | Parser accepts | Recommendation |
 |---|---|---|---|---|
 | 10 | `param` blocks in a named operation | the block accepts `min`, `max`, `min_length`, `max_length`, `pattern`, `enum`, `in`, and `type` | **only `required` and `default` do anything.** `ValidateParams` checks required, `Resolve` fills defaults; the six constraints and `in` are parsed into `ParamDef` and never read, and `type` is stored with a `// Type checking could be added here` where the check would go. Writing `param "age" { type = "number", min = 0, max = 150 }` accepts anything at all | **build it.** `internal/validate` already has MinConstraint, MaxConstraint, PatternConstraint, EnumConstraint and the length ones, now covered by tests — the constraints exist and are enforced for `type` blocks. Wiring them here is reuse, not new machinery. |
-| 7 | connector `tls` (**reopened, wider than documentation**) | the gRPC connector's own schema declares `enabled`, `cert_file`, `key_file`, `ca_file`, `server_name`, `skip_verify`, so the IDE offers exactly those | **the parser accepts none of them.** It takes `ca_cert`/`client_cert`/`client_key`/`insecure_skip_verify`, which only the http connector reads. tcp reads `enabled`/`cert`/`key`, also unaccepted. So **TLS is configurable for http only**, and on a gRPC server the block enables TLS with empty paths, `credentials.NewServerTLSFromFile("","")` fails, `server.go:266` discards the error with `if err == nil`, and **the server starts in plaintext** | **security-relevant, decide before documenting.** Three vocabularies for one block; at minimum the swallowed error has to become a refusal to start | nothing documents it | `ca_cert` | **leave the name.** Renaming a working parser attribute breaks whoever already uses it. Document `ca_cert`. |
 
 ### Dead-or-bug candidates (parked by decision, 2026-08-12)
 
@@ -42,10 +41,9 @@ against a percentage while not being part of the running product.
 
 ### Notes on the open ones
 
-**#7 and #8** may simply be the docs never having been written for those
-blocks — worth checking whether anything documents them at all before renaming
-anything, because renaming a parser attribute is a breaking change for whoever
-already uses the working name.
+**#10** is the only one left. The `internal/validate` constraints it needs are
+already written and now covered by tests, so this is wiring rather than new
+machinery.
 
 ---
 
@@ -70,3 +68,4 @@ already uses the working name.
 | database connection strings (#11) | fourteen blocks wrote `dsn = env("DATABASE_URL")`; no such attribute existed and SQL connectors took only discrete fields | **both, with an order.** Discrete fields stay primary — each is validated on its own, and a password can come from a secret while the host comes from a configmap. But a URL is not an authoring preference: every managed platform hands over one `DATABASE_URL` and HCL cannot take a string apart, so without it the only route is a wrapper script. Mycel already accepted `url` for cache and mq and `uri` for mongo, so SQL was the odd one out. Added `url` to postgres and mysql, decomposed into the fields the factories already read, explicit values winning | this branch |
 | connector-level `mock` block (#8) | `mock { enabled, source }` inside a connector | **code, by deletion.** The parser stored it in `Properties["mock"]` and nothing ever read it, no schema declared it, no example used it. The real feature is the root-level `mocks {}` block, which runtime.go reads and which offers more per connector (`latency`, `fail_rate`, `enabled`). Removed from the parser, so what was a silent no-op is now a parse error that names the block | this branch |
 | `pkg/schema` | an `environment` root block | **schema** — no parser accepts it | 2.16.0 |
+| connector `tls` (#7) | three connectors read three different attribute sets; the parser accepted only http's; the gRPC schema advertised six names nothing accepted; a gRPC server whose certificate failed to load started in plaintext | **everything, in different ways, and the user's expectation named all of them.** Someone writing `tls {}` expects one vocabulary that works on every connector and a server that refuses to start rather than quietly downgrade. Measured against that: `cert` and `key` were rejected everywhere, so mutual TLS was unconfigurable on tcp, mq, mqtt and grpc; `enabled` was rejected while mq and mqtt require it, so those two could not be given TLS at all; the docs showed three vocabularies plus two MQTT names (`ca`, `insecure`) nothing ever accepted. Unified on the names three of five connectors already read, older spellings folded on so nothing breaks, the swallowed error turned into a refusal to start, and both schema registries now tested against the parser | this branch |
