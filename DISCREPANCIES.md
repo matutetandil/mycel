@@ -22,6 +22,7 @@ Status: `open` = found, not decided · `decided` = we know which side is right �
 
 | # | Where | Doc says | Parser accepts | Recommendation |
 |---|---|---|---|---|
+| 12 | connector schemas | `pkg/connectors` and `internal/connector/*/` are two hand-written copies of the same 33 connector schemas, ~1,200 lines each. The runtime registers the `internal` ones; `pkg/connectors` is what external tooling — Studio, the IDE engine — links against | **the public copy is stale, measurably.** 5 of 26 connector types differ across 14 attribute names, every one of them present in the runtime and missing from the public copy: `mq`'s `create_if_missing` (added in 2.0.0, a breaking change nobody consuming the public schema can see), Slack's whole `batch` block (2.5.0), and `database.url`, `graphql.subscriptions.connection_timeout` and http's `retry.delay`/`max_delay`/`backoff` from this branch. Nothing detects the drift, so it only grows | **delete the duplication rather than sync it.** Verified that `pkg/connectors` may import `internal/connector/...` — the internal rule is evaluated at the import site and both sit under the same module root — so `RegisterAll` can delegate to the same providers the runtime registers, and one definition serves both. That closes all 14 at once, including the ones added here, and removes the only reason the two can ever disagree. Until then, the TLS test in `internal/runtime` checks both registries for that one block. |
 | 10 | `param` blocks in a named operation | the block accepts `min`, `max`, `min_length`, `max_length`, `pattern`, `enum`, `in`, and `type` | **only `required` and `default` do anything.** `ValidateParams` checks required, `Resolve` fills defaults; the six constraints and `in` are parsed into `ParamDef` and never read, and `type` is stored with a `// Type checking could be added here` where the check would go. Writing `param "age" { type = "number", min = 0, max = 150 }` accepts anything at all | **build it.** `internal/validate` already has MinConstraint, MaxConstraint, PatternConstraint, EnumConstraint and the length ones, now covered by tests — the constraints exist and are enforced for `type` blocks. Wiring them here is reuse, not new machinery. |
 
 ### Dead-or-bug candidates (parked by decision, 2026-08-12)
@@ -41,9 +42,11 @@ against a percentage while not being part of the running product.
 
 ### Notes on the open ones
 
-**#10** is the only one left. The `internal/validate` constraints it needs are
-already written and now covered by tests, so this is wiring rather than new
-machinery.
+**#10**'s constraints are already written in `internal/validate` and now covered
+by tests, so it is wiring rather than new machinery.
+
+**#12** is the one that keeps producing others: every feature added to a
+connector schema since 2.0.0 had two places to land and reliably found one.
 
 ---
 
