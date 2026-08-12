@@ -42,6 +42,11 @@ func DefaultEndpointsConfig() *EndpointsConfig {
 		MFAVerify:      &EndpointConfig{Path: "/mfa/verify", Method: "POST", Enabled: true},
 		MFADisable:     &EndpointConfig{Path: "/mfa/disable", Method: "POST", Enabled: true},
 		MFARecovery:    &EndpointConfig{Path: "/mfa/recovery", Method: "POST", Enabled: true},
+		// The single sign-on callbacks. They were missing here as well as from
+		// the routing, so even a configuration that named them had nowhere to
+		// send a provider.
+		SocialCallback: &EndpointConfig{Path: "/social/callback", Method: "GET", Enabled: true},
+		SSOCallback:    &EndpointConfig{Path: "/sso/callback", Method: "GET", Enabled: true},
 	}
 }
 
@@ -103,6 +108,26 @@ func (h *Handler) RegisterRoutes(mux Mux) {
 	if h.config.SessionsRevoke != nil && h.config.SessionsRevoke.Enabled {
 		path := prefix + "/sessions/"
 		mux.HandleFunc(path, h.handleSessionRevoke)
+	}
+
+	h.registerSSORoutes(mux, prefix)
+}
+
+// registerSSORoutes mounts the two routes each sign-on family needs: one that
+// sends the browser to the provider, one the provider returns to.
+//
+// The begin route carries the provider in the path, so one route serves every
+// provider the configuration declares. The literal callback path is registered
+// as well, and takes precedence over the wildcard by Go's own routing rules.
+func (h *Handler) registerSSORoutes(mux Mux, prefix string) {
+	if h.config.SocialCallback != nil && h.config.SocialCallback.Enabled {
+		mux.HandleFunc(prefix+getPath(h.config.SocialCallback, "/social/callback"), h.handleSSOCallback)
+		mux.HandleFunc(prefix+"/social/{provider}", h.handleSSOBegin)
+	}
+
+	if h.config.SSOCallback != nil && h.config.SSOCallback.Enabled {
+		mux.HandleFunc(prefix+getPath(h.config.SSOCallback, "/sso/callback"), h.handleSSOCallback)
+		mux.HandleFunc(prefix+"/sso/{provider}", h.handleSSOBegin)
 	}
 }
 

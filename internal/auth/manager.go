@@ -21,6 +21,7 @@ type Manager struct {
 	tokenStore      TokenStore
 	bruteForceStore BruteForceStore
 	bruteForce      *BruteForceService
+	sso             *SSOService
 	mfaStore        MFAStore
 
 	// Components
@@ -129,6 +130,13 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 		m.bruteForce = NewBruteForceService(nil, m.bruteForceStore)
 	}
 
+	// Single sign-on, when a provider is configured. Writing the block is the
+	// whole of the setup: the providers are built from it, and the endpoints
+	// that drive them are mounted from the same configuration.
+	if config.Social != nil || config.SSO != nil {
+		m.sso = NewSSOService(config, NewMemoryLinkedAccountStore(), m.userStore, m.logger)
+	}
+
 	// Initialize token manager
 	var err error
 	m.tokenManager, err = NewTokenManager(config.JWT)
@@ -162,6 +170,12 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 }
 
 // Config returns the auth configuration
+// SSO returns the single sign-on service, or nil when no provider is
+// configured.
+func (m *Manager) SSO() *SSOService {
+	return m.sso
+}
+
 func (m *Manager) Config() *Config {
 	return m.config
 }
@@ -292,12 +306,30 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 		_ = m.bruteForce.RecordSuccess(ctx, m.bruteForceKey(req.Email, ip))
 	}
 
+	tokens, err := m.EstablishSession(ctx, user, ip, userAgent)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	m.logger.Info("user logged in", "user_id", user.ID, "email", user.Email)
+
+	return user, tokens, nil
+}
+
+// EstablishSession opens a session for a user who has already been
+// authenticated, and returns the tokens for it.
+//
+// It is the tail of Login, extracted because signing in through an identity
+// provider ends the same way: the session limit applies, a session is created,
+// tokens are issued against it and the last login is recorded. Repeating that
+// for SSO would mean two places where a session is born, and they would drift.
+func (m *Manager) EstablishSession(ctx context.Context, user *User, ip, userAgent string) (*TokenPair, error) {
 	// Check session limits
 	if m.config.Sessions != nil && m.config.Sessions.MaxActive > 0 {
 		count, _ := m.sessionStore.Count(ctx, user.ID)
 		if count >= m.config.Sessions.MaxActive {
 			if m.config.Sessions.OnMaxReached == "reject_new" {
-				return nil, nil, &AuthError{Code: "max_sessions", Message: "Maximum number of sessions reached"}
+				return nil, &AuthError{Code: "max_sessions", Message: "Maximum number of sessions reached"}
 			}
 			// revoke_oldest - delete oldest session
 			sessions, _ := m.sessionStore.FindByUserID(ctx, user.ID)
@@ -313,24 +345,19 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 		}
 	}
 
-	// Create session
 	session, err := m.createSession(ctx, user, ip, userAgent)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	// Generate tokens
 	tokens, err := m.tokenManager.GenerateTokenPair(user, session.ID, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	// Update last login
 	_ = m.userStore.UpdateLastLogin(ctx, user.ID, time.Now())
 
-	m.logger.Info("user logged in", "user_id", user.ID, "email", user.Email, "session_id", session.ID)
-
-	return user, tokens, nil
+	return tokens, nil
 }
 
 // Logout invalidates a session

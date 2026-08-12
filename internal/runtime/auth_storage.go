@@ -163,6 +163,29 @@ func (r *Runtime) initAuth(ctx context.Context) error {
 		return fmt.Errorf("failed to start auth cleanup: %w", err)
 	}
 
+	if sso := manager.SSO(); sso != nil {
+		// A provider redirects a browser back to an absolute address it has on
+		// record. Starting without one produces a relative redirect_uri that
+		// every provider rejects, at the point of sign-in and with an error
+		// that names none of this.
+		if r.config.Auth.BaseURL == "" {
+			return fmt.Errorf("auth declares identity providers but no base_url: " +
+				"add base_url to the auth block with the address this service is reached at " +
+				"(for example https://app.example.com), since that is where a provider sends users back to")
+		}
+
+		// OIDC providers describe themselves at a discovery URL, which has to
+		// be fetched before the first sign-in rather than during it. A provider
+		// that cannot be reached is reported and the rest still work.
+		if err := sso.InitializeOIDCProviders(ctx); err != nil {
+			r.logger.Warn("an OIDC provider could not be initialized", "error", err)
+		}
+		// Pending authorisation states expire; without this they accumulate
+		// for the life of the process.
+		sso.StartStateCleanup(ctx)
+		r.logger.Info("single sign-on enabled", "providers", sso.GetAvailableProviders())
+	}
+
 	r.logger.Info("auth system initialized", "preset", r.config.Auth.Preset)
 	return nil
 }

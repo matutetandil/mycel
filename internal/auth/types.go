@@ -8,6 +8,12 @@ type Config struct {
 	// Preset: strict, standard, relaxed, development
 	Preset string `hcl:"preset,optional"`
 
+	// BaseURL is the address this service is reached at from outside, such as
+	// https://app.example.com. Identity providers redirect a browser back to
+	// it after a sign-in, so it has to be the public address rather than the
+	// listening one, and it has to match what is registered with the provider.
+	BaseURL string `hcl:"base_url,optional"`
+
 	// Storage for tokens/sessions
 	Storage *StorageConfig `hcl:"storage,block"`
 

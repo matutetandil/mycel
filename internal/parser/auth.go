@@ -19,6 +19,17 @@ func (p *HCLParser) parseAuthBlock(block *hcl.Block) (*auth.Config, error) {
 		return nil, fmt.Errorf("parsing auth block: %s", diags.Error())
 	}
 
+	if attr, exists := content.Attributes["base_url"]; exists {
+		val, diags := attr.Expr.Value(p.evalCtx)
+		if !diags.HasErrors() {
+			s, err := stringValue("base_url", val)
+			if err != nil {
+				return nil, err
+			}
+			config.BaseURL = s
+		}
+	}
+
 	// Parse simple attributes
 	if attr, exists := content.Attributes["preset"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
@@ -1060,6 +1071,7 @@ func (p *HCLParser) parseAuthAuditBlock(block *hcl.Block) (*auth.AuditConfig, er
 var authSchema = &hcl.BodySchema{
 	Attributes: []hcl.AttributeSchema{
 		{Name: "preset"},
+		{Name: "base_url"},
 		{Name: "secret"},
 		{Name: "storage"},
 	},
