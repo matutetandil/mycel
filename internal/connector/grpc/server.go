@@ -218,7 +218,11 @@ func (c *ServerConnector) Start(ctx context.Context) error {
 	}
 
 	// Build server options
-	opts := c.buildServerOptions()
+	opts, err := c.buildServerOptions()
+	if err != nil {
+		lis.Close()
+		return err
+	}
 
 	// Create server
 	c.server = grpc.NewServer(opts...)
@@ -250,7 +254,13 @@ func (c *ServerConnector) Start(ctx context.Context) error {
 }
 
 // buildServerOptions builds gRPC server options.
-func (c *ServerConnector) buildServerOptions() []grpc.ServerOption {
+//
+// A failure to build credentials is returned rather than skipped. It used to be
+// discarded with `if err == nil`, which meant a server configured for TLS whose
+// certificate could not be loaded started anyway — in plaintext, with the
+// operator believing the connection was encrypted. Refusing to start is the
+// only safe reading of "I asked for TLS".
+func (c *ServerConnector) buildServerOptions() ([]grpc.ServerOption, error) {
 	var opts []grpc.ServerOption
 
 	// TLS or mTLS
@@ -258,14 +268,22 @@ func (c *ServerConnector) buildServerOptions() []grpc.ServerOption {
 		// Check if mTLS is configured
 		if c.config.Auth != nil && c.config.Auth.Type == "mtls" && c.config.TLS.CAFile != "" {
 			tlsCfg, err := BuildMTLSConfig(c.config.TLS)
-			if err == nil && tlsCfg != nil {
-				opts = append(opts, grpc.Creds(credentials.NewTLS(tlsCfg)))
+			if err != nil {
+				return nil, fmt.Errorf("mTLS is configured but the credentials could not be built: %w", err)
 			}
+			if tlsCfg == nil {
+				return nil, fmt.Errorf("mTLS is configured but produced no TLS configuration")
+			}
+			opts = append(opts, grpc.Creds(credentials.NewTLS(tlsCfg)))
 		} else {
-			creds, err := credentials.NewServerTLSFromFile(c.config.TLS.CertFile, c.config.TLS.KeyFile)
-			if err == nil {
-				opts = append(opts, grpc.Creds(creds))
+			if c.config.TLS.CertFile == "" || c.config.TLS.KeyFile == "" {
+				return nil, fmt.Errorf("TLS is enabled but no certificate and key were configured")
 			}
+			creds, err := credentials.NewServerTLSFromFile(c.config.TLS.CertFile, c.config.TLS.KeyFile)
+			if err != nil {
+				return nil, fmt.Errorf("TLS is enabled but the certificate could not be loaded: %w", err)
+			}
+			opts = append(opts, grpc.Creds(creds))
 		}
 	}
 
@@ -285,7 +303,7 @@ func (c *ServerConnector) buildServerOptions() []grpc.ServerOption {
 		opts = append(opts, grpc.MaxSendMsgSize(c.config.MaxSend*1024*1024))
 	}
 
-	return opts
+	return opts, nil
 }
 
 // registerServices registers gRPC services based on handlers.
