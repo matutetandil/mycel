@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector/database"
 )
 
 // Factory creates MySQL connectors.
@@ -29,6 +30,13 @@ func (f *Factory) Supports(connType, driver string) bool {
 
 // Create creates a new MySQL connector from config.
 func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.Connector, error) {
+	// A single connection URL is what every managed platform hands over, and
+	// HCL cannot take a string apart. Decompose it into the discrete fields
+	// below; anything set explicitly stays as written.
+	if err := database.ApplyURL(cfg.Properties); err != nil {
+		return nil, fmt.Errorf("%s connector: %w", cfg.Name, err)
+	}
+
 	// Get host (required)
 	host, _ := cfg.Properties["host"].(string)
 	if host == "" {

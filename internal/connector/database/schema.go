@@ -8,6 +8,7 @@ type PostgresSchema struct{}
 func (PostgresSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "url", Doc: "Whole connection URL, e.g. postgres://user:pass@host:5432/db. Discrete fields below are preferred; anything set explicitly wins over the URL.", Type: schema.TypeString},
 			{Name: "host", Doc: "Database server host", Type: schema.TypeString},
 			{Name: "port", Doc: "Database server port", Type: schema.TypeNumber},
 			{Name: "database", Doc: "Database name", Type: schema.TypeString, Required: true},
@@ -37,6 +38,7 @@ type MySQLSchema struct{}
 func (MySQLSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "url", Doc: "Whole connection URL, e.g. postgres://user:pass@host:5432/db. Discrete fields below are preferred; anything set explicitly wins over the URL.", Type: schema.TypeString},
 			{Name: "host", Doc: "Database server host", Type: schema.TypeString},
 			{Name: "port", Doc: "Database server port", Type: schema.TypeNumber},
 			{Name: "database", Doc: "Database name", Type: schema.TypeString, Required: true},
