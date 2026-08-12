@@ -562,13 +562,15 @@ Flow `operation` values: `generate` (default — returns the PDF as binary) or
 
 ```hcl
 connector "db" {
-  type    = "database"
-  driver  = "postgres"
   select  = "input.tenant_id"   # CEL expression to pick profile
   default = "primary"
   fallback = ["primary", "replica"]
 
+  # A profiled connector has no type at the root: each profile declares its
+  # own, so the alternatives need not be the same kind of backend.
   profile "primary" {
+    type     = "database"
+    driver   = "postgres"
     host     = env("PRIMARY_HOST")
     database = "app"
     user     = env("DB_USER")
@@ -576,6 +578,8 @@ connector "db" {
   }
 
   profile "replica" {
+    type     = "database"
+    driver   = "postgres"
     host     = env("REPLICA_HOST")
     database = "app"
     user     = env("DB_USER")

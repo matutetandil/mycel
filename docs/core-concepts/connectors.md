@@ -328,48 +328,67 @@ See the [named-operations example](https://github.com/matutetandil/mycel/tree/ma
 
 ## Connector Profiles
 
-Profiles allow a single connector to have multiple backends selected at runtime. Useful for multi-tenant systems, A/B testing, or read/write splitting.
+A profiled connector is one name that resolves to a different backend at
+runtime. Each profile declares **what it is** — its own `type` and `driver` —
+so the alternatives do not have to be the same kind of thing: one flow can read
+prices from an HTTP API for one tenant and from a database for another, without
+knowing which it got.
+
+Because the profile carries the type, a profiled connector has none at the root.
+
+```hcl
+connector "prices" {
+  select  = "env('PRICE_SOURCE')"   # CEL expression evaluated per execution
+  default = "magento"
+  fallback = ["erp", "legacy"]      # tried in order if the selected one fails
+
+  profile "magento" {
+    type     = "http"
+    driver   = "client"
+    base_url = env("MAGENTO_URL")
+
+    auth {
+      type  = "bearer"
+      token = env("MAGENTO_TOKEN")
+    }
+  }
+
+  profile "erp" {
+    type     = "database"
+    driver   = "sqlite"
+    database = "erp.db"
+  }
+}
+```
+
+The alternatives can equally be the same kind of backend — read replicas, a
+tenant per database — in which case every profile repeats the same `type` and
+`driver` and varies only the connection:
 
 ```hcl
 connector "db" {
-  type    = "database"
-  driver  = "postgres"
-  select  = "input.tenant_id"  # CEL expression to pick profile
+  select  = "input.tenant_id"
   default = "primary"
 
   profile "primary" {
+    type     = "database"
+    driver   = "postgres"
     host     = env("PRIMARY_HOST")
     database = "app"
-    user     = env("DB_USER")
-    password = env("DB_PASSWORD")
   }
 
   profile "analytics" {
+    type     = "database"
+    driver   = "postgres"
     host     = env("ANALYTICS_HOST")
     database = "app_analytics"
-    user     = env("DB_USER")
-    password = env("DB_PASSWORD")
   }
 }
 ```
 
-The `select` expression is evaluated at flow execution time. Profiles can also use `fallback` for failover:
-
-```hcl
-connector "cache" {
-  type     = "cache"
-  driver   = "redis"
-  fallback = ["primary", "secondary"]
-
-  profile "primary" {
-    url = env("REDIS_PRIMARY_URL")
-  }
-
-  profile "secondary" {
-    url = env("REDIS_SECONDARY_URL")
-  }
-}
-```
+`select` is evaluated at flow execution time and its result names the profile;
+`default` is used when it evaluates to nothing or names a profile that does not
+exist. `fallback` lists profiles to try, in order, when the selected one fails.
 
 See the [profiles example](https://github.com/matutetandil/mycel/tree/main/examples/profiles) for details.
 
