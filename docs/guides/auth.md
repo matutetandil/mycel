@@ -163,18 +163,64 @@ mfa {
 }
 ```
 
-### SSO Configuration
+### Signing in through an identity provider
+
+Declaring a provider is the whole of the setup: the endpoints that drive the
+flow are mounted from the same configuration, and a sign-in ends in the same
+session and token pair a password login produces.
+
+One attribute is needed beyond the provider itself. A provider sends the browser
+back to this service after a sign-in, to an absolute address it has on record,
+so it has to be told what that address is:
 
 ```hcl
-sso {
-  linking {
-    enabled              = true
-    match_by             = "email"    # "email", "none"
-    require_verification = true       # Require verified email
-    on_match             = "link"     # "link", "prompt", "reject"
+auth {
+  # The address this service is reached at from outside — not the address it
+  # listens on. Register the callback below with each provider.
+  base_url = env("PUBLIC_URL", "https://app.example.com")
+
+  social {
+    google {
+      client_id     = env("GOOGLE_CLIENT_ID")
+      client_secret = env("GOOGLE_CLIENT_SECRET")
+    }
   }
 }
 ```
+
+Starting without it is a startup error rather than a failure at the first
+sign-in, where the provider's message names none of this.
+
+Two endpoints exist per family. The provider is named in the path, so one route
+serves every provider declared:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /auth/social/{provider}` | Redirects to the provider — `/auth/social/google` |
+| `GET /auth/social/callback` | Where the provider returns; issues the tokens |
+| `GET /auth/sso/{provider}` | The same, for an OIDC provider — `/auth/sso/okta` |
+| `GET /auth/sso/callback` | The OIDC callback |
+
+Register `{base_url}/auth/social/callback` with each social provider, and
+`{base_url}/auth/sso/callback` with each OIDC one. Both paths can be moved with
+`endpoints { social_callback { path = "..." } }`, and the address handed to the
+provider follows, so the two cannot disagree.
+
+The callback answers with the token pair:
+
+```json
+{
+  "access_token": "...",
+  "refresh_token": "...",
+  "action": "created",
+  "provider": "google",
+  "user": { "id": "...", "email": "person@example.com" }
+}
+```
+
+`action` says what happened to the account: `created` for a first sign-in,
+`existing` for a return, `linked` when the identity was attached to an account
+that was already there.
 
 ### Social Login Providers
 
@@ -420,14 +466,15 @@ endpoints {
     enabled = true
   }
 
-  # SSO
-  sso_start {
-    path    = "/sso/:provider"
+  # SSO. The route that starts a flow follows the callback's path and is not
+  # configured on its own.
+  social_callback {
+    path    = "/social/callback"
     method  = "GET"
     enabled = true
   }
   sso_callback {
-    path    = "/callback/:provider"
+    path    = "/sso/callback"
     method  = "GET"
     enabled = true
   }
@@ -573,11 +620,14 @@ CREATE INDEX idx_audit_created ON auth_audit_log(created_at);
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/auth/sso/:provider` | GET | Start SSO flow |
-| `/auth/callback/:provider` | GET/POST | OAuth callback |
-| `/auth/link/:provider` | POST | Link social account |
-| `/auth/unlink/:provider` | DELETE | Unlink social account |
-| `/auth/linked-accounts` | GET | List linked accounts |
+| `/auth/social/{provider}` | GET | Start a social sign-in |
+| `/auth/social/callback` | GET | Where a social provider returns |
+| `/auth/sso/{provider}` | GET | Start an OIDC sign-in |
+| `/auth/sso/callback` | GET | Where an OIDC provider returns |
+
+Linking an identity to an existing account happens during a sign-in, decided by
+matching the verified email. There are no endpoints yet for managing links
+afterwards.
 
 ## Security Considerations
 
