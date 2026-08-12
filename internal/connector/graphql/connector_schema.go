@@ -33,7 +33,8 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 			{Type: "subscriptions", Doc: "WebSocket subscriptions", Attrs: []schema.Attr{
 				{Name: "enabled", Doc: "Enable subscriptions", Type: schema.TypeBool},
 				{Name: "path", Doc: "WebSocket path", Type: schema.TypeString},
-				{Name: "keep_alive_interval", Doc: "Keep-alive interval", Type: schema.TypeDuration},
+				{Name: "keep_alive_interval", Doc: "Ping period on an idle socket (default 30s)", Type: schema.TypeDuration},
+				{Name: "connection_timeout", Doc: "Drop a connection that stops answering (default 60s)", Type: schema.TypeDuration},
 			}},
 			{Type: "headers", Doc: "Default client headers", Open: true},
 			{Type: "auth", Doc: "Authentication", Open: true},

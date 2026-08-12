@@ -195,9 +195,10 @@ connector "gql" {
   playground = true
 
   subscriptions {
-    enabled   = true
-    transport = "websocket"
-    path      = "/graphql/ws"
+    enabled             = true
+    path                = "/graphql/ws"  # default /subscriptions
+    keep_alive_interval = "30s"          # ping period on an idle socket
+    connection_timeout  = "60s"          # drop a connection that stops answering
   }
 }
 
