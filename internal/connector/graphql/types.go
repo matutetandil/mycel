@@ -23,6 +23,11 @@ type ServerConfig struct {
 	// Playground enables the GraphQL Playground UI.
 	Playground bool
 
+	// Introspection allows clients to query the schema itself. Off in
+	// production by default: a schema is a map of everything the service can
+	// do, and publishing it is a choice rather than a given.
+	Introspection bool
+
 	// PlaygroundPath is the path for the playground (default: /playground).
 	PlaygroundPath string
 

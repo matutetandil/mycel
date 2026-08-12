@@ -12,6 +12,7 @@ func (GraphQLSchema) ConnectorSchema() schema.Block {
 			{Name: "host", Doc: "Server host or client endpoint", Type: schema.TypeString},
 			{Name: "endpoint", Doc: "Client endpoint URL", Type: schema.TypeString},
 			{Name: "playground", Doc: "Enable GraphiQL playground", Type: schema.TypeBool},
+			{Name: "introspection", Doc: "Allow clients to query the schema itself. Off in production by default", Type: schema.TypeBool},
 			{Name: "playground_path", Doc: "Playground URL path", Type: schema.TypeString},
 			{Name: "timeout", Doc: "Client request timeout", Type: schema.TypeDuration},
 		},

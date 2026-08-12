@@ -485,8 +485,24 @@ func BaseConnectorSchema() Block {
 		Attrs: []Attr{
 			{Name: "type", Doc: "Connector type", Type: TypeString, Required: true, Values: connectorTypes()},
 			{Name: "driver", Doc: "Driver for the connector type", Type: TypeString},
+			// Profiles: one connector that resolves to different backends.
+			{Name: "select", Doc: "CEL expression naming the profile to use", Type: TypeString},
+			{Name: "default", Doc: "Profile used when select names none", Type: TypeString},
+			{Name: "fallback", Doc: "Profiles to try, in order, when the selected one fails", Type: TypeList},
 		},
-		Children: []Block{OperationSchema()},
+		Children: []Block{
+			OperationSchema(),
+			{
+				Type:   "profile",
+				Doc:    "One backend this connector can resolve to. A profile declares what it is, so profiles of a connector may differ in type",
+				Labels: 1,
+				Open:   true,
+				Attrs: []Attr{
+					{Name: "type", Doc: "Connector type for this profile", Type: TypeString, Required: true, Values: connectorTypes()},
+					{Name: "driver", Doc: "Driver for this profile", Type: TypeString},
+				},
+			},
+		},
 	}
 }
 

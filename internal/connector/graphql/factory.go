@@ -48,13 +48,14 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 // createServer creates a GraphQL server connector.
 func (f *Factory) createServer(cfg *connector.Config) (*ServerConnector, error) {
 	// Environment-aware playground default: enabled in dev/staging, disabled in production
-	playgroundDefault := envdefaults.ForEnvironment(cfg.Environment).Playground
+	defaults := envdefaults.ForEnvironment(cfg.Environment)
 
 	config := &ServerConfig{
-		Port:       getInt(cfg.Properties, "port", 4000),
-		Host:       getString(cfg.Properties, "host", "0.0.0.0"),
-		Endpoint:   getString(cfg.Properties, "endpoint", "/graphql"),
-		Playground: getBool(cfg.Properties, "playground", playgroundDefault),
+		Port:          getInt(cfg.Properties, "port", 4000),
+		Host:          getString(cfg.Properties, "host", "0.0.0.0"),
+		Endpoint:      getString(cfg.Properties, "endpoint", "/graphql"),
+		Playground:    getBool(cfg.Properties, "playground", defaults.Playground),
+		Introspection: getBool(cfg.Properties, "introspection", defaults.Introspection),
 	}
 
 	// Parse playground path

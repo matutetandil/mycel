@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -350,6 +351,15 @@ func (c *ServerConnector) handleGraphQL(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Refuse introspection when it is turned off. The schema is a map of
+	// everything the service can do, so publishing it is a choice; the
+	// attribute was accepted by the parser and read by nothing, which meant
+	// asking for it to be off left it on.
+	if !c.config.Introspection && queryUsesIntrospection(request.Query) {
+		c.writeGraphQLError(w, "introspection is disabled")
+		return
+	}
+
 	// Create DataLoader collection for this request (N+1 prevention)
 	loaders := dataloader.NewLoaderCollection()
 	ctx := dataloader.WithLoaders(r.Context(), loaders)
@@ -491,3 +501,30 @@ var (
 
 // InboundOnly implements connector.InboundOnly: this connector listens.
 func (c *ServerConnector) InboundOnly() bool { return true }
+
+// introspectionField matches a selection of one of the introspection meta
+// fields. The leading boundary keeps it from firing on a field whose name
+// merely ends in the text, such as my__schema.
+var introspectionField = regexp.MustCompile(`(^|[^_A-Za-z0-9])__(schema|type)\b`)
+
+// graphQLString matches a block string or an ordinary one, escapes included.
+var graphQLString = regexp.MustCompile(`"""(?s:.*?)"""|"(?:[^"\\]|\\.)*"`)
+
+// queryUsesIntrospection reports whether a query asks about the schema itself.
+//
+// String literals are removed first: a search whose term happens to be
+// "__schema" is an ordinary query, and refusing it would be a puzzling failure
+// in a service that simply has a search field.
+func queryUsesIntrospection(query string) bool {
+	withoutStrings := graphQLString.ReplaceAllString(query, `""`)
+	return introspectionField.MatchString(strings.ToLower(withoutStrings))
+}
+
+// writeGraphQLError writes a refusal in the shape a GraphQL client expects,
+// which is a 200 carrying an errors array rather than an HTTP status.
+func (c *ServerConnector) writeGraphQLError(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"errors": []map[string]interface{}{{"message": message}},
+	})
+}

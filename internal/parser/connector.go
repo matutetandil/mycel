@@ -11,18 +11,15 @@ import (
 	"github.com/matutetandil/mycel/v2/internal/connector/profile"
 )
 
-// parseConnectorBlock parses a connector block from HCL.
-func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Config, error) {
-	if len(block.Labels) < 1 {
-		return nil, fmt.Errorf("connector block requires a name label")
-	}
-
-	config := &connector.Config{
-		Name:       block.Labels[0],
-		Properties: make(map[string]interface{}),
-	}
-
-	schema := &hcl.BodySchema{
+// connectorBodySchema is the set of attributes and blocks a connector may
+// contain.
+//
+// It is a function rather than a literal inside the parser so that the schema
+// registries can be checked against it: an attribute accepted here and declared
+// by no connector schema is either a setting missing from the schema or a word
+// that does nothing, and both have happened.
+func connectorBodySchema() *hcl.BodySchema {
+	return &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "type"}, // Not required - profiled connectors don't have type at root
 			{Name: "driver"},
@@ -78,7 +75,6 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "max_items"},   // Memory cache max items
 			{Name: "eviction"},    // Eviction policy (lru)
 			{Name: "default_ttl"}, // Default TTL for entries
-			{Name: "address"},     // Redis address
 
 			// gRPC specific
 			{Name: "proto_path"},     // Path to .proto files directory
@@ -111,8 +107,6 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "replica_set"},  // Replica set name
 			{Name: "auth_source"},  // Authentication database
 			{Name: "auth_db"},      // Alias for auth_source
-			{Name: "max_pool"},     // Max pool size
-			{Name: "min_pool"},     // Min pool size
 			{Name: "srv"},          // Use SRV record lookup
 			{Name: "direct"},       // Direct connection mode
 			{Name: "read_concern"}, // Read concern level
@@ -176,7 +170,6 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			// SOAP connector specific
 			{Name: "soap_version"}, // SOAP version: "1.1" or "1.2"
 			{Name: "namespace"},    // SOAP service namespace
-			{Name: "wsdl"},         // WSDL URL (informational)
 
 			// MQTT connector specific
 			{Name: "broker"},                 // Broker URL (tcp://, ssl://, ws://)
@@ -207,7 +200,6 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 
 			// SSE specific (Server-Sent Events)
 			{Name: "heartbeat_interval"}, // Heartbeat comment interval
-			{Name: "origins"},            // Allowed origins (SSE/WebSocket)
 
 			// Elasticsearch specific
 			{Name: "nodes"}, // Cluster node URLs
@@ -281,6 +273,20 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Type: "operation", LabelNames: []string{"name"}}, // Named operations for flows
 		},
 	}
+}
+
+// parseConnectorBlock parses a connector block from HCL.
+func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Config, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("connector block requires a name label")
+	}
+
+	config := &connector.Config{
+		Name:       block.Labels[0],
+		Properties: make(map[string]interface{}),
+	}
+
+	schema := connectorBodySchema()
 
 	content, diags := block.Body.Content(schema)
 	if diags.HasErrors() {
@@ -1050,7 +1056,6 @@ func parseRetryBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interfa
 
 	return retry, nil
 }
-
 
 // ctyValueToGo converts a cty.Value to a native Go value.
 func ctyValueToGo(val cty.Value) interface{} {

@@ -10,6 +10,7 @@ func (ExecSchema) ConnectorSchema() schema.Block {
 		Attrs: []schema.Attr{
 			{Name: "command", Doc: "Command to execute", Type: schema.TypeString, Required: true},
 			{Name: "working_dir", Doc: "Working directory for the command", Type: schema.TypeString},
+			{Name: "args", Doc: "Arguments passed to the command", Type: schema.TypeList},
 			{Name: "timeout", Doc: "Execution timeout", Type: schema.TypeDuration},
 			{Name: "shell", Doc: "Shell to use (e.g., /bin/sh)", Type: schema.TypeString},
 			{Name: "input_format", Doc: "Input data format", Type: schema.TypeString},

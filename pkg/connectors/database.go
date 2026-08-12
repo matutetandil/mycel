@@ -77,7 +77,12 @@ type MongoDBSchema struct{}
 func (MongoDBSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
-			{Name: "uri", Doc: "MongoDB connection URI", Type: schema.TypeString},
+			{Name: "uri", Doc: "MongoDB connection URI. Given whole, it is used as written and the options below are ignored", Type: schema.TypeString},
+			{Name: "srv", Doc: "Resolve the host through a DNS SRV seed list (mongodb+srv://)", Type: schema.TypeBool},
+			{Name: "auth_source", Doc: "Database to authenticate against", Type: schema.TypeString},
+			{Name: "replica_set", Doc: "Replica set name", Type: schema.TypeString},
+			{Name: "read_concern", Doc: "Read concern level: local, majority, linearizable, available", Type: schema.TypeString},
+			{Name: "direct", Doc: "Connect to one server directly rather than discovering the topology", Type: schema.TypeBool},
 			{Name: "host", Doc: "MongoDB host", Type: schema.TypeString},
 			{Name: "port", Doc: "MongoDB port", Type: schema.TypeNumber},
 			{Name: "user", Doc: "Username", Type: schema.TypeString},

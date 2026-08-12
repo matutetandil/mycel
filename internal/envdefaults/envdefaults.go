@@ -8,6 +8,7 @@ type Defaults struct {
 	LogFormat        string // "text", "json"
 	HotReload        bool
 	Playground       bool // GraphQL playground / GraphiQL
+	Introspection    bool // GraphQL schema introspection
 	DetailedHealth   bool // show component latencies in /health
 	RateLimitEnabled bool
 	CORSPermissive   bool // allow all origins when no CORS config
@@ -25,6 +26,7 @@ func ForEnvironment(env string) Defaults {
 			LogFormat:        "json",
 			HotReload:        false,
 			Playground:       false,
+			Introspection:    false,
 			DetailedHealth:   false,
 			RateLimitEnabled: true,
 			CORSPermissive:   false,
@@ -37,6 +39,7 @@ func ForEnvironment(env string) Defaults {
 			LogFormat:        "json",
 			HotReload:        true,
 			Playground:       true,
+			Introspection:    true,
 			DetailedHealth:   true,
 			RateLimitEnabled: true,
 			CORSPermissive:   false,
@@ -49,6 +52,7 @@ func ForEnvironment(env string) Defaults {
 			LogFormat:        "text",
 			HotReload:        true,
 			Playground:       true,
+			Introspection:    true,
 			DetailedHealth:   true,
 			RateLimitEnabled: false,
 			CORSPermissive:   true,

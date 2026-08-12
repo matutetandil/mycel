@@ -17,6 +17,7 @@ func (TCPSchema) ConnectorSchema() schema.Block {
 			{Name: "pool_size", Doc: "Connection pool size", Type: schema.TypeNumber},
 			{Name: "connect_timeout", Doc: "Connection timeout duration", Type: schema.TypeDuration},
 			{Name: "idle_timeout", Doc: "Idle connection timeout", Type: schema.TypeDuration},
+			{Name: "retry_delay", Doc: "Wait between reconnection attempts (client)", Type: schema.TypeDuration},
 		},
 		Children: []schema.Block{
 			{Type: "tls", Doc: "TLS/SSL settings", Attrs: []schema.Attr{

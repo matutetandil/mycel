@@ -15,6 +15,9 @@ func (GRPCSchema) ConnectorSchema() schema.Block {
 			{Name: "max_recv_mb", Doc: "Maximum receive message size in MB", Type: schema.TypeNumber},
 			{Name: "max_send_mb", Doc: "Maximum send message size in MB", Type: schema.TypeNumber},
 			{Name: "proto_files", Doc: "List of proto file paths", Type: schema.TypeList},
+			{Name: "target", Doc: "Address of the service to call (client)", Type: schema.TypeString},
+			{Name: "insecure", Doc: "Connect without TLS (client, development only)", Type: schema.TypeBool},
+			{Name: "wait_for_ready", Doc: "Queue calls until the connection is ready instead of failing fast (client)", Type: schema.TypeBool},
 		},
 		Children: []schema.Block{
 			{Type: "tls", Doc: "TLS/SSL settings. Writing the block enables TLS; set enabled = false to turn it off without removing it", Attrs: []schema.Attr{

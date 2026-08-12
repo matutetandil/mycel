@@ -89,3 +89,81 @@ func TestConnectorSchemasMatchTheParser(t *testing.T) {
 		})
 	}
 }
+
+// acceptedAliases are attributes the parser takes on purpose that no schema
+// offers, because each is a second spelling of something already declared.
+// They stay valid to write; completions should show the canonical name.
+var acceptedAliases = map[string]string{
+	"auth_db":  "auth_source", // mongodb
+	"ssl_mode": "sslmode",     // postgres
+}
+
+// Every registered connector schema, drivers included. Lookup with an empty
+// driver returns only the type's default provider, which would leave every
+// driver-specific attribute — Kafka's brokers, MySQL's charset — looking
+// undeclared.
+var registeredPairs = [][2]string{
+	{"rest", ""}, {"http", ""}, {"graphql", ""}, {"grpc", ""}, {"tcp", ""}, {"soap", ""},
+	{"websocket", ""}, {"sse", ""},
+	{"database", ""}, {"database", "postgres"}, {"database", "mysql"},
+	{"database", "sqlite"}, {"database", "mongodb"},
+	{"mq", ""}, {"mq", "rabbitmq"}, {"mq", "kafka"}, {"mq", "redis"},
+	{"file", ""}, {"s3", ""}, {"ftp", ""}, {"exec", ""}, {"cache", ""},
+	{"elasticsearch", ""}, {"cdc", ""}, {"pdf", ""}, {"mqtt", ""}, {"oauth", ""},
+	{"email", ""}, {"slack", ""}, {"discord", ""}, {"sms", ""}, {"push", ""}, {"webhook", ""},
+}
+
+// TestTheParserAcceptsNothingUndescribed is the other direction.
+//
+// An attribute the parser takes and no schema declares is one of two things,
+// and both are bugs. Either a connector reads it, and a real setting is
+// invisible to completions, `mycel add` and the exported documentation — the
+// state named operations were in. Or nothing reads it, and the parser accepts
+// a word that quietly does nothing, which is how the exec connector came to
+// take `working_dir` from every example while reading `workdir`.
+func TestTheParserAcceptsNothingUndescribed(t *testing.T) {
+	reg := schema.NewRegistryWith(connectors.RegisterAll)
+
+	declared := map[string]bool{}
+	for _, a := range schema.BaseConnectorSchema().Attrs {
+		declared[a.Name] = true
+	}
+	for _, c := range schema.BaseConnectorSchema().Children {
+		declared[c.Type] = true
+	}
+	for _, pair := range registeredPairs {
+		provider := reg.Lookup(pair[0], pair[1])
+		if provider == nil {
+			t.Fatalf("no schema registered for %v", pair)
+		}
+		blk := provider.ConnectorSchema()
+		for _, a := range blk.Attrs {
+			declared[a.Name] = true
+		}
+		// A name written as a nested block is declared just as much.
+		for _, c := range blk.Children {
+			declared[c.Type] = true
+		}
+	}
+
+	var undescribed []string
+	for _, a := range connectorBodySchema().Attributes {
+		if declared[a.Name] {
+			continue
+		}
+		if canonical, isAlias := acceptedAliases[a.Name]; isAlias {
+			if !declared[canonical] {
+				t.Errorf("%q is listed as an alias of %q, which no schema declares", a.Name, canonical)
+			}
+			continue
+		}
+		undescribed = append(undescribed, a.Name)
+	}
+	sort.Strings(undescribed)
+
+	for _, name := range undescribed {
+		t.Errorf("the parser accepts connector attribute %q and no schema declares it: "+
+			"either a connector reads it and the schema should say so, or nothing does and the parser should not take it",
+			name)
+	}
+}

@@ -4,6 +4,8 @@ package mongodb
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
@@ -44,11 +46,20 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 		user, _ := cfg.Properties["user"].(string)
 		password, _ := cfg.Properties["password"].(string)
 
-		if user != "" && password != "" {
-			uri = fmt.Sprintf("mongodb://%s:%s@%s:%d", user, password, host, port)
-		} else {
-			uri = fmt.Sprintf("mongodb://%s:%d", host, port)
+		// A seed-list host resolved through SRV carries no port: the records
+		// supply them, and mongodb+srv:// rejects one.
+		scheme, hostPart := "mongodb://", fmt.Sprintf("%s:%d", host, port)
+		if useSRV, _ := cfg.Properties["srv"].(bool); useSRV {
+			scheme, hostPart = "mongodb+srv://", host
 		}
+
+		if user != "" && password != "" {
+			uri = fmt.Sprintf("%s%s:%s@%s", scheme, url.QueryEscape(user), url.QueryEscape(password), hostPart)
+		} else {
+			uri = scheme + hostPart
+		}
+
+		uri = appendMongoOptions(uri, cfg.Properties)
 	}
 
 	// Get database name (required)
@@ -79,4 +90,42 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 	}
 
 	return conn, nil
+}
+
+// appendMongoOptions carries the connection settings that are URI options
+// rather than parts of the address.
+//
+// The parser accepted every one of these and nothing read them, so a replica
+// set name, an authentication database or a read concern could be written and
+// silently had no effect. They are only applied to a URI built from parts: a
+// uri given whole is the author's, and rewriting its query string would be
+// surprising.
+func appendMongoOptions(uri string, props map[string]interface{}) string {
+	opts := url.Values{}
+
+	// auth_db is the shorter spelling of auth_source; both were accepted.
+	for _, key := range []string{"auth_source", "auth_db"} {
+		if v, ok := props[key].(string); ok && v != "" {
+			opts.Set("authSource", v)
+			break
+		}
+	}
+	if v, ok := props["replica_set"].(string); ok && v != "" {
+		opts.Set("replicaSet", v)
+	}
+	if v, ok := props["read_concern"].(string); ok && v != "" {
+		opts.Set("readConcernLevel", v)
+	}
+	if v, ok := props["direct"].(bool); ok && v {
+		opts.Set("directConnection", "true")
+	}
+
+	if len(opts) == 0 {
+		return uri
+	}
+	separator := "?"
+	if strings.Contains(uri, "?") {
+		separator = "&"
+	}
+	return uri + separator + opts.Encode()
 }
