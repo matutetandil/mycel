@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -3617,9 +3618,21 @@ func (h *FlowHandler) buildCacheKey(input map[string]interface{}) string {
 
 	if keyTemplate == "" {
 		// Default key format: flow_name:param1=val1:param2=val2
+		//
+		// Sorted, because ranging over the map produced a different key on
+		// every call for the same input: the entry was written under one key
+		// and looked up under another, so a flow with `cache {}` and no
+		// explicit key never got a hit while still paying to store — and left
+		// one entry per iteration order behind in the cache.
+		names := make([]string, 0, len(input))
+		for k := range input {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+
 		keyTemplate = h.Config.Name
-		for k, v := range input {
-			keyTemplate += fmt.Sprintf(":%s=%v", k, v)
+		for _, k := range names {
+			keyTemplate += fmt.Sprintf(":%s=%v", k, input[k])
 		}
 		return keyTemplate
 	}
