@@ -66,3 +66,9 @@ site/
 
 # Marketing / article drafts (not part of the codebase)
 /articles/
+
+# Local monitoring stack (Prometheus + Grafana) — dev aid, not part of the runtime
+/monitoring/
+
+# Coverage counters dropped by the integration suite when built with -cover
+tests/integration/.coverage/

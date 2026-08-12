@@ -8,6 +8,10 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile
+      args:
+        # Empty unless the run asks for coverage, in which case the binary is
+        # built with -cover and drops counters into GOCOVERDIR on shutdown.
+        COVERAGE: ${COVERAGE:-}
     ports:
       - "${PORT_REST:-3000}:3000"     # REST (tests access from host)
       - "${PORT_GQL:-4000}:4000"      # GraphQL
@@ -16,8 +20,15 @@ services:
       - "${PORT_ADMIN:-9090}:9090"    # Admin (health/metrics)
     volumes:
       - ./config:/etc/mycel
+      # Always mounted; the binary only writes here when built with -cover.
+      - ./.coverage:/covdata
+    # A -cover binary writes its counters as it exits, and the default ten
+    # seconds is not always enough for a service holding a dozen connectors to
+    # shut down cleanly. Being killed instead loses the whole measurement.
+    stop_grace_period: 90s
     environment:
       MYCEL_ENV: development
+      GOCOVERDIR: ${GOCOVERDIR:-}
       MYCEL_LOG_LEVEL: debug
       MYCEL_LOG_FORMAT: text
       # PostgreSQL
