@@ -45,15 +45,12 @@ func TestEvaluateCondition(t *testing.T) {
 	}{
 		{"an empty condition always runs", "", nil, nil, true},
 
-		// The flow input lands one level deeper than it reads. evaluateCondition
-		// builds a map with an "input" key and hands the whole map to
-		// EvaluateExpression, which binds it as `input` — so the flow's own
-		// input ends up at input.input. `input.amount` therefore resolves
-		// against a map that has no such key and the condition silently
-		// evaluates false. Recorded in DISCREPANCIES.md; these two pin the
-		// behaviour as it is so a fix has to come past them deliberately.
-		{"the flow input is NOT at input.x", "input.amount > 100.0", nil, nil, false},
-		{"the flow input is actually at input.input.x", "input.input.amount > 100.0", nil, nil, true},
+		// `input` is the flow input. It used to be bound one level deeper,
+		// so `input.amount` silently evaluated false and the aspect never
+		// ran; these two are the regression guard for that.
+		{"the flow input is at input.x", "input.amount > 100.0", nil, nil, true},
+		{"the flow input, false side", "input.amount > 1000.0", nil, nil, false},
+		{"there is no second input level", "has(input.input)", nil, nil, false},
 
 		{"flow metadata is bound at the top level", "_flow == 'create_order'", nil, nil, true},
 		{"operation metadata", "_operation == 'POST /orders'", nil, nil, true},
@@ -69,6 +66,13 @@ func TestEvaluateCondition(t *testing.T) {
 		{"result reads affected rows", "result.affected > 0", &connector.Result{Affected: 3}, nil, true},
 		{"result affected, false side", "result.affected > 10", &connector.Result{Affected: 3}, nil, false},
 
+		// Every variable the CEL environment declares has to be bound, or
+		// referencing it is an evaluation error that reads as false and is
+		// indistinguishable from "did not match".
+		{"step is bound rather than missing", "!has(step.anything)", nil, nil, true},
+		{"output is bound and empty", "!has(output.anything)", nil, nil, true},
+		{"drop is bound with its empty shape", "drop.reason == ''", nil, nil, true},
+
 		// A condition that cannot evaluate must not run the aspect.
 		{"a broken condition does not fire the aspect", "input.nope.deeper == 1", nil, nil, false},
 		{"a non-boolean condition does not fire the aspect", "input.amount", nil, nil, false},
@@ -76,7 +80,7 @@ func TestEvaluateCondition(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := e.evaluateCondition(ctx, &Config{Name: "test", If: tc.cond}, input, tc.result, tc.flowErr)
+			got := e.evaluateCondition(ctx, &Config{Name: "test", If: tc.cond}, input, tc.result, tc.flowErr, nil)
 			if got != tc.want {
 				t.Errorf("condition %q = %v, want %v", tc.cond, got, tc.want)
 			}
@@ -244,5 +248,33 @@ func TestRegistryRegisterAndAll(t *testing.T) {
 	// one with no action would match flows and then do nothing.
 	if err := r.RegisterAll([]*Config{{Name: "broken", When: "after", On: []string{"*"}}}); err == nil {
 		t.Error("an aspect with no action was accepted")
+	}
+}
+
+func TestOnDropConditionSeesTheRealDropInfo(t *testing.T) {
+	// The whole point of an on_drop aspect is telling one disposition from
+	// another. The drop information was built but never put in the activation,
+	// so `drop.reason` compared against the empty default and every such
+	// condition silently evaluated false.
+	e := newExecutor(t)
+	ctx := context.Background()
+	input := map[string]interface{}{"_flow": "consume"}
+	dropInfo := buildDropInfo(&flow.FilteredResultWithPolicy{
+		Reason: "sequence_older", Policy: "ack", MessageID: "m-9",
+	})
+
+	for _, tc := range []struct {
+		cond string
+		want bool
+	}{
+		{"drop.reason == 'sequence_older'", true},
+		{"drop.reason == 'filter'", false},
+		{"drop.policy == 'ack'", true},
+		{"drop.message_id == 'm-9'", true},
+	} {
+		got := e.evaluateCondition(ctx, &Config{Name: "d", If: tc.cond}, input, nil, nil, dropInfo)
+		if got != tc.want {
+			t.Errorf("%s = %v, want %v", tc.cond, got, tc.want)
+		}
 	}
 }

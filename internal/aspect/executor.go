@@ -185,7 +185,7 @@ func (e *Executor) executeBefore(ctx context.Context, aspects []*Config, input m
 
 	for _, aspect := range aspects {
 		// Check condition
-		if !e.evaluateCondition(ctx, aspect, current, nil, nil) {
+		if !e.evaluateCondition(ctx, aspect, current, nil, nil, nil) {
 			continue
 		}
 
@@ -215,7 +215,7 @@ func (e *Executor) executeBefore(ctx context.Context, aspects []*Config, input m
 func (e *Executor) wrapAround(ctx context.Context, aspect *Config, input map[string]interface{}, next FlowFunc) FlowFunc {
 	return func(execCtx context.Context, execInput map[string]interface{}) (*connector.Result, error) {
 		// Check condition
-		if !e.evaluateCondition(execCtx, aspect, execInput, nil, nil) {
+		if !e.evaluateCondition(execCtx, aspect, execInput, nil, nil, nil) {
 			return next(execCtx, execInput)
 		}
 
@@ -245,7 +245,7 @@ func (e *Executor) executeAfter(ctx context.Context, aspects []*Config, input ma
 		asp := aspects[i]
 
 		// Check condition
-		if !e.evaluateCondition(ctx, asp, input, result, flowErr) {
+		if !e.evaluateCondition(ctx, asp, input, result, flowErr, nil) {
 			continue
 		}
 
@@ -287,7 +287,7 @@ func (e *Executor) executeOnError(ctx context.Context, aspects []*Config, input 
 
 	for _, aspect := range aspects {
 		// Check condition (error is always available for on_error aspects)
-		if !e.evaluateCondition(ctx, aspect, input, result, flowErr) {
+		if !e.evaluateCondition(ctx, aspect, input, result, flowErr, nil) {
 			continue
 		}
 
@@ -328,7 +328,7 @@ func (e *Executor) executeOnDrop(ctx context.Context, aspects []*Config, input m
 	dropInfo := buildDropInfo(dropResult)
 
 	for _, aspect := range aspects {
-		if !e.evaluateCondition(ctx, aspect, input, nil, nil) {
+		if !e.evaluateCondition(ctx, aspect, input, nil, nil, dropInfo) {
 			continue
 		}
 
@@ -440,19 +440,28 @@ func buildErrorInfo(err error) map[string]interface{} {
 }
 
 // evaluateCondition evaluates the aspect's if condition.
-func (e *Executor) evaluateCondition(ctx context.Context, aspect *Config, input map[string]interface{}, result *connector.Result, flowErr error) bool {
+func (e *Executor) evaluateCondition(ctx context.Context, aspect *Config, input map[string]interface{}, result *connector.Result, flowErr error, drop map[string]interface{}) bool {
 	if aspect.If == "" {
 		return true
 	}
 
-	// Build context for CEL evaluation
-	// CEL variables are at the top level, not nested in input
-	evalInput := make(map[string]interface{})
+	// Build the activation directly rather than handing a wrapper map to
+	// EvaluateExpression, which binds whatever it is given as `input`. Doing
+	// that put the flow input at input.input.field, so the natural
+	// `input.field` resolved against a map without that key and the condition
+	// silently evaluated false — no error, no log, the aspect just never ran.
+	activation := map[string]interface{}{
+		"input": input,
 
-	// Add input data (original input)
-	evalInput["input"] = input
+		// Declared in the CEL environment, so they have to be present or the
+		// expression fails to resolve them. Empty is the honest value here:
+		// an aspect condition runs around a flow, not inside its transform.
+		"output":   map[string]interface{}{},
+		"ctx":      map[string]interface{}{},
+		"enriched": map[string]interface{}{},
+		"step":     map[string]interface{}{},
+	}
 
-	// Add result if available
 	if result != nil {
 		resultMap := map[string]interface{}{
 			"affected": result.Affected,
@@ -460,36 +469,38 @@ func (e *Executor) evaluateCondition(ctx context.Context, aspect *Config, input 
 		if len(result.Rows) > 0 {
 			resultMap["data"] = result.Rows
 		}
-		evalInput["result"] = resultMap
+		activation["result"] = resultMap
 	} else {
-		// Provide empty result to avoid undeclared variable errors
-		evalInput["result"] = map[string]interface{}{}
+		// An absent variable is an evaluation error, which reads as false and
+		// is indistinguishable from "did not match" — so bind an empty one.
+		activation["result"] = map[string]interface{}{}
 	}
 
-	// Add error if available (structured object with code, message, type)
 	if flowErr != nil {
-		evalInput["error"] = buildErrorInfo(flowErr)
+		activation["error"] = buildErrorInfo(flowErr)
 	} else {
-		evalInput["error"] = map[string]interface{}{
+		activation["error"] = map[string]interface{}{
 			"message": "",
 			"code":    int64(0),
 			"type":    "",
 		}
 	}
 
-	// Add flow metadata (from enriched input)
-	evalInput["_flow"] = getStringValue(input, "_flow")
-	evalInput["_operation"] = getStringValue(input, "_operation")
-	evalInput["_target"] = getStringValue(input, "_target")
-	evalInput["_timestamp"] = getIntValue(input, "_timestamp")
+	// The drop information belongs to on_drop aspects; every other path binds
+	// the empty shape so that `drop.reason` resolves rather than erroring.
+	if drop != nil {
+		activation["drop"] = drop
+	} else {
+		activation["drop"] = buildDropInfo(nil)
+	}
 
-	// Empty optional variables
-	evalInput["output"] = map[string]interface{}{}
-	evalInput["ctx"] = map[string]interface{}{}
-	evalInput["enriched"] = map[string]interface{}{}
+	// Flow metadata, read out of the enriched input.
+	activation["_flow"] = getStringValue(input, "_flow")
+	activation["_operation"] = getStringValue(input, "_operation")
+	activation["_target"] = getStringValue(input, "_target")
+	activation["_timestamp"] = getIntValue(input, "_timestamp")
 
-	// Evaluate condition
-	val, err := e.cel.EvaluateExpression(ctx, evalInput, nil, aspect.If)
+	val, err := e.cel.EvaluateWith(ctx, aspect.If, activation)
 	if err != nil {
 		slog.Warn("aspect condition evaluation error",
 			"aspect", aspect.Name,

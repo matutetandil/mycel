@@ -26,7 +26,6 @@ Status: `open` = found, not decided · `decided` = we know which side is right �
 | 6 | connector `retry` (design, not spelling) | — | connector-level retry takes **only** `attempts`; `error_handling.retry` takes `attempts`/`delay`/`max_delay`/`backoff` | **think first.** Retrying with no backoff hammers a failing dependency at full rate. Either the connector-level block earns `delay`/`backoff`, or it is declared thin and the docs stop showing it as resilience. |
 | 7 | connector `tls` | nothing documents it | `ca_cert` | **leave the name.** Renaming a working parser attribute breaks whoever already uses it. Document `ca_cert`. |
 | 8 | connector `mock` | nothing documents it | `source` | same as #7: document `source`. |
-| 9 | aspect `if` | `pkg/schema`: "CEL condition for conditional execution" | the flow input is bound at **`input.input.field`**, so `input.field` **silently evaluates false** | **code.** Nothing documented depends on the current shape; two tests pin it so a fix is deliberate. |
 
 ### Dead-or-bug candidates (parked by decision, 2026-08-12)
 
@@ -44,15 +43,6 @@ is ~127 uncovered statements in `functions.go` alone that are being counted
 against a percentage while not being part of the running product.
 
 ### Notes on the open ones
-
-**#9 is a silent false, which is the worst kind.** An aspect whose condition
-never matches does not error and does not log: the audit entry is simply never
-written, the notification never sent. Nothing in the docs or the examples uses
-`input.x` inside an aspect `if` — the one real example uses `result.affected`,
-which works because `result` is hoisted to the top level — so this is a latent
-trap rather than a broken documented feature. Two tests in
-`internal/aspect/executor_test.go` pin the current behaviour so that a fix has
-to come past them deliberately.
 
 **#6 is the one worth thinking about, not just fixing.** A connector that
 retries with no backoff hammers a failing dependency at full rate. If the
@@ -79,4 +69,5 @@ already uses the working name.
 | `helm/mycel/values.yaml` | a `service` block with `port` | **code/values** — the block takes `name`, `version`, `admin_port` | 2.18.0 |
 | `pkg/schema` | `saga`/`state_machine`/`validator`/`transform` declared `Open` | **schema** — did not describe what the parser accepts | 2.16.0 |
 | `internal/runtime` cache key | a `cache {}` block with no explicit `key` | **code** — the default key was built by ranging over the input map, so the same request produced a different key on each call: written under one key, looked up under another, the cache never hit while still paying to store | this branch |
+| `internal/aspect` conditions | `input.field`, `drop.reason`, `step.*` in an aspect `if` | **code** — three broken bindings, each a silent false: the flow input was one level deep at `input.input.field`, the drop information was built but never put in the activation so `drop.reason` always compared against the empty default, and `step` was not bound at all so referencing it was an evaluation error. All three read as "did not match" | this branch |
 | `pkg/schema` | an `environment` root block | **schema** — no parser accepts it | 2.16.0 |
