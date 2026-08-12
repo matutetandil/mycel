@@ -20,11 +20,16 @@ Status: `open` = found, not decided · `decided` = we know which side is right �
 
 ## Open
 
-| # | Where | Doc says | Parser accepts | Recommendation |
-|---|---|---|---|---|
+None. Every entry has been resolved on the side the reader would expect it on.
+
+Both directions of the schema/parser boundary are held by tests now, which is
+what kept producing new entries: `TestConnectorSchemasMatchTheParser` writes
+each attribute a schema declares into a connector block and parses it, and
+`TestTheParserAcceptsNothingUndescribed` requires everything the parser accepts
+to be declared somewhere. The two deliberate asymmetries, `auth_db` and
+`ssl_mode`, are listed as aliases with the name they fold onto.
 
 
-| 14 | the parser's allow-list vs the schemas | the parser accepts roughly 29 connector-level attributes that no schema declares: `address`, `args`, `auth_db`, `auth_source`, `brokers`, `channels`, `charset`, `insecure`, `introspection`, `max_pool`, `min_pool`, `read_concern`, `replica_set`, `retry_delay`, `srv`, `ssl_mode`, `uri`, `wait_for_ready`, `wsdl` and others. (Counted by extracting the allow-list from the source; the honest way to hold the number is a reverse check in the parity test.) | **each is one of two things, and both are bugs.** Either the connector reads it and the schema should describe it, in which case a real setting is invisible to completions, `mycel add` and the exported documentation — the state named operations were in. Or nothing reads it, in which case the parser accepts a word that does nothing, which is how `working_dir` came to be documented, exampled, accepted and silently ignored while the connector read `workdir` | **run the same sweep the other way.** For each, grep the connector for the property: read means add it to the schema, unread means take it out of the parser. Then add the reverse direction to `TestConnectorSchemasMatchTheParser` so neither side can grow past the other again. |
 
 ### Dead-or-bug candidates (parked by decision, 2026-08-12)
 
@@ -43,8 +48,9 @@ against a percentage while not being part of the running product.
 
 ### Notes on the open ones
 
-**#14** is the mirror of #13 and came out of fixing it. The same sweep, run the
-other way.
+Nothing is open. Both directions of the schema/parser boundary are now checked
+by tests, and the two remaining asymmetries — `auth_db` and `ssl_mode` — are
+listed as deliberate aliases with the canonical name they fold onto.
 
 ---
 
@@ -73,3 +79,4 @@ other way.
 | named operations (#10) | `param` blocks declared `min`, `max`, `min_length`, `max_length`, `pattern`, `enum` and `type`, and only `required` and `default` were even meant to work | **the code, and much further down than the entry said.** Chasing the ignored constraints found that `ValidateParams` is called by nobody, that `Resolve`'s defaults are discarded by its only caller, and finally that the resolver itself runs only for the startup banner — so a flow referring to an operation by name passed the name to the connector verbatim, and the shipped example validated and then panicked the HTTP mux at startup. Someone writing that block expects the operation to run and the contract to hold, so both were built: names resolve before flows are registered, defaults are applied and constraints enforced as a 400, and the declared type converts because query parameters are always strings. The schema, which declared no `operation` block at all, now describes it and is tested against the parser both ways | this branch |
 | connector schemas (#12) | two hand-written copies of all 33 connector schemas, one under `internal/connector` and one in `pkg/connectors` | **the duplication itself, and the recommendation I had logged was wrong.** It said to make the public copy delegate to the internal packages; measuring first showed that would take `pkg/connectors` from nothing to the 123 modules `internal/runtime` pulls, so any program wanting completions would compile every driver. Inverted instead: the definitions live in the public, dependency-free package, one file per connector, and the runtime registers from there. 1,463 lines deleted. The validators stay with their connectors — behaviour belongs there; the schema is a description of a public language | this branch |
 | connector schemas vs the parser (#13) | 38 attributes across 12 connectors that a schema declared and the parser rejected | **the parser, uniformly — which only became visible once the schemas were unified.** Every one of the 38 is read by its connector, so each was a setting implemented, described, offered as a completion and impossible to write: CSV delimiters, PDF margins, queue heartbeats, TCP idle timeout, webhook's IP allow-list, SMTP's TLS mode. Most were a missing allow-list entry; four needed more — exec's `env` and the SQL `replicas` were parsed and discarded, webhook had grown a second retry vocabulary, its `multiplier` was dropped by a float64 type assertion, and exec read `workdir` while everything documented says `working_dir`. Fixing `env` also made an old choice reachable: the declared variables replaced the environment instead of adding to it, so a command given one variable lost PATH | this branch |
+| the parser's allow-list vs the schemas (#14) | 19 connector attributes the parser accepted that no schema declared | **both bugs it implies, in the same list.** Four were read and undescribed, so a working setting was invisible to completions and `mycel add`; profiles — `select`, `default`, `fallback` and the `profile` block — were undescribed altogether. Twelve were read by nobody, eight of them MongoDB connection settings, so a replica set name or authentication database could be written and had no effect; those are applied now as the URI options they are. `max_pool`/`min_pool`, `address`, `origins` and `wsdl` were removed instead, each having a working spelling elsewhere or none. `introspection` was the one that mattered: a GraphQL server publishes a map of everything it can do, and asking for that to be off left it on | this branch |
