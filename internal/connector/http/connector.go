@@ -33,6 +33,7 @@ type Connector struct {
 	tlsConfig  *TLSConfig
 	headers    map[string]string
 	retryCount int
+	retry      RetryPolicy
 	format     string      // default format ("json", "xml")
 	codec      codec.Codec // codec for encoding/decoding
 
@@ -94,6 +95,74 @@ const (
 	AuthTypeBasic             AuthType = "basic"
 )
 
+// RetryPolicy describes how a failed request is retried.
+//
+// The waiting was hardcoded at attempt*100ms, which meant a caller could ask
+// for three attempts but never for a gap longer than a fifth of a second — a
+// dependency that has just fallen over gets hammered rather than given time.
+// The names match error_handling.retry so the language has one retry
+// vocabulary rather than two that look alike.
+type RetryPolicy struct {
+	// Attempts is the total number of tries, including the first.
+	Attempts int
+	// Delay is how long to wait before the second try.
+	Delay time.Duration
+	// MaxDelay caps the wait however far the backoff grows.
+	MaxDelay time.Duration
+	// Backoff is "constant", "linear" or "exponential".
+	Backoff string
+}
+
+// DefaultRetryPolicy returns the policy used when only a count is given. The
+// delay keeps the previous first wait, so a connector that said nothing about
+// timing behaves as it did; the strategy is the exponential the old comment
+// claimed and the linear implementation did not deliver.
+func DefaultRetryPolicy(attempts int) RetryPolicy {
+	if attempts < 1 {
+		attempts = 1
+	}
+	return RetryPolicy{
+		Attempts: attempts,
+		Delay:    100 * time.Millisecond,
+		MaxDelay: 30 * time.Second,
+		Backoff:  "exponential",
+	}
+}
+
+// nextDelay grows a wait according to the strategy, never past the cap.
+func (p RetryPolicy) nextDelay(current time.Duration) time.Duration {
+	var next time.Duration
+	switch p.Backoff {
+	case "exponential":
+		next = current * 2
+	case "linear":
+		next = current + p.Delay
+	default: // "constant"
+		next = current
+	}
+	if p.MaxDelay > 0 && next > p.MaxDelay {
+		return p.MaxDelay
+	}
+	return next
+}
+
+// WithRetryPolicy replaces the connector's retry policy and returns it, so a
+// factory can build and configure in one expression.
+func (c *Connector) WithRetryPolicy(policy RetryPolicy) *Connector {
+	if policy.Attempts < 1 {
+		policy.Attempts = 1
+	}
+	if policy.Delay <= 0 {
+		policy.Delay = 100 * time.Millisecond
+	}
+	if policy.Backoff == "" {
+		policy.Backoff = "exponential"
+	}
+	c.retry = policy
+	c.retryCount = policy.Attempts
+	return c
+}
+
 // New creates a new HTTP client connector.
 func New(name, baseURL string, timeout time.Duration, auth *AuthConfig, headers map[string]string, retryCount int) *Connector {
 	return NewWithTLS(name, baseURL, timeout, auth, nil, headers, retryCount)
@@ -128,6 +197,7 @@ func NewWithTLS(name, baseURL string, timeout time.Duration, auth *AuthConfig, t
 		tlsConfig:  tlsCfg,
 		headers:    headers,
 		retryCount: retryCount,
+		retry:      DefaultRetryPolicy(retryCount),
 		format:     "json",
 		codec:      codec.Get("json"),
 		client: &http.Client{
@@ -298,6 +368,7 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 
 	// Execute with retry
 	var lastErr error
+	delay := c.retry.Delay
 	for attempt := 0; attempt < c.retryCount; attempt++ {
 		// Fresh reader per attempt — bytes.Reader is one-shot.
 		var body io.Reader
@@ -316,9 +387,10 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 			return nil, err
 		}
 
-		// Wait before retry (simple exponential backoff)
+		// Wait before retrying, growing the gap per the configured strategy.
 		if attempt < c.retryCount-1 {
-			time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
+			time.Sleep(delay)
+			delay = c.retry.nextDelay(delay)
 		}
 	}
 

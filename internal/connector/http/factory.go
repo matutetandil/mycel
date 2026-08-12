@@ -48,10 +48,25 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 	// Get retry count (optional, default 1). Accepts numeric and string values
 	// so retry_count = env("RETRY", "3") works.
 	retryCount := connector.IntFromProps(cfg.Properties, "retry_count", 1)
+	retryPolicy := DefaultRetryPolicy(retryCount)
 	// Nested retry block takes precedence over the shorthand.
 	if retry, ok := cfg.Properties["retry"].(map[string]interface{}); ok {
 		if attempts, ok := connector.IntFromPropsStrict(retry, "attempts"); ok {
 			retryCount = attempts
+			retryPolicy.Attempts = attempts
+		}
+		if d, ok := retry["delay"].(string); ok {
+			if parsed, err := time.ParseDuration(d); err == nil {
+				retryPolicy.Delay = parsed
+			}
+		}
+		if d, ok := retry["max_delay"].(string); ok {
+			if parsed, err := time.ParseDuration(d); err == nil {
+				retryPolicy.MaxDelay = parsed
+			}
+		}
+		if b, ok := retry["backoff"].(string); ok {
+			retryPolicy.Backoff = b
 		}
 	}
 
@@ -78,7 +93,8 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 	}
 
 	// Create connector with TLS
-	conn := NewWithTLS(cfg.Name, baseURL, timeout, auth, tlsCfg, headers, retryCount)
+	conn := NewWithTLS(cfg.Name, baseURL, timeout, auth, tlsCfg, headers, retryCount).
+		WithRetryPolicy(retryPolicy)
 
 	// Set format if configured (default: json)
 	if format, ok := cfg.Properties["format"].(string); ok && format != "" {

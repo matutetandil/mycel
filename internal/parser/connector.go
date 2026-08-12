@@ -954,9 +954,15 @@ func parseHeadersBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]inter
 // exponential backoff. The vocabulary is kept aligned with the flow-level
 // retry block (parseRetryConfigBlock) so users see one consistent name.
 func parseRetryBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interface{}, error) {
+	// Same vocabulary as error_handling.retry, deliberately: two blocks called
+	// retry that accept different words is a trap. The documented `count` /
+	// `interval` spelling is not accepted — see TestConnectorRetryBlockRejectsCount.
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "attempts"},
+			{Name: "delay"},
+			{Name: "max_delay"},
+			{Name: "backoff"},
 		},
 	}
 

@@ -15,8 +15,12 @@ func (Schema) ConnectorSchema() schema.Block {
 		},
 		Children: []schema.Block{
 			{Type: "headers", Doc: "Default request headers", Open: true},
-			{Type: "retry", Doc: "Retry policy for failed requests", Attrs: []schema.Attr{
-				{Name: "attempts", Doc: "Maximum retry attempts", Type: schema.TypeNumber},
+			{Type: "retry", Doc: "Retry policy for failed requests. 4xx responses are not retried.", Attrs: []schema.Attr{
+				{Name: "attempts", Doc: "Total tries, including the first", Type: schema.TypeNumber},
+				{Name: "delay", Doc: "Wait before the second try (default 100ms)", Type: schema.TypeDuration},
+				{Name: "max_delay", Doc: "Cap on the wait however far it grows (default 30s)", Type: schema.TypeDuration},
+				{Name: "backoff", Doc: "How the wait grows between tries (default exponential)", Type: schema.TypeString,
+					Values: []string{"constant", "linear", "exponential"}},
 			}},
 			{Type: "auth", Doc: "Authentication", Open: true, Attrs: []schema.Attr{
 				{Name: "type", Doc: "Auth type", Type: schema.TypeString, Values: []string{"bearer", "api_key", "basic", "oauth2"}},

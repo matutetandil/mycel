@@ -134,9 +134,10 @@ connector "external" {
   }
 
   retry {
-    count    = 3
-    interval = "1s"
-    backoff  = 2.0
+    attempts  = 3          # total tries, including the first
+    delay     = "1s"       # wait before the second try
+    backoff   = "exponential"  # constant | linear | exponential
+    max_delay = "30s"      # cap however far the wait grows
   }
 }
 ```
