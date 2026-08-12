@@ -20,6 +20,7 @@ type Manager struct {
 	sessionStore    SessionStore
 	tokenStore      TokenStore
 	bruteForceStore BruteForceStore
+	bruteForce      *BruteForceService
 	mfaStore        MFAStore
 
 	// Components
@@ -118,6 +119,16 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 		m.bruteForceStore = NewMemoryBruteForceStore()
 	}
 
+	// Brute-force protection lives in one place. The manager used to carry its
+	// own copy of the counting and locking, which worked but knew nothing about
+	// progressive delays — so a progressive_delay block parsed, validated and
+	// did nothing.
+	if config.Security != nil {
+		m.bruteForce = NewBruteForceService(config.Security.BruteForce, m.bruteForceStore)
+	} else {
+		m.bruteForce = NewBruteForceService(nil, m.bruteForceStore)
+	}
+
 	// Initialize token manager
 	var err error
 	m.tokenManager, err = NewTokenManager(config.JWT)
@@ -214,13 +225,26 @@ func (m *Manager) Register(ctx context.Context, req *RegisterRequest) (*User, *T
 // Login authenticates a user
 func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent string) (*User, *TokenPair, error) {
 	// Check brute force protection
-	if m.config.Security != nil && m.config.Security.BruteForce != nil && m.config.Security.BruteForce.Enabled {
+	if m.bruteForceEnabled() {
 		key := m.bruteForceKey(req.Email, ip)
-		locked, until, _ := m.bruteForceStore.IsLocked(ctx, key)
-		if locked {
+		allowed, delay, remaining, err := m.bruteForce.CheckAccess(ctx, key)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !allowed {
 			return nil, nil, &AuthError{
 				Code:    "account_locked",
-				Message: fmt.Sprintf("Account is locked until %s", until.Format(time.RFC3339)),
+				Message: fmt.Sprintf("Account is locked until %s", time.Now().Add(remaining).Format(time.RFC3339)),
+			}
+		}
+		// A progressive delay is the point of the feature: each failure makes
+		// the next attempt slower. The wait is abandoned if the caller goes
+		// away, so a disconnecting client does not hold a goroutine for it.
+		if delay > 0 {
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return nil, nil, ctx.Err()
 			}
 		}
 	}
@@ -264,9 +288,8 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 	}
 
 	// Reset brute force counter on successful login
-	if m.config.Security != nil && m.config.Security.BruteForce != nil && m.config.Security.BruteForce.Enabled {
-		key := m.bruteForceKey(req.Email, ip)
-		_ = m.bruteForceStore.Reset(ctx, key)
+	if m.bruteForceEnabled() {
+		_ = m.bruteForce.RecordSuccess(ctx, m.bruteForceKey(req.Email, ip))
 	}
 
 	// Check session limits
@@ -533,30 +556,25 @@ func (m *Manager) createSession(ctx context.Context, user *User, ip, userAgent s
 
 // recordFailedLogin records a failed login attempt
 func (m *Manager) recordFailedLogin(ctx context.Context, email, ip string) {
-	if m.config.Security == nil || m.config.Security.BruteForce == nil || !m.config.Security.BruteForce.Enabled {
+	if !m.bruteForceEnabled() {
 		return
 	}
 
-	bf := m.config.Security.BruteForce
 	key := m.bruteForceKey(email, ip)
-
-	window, _ := ParseDuration(bf.Window)
-	if window == 0 {
-		window = 15 * time.Minute
+	locked, err := m.bruteForce.RecordFailedAttempt(ctx, key)
+	if err != nil {
+		m.logger.Warn("failed to record login attempt", "email", email, "ip", ip, "error", err)
+		return
 	}
-
-	count, _ := m.bruteForceStore.Increment(ctx, key, window)
-
-	if count >= bf.MaxAttempts {
-		lockout, _ := ParseDuration(bf.LockoutTime)
-		if lockout == 0 {
-			lockout = 15 * time.Minute
-		}
-		_ = m.bruteForceStore.Lock(ctx, key, lockout)
-
-		m.logger.Warn("account locked due to failed attempts",
-			"email", email, "ip", ip, "attempts", count)
+	if locked {
+		m.logger.Warn("account locked due to failed attempts", "email", email, "ip", ip)
 	}
+}
+
+// bruteForceEnabled reports whether the configuration asked for protection.
+func (m *Manager) bruteForceEnabled() bool {
+	return m.bruteForce != nil && m.config.Security != nil &&
+		m.config.Security.BruteForce != nil && m.config.Security.BruteForce.Enabled
 }
 
 // bruteForceKey generates a key for brute force tracking

@@ -1266,28 +1266,40 @@ auth {
   preset = "standard"    # "strict", "standard", "relaxed", "development"
 
   jwt {
-    secret      = env("JWT_SECRET")
-    algorithm   = "HS256"
-    access_ttl  = "15m"
-    refresh_ttl = "7d"
+    secret           = env("JWT_SECRET")
+    algorithm        = "HS256"
+    access_lifetime  = "15m"
+    refresh_lifetime = "7d"
   }
 
   storage {
-    users    = "connector.db"
-    sessions = "connector.redis"
+    driver    = "database"   # memory | redis | database
+    connector = "db"
   }
 
   password {
-    hashing = "argon2id"
-    min_length = 8
-    require_uppercase = true
-    require_number    = true
+    algorithm      = "argon2id"
+    min_length     = 8
+    require_upper  = true
+    require_number = true
   }
 
-  brute_force {
-    max_attempts = 5
-    window       = "15m"
-    lockout      = "1h"
+  security {
+    brute_force {
+      enabled      = true
+      max_attempts = 5
+      window       = "15m"
+      lockout_time = "1h"
+      track_by     = "ip+user"   # ip | user | ip+user
+
+      # Each failure after the first makes the next attempt wait longer.
+      progressive_delay {
+        enabled    = true
+        initial    = "1s"
+        max        = "30s"
+        multiplier = 2
+      }
+    }
   }
 
   mfa {

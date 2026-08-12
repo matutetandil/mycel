@@ -2,10 +2,12 @@ package parser
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/matutetandil/mycel/v2/internal/auth"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // parseAuthBlock parses an auth configuration block
@@ -21,21 +23,33 @@ func (p *HCLParser) parseAuthBlock(block *hcl.Block) (*auth.Config, error) {
 	if attr, exists := content.Attributes["preset"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Preset = val.AsString()
+			s, err := stringValue("preset", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Preset = s
 		}
 	}
 
 	if attr, exists := content.Attributes["secret"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Secret = val.AsString()
+			s, err := stringValue("secret", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Secret = s
 		}
 	}
 
 	if attr, exists := content.Attributes["storage"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.StorageConnector = val.AsString()
+			s, err := stringValue("storage", val)
+			if err != nil {
+				return nil, err
+			}
+			config.StorageConnector = s
 		}
 	}
 
@@ -166,14 +180,22 @@ func (p *HCLParser) parseAuthUsersBlock(block *hcl.Block) (*auth.UsersConfig, er
 	if attr, exists := content.Attributes["connector"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Connector = val.AsString()
+			s, err := stringValue("connector", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Connector = s
 		}
 	}
 
 	if attr, exists := content.Attributes["table"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Table = val.AsString()
+			s, err := stringValue("table", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Table = s
 		}
 	}
 
@@ -248,7 +270,11 @@ func (p *HCLParser) parseAuthMFABlock(block *hcl.Block) (*auth.MFAConfig, error)
 	if attr, exists := content.Attributes["required"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Required = val.AsString()
+			s, err := stringValue("required", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Required = s
 		}
 	}
 
@@ -258,7 +284,7 @@ func (p *HCLParser) parseAuthMFABlock(block *hcl.Block) (*auth.MFAConfig, error)
 			iter := val.ElementIterator()
 			for iter.Next() {
 				_, v := iter.Element()
-				config.Methods = append(config.Methods, v.AsString())
+				config.Methods = append(config.Methods, stringOrEmpty(v))
 			}
 		}
 	}
@@ -269,7 +295,7 @@ func (p *HCLParser) parseAuthMFABlock(block *hcl.Block) (*auth.MFAConfig, error)
 			iter := val.ElementIterator()
 			for iter.Next() {
 				_, v := iter.Element()
-				config.RequireFor = append(config.RequireFor, v.AsString())
+				config.RequireFor = append(config.RequireFor, stringOrEmpty(v))
 			}
 		}
 	}
@@ -292,7 +318,11 @@ func (p *HCLParser) parseAuthMFABlock(block *hcl.Block) (*auth.MFAConfig, error)
 	if attr, exists := content.Attributes["grace_period"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.GracePeriod = val.AsString()
+			s, err := stringValue("grace_period", val)
+			if err != nil {
+				return nil, err
+			}
+			config.GracePeriod = s
 		}
 	}
 
@@ -372,14 +402,22 @@ func (p *HCLParser) parseWebAuthnBlock(block *hcl.Block) (*auth.WebAuthnConfig, 
 	if attr, exists := content.Attributes["rp_name"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.RPName = val.AsString()
+			s, err := stringValue("rp_name", val)
+			if err != nil {
+				return nil, err
+			}
+			config.RPName = s
 		}
 	}
 
 	if attr, exists := content.Attributes["rp_id"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.RPID = val.AsString()
+			s, err := stringValue("rp_id", val)
+			if err != nil {
+				return nil, err
+			}
+			config.RPID = s
 		}
 	}
 
@@ -389,7 +427,7 @@ func (p *HCLParser) parseWebAuthnBlock(block *hcl.Block) (*auth.WebAuthnConfig, 
 			iter := val.ElementIterator()
 			for iter.Next() {
 				_, v := iter.Element()
-				config.Origins = append(config.Origins, v.AsString())
+				config.Origins = append(config.Origins, stringOrEmpty(v))
 			}
 		}
 	}
@@ -397,21 +435,33 @@ func (p *HCLParser) parseWebAuthnBlock(block *hcl.Block) (*auth.WebAuthnConfig, 
 	if attr, exists := content.Attributes["authenticator_attachment"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.AuthenticatorAttachment = val.AsString()
+			s, err := stringValue("authenticator_attachment", val)
+			if err != nil {
+				return nil, err
+			}
+			config.AuthenticatorAttachment = s
 		}
 	}
 
 	if attr, exists := content.Attributes["user_verification"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.UserVerification = val.AsString()
+			s, err := stringValue("user_verification", val)
+			if err != nil {
+				return nil, err
+			}
+			config.UserVerification = s
 		}
 	}
 
 	if attr, exists := content.Attributes["resident_key"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.ResidentKey = val.AsString()
+			s, err := stringValue("resident_key", val)
+			if err != nil {
+				return nil, err
+			}
+			config.ResidentKey = s
 		}
 	}
 
@@ -426,7 +476,11 @@ func (p *HCLParser) parseWebAuthnBlock(block *hcl.Block) (*auth.WebAuthnConfig, 
 	if attr, exists := content.Attributes["attestation"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Attestation = val.AsString()
+			s, err := stringValue("attestation", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Attestation = s
 		}
 	}
 
@@ -436,7 +490,7 @@ func (p *HCLParser) parseWebAuthnBlock(block *hcl.Block) (*auth.WebAuthnConfig, 
 			iter := val.ElementIterator()
 			for iter.Next() {
 				_, v := iter.Element()
-				config.AllowedAAGUIDs = append(config.AllowedAAGUIDs, v.AsString())
+				config.AllowedAAGUIDs = append(config.AllowedAAGUIDs, stringOrEmpty(v))
 			}
 		}
 	}
@@ -465,7 +519,11 @@ func (p *HCLParser) parseAuthSMSBlock(block *hcl.Block) (*auth.SMSConfig, error)
 	if attr, exists := content.Attributes["provider"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Provider = val.AsString()
+			s, err := stringValue("provider", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Provider = s
 		}
 	}
 
@@ -480,14 +538,22 @@ func (p *HCLParser) parseAuthSMSBlock(block *hcl.Block) (*auth.SMSConfig, error)
 	if attr, exists := content.Attributes["expiry"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Expiry = val.AsString()
+			s, err := stringValue("expiry", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Expiry = s
 		}
 	}
 
 	if attr, exists := content.Attributes["rate_limit"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.RateLimit = val.AsString()
+			s, err := stringValue("rate_limit", val)
+			if err != nil {
+				return nil, err
+			}
+			config.RateLimit = s
 		}
 	}
 
@@ -524,14 +590,22 @@ func (p *HCLParser) parseAuthPushBlock(block *hcl.Block) (*auth.PushConfig, erro
 	if attr, exists := content.Attributes["provider"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Provider = val.AsString()
+			s, err := stringValue("provider", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Provider = s
 		}
 	}
 
 	if attr, exists := content.Attributes["expiry"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Expiry = val.AsString()
+			s, err := stringValue("expiry", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Expiry = s
 		}
 	}
 
@@ -657,21 +731,33 @@ func (p *HCLParser) parseAuthBruteForceBlock(block *hcl.Block) (*auth.BruteForce
 	if attr, exists := content.Attributes["window"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Window = val.AsString()
+			s, err := stringValue("window", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Window = s
 		}
 	}
 
 	if attr, exists := content.Attributes["lockout_time"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.LockoutTime = val.AsString()
+			s, err := stringValue("lockout_time", val)
+			if err != nil {
+				return nil, err
+			}
+			config.LockoutTime = s
 		}
 	}
 
 	if attr, exists := content.Attributes["track_by"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.TrackBy = val.AsString()
+			s, err := stringValue("track_by", val)
+			if err != nil {
+				return nil, err
+			}
+			config.TrackBy = s
 		}
 	}
 
@@ -810,14 +896,22 @@ func (p *HCLParser) parseAuthProviderBlock(block *hcl.Block) (*auth.ProviderConf
 	if attr, exists := content.Attributes["type"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Type = val.AsString()
+			s, err := stringValue("type", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Type = s
 		}
 	}
 
 	if attr, exists := content.Attributes["validate"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Validate = val.AsString()
+			s, err := stringValue("validate", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Validate = s
 		}
 	}
 
@@ -835,7 +929,11 @@ func (p *HCLParser) parseAuthProviderBlock(block *hcl.Block) (*auth.ProviderConf
 	if attr, exists := content.Attributes["sync_to"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.SyncTo = val.AsString()
+			s, err := stringValue("sync_to", val)
+			if err != nil {
+				return nil, err
+			}
+			config.SyncTo = s
 		}
 	}
 
@@ -895,7 +993,11 @@ func (p *HCLParser) parseAuthEndpointsBlock(block *hcl.Block) (*auth.EndpointsCo
 	if attr, exists := content.Attributes["prefix"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Prefix = val.AsString()
+			s, err := stringValue("prefix", val)
+			if err != nil {
+				return nil, err
+			}
+			config.Prefix = s
 		}
 	}
 
@@ -977,4 +1079,43 @@ var authSchema = &hcl.BodySchema{
 		{Type: "hooks"},
 		{Type: "audit"},
 	},
+}
+
+// stringValue reads an attribute that is stored as text, accepting the values a
+// person naturally writes for one.
+//
+// Every one of these used to be a bare cty AsString, which panics on anything
+// else: `mfa { required = false }` — a boolean where the field happens to hold
+// "true" or "false" — took the whole binary down with "panic: not a string",
+// during validation rather than at run time.
+func stringValue(name string, val cty.Value) (string, error) {
+	if val.IsNull() {
+		return "", nil
+	}
+	switch val.Type() {
+	case cty.String:
+		return val.AsString(), nil
+	case cty.Bool:
+		if val.True() {
+			return "true", nil
+		}
+		return "false", nil
+	case cty.Number:
+		bf := val.AsBigFloat()
+		if bf.IsInt() {
+			i, _ := bf.Int64()
+			return strconv.FormatInt(i, 10), nil
+		}
+		f, _ := bf.Float64()
+		return strconv.FormatFloat(f, 'f', -1, 64), nil
+	}
+	return "", fmt.Errorf("auth attribute %q must be a string, and %s cannot be read as one",
+		name, val.Type().FriendlyName())
+}
+
+// stringOrEmpty is stringValue for a list element, where the position rather
+// than a name identifies the value.
+func stringOrEmpty(val cty.Value) string {
+	s, _ := stringValue("", val)
+	return s
 }

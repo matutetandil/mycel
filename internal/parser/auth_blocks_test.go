@@ -1,6 +1,9 @@
 package parser
 
 import (
+	"strings"
+
+	"github.com/zclconf/go-cty/cty"
 	"testing"
 )
 
@@ -338,5 +341,66 @@ auth {
 }
 `); err == nil {
 		t.Error("an unknown auth attribute was accepted")
+	}
+}
+
+// A boolean where a string-backed attribute goes used to be "panic: not a
+// string" out of cty, during validation — the whole binary, over one word in a
+// configuration file. Thirty attributes in the auth block were read that way.
+
+func TestABooleanWhereAStringIsExpectedDoesNotPanic(t *testing.T) {
+	cfg, err := tryParse(t, `
+auth {
+  mfa {
+    enabled  = true
+    required = false
+  }
+}
+`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.Auth == nil || cfg.Auth.MFA == nil {
+		t.Fatal("no MFA configuration came back")
+	}
+	// It is stored as text because it also accepts a role name, so a written
+	// false has to arrive as the string the runtime compares against.
+	if cfg.Auth.MFA.Required != "false" {
+		t.Errorf("required = %q, want %q", cfg.Auth.MFA.Required, "false")
+	}
+}
+
+func TestStringValueAcceptsWhatPeopleWrite(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		val  cty.Value
+		want string
+	}{
+		{"a string", cty.StringVal("admin"), "admin"},
+		{"true", cty.True, "true"},
+		{"false", cty.False, "false"},
+		{"a whole number", cty.NumberIntVal(30), "30"},
+		{"a fraction", cty.NumberFloatVal(1.5), "1.5"},
+		{"null", cty.NullVal(cty.String), ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := stringValue("required", tc.val)
+			if err != nil {
+				t.Fatalf("stringValue: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestStringValueNamesTheAttributeItCannotRead(t *testing.T) {
+	_, err := stringValue("required", cty.ListVal([]cty.Value{cty.StringVal("a")}))
+	if err == nil {
+		t.Fatal("a list was accepted where a string belongs")
+	}
+	if !strings.Contains(err.Error(), "required") {
+		t.Errorf("error = %q, want it to name the attribute", err)
 	}
 }
