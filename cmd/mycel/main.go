@@ -17,6 +17,7 @@ import (
 	"golang.org/x/mod/module"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
+	graphqlconn "github.com/matutetandil/mycel/v2/internal/connector/graphql"
 	"github.com/matutetandil/mycel/v2/internal/envdefaults"
 	"github.com/matutetandil/mycel/v2/internal/export/asyncapi"
 	"github.com/matutetandil/mycel/v2/internal/export/openapi"
@@ -306,6 +307,25 @@ Examples:
 	RunE: runExportAsyncAPI,
 }
 
+var exportGraphQLCmd = &cobra.Command{
+	Use:   "graphql-schema",
+	Short: "Export the GraphQL schema (SDL)",
+	Long: `Export the GraphQL schema your configuration describes, as SDL.
+
+Types and their inputs come from the type blocks. Query and Mutation fields
+come from the flows that serve them, since a field exists exactly when a flow
+answers it — operation = "Query.users" is the declaration. A flow's validate
+block names the argument and result types; without one the field is JSON.
+
+This reads the configuration rather than a running service, which is what a
+federation gateway needs at build time.
+
+Examples:
+  mycel export graphql-schema                       # Output to stdout
+  mycel export graphql-schema -o schema.graphql     # Write to file`,
+	RunE: runExportGraphQLSchema,
+}
+
 // Flags
 var (
 	configDir   string
@@ -353,6 +373,9 @@ func init() {
 	exportAsyncAPICmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file (default: stdout)")
 	exportAsyncAPICmd.Flags().StringVarP(&exportFormat, "format", "f", "yaml", "Output format: yaml, json")
 
+	// SDL has one serialisation, so there is no format flag to offer here.
+	exportGraphQLCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file (default: stdout)")
+
 	// Propagate CLI version to the runtime package so banner, health,
 	// and metrics all report the correct Mycel version.
 	runtime.Version = version
@@ -388,6 +411,7 @@ func init() {
 	// Add export subcommands
 	exportCmd.AddCommand(exportOpenAPICmd)
 	exportCmd.AddCommand(exportAsyncAPICmd)
+	exportCmd.AddCommand(exportGraphQLCmd)
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
@@ -782,6 +806,26 @@ func loadDotEnv() {
 	if configDir != "." {
 		_ = godotenv.Load(".env")
 	}
+}
+
+func runExportGraphQLSchema(cmd *cobra.Command, args []string) error {
+	p := parser.NewHCLParser()
+	config, err := p.Parse(context.Background(), configDir)
+	if err != nil {
+		return fmt.Errorf("failed to parse configuration: %w", err)
+	}
+
+	sdl := graphqlconn.ExportSDL(config.Types, config.Flows)
+
+	if exportOutput != "" {
+		if err := os.WriteFile(exportOutput, []byte(sdl), 0644); err != nil {
+			return fmt.Errorf("failed to write file: %w", err)
+		}
+		fmt.Printf("✓ GraphQL schema written to %s\n", exportOutput)
+		return nil
+	}
+	fmt.Print(sdl)
+	return nil
 }
 
 func runExportOpenAPI(cmd *cobra.Command, args []string) error {
