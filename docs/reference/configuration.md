@@ -239,8 +239,8 @@ connector "grpc_api" {
   max_send_mb = 4
 
   tls {
-    cert_file = "/certs/server.crt"
-    key_file  = "/certs/server.key"
+    cert = "/certs/server.crt"
+    key  = "/certs/server.key"
   }
 }
 
@@ -342,11 +342,9 @@ connector "sensors" {
   max_reconnect_interval = "5m"
 
   tls {
-    enabled  = true
-    cert     = "/certs/client.crt"
-    key      = "/certs/client.key"
-    ca       = "/certs/ca.crt"
-    insecure = false
+    cert    = "/certs/client.crt"
+    key     = "/certs/client.key"
+    ca_cert = "/certs/ca.crt"
   }
 }
 ```

@@ -392,6 +392,63 @@ exist. `fallback` lists profiles to try, in order, when the selected one fails.
 
 See the [profiles example](https://github.com/matutetandil/mycel/tree/main/examples/profiles) for details.
 
+## TLS
+
+Connectors that speak TLS — `http`, `grpc`, `tcp`, `mq` and `mqtt` — configure it
+with the same block and the same attribute names.
+
+```hcl
+connector "payments" {
+  type     = "http"
+  base_url = "https://payments.internal"
+
+  tls {
+    ca_cert = "/certs/internal-ca.pem"   # verify the other side
+    cert    = "/certs/mycel.pem"         # prove who we are (mutual TLS)
+    key     = "/certs/mycel.key"
+  }
+}
+```
+
+| Attribute | Type | Description |
+|---|---|---|
+| `enabled` | bool | Defaults to `true` when the block is present. Set it to `false` to switch TLS off without deleting the certificate paths, which is what makes it drivable from the environment. |
+| `ca_cert` | string | CA certificate used to verify the other side. Needed for a private CA; the system trust store is used when it is absent. |
+| `cert` | string | The certificate this connector presents — its own when it is a server, the client certificate for mutual TLS. |
+| `key` | string | Private key for `cert`. |
+| `server_name` | string | Expected server name, overriding the address used to connect (SNI). `grpc` only. |
+| `insecure_skip_verify` | bool | Skip verification of the other side's certificate. Development only. |
+
+Writing the block is the opt-in, so `enabled = true` is never required. This is
+the same rule the [`mfa` block](../guides/auth.md) follows.
+
+`cert` and `key` are one setting seen from two sides: on a server they are the
+certificate it presents, on a client the pair it uses for mutual TLS. The
+connector already knows which it is, so the names do not repeat it.
+
+!!! warning "A connector that cannot load its certificates does not start"
+    If TLS is enabled and the certificate or CA cannot be read, startup fails
+    with the reason. It is never downgraded to an unencrypted connection.
+
+### Older attribute names
+
+Three connectors used to read different names for these settings. All of them
+are still accepted and mean exactly what they meant before, so existing
+configuration keeps working — but they are no longer offered as completions, and
+new configuration should use the names above.
+
+| Older name | Written by | Now |
+|---|---|---|
+| `client_cert` | `http` | `cert` |
+| `client_key` | `http` | `key` |
+| `cert_file` | `grpc` | `cert` |
+| `key_file` | `grpc` | `key` |
+| `ca_file` | `grpc` | `ca_cert` |
+| `skip_verify` | `grpc` | `insecure_skip_verify` |
+
+Writing both spellings of one setting in the same block is an error rather than
+a silent choice between them.
+
 ## Per-Connector Reference
 
 For complete configuration options and examples for each connector type, see the [Connector Catalog](../connectors/):

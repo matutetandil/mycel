@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **A gRPC server whose TLS could not be built started in plaintext.** `buildServerOptions` discarded the result of `credentials.NewServerTLSFromFile` with an `if err == nil`, so when the certificate failed to load the listener came up unencrypted while the configuration said otherwise. It failed routinely rather than rarely: the parser accepted none of the attribute names that connector reads, so the certificate paths were always empty. The error is now returned and the server refuses to start, and TLS enabled with no certificate at all is reported as such.
+
+### Fixed
+
+- **The `tls` block had three vocabularies and the parser accepted one.** `http` read `ca_cert`, `client_cert`, `client_key` and `insecure_skip_verify`; `grpc` read `enabled`, `cert_file`, `key_file`, `ca_file`, `server_name` and `skip_verify`; `tcp`, `mq` and `mqtt` read `cert`, `key`, `ca_cert` and `insecure_skip_verify`. Only http's four were accepted, which meant `cert` and `key` were rejected everywhere — so mutual TLS could not be configured on `tcp`, `mq`, `mqtt` or `grpc` at all — and `enabled` was rejected while `mq` and `mqtt` build TLS only when it is true, so those two could not be given TLS by any spelling. The canonical names are the ones three of the five connectors already read, plus `server_name` where it applies; every older spelling is still accepted and folded onto its canonical name, so no working configuration breaks. Writing two spellings of one setting is now an error rather than a silent discard, and writing the block enables TLS, following the rule the `mfa` block already set.
+- **Connector schemas were never checked against the parser.** The schema parity test covers root blocks, which is how the gRPC connector came to advertise six TLS attributes the parser refused: completions offered names that could not be written. Both schema registries — the runtime's own and the copy in `pkg/connectors` that external tooling links against — are now checked for the `tls` block.
+
+### Documentation
+
+- **The `tls` block is documented once, for every connector that speaks it.** It appeared in five pages in three different vocabularies, and two of the names shown for MQTT — `ca` and `insecure` — were never accepted by anything, so that block was a parse error in both pages that carried it. The new [TLS](docs/core-concepts/connectors.md#tls) section covers the attribute list, why `cert` and `key` are one setting seen from two sides, that a connector which cannot load its certificates does not start, and the older names with what each is now. Every documented block containing `tls` was run through the parser.
+
 ## [2.18.0] - 2026-08-11
 
 ### Fixed

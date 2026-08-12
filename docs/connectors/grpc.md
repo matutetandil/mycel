@@ -15,8 +15,8 @@ connector "grpc_api" {
   reflection  = true
 
   tls {
-    cert_file = "/path/to/cert.pem"
-    key_file  = "/path/to/key.pem"
+    cert = "/path/to/cert.pem"
+    key  = "/path/to/key.pem"
   }
 }
 ```
@@ -45,8 +45,14 @@ connector "grpc_service" {
 | `proto_files` | list | Specific `.proto` files to load |
 | `reflection` | bool | Enable gRPC reflection (default: `true`) |
 | `insecure` | bool | Disable TLS (client, default: `false`) |
-| `tls.cert_file` | string | TLS certificate path |
-| `tls.key_file` | string | TLS key path |
+| `tls.cert` | string | Certificate this connector presents |
+| `tls.key` | string | Private key for `tls.cert` |
+| `tls.ca_cert` | string | CA used to verify the other side |
+| `tls.server_name` | string | Expected server name, overriding the address (SNI) |
+| `tls.insecure_skip_verify` | bool | Skip certificate verification. Development only |
+
+See [TLS](../core-concepts/connectors.md#tls) for the shared block, including the
+older `cert_file` / `key_file` / `ca_file` / `skip_verify` names, which are still accepted.
 
 ## Operations
 
