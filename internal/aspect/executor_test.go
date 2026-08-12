@@ -3,6 +3,7 @@ package aspect
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -276,5 +277,52 @@ func TestOnDropConditionSeesTheRealDropInfo(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("%s = %v, want %v", tc.cond, got, tc.want)
 		}
+	}
+}
+
+// A rejected payload used to reach an aspect with no code and no type: the
+// executor tested for a concrete type from pkg/errors that nothing produced,
+// and the message heuristic below it has no case for validation. An aspect
+// written as `when = "on_error"` with `if = "error.code == 400"` could not fire
+// for the one failure it most obviously should.
+
+type fakeValidationError struct{ fields []string }
+
+func (e *fakeValidationError) Error() string              { return "validation failed" }
+func (e *fakeValidationError) ValidationFields() []string { return e.fields }
+
+func TestAValidationFailureIsClassified(t *testing.T) {
+	info := buildErrorInfo(&fakeValidationError{fields: []string{"email is required", "age must be at least 0"}})
+
+	if info["code"] != int64(400) {
+		t.Errorf("code = %#v, want 400", info["code"])
+	}
+	if info["type"] != "validation" {
+		t.Errorf("type = %#v, want validation", info["type"])
+	}
+	fields, _ := info["fields"].([]string)
+	if len(fields) != 2 {
+		t.Errorf("fields = %#v, want both messages", info["fields"])
+	}
+}
+
+func TestAValidationFailureIsFoundThroughAWrappedError(t *testing.T) {
+	// Errors arrive at an aspect wrapped by the layers they passed through.
+	wrapped := fmt.Errorf("flow %q failed: %w", "create_user", &fakeValidationError{fields: []string{"email"}})
+
+	info := buildErrorInfo(wrapped)
+	if info["type"] != "validation" {
+		t.Errorf("type = %#v, want the wrapped validation error to be found", info["type"])
+	}
+}
+
+func TestAnOrdinaryErrorIsNotCalledValidation(t *testing.T) {
+	info := buildErrorInfo(errors.New("connection refused"))
+
+	if info["type"] == "validation" {
+		t.Error("an ordinary error was classified as a validation failure")
+	}
+	if info["code"] != int64(503) {
+		t.Errorf("code = %#v, want the connection case to still work", info["code"])
 	}
 }

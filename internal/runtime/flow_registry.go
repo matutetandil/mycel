@@ -3528,6 +3528,18 @@ func (e *ValidationError) Error() string {
 	return e.Errors[0].Error()
 }
 
+// ValidationFields reports the fields that failed, which is what lets an
+// aspect recognise a rejected payload. The aspect executor cannot import this
+// package — this one imports it — so the two agree through the interface in
+// pkg/errors rather than through this type.
+func (e *ValidationError) ValidationFields() []string {
+	fields := make([]string, 0, len(e.Errors))
+	for _, err := range e.Errors {
+		fields = append(fields, err.Error())
+	}
+	return fields
+}
+
 // Caller is implemented by connectors that can make RPC-style calls.
 // This is used for enrichments with TCP, HTTP client, gRPC, etc.
 type Caller interface {

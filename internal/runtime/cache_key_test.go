@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v2/internal/validate"
+	myerrors "github.com/matutetandil/mycel/v2/pkg/errors"
 )
 
 // A cache key has one hard requirement: the same request must produce the same
@@ -140,5 +142,26 @@ func TestCacheKeyFromANamedCache(t *testing.T) {
 	h2.NamedCaches = map[string]*flow.NamedCacheConfig{"plain": {}}
 	if got := h2.buildCacheKey(map[string]interface{}{"id": 1}); got != "get_product" {
 		t.Errorf("key = %q, want get_product", got)
+	}
+}
+
+// The aspect executor classifies a rejected payload by asking whether the error
+// satisfies pkg/errors.Validation. It cannot import this package — this one
+// imports it — so nothing but a test keeps the two in step.
+func TestTheValidationErrorIsRecognisableToAspects(t *testing.T) {
+	var _ myerrors.Validation = (*ValidationError)(nil)
+
+	err := &ValidationError{Errors: []validate.Error{
+		{Field: "email", Message: "is required"},
+		{Field: "age", Message: "must be at least 0"},
+	}}
+	fields := err.ValidationFields()
+	if len(fields) != 2 {
+		t.Fatalf("fields = %#v, want one per failing field", fields)
+	}
+	for _, f := range fields {
+		if f == "" {
+			t.Error("a failing field produced an empty message")
+		}
 	}
 }

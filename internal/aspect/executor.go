@@ -411,11 +411,15 @@ func buildErrorInfo(err error) map[string]interface{} {
 		return info
 	}
 
-	// Check for validation errors
-	var valErr *myerrors.ValidationError
+	// Check for validation errors. This used to test for a concrete type from
+	// pkg/errors that nothing ever produced, so the branch never ran and a
+	// rejected payload reached an aspect with no code and no type at all — the
+	// heuristic below has no case for one.
+	var valErr myerrors.Validation
 	if errors.As(err, &valErr) {
 		info["code"] = int64(400)
 		info["type"] = "validation"
+		info["fields"] = valErr.ValidationFields()
 		return info
 	}
 
