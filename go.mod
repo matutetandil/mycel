@@ -20,7 +20,6 @@ require (
 	github.com/google/cel-go v0.29.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
-	github.com/graph-gophers/dataloader/v7 v7.1.3
 	github.com/graphql-go/graphql v0.8.1
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/hashicorp/hcl/v2 v2.24.0

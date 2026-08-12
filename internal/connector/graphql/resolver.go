@@ -73,29 +73,32 @@ func CreateOptimizedResolverWithOptions(handler HandlerFunc, opts ResolverOption
 		input["__requested_fields"] = fields.ListFlat()
 		input["__requested_top_fields"] = fields.List()
 
-		// Call the flow handler with enriched context
-		result, err := handler(ctx, input)
-		// Fire deferred on_drop closure (no-op on success).
-		flow.FireDropAspect(ctx, result)
-		if err != nil {
-			return nil, err
-		}
+		thunk := startResolution(ctx, p, input, handler)
 
-		// Convert result to GraphQL-compatible format
-		converted := MapResultToGraphQL(result)
+		return func() (interface{}, error) {
+			result, err := thunk()
+			// Fire deferred on_drop closure (no-op on success).
+			flow.FireDropAspect(ctx, result)
+			if err != nil {
+				return nil, err
+			}
 
-		// Apply options
-		if opts.UnwrapSingleResult {
-			converted = unwrapSingleResult(converted)
-		} else if !isListType(p.Info.ReturnType) {
-			// Smart unwrap if not explicitly disabled
-			converted = unwrapSingleResult(converted)
-		}
+			// Convert result to GraphQL-compatible format
+			converted := MapResultToGraphQL(result)
 
-		// Prune result to only include requested fields
-		converted = pruner.Prune(converted, fields)
+			// Apply options
+			if opts.UnwrapSingleResult {
+				converted = unwrapSingleResult(converted)
+			} else if !isListType(p.Info.ReturnType) {
+				// Smart unwrap if not explicitly disabled
+				converted = unwrapSingleResult(converted)
+			}
 
-		return converted, nil
+			// Prune result to only include requested fields
+			converted = pruner.Prune(converted, fields)
+
+			return converted, nil
+		}, nil
 	}
 }
 
@@ -105,23 +108,31 @@ func CreateResolverWithOptions(handler HandlerFunc, opts ResolverOptions) graphq
 		// Build input from GraphQL arguments
 		input := MapArgsToInput(p)
 
-		// Call the flow handler
-		result, err := handler(p.Context, input)
-		// Fire deferred on_drop closure (no-op on success).
-		flow.FireDropAspect(p.Context, result)
-		if err != nil {
-			return nil, err
+		ctx := p.Context
+		if ctx == nil {
+			ctx = context.Background()
 		}
 
-		// Convert result to GraphQL-compatible format
-		converted := MapResultToGraphQL(result)
+		thunk := startResolution(ctx, p, input, handler)
 
-		// Apply options
-		if opts.UnwrapSingleResult {
-			converted = unwrapSingleResult(converted)
-		}
+		return func() (interface{}, error) {
+			result, err := thunk()
+			// Fire deferred on_drop closure (no-op on success).
+			flow.FireDropAspect(ctx, result)
+			if err != nil {
+				return nil, err
+			}
 
-		return converted, nil
+			// Convert result to GraphQL-compatible format
+			converted := MapResultToGraphQL(result)
+
+			// Apply options
+			if opts.UnwrapSingleResult {
+				converted = unwrapSingleResult(converted)
+			}
+
+			return converted, nil
+		}, nil
 	}
 }
 
@@ -147,28 +158,36 @@ func CreateSmartResolver(handler HandlerFunc) graphql.FieldResolveFn {
 		input["__requested_fields"] = fields.ListFlat()
 		input["__requested_top_fields"] = fields.List()
 
-		// Call the flow handler with enriched context
-		result, err := handler(ctx, input)
-		// Fire deferred on_drop closure (no-op on success).
-		flow.FireDropAspect(ctx, result)
-		if err != nil {
-			return nil, err
-		}
+		// Start the work and hand back a thunk. Every sibling registers before
+		// any of them is asked for its value, so the flows overlap instead of
+		// queueing, and two fields asking for the same thing share one run.
+		thunk := startResolution(ctx, p, input, handler)
 
-		// Convert result to GraphQL-compatible format
-		converted := MapResultToGraphQL(result)
+		// The value is completed later, so the shaping happens there too.
+		return func() (interface{}, error) {
+			result, err := thunk()
+			// Fire deferred on_drop closure (no-op on success).
+			flow.FireDropAspect(ctx, result)
+			if err != nil {
+				return nil, err
+			}
 
-		// Check if return type expects a single object (not a list)
-		if !isListType(p.Info.ReturnType) {
-			converted = unwrapSingleResult(converted)
-		}
+			// Convert result to GraphQL-compatible format
+			converted := MapResultToGraphQL(result)
 
-		// Prune result to only include requested fields (safety net)
-		converted = pruner.Prune(converted, fields)
+			// Check if return type expects a single object (not a list)
+			if !isListType(p.Info.ReturnType) {
+				converted = unwrapSingleResult(converted)
+			}
 
-		return converted, nil
+			// Prune result to only include requested fields (safety net)
+			converted = pruner.Prune(converted, fields)
+
+			return converted, nil
+		}, nil
 	}
 }
+
 
 // unwrapSingleResult extracts the first element from a single-element array.
 func unwrapSingleResult(result interface{}) interface{} {

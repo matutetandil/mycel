@@ -13,7 +13,6 @@ import (
 
 	"github.com/graphql-go/graphql"
 	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/dataloader"
 	"github.com/matutetandil/mycel/v2/internal/validate"
 )
 
@@ -362,9 +361,9 @@ func (c *ServerConnector) handleGraphQL(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Create DataLoader collection for this request (N+1 prevention)
-	loaders := dataloader.NewLoaderCollection()
-	ctx := dataloader.WithLoaders(r.Context(), loaders)
+	// Share resolutions across the fields of this request, so that independent
+	// fields overlap and identical ones run once.
+	ctx := WithResolutions(r.Context())
 
 	// Execute GraphQL query
 	result := graphql.Do(graphql.Params{

@@ -78,7 +78,7 @@ All core features are implemented and production-ready. The roadmap below reflec
 | Filter Rejection Policies | ✅ | 7 |
 | Dedupe | ✅ | 7 |
 | GraphQL Query Optimization | ✅ | 8 |
-| GraphQL DataLoader | ✅ | 8 |
+| GraphQL concurrent resolution | ✅ | 8 |
 | GraphQL Subscriptions (server) | ✅ | 9 |
 | GraphQL Subscription Client | ✅ | 9 |
 | WebSocket Connector | ✅ | 10 |
@@ -251,7 +251,7 @@ All core features are implemented and production-ready. The roadmap below reflec
 - ✅ **CEL functions**: `has_field()`, `field_requested()`, `requested_fields()`, `requested_top_fields()`
 - ✅ **Database Optimizer**: generates targeted SELECT statements
 - ✅ **Step Optimizer**: skips steps whose results are not requested
-- ✅ **DataLoader**: batches N+1 queries via `graph-gophers/dataloader`
+- ✅ **Concurrent resolution**: independent fields of one query run together rather than in series, and two fields asking the same thing share one execution
 
 ### Phase 9 - GraphQL Federation Complete (Complete)
 - ✅ **Subscription types**: `subscription` flows with publish targets

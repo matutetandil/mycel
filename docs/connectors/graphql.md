@@ -68,7 +68,8 @@ connector "external_gql" {
 - **GraphiQL IDE**: Built-in when `playground = true`
 - **Federation v2**: Always exposes `_service { sdl }` — no config needed
 - **Subscriptions**: Flow-triggered via `Subscription.name` in `to` blocks
-- **Query Optimization**: Automatic field selection, step skipping, DataLoader
+- **Query Optimization**: Automatic field selection and step skipping
+- **Concurrent resolution**: the fields of one query are resolved together rather than one after another, and two fields asking for the same thing run once
 
 ## Example
 
