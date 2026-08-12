@@ -273,14 +273,18 @@ func parseClientAuthConfig(props map[string]interface{}) *ClientAuthConfig {
 }
 
 // parseTLSConfig parses TLS configuration from properties.
+// The names are the canonical ones; the parser folds cert_file, key_file,
+// ca_file and skip_verify, which this connector used to read directly, onto
+// cert, key, ca_cert and insecure_skip_verify. None of the six were accepted by
+// the parser before that, so nothing ever reached these fields.
 func parseTLSConfig(props map[string]interface{}) *TLSConfig {
 	return &TLSConfig{
 		Enabled:    getBool(props, "enabled", true),
-		CertFile:   getString(props, "cert_file", ""),
-		KeyFile:    getString(props, "key_file", ""),
-		CAFile:     getString(props, "ca_file", ""),
+		CertFile:   getString(props, "cert", ""),
+		KeyFile:    getString(props, "key", ""),
+		CAFile:     getString(props, "ca_cert", ""),
 		ServerName: getString(props, "server_name", ""),
-		SkipVerify: getBool(props, "skip_verify", false),
+		SkipVerify: getBool(props, "insecure_skip_verify", false),
 	}
 }
 

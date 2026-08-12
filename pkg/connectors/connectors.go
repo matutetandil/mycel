@@ -9,17 +9,32 @@ import "github.com/matutetandil/mycel/v2/pkg/schema"
 // Shared helper blocks
 // ---------------------------------------------------------------------------
 
+// tlsBlock is the one TLS vocabulary, shared by every connector that speaks it.
+//
+// Older spellings — client_cert and client_key from http, cert_file, key_file,
+// ca_file and skip_verify from grpc — are still accepted by the parser and
+// folded onto these names, but are deliberately not offered as completions.
 func tlsBlock() schema.Block {
 	return schema.Block{
-		Type: "tls", Doc: "TLS/SSL settings",
+		Type: "tls", Doc: "TLS/SSL settings. Writing the block enables TLS; set enabled = false to turn it off without removing it",
 		Attrs: []schema.Attr{
-			{Name: "enabled", Doc: "Enable TLS", Type: schema.TypeBool},
-			{Name: "cert", Doc: "Client certificate file", Type: schema.TypeString},
-			{Name: "key", Doc: "Client key file", Type: schema.TypeString},
-			{Name: "ca_cert", Doc: "CA certificate file", Type: schema.TypeString},
-			{Name: "insecure_skip_verify", Doc: "Skip certificate verification", Type: schema.TypeBool},
+			{Name: "enabled", Doc: "Enable TLS (default true when the block is present)", Type: schema.TypeBool},
+			{Name: "cert", Doc: "Certificate file this connector presents: its own when it is a server, the client certificate for mutual TLS", Type: schema.TypeString},
+			{Name: "key", Doc: "Private key for cert", Type: schema.TypeString},
+			{Name: "ca_cert", Doc: "CA certificate file used to verify the other side", Type: schema.TypeString},
+			{Name: "insecure_skip_verify", Doc: "Skip certificate verification (development only)", Type: schema.TypeBool},
 		},
 	}
+}
+
+// tlsClientBlock adds the server name override, which only makes sense when
+// verifying a certificate against an address it was not issued for.
+func tlsClientBlock() schema.Block {
+	b := tlsBlock()
+	b.Attrs = append(b.Attrs, schema.Attr{
+		Name: "server_name", Doc: "Expected server name, overriding the address used to connect (SNI)", Type: schema.TypeString,
+	})
+	return b
 }
 
 func poolBlock() schema.Block {
@@ -130,12 +145,7 @@ func (HTTPSchema) ConnectorSchema() schema.Block {
 				{Name: "username", Doc: "Basic auth username", Type: schema.TypeString},
 				{Name: "password", Doc: "Basic auth password", Type: schema.TypeString},
 			}},
-			{Type: "tls", Doc: "TLS settings", Attrs: []schema.Attr{
-				{Name: "ca_cert", Doc: "CA certificate file", Type: schema.TypeString},
-				{Name: "client_cert", Doc: "Client certificate file", Type: schema.TypeString},
-				{Name: "client_key", Doc: "Client key file", Type: schema.TypeString},
-				{Name: "insecure_skip_verify", Doc: "Skip certificate verification", Type: schema.TypeBool},
-			}},
+			tlsBlock(),
 		},
 	}
 }
@@ -227,14 +237,7 @@ func (GRPCSchema) ConnectorSchema() schema.Block {
 			{Name: "proto_files", Doc: "List of proto file paths", Type: schema.TypeList},
 		},
 		Children: []schema.Block{
-			{Type: "tls", Doc: "TLS/SSL settings", Attrs: []schema.Attr{
-				{Name: "enabled", Doc: "Enable TLS", Type: schema.TypeBool},
-				{Name: "cert_file", Doc: "TLS certificate file", Type: schema.TypeString},
-				{Name: "key_file", Doc: "TLS key file", Type: schema.TypeString},
-				{Name: "ca_file", Doc: "CA certificate file", Type: schema.TypeString},
-				{Name: "server_name", Doc: "TLS server name override", Type: schema.TypeString},
-				{Name: "skip_verify", Doc: "Skip TLS certificate verification", Type: schema.TypeBool},
-			}},
+			tlsClientBlock(),
 			{Type: "auth", Doc: "Authentication settings", Open: true, Attrs: []schema.Attr{
 				{Name: "type", Doc: "Auth type", Type: schema.TypeString},
 				{Name: "public", Doc: "Public (unauthenticated) methods", Type: schema.TypeList},
@@ -282,13 +285,7 @@ func (TCPSchema) ConnectorSchema() schema.Block {
 			{Name: "idle_timeout", Doc: "Idle connection timeout", Type: schema.TypeDuration},
 		},
 		Children: []schema.Block{
-			{Type: "tls", Doc: "TLS/SSL settings", Attrs: []schema.Attr{
-				{Name: "enabled", Doc: "Enable TLS", Type: schema.TypeBool},
-				{Name: "cert", Doc: "TLS certificate file", Type: schema.TypeString},
-				{Name: "key", Doc: "TLS key file", Type: schema.TypeString},
-				{Name: "insecure_skip_verify", Doc: "Skip certificate verification", Type: schema.TypeBool},
-				{Name: "ca_cert", Doc: "CA certificate file", Type: schema.TypeString},
-			}},
+			tlsBlock(),
 		},
 	}
 }
@@ -1009,13 +1006,7 @@ func (MQTTSchema) ConnectorSchema() schema.Block {
 			{Name: "max_reconnect_interval", Doc: "Maximum interval between reconnection attempts", Type: schema.TypeDuration},
 		},
 		Children: []schema.Block{
-			{Type: "tls", Doc: "TLS/SSL settings", Attrs: []schema.Attr{
-				{Name: "enabled", Doc: "Enable TLS", Type: schema.TypeBool},
-				{Name: "cert", Doc: "Client certificate file", Type: schema.TypeString},
-				{Name: "key", Doc: "Client key file", Type: schema.TypeString},
-				{Name: "ca_cert", Doc: "CA certificate file", Type: schema.TypeString},
-				{Name: "insecure_skip_verify", Doc: "Skip certificate verification", Type: schema.TypeBool},
-			}},
+			tlsBlock(),
 		},
 	}
 }

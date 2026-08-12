@@ -17,13 +17,13 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 			{Name: "proto_files", Doc: "List of proto file paths", Type: schema.TypeList},
 		},
 		Children: []schema.Block{
-			{Type: "tls", Doc: "TLS/SSL settings", Attrs: []schema.Attr{
-				{Name: "enabled", Doc: "Enable TLS", Type: schema.TypeBool},
-				{Name: "cert_file", Doc: "TLS certificate file", Type: schema.TypeString},
-				{Name: "key_file", Doc: "TLS key file", Type: schema.TypeString},
-				{Name: "ca_file", Doc: "CA certificate file", Type: schema.TypeString},
-				{Name: "server_name", Doc: "TLS server name override", Type: schema.TypeString},
-				{Name: "skip_verify", Doc: "Skip TLS certificate verification", Type: schema.TypeBool},
+			{Type: "tls", Doc: "TLS/SSL settings. Writing the block enables TLS; set enabled = false to turn it off without removing it", Attrs: []schema.Attr{
+				{Name: "enabled", Doc: "Enable TLS (default true when the block is present)", Type: schema.TypeBool},
+				{Name: "cert", Doc: "Certificate file this connector presents: its own when it is a server, the client certificate for mutual TLS", Type: schema.TypeString},
+				{Name: "key", Doc: "Private key for cert", Type: schema.TypeString},
+				{Name: "ca_cert", Doc: "CA certificate file used to verify the other side", Type: schema.TypeString},
+				{Name: "server_name", Doc: "Expected server name, overriding the address used to connect (SNI)", Type: schema.TypeString},
+				{Name: "insecure_skip_verify", Doc: "Skip certificate verification (development only)", Type: schema.TypeBool},
 			}},
 			{Type: "auth", Doc: "Authentication settings", Open: true, Attrs: []schema.Attr{
 				{Name: "type", Doc: "Auth type", Type: schema.TypeString},

@@ -975,34 +975,6 @@ func parseRetryBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interfa
 	return retry, nil
 }
 
-// parseTLSBlock parses a TLS configuration block for HTTP clients.
-func parseTLSBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interface{}, error) {
-	schema := &hcl.BodySchema{
-		Attributes: []hcl.AttributeSchema{
-			{Name: "ca_cert"},
-			{Name: "client_cert"},
-			{Name: "client_key"},
-			{Name: "insecure_skip_verify"},
-		},
-	}
-
-	content, diags := block.Body.Content(schema)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("tls block content error: %s", diags.Error())
-	}
-
-	tls := make(map[string]interface{})
-	for name, attr := range content.Attributes {
-		val, diags := attr.Expr.Value(ctx)
-		if diags.HasErrors() {
-			return nil, fmt.Errorf("tls %s error: %s", name, diags.Error())
-		}
-		tls[name] = ctyValueToGo(val)
-	}
-
-	return tls, nil
-}
-
 
 // ctyValueToGo converts a cty.Value to a native Go value.
 func ctyValueToGo(val cty.Value) interface{} {

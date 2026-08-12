@@ -86,10 +86,14 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 		auth = parseAuthConfig(authCfg)
 	}
 
-	// Parse TLS config (optional)
+	// Parse TLS config (optional). Writing the block is the opt-in, so it is
+	// applied unless it says enabled = false — which is how the setting can be
+	// driven from the environment without deleting the certificates.
 	var tlsCfg *TLSConfig
 	if tlsMap, ok := cfg.Properties["tls"].(map[string]interface{}); ok {
-		tlsCfg = parseTLSConfig(tlsMap)
+		if enabled, set := tlsMap["enabled"].(bool); !set || enabled {
+			tlsCfg = parseTLSConfig(tlsMap)
+		}
 	}
 
 	// Create connector with TLS
@@ -184,16 +188,19 @@ func parseAuthConfig(cfg map[string]interface{}) *AuthConfig {
 }
 
 // parseTLSConfig parses TLS configuration from HCL.
+//
+// The names are the canonical ones; the parser folds client_cert and
+// client_key, which this connector used to read directly, onto cert and key.
 func parseTLSConfig(cfg map[string]interface{}) *TLSConfig {
 	tls := &TLSConfig{}
 
 	if caCert, ok := cfg["ca_cert"].(string); ok {
 		tls.CACert = caCert
 	}
-	if clientCert, ok := cfg["client_cert"].(string); ok {
+	if clientCert, ok := cfg["cert"].(string); ok {
 		tls.ClientCert = clientCert
 	}
-	if clientKey, ok := cfg["client_key"].(string); ok {
+	if clientKey, ok := cfg["key"].(string); ok {
 		tls.ClientKey = clientKey
 	}
 	if insecure, ok := cfg["insecure_skip_verify"].(bool); ok {

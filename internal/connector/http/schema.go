@@ -29,10 +29,11 @@ func (Schema) ConnectorSchema() schema.Block {
 				{Name: "password", Doc: "Basic auth password", Type: schema.TypeString},
 			}},
 			{Type: "tls", Doc: "TLS settings", Attrs: []schema.Attr{
-				{Name: "ca_cert", Doc: "CA certificate file", Type: schema.TypeString},
-				{Name: "client_cert", Doc: "Client certificate file", Type: schema.TypeString},
-				{Name: "client_key", Doc: "Client key file", Type: schema.TypeString},
-				{Name: "insecure_skip_verify", Doc: "Skip certificate verification", Type: schema.TypeBool},
+				{Name: "enabled", Doc: "Enable TLS (default true when the block is present)", Type: schema.TypeBool},
+				{Name: "cert", Doc: "Certificate file this connector presents: its own when it is a server, the client certificate for mutual TLS", Type: schema.TypeString},
+				{Name: "key", Doc: "Private key for cert", Type: schema.TypeString},
+				{Name: "ca_cert", Doc: "CA certificate file used to verify the other side", Type: schema.TypeString},
+				{Name: "insecure_skip_verify", Doc: "Skip certificate verification (development only)", Type: schema.TypeBool},
 			}},
 		},
 	}
