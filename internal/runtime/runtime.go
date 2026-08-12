@@ -435,21 +435,11 @@ func New(opts Options) (*Runtime, error) {
 		}
 	}
 
-	// Create auth manager if auth config is present
+	// The auth manager is built in Start, once the connectors exist: its
+	// storage may name one of them, and there is nothing to resolve against
+	// here.
 	var authMgr *auth.Manager
 	var authHdl *auth.Handler
-	if config.Auth != nil {
-		var err error
-		authMgr, err = auth.NewManager(config.Auth,
-			auth.WithLogger(opts.Logger),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create auth manager: %w", err)
-		}
-		authHdl = auth.NewHandler(authMgr)
-		opts.Logger.Info("auth system initialized",
-			"preset", config.Auth.Preset)
-	}
 
 	// Create scheduler for cron-based flows
 	sched := scheduler.New()
@@ -744,6 +734,12 @@ func (r *Runtime) Start(ctx context.Context) error {
 	r.stateMachineEngine = statemachine.NewEngine(r.connectors)
 	for _, sm := range r.config.StateMachines {
 		r.stateMachineEngine.Register(sm)
+	}
+
+	// Build the auth system now that the connectors it may store into exist.
+	if err := r.initAuth(); err != nil {
+		banner.PrintError(err.Error())
+		return fmt.Errorf("failed to initialize auth: %w", err)
 	}
 
 	// Register flows

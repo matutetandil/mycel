@@ -660,20 +660,35 @@ func (s *MySQLSessionStore) DeleteByUserID(ctx context.Context, userID string) e
 }
 
 // DeleteExpired removes all expired sessions
-func (s *MySQLSessionStore) DeleteExpired(ctx context.Context) (int, error) {
+func (s *MySQLSessionStore) DeleteExpired(ctx context.Context) error {
 	query := fmt.Sprintf(`DELETE FROM %s WHERE expires_at < ?`, s.table)
 
-	result, err := s.db.ExecContext(ctx, query, time.Now())
-	if err != nil {
-		return 0, fmt.Errorf("failed to delete expired sessions: %w", err)
+	if _, err := s.db.ExecContext(ctx, query, time.Now()); err != nil {
+		return fmt.Errorf("failed to delete expired sessions: %w", err)
 	}
+	return nil
+}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("failed to check affected rows: %w", err)
+// Count counts the active sessions for a user, which is what enforces a limit
+// on how many places one account may be signed in from.
+func (s *MySQLSessionStore) Count(ctx context.Context, userID string) (int, error) {
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE user_id = ? AND expires_at > ?`, s.table)
+
+	var count int
+	if err := s.db.QueryRowContext(ctx, query, userID, time.Now()).Scan(&count); err != nil {
+		return 0, fmt.Errorf("failed to count sessions: %w", err)
 	}
+	return count, nil
+}
 
-	return int(rowsAffected), nil
+// Touch records that a session was used, which is what an idle timeout reads.
+func (s *MySQLSessionStore) Touch(ctx context.Context, id string) error {
+	query := fmt.Sprintf(`UPDATE %s SET last_active_at = ? WHERE id = ?`, s.table)
+
+	if _, err := s.db.ExecContext(ctx, query, time.Now(), id); err != nil {
+		return fmt.Errorf("failed to touch session: %w", err)
+	}
+	return nil
 }
 
 // MySQLTokenStore implements TokenStore using MySQL
