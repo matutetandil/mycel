@@ -144,8 +144,20 @@ func (c *Connector) Close(ctx context.Context) error {
 		c.cancel()
 	}
 
-	// Wait for consumers to finish
-	c.wg.Wait()
+	// Wait for consumers to finish, but not forever: a consumer blocked on a
+	// broker that has stopped answering must not hold the whole process open.
+	// Same bound the RabbitMQ connector already applies.
+	consumersDone := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(consumersDone)
+	}()
+	select {
+	case <-consumersDone:
+	case <-time.After(5 * time.Second):
+		c.logger.Warn("timeout waiting for consumers to finish")
+	case <-ctx.Done():
+	}
 
 	// Stop requeue tracker
 	if c.requeueTracker != nil {

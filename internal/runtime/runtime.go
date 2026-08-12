@@ -1998,18 +1998,53 @@ func (r *Runtime) waitForShutdown(ctx context.Context) error {
 }
 
 // Shutdown gracefully shuts down the runtime.
+//
+// The shutdown timeout is a hard deadline, not a suggestion. It used to be
+// passed down as a context and nothing enforced it: a connector whose Close
+// ignored the context and blocked on the network kept the process alive
+// indefinitely. That is fatal under an orchestrator — Kubernetes sends SIGTERM,
+// waits terminationGracePeriodSeconds (30 by default) and then SIGKILLs, so a
+// runtime that will not exit gets killed mid-flight on every rolling update,
+// with consumers never cancelled and in-flight messages lost. Exiting late but
+// under our own control beats being killed.
 func (r *Runtime) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), r.shutdownTimeout)
 	defer cancel()
 
 	banner.PrintShutdown()
 
+	done := make(chan error, 1)
+	go func() { done <- r.shutdownSteps(ctx) }()
+
+	select {
+	case err := <-done:
+		banner.PrintGoodbye()
+		return err
+	case <-ctx.Done():
+		// Deliberately not an error: the shutdown was asked for and got as far
+		// as it could. Saying so loudly matters more than the exit code, which
+		// an orchestrator would read as a failed container.
+		r.logger.Warn("graceful shutdown did not finish within the timeout, exiting anyway",
+			"timeout", r.shutdownTimeout)
+		banner.PrintGoodbye()
+		return nil
+	}
+}
+
+// shutdownSteps performs the shutdown itself. It runs under the deadline its
+// caller owns, so every step here may block without risking the process.
+func (r *Runtime) shutdownSteps(ctx context.Context) error {
 	// Mark service as not ready (stop accepting new traffic)
 	r.health.SetReady(false)
 
-	// Stop the scheduler
+	// Stop the scheduler, but do not wait past the deadline for a cron job
+	// that is still running.
 	if r.scheduler != nil {
-		<-r.scheduler.Stop().Done()
+		select {
+		case <-r.scheduler.Stop().Done():
+		case <-ctx.Done():
+			r.logger.Warn("scheduler still had jobs running at shutdown")
+		}
 	}
 
 	// Close sync manager
@@ -2043,7 +2078,6 @@ func (r *Runtime) Shutdown() error {
 		banner.PrintError("Error closing connectors: " + err.Error())
 	}
 
-	banner.PrintGoodbye()
 	return nil
 }
 
