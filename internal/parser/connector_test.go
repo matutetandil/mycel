@@ -356,25 +356,3 @@ connector "types" {
 		}
 	}
 }
-
-func TestParseMockBlock(t *testing.T) {
-	cfg := parseOne(t, `
-connector "api" {
-  type = "rest"
-  port = 3000
-
-  mock {
-    enabled = true
-    source  = "./mocks"
-  }
-}
-`)
-	p := connectorNamed(t, cfg, "api")
-	mock, ok := p["mock"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("mock did not survive: %#v", p["mock"])
-	}
-	if mock["enabled"] != true || mock["source"] != "./mocks" {
-		t.Errorf("mock = %#v", mock)
-	}
-}

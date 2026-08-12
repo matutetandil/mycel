@@ -227,7 +227,6 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Type: "cors"},
 			{Type: "auth"},
 			{Type: "retry"},
-			{Type: "mock"},
 			{Type: "headers"},
 			{Type: "schema"},
 			{Type: "ssh"},
@@ -323,13 +322,6 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 				return nil, fmt.Errorf("retry block error: %w", err)
 			}
 			config.Properties["retry"] = retry
-
-		case "mock":
-			mock, err := parseMockBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("mock block error: %w", err)
-			}
-			config.Properties["mock"] = mock
 
 		case "headers":
 			headers, err := parseHeadersBlock(nestedBlock, ctx)
@@ -1011,31 +1003,6 @@ func parseTLSBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interface
 	return tls, nil
 }
 
-// parseMockBlock parses a mock configuration block.
-func parseMockBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interface{}, error) {
-	schema := &hcl.BodySchema{
-		Attributes: []hcl.AttributeSchema{
-			{Name: "enabled"},
-			{Name: "source"},
-		},
-	}
-
-	content, diags := block.Body.Content(schema)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("mock block content error: %s", diags.Error())
-	}
-
-	mock := make(map[string]interface{})
-	for name, attr := range content.Attributes {
-		val, diags := attr.Expr.Value(ctx)
-		if diags.HasErrors() {
-			return nil, fmt.Errorf("mock %s error: %s", name, diags.Error())
-		}
-		mock[name] = ctyValueToGo(val)
-	}
-
-	return mock, nil
-}
 
 // ctyValueToGo converts a cty.Value to a native Go value.
 func ctyValueToGo(val cty.Value) interface{} {
