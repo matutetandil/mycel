@@ -16,17 +16,17 @@ Status: `open` = found, not decided · `decided` = we know which side is right �
 
 ## Open
 
-| # | Where | Doc/schema says | Code does | Verdict |
+| # | Where | Doc says | Parser accepts | Recommendation |
 |---|---|---|---|---|
-| 1 | `docs/core-concepts/connectors.md:67` | a connector `retry` block with more than `attempts` | `parseRetryBlock` accepts **only** `attempts` | — |
-| 2 | `docs/core-concepts/connectors.md:188` | a `subscriptions` attribute the parser rejects | rejected at parse time | — |
-| 3 | `docs/core-concepts/connectors.md:255` | S3 `force_path_style` | the accepted name is `use_path_style` (see `examples/integration/file-to-rabbit`) | — |
-| 4 | `docs/core-concepts/connectors.md:273` | an `operation` block attribute the parser rejects | rejected at parse time | — |
-| 5 | `docs/core-concepts/connectors.md:312,337` | `profile` blocks | a required argument is missing from the examples | — |
-| 9 | aspect `if` | `pkg/schema` advertises it as "CEL condition for conditional execution"; the natural expression is `input.field` | the flow input is bound one level deeper — `evaluateCondition` builds a map with an `input` key and hands the whole map to `EvaluateExpression`, which binds it as `input`, so the flow input is at **`input.input.field`**. `input.field` resolves against a map without that key and the condition **silently evaluates false** | code, almost certainly — but check nobody relies on the current shape |
-| 6 | connector `retry` | flow-level `error_handling.retry` takes `attempts`/`delay`/`max_delay`/`backoff` | the **connector-level** one takes only `attempts` | Is the thin one a gap, or deliberate? |
-| 7 | connector `tls` | — | accepts `ca_cert`, not `ca_file` | which name is intended? |
-| 8 | connector `mock` | — | accepts `source`, not `dir` | which name is intended? |
+| 1 | `connectors.md:67` — HTTP retry | `retry { count = 5 }` | only `attempts` | **doc**. Already decided: `parser_test.go` has `TestConnectorRetryBlockRejectsCount`, whose comment says the parser must reject `count` *"until the docs are aligned"*. Aligning them is the leftover. |
+| 2 | `connectors.md:188` — GraphQL subscriptions | `transport = "websocket"` | `enabled`, `path`, `keep_alive_interval`, `connection_timeout` | **doc**, probably: there is one transport. Worth one look at whether a second was ever planned. |
+| 3 | `connectors.md:255` — S3 | `force_path_style` | `use_path_style`, and `s3/factory.go` reads that same name | **doc**. The code is coherent end to end; only the page uses the other name. |
+| 4 | `connectors.md:273` — named operations | `params = [{ name = ..., type = ... }]` | `param "<name>" { type = ... }`, a labelled block | **doc**. The block form is what the parser and the schema implement. |
+| 5 | `connectors.md:312,337` — profiles | `profile "primary" { host = ... }` | `type` is **required** in a profile | **doc**, unless a profile inheriting the connector's type was the intent — that would be the friendlier language. |
+| 6 | connector `retry` (design, not spelling) | — | connector-level retry takes **only** `attempts`; `error_handling.retry` takes `attempts`/`delay`/`max_delay`/`backoff` | **think first.** Retrying with no backoff hammers a failing dependency at full rate. Either the connector-level block earns `delay`/`backoff`, or it is declared thin and the docs stop showing it as resilience. |
+| 7 | connector `tls` | nothing documents it | `ca_cert` | **leave the name.** Renaming a working parser attribute breaks whoever already uses it. Document `ca_cert`. |
+| 8 | connector `mock` | nothing documents it | `source` | same as #7: document `source`. |
+| 9 | aspect `if` | `pkg/schema`: "CEL condition for conditional execution" | the flow input is bound at **`input.input.field`**, so `input.field` **silently evaluates false** | **code.** Nothing documented depends on the current shape; two tests pin it so a fix is deliberate. |
 
 ### Dead-or-bug candidates (parked by decision, 2026-08-12)
 
