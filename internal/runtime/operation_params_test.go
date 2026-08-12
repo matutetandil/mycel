@@ -208,3 +208,95 @@ func TestAnUndeclaredTypeLetsTheValueThrough(t *testing.T) {
 		t.Error("the constraint was skipped along with the type")
 	}
 }
+
+func TestTheRemainingDeclaredTypes(t *testing.T) {
+	op := &connector.OperationDef{Name: "x", Params: []*connector.ParamDef{
+		{Name: "tags", Type: "array"},
+		{Name: "meta", Type: "object"},
+		{Name: "anything", Type: "any"},
+		{Name: "untyped"},
+	}}
+
+	ok := map[string]interface{}{
+		"tags":     []interface{}{"a", "b"},
+		"meta":     map[string]interface{}{"k": "v"},
+		"anything": 42,
+		"untyped":  "whatever",
+	}
+	if err := applyOperationParams(op, ok); err != nil {
+		t.Errorf("valid values were rejected: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name, param string
+		value       interface{}
+		want        string
+	}{
+		{"a scalar where an array is declared", "tags", "not-a-list", "expected an array"},
+		{"a scalar where an object is declared", "meta", 7, "expected an object"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := applyOperationParams(op, map[string]interface{}{tc.param: tc.value})
+			if err == nil {
+				t.Fatalf("%#v was accepted", tc.value)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %q, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestANumberDeclaredAsAStringIsConverted(t *testing.T) {
+	// A path parameter declared as a string may still arrive as a number from
+	// a JSON body, and rejecting that would be pedantic rather than useful.
+	op := &connector.OperationDef{Name: "x", Params: []*connector.ParamDef{
+		{Name: "id", Type: "string"},
+		{Name: "flag", Type: "string"},
+	}}
+	input := map[string]interface{}{"id": 7, "flag": true}
+	if err := applyOperationParams(op, input); err != nil {
+		t.Fatalf("applyOperationParams: %v", err)
+	}
+	if input["id"] != "7" || input["flag"] != "true" {
+		t.Errorf("got %#v", input)
+	}
+
+	// A composite is not something to stringify silently.
+	err := applyOperationParams(op, map[string]interface{}{"id": []interface{}{1}})
+	if err == nil {
+		t.Error("a list was accepted for a string parameter")
+	}
+}
+
+func TestNumbersArriveFromEveryShapeTheParserProduces(t *testing.T) {
+	op := &connector.OperationDef{Name: "x", Params: []*connector.ParamDef{
+		{Name: "a", Type: "integer"},
+		{Name: "b", Type: "float"},
+		{Name: "c", Type: "int"},
+	}}
+	input := map[string]interface{}{"a": int64(3), "b": 1.25, "c": 9}
+	if err := applyOperationParams(op, input); err != nil {
+		t.Fatalf("applyOperationParams: %v", err)
+	}
+	if input["a"] != 3 || input["b"] != 1.25 || input["c"] != 9 {
+		t.Errorf("got %#v", input)
+	}
+
+	if err := applyOperationParams(op, map[string]interface{}{"a": []interface{}{1}}); err == nil {
+		t.Error("a list was accepted for a number parameter")
+	}
+	if err := applyOperationParams(op, map[string]interface{}{"a": map[string]interface{}{}}); err == nil {
+		t.Error("an object was accepted for a boolean-free number parameter")
+	}
+}
+
+func TestBooleanFromAnUnconvertibleValue(t *testing.T) {
+	op := &connector.OperationDef{Name: "x", Params: []*connector.ParamDef{{Name: "on", Type: "boolean"}}}
+	if err := applyOperationParams(op, map[string]interface{}{"on": "maybe"}); err == nil {
+		t.Error(`"maybe" was accepted as a boolean`)
+	}
+	if err := applyOperationParams(op, map[string]interface{}{"on": 3}); err == nil {
+		t.Error("a number was accepted as a boolean")
+	}
+}

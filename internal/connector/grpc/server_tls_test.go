@@ -68,3 +68,26 @@ func TestMessageSizeOptionsStillApply(t *testing.T) {
 		t.Errorf("got %d options, want the two message-size ones", len(opts))
 	}
 }
+
+func TestMutualTLSFailuresAlsoStopTheServer(t *testing.T) {
+	// The mTLS branch had the same swallowed error as the plain one, and it is
+	// the branch where starting anyway is worst: mutual TLS is configured
+	// precisely when the server is supposed to be checking who is calling.
+	c := &ServerConnector{config: &ServerConfig{
+		Auth: &AuthConfig{Type: "mtls"},
+		TLS: &TLSConfig{
+			Enabled:  true,
+			CAFile:   "/nonexistent/ca.pem",
+			CertFile: "/nonexistent/server.pem",
+			KeyFile:  "/nonexistent/server.key",
+		},
+	}}
+
+	_, err := c.buildServerOptions()
+	if err == nil {
+		t.Fatal("an unreadable CA was accepted, so the server would have started without verifying clients")
+	}
+	if !strings.Contains(err.Error(), "mTLS") {
+		t.Errorf("error = %q, want it to name mTLS", err)
+	}
+}

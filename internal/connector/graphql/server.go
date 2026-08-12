@@ -356,7 +356,9 @@ func (c *ServerConnector) handleGraphQL(w http.ResponseWriter, r *http.Request) 
 	// attribute was accepted by the parser and read by nothing, which meant
 	// asking for it to be off left it on.
 	if !c.config.Introspection && queryUsesIntrospection(request.Query) {
-		c.writeGraphQLError(w, "introspection is disabled")
+		// A GraphQL client reads errors from the body, so the refusal is a 200
+		// carrying an errors array rather than an HTTP status.
+		writeGraphQLError(w, "introspection is disabled", http.StatusOK)
 		return
 	}
 
@@ -518,13 +520,4 @@ var graphQLString = regexp.MustCompile(`"""(?s:.*?)"""|"(?:[^"\\]|\\.)*"`)
 func queryUsesIntrospection(query string) bool {
 	withoutStrings := graphQLString.ReplaceAllString(query, `""`)
 	return introspectionField.MatchString(strings.ToLower(withoutStrings))
-}
-
-// writeGraphQLError writes a refusal in the shape a GraphQL client expects,
-// which is a 200 carrying an errors array rather than an HTTP status.
-func (c *ServerConnector) writeGraphQLError(w http.ResponseWriter, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"errors": []map[string]interface{}{{"message": message}},
-	})
 }
