@@ -27,6 +27,21 @@ Status: `open` = found, not decided · `decided` = we know which side is right �
 | 7 | connector `tls` | — | accepts `ca_cert`, not `ca_file` | which name is intended? |
 | 8 | connector `mock` | — | accepts `source`, not `dir` | which name is intended? |
 
+### Dead-or-bug candidates (parked by decision, 2026-08-12)
+
+Two clusters of unreachable code. Neither gets tests until we decide which it
+is, because testing code that should be deleted is the most expensive of the
+three options.
+
+| Where | Size | What it looks like |
+|---|---|---|
+| `pkg/errors` | 19 unreachable funcs | A typed-error package with exactly one consumer in the whole repo (`internal/aspect/executor.go`). Either it was meant to be adopted everywhere and never was — in which case the *absence* of its use is the bug — or it is dead. |
+| `internal/transform/functions.go` + the `ExpressionParser` half of `transformer.go` | **72 unreachable funcs** | A complete native expression engine: 23 function types (`lower`, `upper`, `pluck`, `format_date`, `coalesce`, …) with Name/Arity/Execute, reached through `NewDefaultTransformer` → `NewBaseTransformer` → `DefaultFunctionRegistry`. **Nothing outside `transformer.go` constructs any of it** — every caller in runtime, aspect and cmd uses `NewCELTransformer`. It reads as the pre-CEL engine that was never removed. |
+
+The transform one matters for the coverage target as well as for tidiness: it
+is ~127 uncovered statements in `functions.go` alone that are being counted
+against a percentage while not being part of the running product.
+
 ### Notes on the open ones
 
 **#6 is the one worth thinking about, not just fixing.** A connector that
