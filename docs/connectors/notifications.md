@@ -366,7 +366,7 @@ Template variables use `{{.FieldName}}` syntax, where each field corresponds to 
 connector "order_email" {
   type     = "email"
   driver   = "smtp"
-  host     = "${SMTP_HOST}"
+  host     = env("SMTP_HOST")
   port     = 587
   template = "./templates/order_confirmation.html"
 }
