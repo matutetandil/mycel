@@ -583,8 +583,8 @@ connector "webhooks_out" {
   timeout            = "10s"
 
   retry {
-    max_attempts = 3
-    initial_delay = "1s"
+    attempts = 3
+    delay    = "1s"
     max_delay     = "30s"
     multiplier    = 2.0
   }
@@ -615,8 +615,8 @@ connector "webhooks_in" {
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `max_attempts` | int | optional | `3` | Maximum retry attempts |
-| `initial_delay` | duration | optional | `1s` | Delay before first retry |
+| `attempts` | int | optional | `3` | Total tries, including the first. The older spelling `max_attempts` is still accepted |
+| `delay` | duration | optional | `1s` | Wait before the second try. The older spelling `initial_delay` is still accepted |
 | `max_delay` | duration | optional | `30s` | Maximum delay between retries |
 | `multiplier` | float | optional | `2.0` | Exponential backoff multiplier |
 
