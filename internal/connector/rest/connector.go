@@ -217,19 +217,34 @@ func (c *Connector) setupRoutes() {
 	}
 
 	// Register combined handlers for each path
+	registered := make(map[string]bool, len(pathHandlers))
 	for path, methods := range pathHandlers {
 		handlers := methods // capture for closure
 		paramNames := c.pathParams[path]
+		registered[path] = true
 		c.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			c.handleRequest(w, r, handlers, paramNames)
 		})
 	}
 
+	// The built-in endpoints come last and yield to a flow that claimed the
+	// same path. Registering the same pattern twice panics the mux, which
+	// turned a flow serving /health — an ordinary thing to write, and what the
+	// named-operations example did — into a crash while the service was still
+	// starting. An explicit flow is a deliberate choice, so it wins.
+	claimed := func(path string) bool {
+		if registered[path] {
+			c.logger.Info("built-in endpoint replaced by a flow", "path", path)
+			return true
+		}
+		return false
+	}
+
 	// Health check endpoints
 	if c.health != nil {
 		// Use the health manager for full health checks
-		c.health.RegisterHandlers(c.mux)
-	} else {
+		c.health.RegisterHandlersUnless(c.mux, claimed)
+	} else if !claimed("/health") {
 		// Fallback to simple health check
 		c.mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -238,7 +253,7 @@ func (c *Connector) setupRoutes() {
 	}
 
 	// Metrics endpoint
-	if c.metrics != nil {
+	if c.metrics != nil && !claimed("/metrics") {
 		c.mux.Handle("/metrics", c.metrics.Handler())
 	}
 }

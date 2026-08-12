@@ -76,9 +76,9 @@ connector "api" {
 }
 
 connector "db" {
-  type   = "database"
-  driver = "sqlite"
-  database = ":memory:"
+  type     = "database"
+  driver   = "sqlite"
+  database = "./data/app.db"
 
   operation "all_users" {
     table       = "users"

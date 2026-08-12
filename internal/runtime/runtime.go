@@ -1213,6 +1213,12 @@ func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
 
 // registerFlows builds flow handlers from configuration.
 func (r *Runtime) registerFlows() error {
+	// Named operations are folded into their inline form first, so everything
+	// below — route registration, destinations, steps — sees one language.
+	if err := r.resolveNamedOperations(); err != nil {
+		return err
+	}
+
 	fmt.Println()
 	fmt.Println("    Flows:")
 
