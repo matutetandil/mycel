@@ -25,10 +25,11 @@ func (WebhookSchema) ConnectorSchema() schema.Block {
 		Children: []schema.Block{
 			{Type: "headers", Doc: "Custom HTTP headers", Open: true},
 			{Type: "retry", Doc: "Retry policy for outbound webhooks", Attrs: []schema.Attr{
-				{Name: "max_attempts", Doc: "Maximum retry attempts", Type: schema.TypeNumber},
-				{Name: "initial_delay", Doc: "Initial delay between retries", Type: schema.TypeDuration},
-				{Name: "max_delay", Doc: "Maximum delay between retries", Type: schema.TypeDuration},
-				{Name: "multiplier", Doc: "Backoff multiplier", Type: schema.TypeNumber},
+				{Name: "attempts", Doc: "Total tries, including the first", Type: schema.TypeNumber},
+				{Name: "delay", Doc: "Wait before the second try", Type: schema.TypeDuration},
+				{Name: "max_delay", Doc: "Cap on how far the wait grows", Type: schema.TypeDuration},
+				{Name: "multiplier", Doc: "Factor the wait grows by on each try", Type: schema.TypeNumber},
+				{Name: "retryable_statuses", Doc: "HTTP status codes worth retrying", Type: schema.TypeList},
 			}},
 		},
 	}

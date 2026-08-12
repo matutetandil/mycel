@@ -221,6 +221,29 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Name: "auth_url"},      // Authorization endpoint
 			{Name: "token_url"},     // Token endpoint
 			{Name: "userinfo_url"},  // Userinfo endpoint
+
+			// Read by their connectors and refused here until 2.19.0, which
+			// made each of these a documented setting with no way to write it.
+			{Name: "template"},          // email, pdf
+			{Name: "tls"},               // email: starttls|tls|none · ftp: FTPS on/off
+			{Name: "csv_delimiter"},     // file
+			{Name: "csv_comment"},       // file
+			{Name: "csv_no_header"},     // file
+			{Name: "csv_trim_space"},    // file
+			{Name: "csv_skip_rows"},     // file
+			{Name: "heartbeat"},         // mq
+			{Name: "reconnect_delay"},   // mq
+			{Name: "name"},              // oauth (OIDC provider name)
+			{Name: "output_dir"},        // pdf
+			{Name: "page_size"},         // pdf
+			{Name: "font"},              // pdf
+			{Name: "margin_left"},       // pdf
+			{Name: "margin_top"},        // pdf
+			{Name: "margin_right"},      // pdf
+			{Name: "idle_timeout"},      // tcp
+			{Name: "include_timestamp"}, // webhook
+			{Name: "require_https"},     // webhook
+			{Name: "allowed_ips"},       // webhook
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "pool"},
@@ -250,6 +273,10 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 			{Type: "schema_registry"}, // Kafka Schema Registry config
 			// Notification connectors
 			{Type: "batch"}, // Slack batching: window/max_size/group_by/summary
+			// Environment for exec
+			{Type: "env"}, // exec: arbitrary NAME = "value" pairs
+			// Read replicas for the SQL databases
+			{Type: "replicas"}, // one block per replica; collected into a list
 			// Named operations
 			{Type: "operation", LabelNames: []string{"name"}}, // Named operations for flows
 		},
@@ -350,6 +377,25 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 				return nil, fmt.Errorf("tls block error: %w", err)
 			}
 			config.Properties["tls"] = tls
+
+		case "env":
+			// exec reads Properties["env"] as a map of NAME to value, so the
+			// block is collected rather than given a fixed set of attributes.
+			env, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("env block error: %w", err)
+			}
+			config.Properties["env"] = env
+
+		case "replicas":
+			// One block per replica. The SQL factories read this as a list of
+			// maps, so repeated blocks are collected into one.
+			replica, err := parseGenericBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("replicas block error: %w", err)
+			}
+			existing, _ := config.Properties["replicas"].([]interface{})
+			config.Properties["replicas"] = append(existing, replica)
 
 		case "queue":
 			queue, err := parseGenericBlock(nestedBlock, ctx)
@@ -815,6 +861,8 @@ func parsePoolBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interfac
 			{Name: "max_lifetime"},
 			{Name: "max_idle_time"},
 			{Name: "connect_timeout"},
+			{Name: "max_connections"}, // cache
+			{Name: "min_idle"},        // cache
 		},
 	}
 
@@ -842,6 +890,7 @@ func parseCorsBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interfac
 			{Name: "origins"},
 			{Name: "methods"},
 			{Name: "headers"},
+			{Name: "allow_credentials"},
 		},
 	}
 
@@ -949,13 +998,28 @@ func parseRetryBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interfa
 	// Same vocabulary as error_handling.retry, deliberately: two blocks called
 	// retry that accept different words is a trap. The documented `count` /
 	// `interval` spelling is not accepted — see TestConnectorRetryBlockRejectsCount.
+	//
+	// The webhook connector grew its own words for the same three settings —
+	// max_attempts, initial_delay and multiplier — which the parser refused, so
+	// none of them could be written. They are accepted and folded onto the
+	// canonical names, the same way the tls block handles its older spellings.
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "attempts"},
 			{Name: "delay"},
 			{Name: "max_delay"},
 			{Name: "backoff"},
+			{Name: "max_attempts"},  // webhook's word for attempts
+			{Name: "initial_delay"}, // webhook's word for delay
+			// Webhook-specific, with no equivalent in the shared vocabulary.
+			{Name: "multiplier"},
+			{Name: "retryable_statuses"},
 		},
+	}
+
+	retryAliases := map[string]string{
+		"max_attempts":  "attempts",
+		"initial_delay": "delay",
 	}
 
 	content, diags := block.Body.Content(schema)
@@ -963,8 +1027,20 @@ func parseRetryBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interfa
 		return nil, fmt.Errorf("retry block content error: %s", diags.Error())
 	}
 
+	for alias, canonical := range retryAliases {
+		if _, wroteAlias := content.Attributes[alias]; !wroteAlias {
+			continue
+		}
+		if _, wroteCanonical := content.Attributes[canonical]; wroteCanonical {
+			return nil, fmt.Errorf("retry block sets both %q and %q, which are the same setting", canonical, alias)
+		}
+	}
+
 	retry := make(map[string]interface{})
 	for name, attr := range content.Attributes {
+		if canonical, isAlias := retryAliases[name]; isAlias {
+			name = canonical
+		}
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("retry %s error: %s", name, diags.Error())

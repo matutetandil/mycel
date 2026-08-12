@@ -48,8 +48,10 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 		}
 	}
 
-	// Parse workdir
-	if workdir, ok := cfg.Properties["workdir"].(string); ok {
+	// Parse working_dir. The connector used to read "workdir", which the
+	// parser rejected, while the documented and exampled "working_dir" parsed
+	// and was never read — so the working directory silently did not apply.
+	if workdir, ok := cfg.Properties["working_dir"].(string); ok {
 		config.WorkDir = workdir
 	}
 

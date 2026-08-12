@@ -19,28 +19,18 @@ import (
 // own and hands it to the real parser, so a failure names one attribute rather
 // than the first of a pile.
 //
-// knownDrift records the ones that do not parse today. They are a separate
-// problem — the parser keeps a hand-written allow-list of connector attributes
-// that has fallen behind the schemas — and each needs deciding on its own:
-// either the parser should accept it, or the connector never read it and the
-// schema should stop offering it. The list exists so that the drift cannot
-// grow while that is worked through, and the test fails if an entry starts
-// parsing, so it cannot quietly go stale either.
-var knownDrift = map[string][]string{
-	"cache":    {"pool.max_connections", "pool.min_idle"},
-	"database": {"replicas.host", "replicas.port", "replicas.weight", "replicas.max_connections"},
-	"email":    {"template", "tls"},
-	"exec":     {"workdir", "env (block)"},
-	"file":     {"csv_delimiter", "csv_comment", "csv_no_header", "csv_trim_space", "csv_skip_rows"},
-	"ftp":      {"tls"},
-	"graphql":  {"cors.allow_credentials"},
-	"mq":       {"heartbeat", "reconnect_delay"},
-	"oauth":    {"name"},
-	"pdf":      {"template", "output_dir", "page_size", "font", "margin_left", "margin_top", "margin_right"},
-	"tcp":      {"idle_timeout"},
-	"webhook": {"include_timestamp", "require_https", "allowed_ips",
-		"retry.max_attempts", "retry.initial_delay", "retry.multiplier"},
-}
+// knownDrift records attributes a schema declares that the parser does not
+// accept. It is empty, and the intention is that it stays that way.
+//
+// It held 38 entries across 12 connectors when this test was written — the
+// parser keeps a hand-written allow-list and it had fallen behind the schemas.
+// Every one of them turned out to be read by its connector, so all 38 were
+// settings that were implemented, described by the schema, offered as
+// completions, and impossible to write. They were fixed rather than accepted.
+//
+// If something has to go in here, it belongs with a reason and a plan. An
+// entry that starts parsing fails the test, so the list cannot go stale.
+var knownDrift = map[string][]string{}
 
 func TestConnectorSchemasMatchTheParser(t *testing.T) {
 	reg := schema.NewRegistryWith(connectors.RegisterAll)
