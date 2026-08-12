@@ -283,16 +283,31 @@ connector "db" {
   # ... connection details
 
   operation "find_active_users" {
-    query  = "SELECT * FROM users WHERE status = 'active' AND org_id = $1"
-    params = [{ name = "org_id", type = "string", required = true }]
+    query       = "SELECT * FROM users WHERE status = 'active' AND org_id = $1"
+    description = "Active users for one organisation"
+
+    param "org_id" {
+      type        = "string"
+      required    = true
+      description = "Organisation to filter by"
+    }
   }
 
-  operation "deactivate_user" {
-    query  = "UPDATE users SET status = 'inactive' WHERE id = $1"
-    params = [{ name = "id", type = "string", required = true }]
+  operation "list_recent" {
+    query = "SELECT * FROM users ORDER BY created_at DESC LIMIT $1"
+
+    param "limit" {
+      type    = "number"
+      default = 100
+    }
   }
 }
 ```
+
+Each parameter is its own `param` block, named by its label. `required` is
+checked before the operation runs and `default` is filled in when the caller
+omits the value; `type` and `description` are recorded for documentation and
+tooling.
 
 Then in flows:
 
