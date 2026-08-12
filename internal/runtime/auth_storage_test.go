@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"log/slog"
 	"strings"
 	"testing"
@@ -118,7 +119,7 @@ func TestADriverWithNoAuthStoresIsRefusedAtStartup(t *testing.T) {
 
 func TestInitAuthWithoutAnAuthBlockDoesNothing(t *testing.T) {
 	r := storageRuntime(t, nil)
-	if err := r.initAuth(); err != nil {
+	if err := r.initAuth(context.Background()); err != nil {
 		t.Fatalf("initAuth: %v", err)
 	}
 	if r.authManager != nil || r.authHandler != nil {
@@ -133,7 +134,7 @@ func TestInitAuthBuildsTheManagerAndHandler(t *testing.T) {
 		JWT:    &auth.JWTConfig{Algorithm: "HS256", Secret: "a-secret-long-enough-to-be-plausible"},
 	}
 
-	if err := r.initAuth(); err != nil {
+	if err := r.initAuth(context.Background()); err != nil {
 		t.Fatalf("initAuth: %v", err)
 	}
 	if r.authManager == nil {
@@ -141,5 +142,13 @@ func TestInitAuthBuildsTheManagerAndHandler(t *testing.T) {
 	}
 	if r.authHandler == nil {
 		t.Error("no auth handler was built, so no endpoint could be mounted")
+	}
+
+	// Building the manager starts the cleanup loop, which would otherwise
+	// outlive the test.
+	if r.authCleanup == nil {
+		t.Error("no cleanup loop was started, so expired sessions would accumulate")
+	} else if err := r.authCleanup.Stop(); err != nil {
+		t.Errorf("Stop: %v", err)
 	}
 }

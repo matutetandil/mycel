@@ -118,6 +118,7 @@ type Runtime struct {
 	// Auth manager for authentication system
 	authManager *auth.Manager
 	authHandler *auth.Handler
+	authCleanup *auth.CleanupService
 
 	// Sync manager for distributed locks, semaphores, and coordination
 	syncManager *msync.Manager
@@ -737,7 +738,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	}
 
 	// Build the auth system now that the connectors it may store into exist.
-	if err := r.initAuth(); err != nil {
+	if err := r.initAuth(ctx); err != nil {
 		banner.PrintError(err.Error())
 		return fmt.Errorf("failed to initialize auth: %w", err)
 	}
@@ -2050,6 +2051,13 @@ func (r *Runtime) shutdownSteps(ctx context.Context) error {
 		case <-r.scheduler.Stop().Done():
 		case <-ctx.Done():
 			r.logger.Warn("scheduler still had jobs running at shutdown")
+		}
+	}
+
+	// Stop the auth cleanup loop
+	if r.authCleanup != nil {
+		if err := r.authCleanup.Stop(); err != nil {
+			r.logger.Warn("error stopping auth cleanup", "error", err)
 		}
 	}
 

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -133,7 +134,7 @@ func containsString(haystack []string, needle string) bool {
 // It runs in Start rather than in New because the storage configuration may
 // name a connector, and connectors do not exist until Start has registered
 // them.
-func (r *Runtime) initAuth() error {
+func (r *Runtime) initAuth(ctx context.Context) error {
 	if r.config.Auth == nil {
 		return nil
 	}
@@ -151,6 +152,17 @@ func (r *Runtime) initAuth() error {
 
 	r.authManager = manager
 	r.authHandler = auth.NewHandler(manager)
+
+	// Expired sessions and tokens are removed on a timer. Nothing started this
+	// loop before, and nothing else removes them: every session and every token
+	// a service ever issued stayed where it was written, growing without bound
+	// for as long as the process ran.
+	r.authCleanup = auth.NewCleanupService(manager, 0)
+	r.authCleanup.SetLogger(r.logger)
+	if err := r.authCleanup.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start auth cleanup: %w", err)
+	}
+
 	r.logger.Info("auth system initialized", "preset", r.config.Auth.Preset)
 	return nil
 }
