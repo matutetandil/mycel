@@ -1,11 +1,11 @@
-package elasticsearch
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for Elasticsearch.
-type ConnectorSchemaDef struct{}
+// ElasticsearchSchema implements ConnectorSchemaProvider for Elasticsearch.
+type ElasticsearchSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (ElasticsearchSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "url", Doc: "Elasticsearch URL", Type: schema.TypeString, Required: true},
@@ -18,13 +18,13 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block {
+func (ElasticsearchSchema) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}
 }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (ElasticsearchSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{

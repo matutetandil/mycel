@@ -1,11 +1,11 @@
-package tcp
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for TCP.
-type ConnectorSchemaDef struct{}
+// TCPSchema implements ConnectorSchemaProvider for TCP.
+type TCPSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (TCPSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "port", Doc: "TCP server port", Type: schema.TypeNumber, Required: true},
@@ -31,7 +31,7 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block {
+func (TCPSchema) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{
@@ -40,4 +40,4 @@ func (ConnectorSchemaDef) SourceSchema() *schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block { return nil }
+func (TCPSchema) TargetSchema() *schema.Block { return nil }

@@ -1,11 +1,11 @@
-package sse
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for SSE.
-type ConnectorSchemaDef struct{}
+// SSESchema implements ConnectorSchemaProvider for SSE.
+type SSESchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (SSESchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "port", Doc: "SSE server port", Type: schema.TypeNumber},
@@ -21,7 +21,7 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block {
+func (SSESchema) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{
@@ -30,4 +30,4 @@ func (ConnectorSchemaDef) SourceSchema() *schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block { return nil }
+func (SSESchema) TargetSchema() *schema.Block { return nil }

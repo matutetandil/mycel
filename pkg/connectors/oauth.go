@@ -1,11 +1,11 @@
-package oauth
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for OAuth.
-type ConnectorSchemaDef struct{}
+// OAuthSchema implements ConnectorSchemaProvider for OAuth.
+type OAuthSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (OAuthSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "driver", Doc: "OAuth provider", Type: schema.TypeString, Required: true, Values: []string{"google", "github", "apple", "oidc", "custom"}},
@@ -25,5 +25,5 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block { return nil }
-func (ConnectorSchemaDef) TargetSchema() *schema.Block { return nil }
+func (OAuthSchema) SourceSchema() *schema.Block { return nil }
+func (OAuthSchema) TargetSchema() *schema.Block { return nil }

@@ -1,11 +1,11 @@
-package slack
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for Slack.
-type ConnectorSchemaDef struct{}
+// SlackSchema implements ConnectorSchemaProvider for Slack.
+type SlackSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (SlackSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "webhook_url", Doc: "Slack incoming webhook URL", Type: schema.TypeString},
@@ -33,9 +33,9 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block { return nil }
+func (SlackSchema) SourceSchema() *schema.Block { return nil }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (SlackSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}

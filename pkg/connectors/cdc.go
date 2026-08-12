@@ -1,11 +1,11 @@
-package cdc
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for CDC (Change Data Capture).
-type ConnectorSchemaDef struct{}
+// CDCSchema implements ConnectorSchemaProvider for CDC (Change Data Capture).
+type CDCSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (CDCSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "host", Doc: "PostgreSQL host", Type: schema.TypeString, Required: true},
@@ -20,7 +20,7 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block {
+func (CDCSchema) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{
@@ -29,4 +29,4 @@ func (ConnectorSchemaDef) SourceSchema() *schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block { return nil }
+func (CDCSchema) TargetSchema() *schema.Block { return nil }

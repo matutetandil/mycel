@@ -1,11 +1,11 @@
-package soap
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for SOAP.
-type ConnectorSchemaDef struct{}
+// SOAPSchema implements ConnectorSchemaProvider for SOAP.
+type SOAPSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (SOAPSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "endpoint", Doc: "SOAP service endpoint URL", Type: schema.TypeString},
@@ -26,7 +26,7 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block {
+func (SOAPSchema) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{
@@ -35,7 +35,7 @@ func (ConnectorSchemaDef) SourceSchema() *schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (SOAPSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{

@@ -1,11 +1,11 @@
-package rest
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// Schema implements ConnectorSchemaProvider for REST server.
-type Schema struct{}
+// RESTSchema implements ConnectorSchemaProvider for REST server.
+type RESTSchema struct{}
 
-func (Schema) ConnectorSchema() schema.Block {
+func (RESTSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "port", Doc: "HTTP server port", Type: schema.TypeNumber, Required: true},
@@ -25,7 +25,7 @@ func (Schema) ConnectorSchema() schema.Block {
 	}
 }
 
-func (Schema) SourceSchema() *schema.Block {
+func (RESTSchema) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{
@@ -34,4 +34,4 @@ func (Schema) SourceSchema() *schema.Block {
 	}
 }
 
-func (Schema) TargetSchema() *schema.Block { return nil }
+func (RESTSchema) TargetSchema() *schema.Block { return nil }

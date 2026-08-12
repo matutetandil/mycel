@@ -1,11 +1,11 @@
-package graphql
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for GraphQL.
-type ConnectorSchemaDef struct{}
+// GraphQLSchema implements ConnectorSchemaProvider for GraphQL.
+type GraphQLSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (GraphQLSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "port", Doc: "GraphQL server port", Type: schema.TypeNumber},
@@ -42,7 +42,7 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block {
+func (GraphQLSchema) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{
@@ -51,7 +51,7 @@ func (ConnectorSchemaDef) SourceSchema() *schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (GraphQLSchema) TargetSchema() *schema.Block {
 	return &schema.Block{Open: true, Attrs: []schema.Attr{
 		{Name: "operation", Doc: "Target operation", Type: schema.TypeString},
 	}}

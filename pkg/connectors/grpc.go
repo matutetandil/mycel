@@ -1,11 +1,11 @@
-package grpc
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for gRPC.
-type ConnectorSchemaDef struct{}
+// GRPCSchema implements ConnectorSchemaProvider for gRPC.
+type GRPCSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (GRPCSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "host", Doc: "gRPC server hostname", Type: schema.TypeString},
@@ -33,7 +33,7 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block {
+func (GRPCSchema) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{
@@ -42,7 +42,7 @@ func (ConnectorSchemaDef) SourceSchema() *schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (GRPCSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{

@@ -1,11 +1,11 @@
-package exec
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for Exec.
-type ConnectorSchemaDef struct{}
+// ExecSchema implements ConnectorSchemaProvider for Exec.
+type ExecSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (ExecSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "command", Doc: "Command to execute", Type: schema.TypeString, Required: true},
@@ -29,9 +29,9 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block { return nil }
+func (ExecSchema) SourceSchema() *schema.Block { return nil }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (ExecSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}

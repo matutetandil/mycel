@@ -1,11 +1,11 @@
-package sms
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for SMS.
-type ConnectorSchemaDef struct{}
+// SMSSchema implements ConnectorSchemaProvider for SMS.
+type SMSSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (SMSSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "driver", Doc: "SMS delivery driver", Type: schema.TypeString, Values: []string{"twilio", "sns"}},
@@ -23,9 +23,9 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block { return nil }
+func (SMSSchema) SourceSchema() *schema.Block { return nil }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (SMSSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}

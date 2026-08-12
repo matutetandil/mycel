@@ -1,4 +1,4 @@
-package mq
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 

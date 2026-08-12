@@ -1,11 +1,11 @@
-package ftp
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for FTP/SFTP.
-type ConnectorSchemaDef struct{}
+// FTPSchema implements ConnectorSchemaProvider for FTP/SFTP.
+type FTPSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (FTPSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "host", Doc: "FTP/SFTP server hostname", Type: schema.TypeString, Required: true},
@@ -22,13 +22,13 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block {
+func (FTPSchema) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}
 }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (FTPSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}

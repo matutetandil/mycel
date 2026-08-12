@@ -1,11 +1,11 @@
-package pdf
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for PDF.
-type ConnectorSchemaDef struct{}
+// PDFSchema implements ConnectorSchemaProvider for PDF.
+type PDFSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (PDFSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "template", Doc: "HTML template file path", Type: schema.TypeString, Required: true},
@@ -19,9 +19,9 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block { return nil }
+func (PDFSchema) SourceSchema() *schema.Block { return nil }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (PDFSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{

@@ -1,11 +1,11 @@
-package push
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for Push notifications.
-type ConnectorSchemaDef struct{}
+// PushSchema implements ConnectorSchemaProvider for Push notifications.
+type PushSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (PushSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "driver", Doc: "Push notification driver", Type: schema.TypeString, Values: []string{"fcm", "apns"}},
@@ -23,9 +23,9 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block { return nil }
+func (PushSchema) SourceSchema() *schema.Block { return nil }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (PushSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}

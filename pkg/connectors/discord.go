@@ -1,11 +1,11 @@
-package discord
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for Discord.
-type ConnectorSchemaDef struct{}
+// DiscordSchema implements ConnectorSchemaProvider for Discord.
+type DiscordSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (DiscordSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "webhook_url", Doc: "Discord webhook URL", Type: schema.TypeString},
@@ -19,9 +19,9 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block { return nil }
+func (DiscordSchema) SourceSchema() *schema.Block { return nil }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (DiscordSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}

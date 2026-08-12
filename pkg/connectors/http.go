@@ -1,11 +1,11 @@
-package http
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// Schema implements ConnectorSchemaProvider for HTTP client.
-type Schema struct{}
+// HTTPSchema implements ConnectorSchemaProvider for HTTP client.
+type HTTPSchema struct{}
 
-func (Schema) ConnectorSchema() schema.Block {
+func (HTTPSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "base_url", Doc: "Base URL for HTTP requests", Type: schema.TypeString, Required: true},
@@ -39,8 +39,8 @@ func (Schema) ConnectorSchema() schema.Block {
 	}
 }
 
-func (Schema) SourceSchema() *schema.Block { return nil }
-func (Schema) TargetSchema() *schema.Block {
+func (HTTPSchema) SourceSchema() *schema.Block { return nil }
+func (HTTPSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{

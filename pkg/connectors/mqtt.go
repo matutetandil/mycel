@@ -1,11 +1,11 @@
-package mqtt
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for MQTT.
-type ConnectorSchemaDef struct{}
+// MQTTSchema implements ConnectorSchemaProvider for MQTT.
+type MQTTSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (MQTTSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "broker", Doc: "MQTT broker URL", Type: schema.TypeString, Required: true},
@@ -33,7 +33,7 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block {
+func (MQTTSchema) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{
@@ -42,7 +42,7 @@ func (ConnectorSchemaDef) SourceSchema() *schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (MQTTSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}

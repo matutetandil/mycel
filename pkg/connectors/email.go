@@ -1,11 +1,11 @@
-package email
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for Email.
-type ConnectorSchemaDef struct{}
+// EmailSchema implements ConnectorSchemaProvider for Email.
+type EmailSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (EmailSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "driver", Doc: "Email delivery driver", Type: schema.TypeString, Values: []string{"smtp", "sendgrid", "ses"}},
@@ -30,9 +30,9 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block { return nil }
+func (EmailSchema) SourceSchema() *schema.Block { return nil }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (EmailSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}

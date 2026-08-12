@@ -1,11 +1,11 @@
-package file
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for File.
-type ConnectorSchemaDef struct{}
+// FileSchema implements ConnectorSchemaProvider for File.
+type FileSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (FileSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "base_path", Doc: "Base directory path for file operations", Type: schema.TypeString, Required: true},
@@ -23,7 +23,7 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block {
+func (FileSchema) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 		Attrs: []schema.Attr{
@@ -32,7 +32,7 @@ func (ConnectorSchemaDef) SourceSchema() *schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (FileSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}

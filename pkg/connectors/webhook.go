@@ -1,11 +1,11 @@
-package webhook
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for Webhook.
-type ConnectorSchemaDef struct{}
+// WebhookSchema implements ConnectorSchemaProvider for Webhook.
+type WebhookSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (WebhookSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "mode", Doc: "Webhook mode", Type: schema.TypeString, Values: []string{"inbound", "outbound"}},
@@ -34,13 +34,13 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block {
+func (WebhookSchema) SourceSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}
 }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (WebhookSchema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}

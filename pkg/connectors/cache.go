@@ -1,11 +1,11 @@
-package cache
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for Cache.
-type ConnectorSchemaDef struct{}
+// CacheSchema implements ConnectorSchemaProvider for Cache.
+type CacheSchema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (CacheSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "driver", Doc: "Cache backend driver", Type: schema.TypeString, Required: true, Values: []string{"memory", "redis"}},
@@ -40,5 +40,5 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block { return nil }
-func (ConnectorSchemaDef) TargetSchema() *schema.Block { return nil }
+func (CacheSchema) SourceSchema() *schema.Block { return nil }
+func (CacheSchema) TargetSchema() *schema.Block { return nil }

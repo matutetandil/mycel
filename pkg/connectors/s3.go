@@ -1,11 +1,11 @@
-package s3
+package connectors
 
 import "github.com/matutetandil/mycel/v2/pkg/schema"
 
-// ConnectorSchemaDef implements ConnectorSchemaProvider for S3.
-type ConnectorSchemaDef struct{}
+// S3Schema implements ConnectorSchemaProvider for S3.
+type S3Schema struct{}
 
-func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
+func (S3Schema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "bucket", Doc: "S3 bucket name", Type: schema.TypeString, Required: true},
@@ -22,9 +22,9 @@ func (ConnectorSchemaDef) ConnectorSchema() schema.Block {
 	}
 }
 
-func (ConnectorSchemaDef) SourceSchema() *schema.Block { return nil }
+func (S3Schema) SourceSchema() *schema.Block { return nil }
 
-func (ConnectorSchemaDef) TargetSchema() *schema.Block {
+func (S3Schema) TargetSchema() *schema.Block {
 	return &schema.Block{
 		Open: true,
 	}
