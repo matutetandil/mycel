@@ -71,43 +71,43 @@ func (h *Handler) RegisterRoutes(mux Mux) {
 	// Register enabled endpoints
 	if h.config.Register != nil && h.config.Register.Enabled {
 		path := prefix + getPath(h.config.Register, "/register")
-		mux.HandleFunc(path, h.handleRegister)
+		mux.HandleFunc(path, h.limited("register", h.handleRegister))
 	}
 
 	if h.config.Login != nil && h.config.Login.Enabled {
 		path := prefix + getPath(h.config.Login, "/login")
-		mux.HandleFunc(path, h.handleLogin)
+		mux.HandleFunc(path, h.limited("login", h.handleLogin))
 	}
 
 	if h.config.Logout != nil && h.config.Logout.Enabled {
 		path := prefix + getPath(h.config.Logout, "/logout")
-		mux.HandleFunc(path, h.handleLogout)
+		mux.HandleFunc(path, h.limited("logout", h.handleLogout))
 	}
 
 	if h.config.Refresh != nil && h.config.Refresh.Enabled {
 		path := prefix + getPath(h.config.Refresh, "/refresh")
-		mux.HandleFunc(path, h.handleRefresh)
+		mux.HandleFunc(path, h.limited("refresh", h.handleRefresh))
 	}
 
 	if h.config.Me != nil && h.config.Me.Enabled {
 		path := prefix + getPath(h.config.Me, "/me")
-		mux.HandleFunc(path, h.handleMe)
+		mux.HandleFunc(path, h.limited("sessions", h.handleMe))
 	}
 
 	if h.config.PasswordChange != nil && h.config.PasswordChange.Enabled {
 		path := prefix + getPath(h.config.PasswordChange, "/change-password")
-		mux.HandleFunc(path, h.handleChangePassword)
+		mux.HandleFunc(path, h.limited("change_password", h.handleChangePassword))
 	}
 
 	if h.config.SessionsList != nil && h.config.SessionsList.Enabled {
 		path := prefix + getPath(h.config.SessionsList, "/sessions")
-		mux.HandleFunc(path, h.handleSessions)
+		mux.HandleFunc(path, h.limited("sessions", h.handleSessions))
 	}
 
 	// Sessions revoke needs special handling for path param
 	if h.config.SessionsRevoke != nil && h.config.SessionsRevoke.Enabled {
 		path := prefix + "/sessions/"
-		mux.HandleFunc(path, h.handleSessionRevoke)
+		mux.HandleFunc(path, h.limited("sessions", h.handleSessionRevoke))
 	}
 
 	h.registerSSORoutes(mux, prefix)

@@ -693,7 +693,7 @@ func (p *HCLParser) parseAuthSecurityBlock(block *hcl.Block) (*auth.SecurityConf
 			config.IPRules = ir
 
 		case "rate_limit":
-			rl := &auth.AuthRateLimitConfig{}
+			rl := &auth.RateLimitConfig{}
 			diags := gohcl.DecodeBody(nested.Body, p.evalCtx, rl)
 			if diags.HasErrors() {
 				return nil, fmt.Errorf("parsing rate_limit block: %s", diags.Error())

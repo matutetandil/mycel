@@ -163,6 +163,53 @@ mfa {
 }
 ```
 
+### Rate limiting the auth endpoints
+
+Three protections answer different questions, and this is the one about volume:
+
+| | What it stops |
+|---|---|
+| `brute_force` | Repeated failures against **one account**, which it locks |
+| `rate_limit` | A flood across **many accounts** from one caller — what credential stuffing looks like |
+| A connector's own `rate_limit` | Traffic to the **whole server**, auth endpoints included |
+
+```hcl
+auth {
+  security {
+    rate_limit {
+      enabled = true
+      key_by  = "ip"          # ip | user | ip+user
+
+      # Everything not named below
+      rate   = 100
+      window = "1m"
+
+      login {
+        rate   = 5
+        window = "1m"
+      }
+
+      register {
+        rate   = 3
+        window = "1m"
+      }
+    }
+  }
+}
+```
+
+Each endpoint is counted on its own, so a limit on `login` does not cap
+registration. A refused request is answered `429` with `Retry-After`.
+
+`burst` may be set per endpoint; left out, it follows the rate that was written,
+so `rate = 5` means five, not five plus an unwritten allowance. Endpoints with
+no block of their own use defaults that suit them — logging in is limited more
+tightly than listing sessions.
+
+`key_by = "user"` adds the authenticated user to the count where there is one to
+read. A login carries its identity in a body that has not been parsed when the
+limit is applied, so those are counted per address.
+
 ### Signing in through an identity provider
 
 Declaring a provider is the whole of the setup: the endpoints that drive the

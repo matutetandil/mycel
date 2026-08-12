@@ -331,12 +331,21 @@ func (rl *PerKeyRateLimiter) getRateForEndpoint(endpoint string) (rate.Limit, in
 	}
 
 	if burst == 0 {
-		if defaults, ok := sensitiveDefaults[endpoint]; ok {
-			burst = defaults.burst
-		} else if rl.config.DefaultBurst > 0 {
-			burst = rl.config.DefaultBurst
-		} else {
-			burst = 10
+		switch {
+		case cfg != nil && cfg.Rate > 0:
+			// A rate was written and a burst was not. Falling back to the
+			// table here would mean `rate = 1` allows three at once, which is
+			// not what the person who wrote it asked for; the burst follows
+			// the rate they did write.
+			burst = cfg.Rate
+		default:
+			if defaults, ok := sensitiveDefaults[endpoint]; ok {
+				burst = defaults.burst
+			} else if rl.config.DefaultBurst > 0 {
+				burst = rl.config.DefaultBurst
+			} else {
+				burst = 10
+			}
 		}
 	}
 

@@ -259,7 +259,7 @@ type SecurityConfig struct {
 	DeviceBinding    *DeviceBindingConfig    `hcl:"device_binding,block"`
 	ReplayProtection *ReplayProtectionConfig `hcl:"replay_protection,block"`
 	IPRules          *IPRulesConfig          `hcl:"ip_rules,block"`
-	RateLimit        *AuthRateLimitConfig    `hcl:"rate_limit,block"`
+	RateLimit        *RateLimitConfig        `hcl:"rate_limit,block"`
 }
 
 // BruteForceConfig defines brute force protection
@@ -320,13 +320,6 @@ type IPRulesConfig struct {
 }
 
 // AuthRateLimitConfig for endpoint-specific rate limits
-type AuthRateLimitConfig struct {
-	Login         string `hcl:"login,optional"`
-	Register      string `hcl:"register,optional"`
-	Refresh       string `hcl:"refresh,optional"`
-	PasswordReset string `hcl:"password_reset,optional"`
-}
-
 // SessionsConfig defines session management
 type SessionsConfig struct {
 	MaxActive        int      `hcl:"max_active,optional"`

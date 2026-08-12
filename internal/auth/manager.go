@@ -22,6 +22,7 @@ type Manager struct {
 	bruteForceStore BruteForceStore
 	bruteForce      *BruteForceService
 	sso             *SSOService
+	rateLimiter     *PerKeyRateLimiter
 	mfaStore        MFAStore
 
 	// Components
@@ -130,6 +131,14 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 		m.bruteForce = NewBruteForceService(nil, m.bruteForceStore)
 	}
 
+	// Rate limiting for the auth endpoints, which is a different question from
+	// the connector's own limit: this one counts per endpoint and per caller,
+	// so five login attempts a minute does not also cap the rest of the API.
+	// Brute force locks one account; this refuses a flood across many.
+	if config.Security != nil && config.Security.RateLimit != nil {
+		m.rateLimiter = NewPerKeyRateLimiter(config.Security.RateLimit)
+	}
+
 	// Single sign-on, when a provider is configured. Writing the block is the
 	// whole of the setup: the providers are built from it, and the endpoints
 	// that drive them are mounted from the same configuration.
@@ -170,6 +179,12 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 }
 
 // Config returns the auth configuration
+// RateLimiter returns the auth endpoint rate limiter, or nil when none is
+// configured.
+func (m *Manager) RateLimiter() *PerKeyRateLimiter {
+	return m.rateLimiter
+}
+
 // SSO returns the single sign-on service, or nil when no provider is
 // configured.
 func (m *Manager) SSO() *SSOService {
