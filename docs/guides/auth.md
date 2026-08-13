@@ -96,6 +96,19 @@ security {
     window       = "15m"
     lockout_time = "30m"
     track_by     = "ip+user"  # "ip", "user", "ip+user"
+
+    # How long a failed sign-in waits before answering, give or take a
+    # quarter. Defaults to 1.5s; "0" answers immediately, which is only
+    # sensible in a test.
+    fail_delay = "1s"
+
+    # Each further failure makes the next attempt slower still.
+    progressive_delay {
+      enabled    = true
+      initial    = "1s"
+      max        = "30s"
+      multiplier = 2
+    }
   }
 
   replay_protection {
@@ -162,6 +175,33 @@ mfa {
   }
 }
 ```
+
+### What a wrong password costs
+
+A failed sign-in answers slowly, and by an amount that varies. Two reasons, and
+the second is the one that is easy to miss.
+
+The wait is what makes guessing expensive. Without it an attacker is limited
+only by the network, and locking an account after five tries is easy to walk
+around by spreading the guesses across many accounts.
+
+The variation is what stops the answer from being an oracle. Before this
+existed, an address with no account answered in 0.4ms and an address with one in
+46ms — the missing case returned before the password hash was computed. That
+hundredfold difference is a way to harvest which addresses have accounts without
+guessing a single password. A constant delay would not close it, since a
+constant is something an attacker subtracts, so the wait is randomised and both
+outcomes pay it: a login for an address with no account verifies the password
+against a hash that matches nothing, so the work is the same either way.
+
+This is what `pam_unix` does on Linux, for the same reasons.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `fail_delay` | `1.5s` | How long a failure waits, give or take a quarter. `"0"` answers immediately |
+| `max_attempts` | preset | Failures before the account is locked |
+| `lockout_time` | preset | How long it stays locked. The right password is refused too — the account is locked, not the guess |
+| `progressive_delay` | off | Makes each further attempt slower still, on top of the wait above |
 
 ### Reading who the caller is
 

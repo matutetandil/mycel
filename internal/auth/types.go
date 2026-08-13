@@ -270,6 +270,11 @@ type BruteForceConfig struct {
 	LockoutTime string `hcl:"lockout_time,optional"`
 	TrackBy     string `hcl:"track_by,optional"` // ip, user, ip+user
 
+	// FailDelay is how long a failed sign-in waits before answering, give or
+	// take a quarter. Set it to "0" to answer immediately, which is only
+	// sensible in a test.
+	FailDelay string `hcl:"fail_delay,optional"`
+
 	// Progressive delays
 	ProgressiveDelay *ProgressiveDelayConfig `hcl:"progressive_delay,block"`
 }

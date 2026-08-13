@@ -715,6 +715,7 @@ func (p *HCLParser) parseAuthBruteForceBlock(block *hcl.Block) (*auth.BruteForce
 			{Name: "window"},
 			{Name: "lockout_time"},
 			{Name: "track_by"},
+			{Name: "fail_delay"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "progressive_delay"},
@@ -758,6 +759,17 @@ func (p *HCLParser) parseAuthBruteForceBlock(block *hcl.Block) (*auth.BruteForce
 				return nil, err
 			}
 			config.LockoutTime = s
+		}
+	}
+
+	if attr, exists := content.Attributes["fail_delay"]; exists {
+		val, diags := attr.Expr.Value(p.evalCtx)
+		if !diags.HasErrors() {
+			s, err := stringValue("fail_delay", val)
+			if err != nil {
+				return nil, err
+			}
+			config.FailDelay = s
 		}
 	}
 

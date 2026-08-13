@@ -283,7 +283,14 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 	// Find user
 	user, err := m.userStore.FindByEmail(ctx, req.Email)
 	if err != nil {
+		// The password is verified against a hash that matches nothing, so an
+		// address with no account costs what an address with one costs. Without
+		// it this path returns before any hashing and answers a hundred times
+		// faster, which is a way to find out which addresses have accounts
+		// without guessing a single password.
+		_, _ = m.passwordHasher.Verify(req.Password, decoyHash)
 		m.recordFailedLogin(ctx, req.Email, ip)
+		m.delayFailure(ctx)
 		return nil, nil, ErrInvalidCredentials
 	}
 
@@ -291,6 +298,7 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 	valid, err := m.passwordHasher.Verify(req.Password, user.PasswordHash)
 	if err != nil || !valid {
 		m.recordFailedLogin(ctx, req.Email, ip)
+		m.delayFailure(ctx)
 		return nil, nil, ErrInvalidCredentials
 	}
 
