@@ -3,6 +3,7 @@ package mock
 import (
 	"fmt"
 	"log/slog"
+	"path/filepath"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
 )
@@ -67,6 +68,17 @@ func (m *Manager) ShouldMock(connectorName string) bool {
 	return true
 }
 
+// namedForMocking reports whether this connector was asked for by name, rather
+// than swept up by mocking being on for everything.
+func (m *Manager) namedForMocking(name string) bool {
+	for _, named := range m.config.MockOnly {
+		if named == name {
+			return true
+		}
+	}
+	return false
+}
+
 // WrapConnector wraps a connector with mock capabilities if appropriate.
 func (m *Manager) WrapConnector(name string, conn connector.Connector) (connector.Connector, error) {
 	if !m.ShouldMock(name) {
@@ -83,8 +95,18 @@ func (m *Manager) WrapConnector(name string, conn connector.Connector) (connecto
 		connConfig = m.config.Connectors[name]
 	}
 
-	// Check if mock files exist for this connector
+	// A connector with mocks of its own answers from them and never reaches
+	// the real one. Without any, calls fall through — which is the point when
+	// mocking is on for a whole service and only some connectors have mocks,
+	// and a mistake when this connector was named for mocking specifically.
 	mockOnly := m.loader.Exists(name)
+
+	if !mockOnly && m.namedForMocking(name) {
+		m.logger.Warn("this connector was named for mocking and has no mocks, so its calls will reach the real one",
+			"connector", name,
+			"expected", filepath.Join(m.config.Path, "connectors", name),
+			"hint", "the directory is named after the connector")
+	}
 
 	wrapped, err := NewConnector(name, conn, m.loader, connConfig, mockOnly)
 	if err != nil {
