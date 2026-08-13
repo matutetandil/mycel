@@ -90,6 +90,55 @@ func (r *Runtime) buildAuthStores(cfg *auth.Config) ([]auth.ManagerOption, error
 	return opts, nil
 }
 
+// buildAuditStore turns the audit block into the store that records what
+// happened.
+//
+// Nothing read that block before 2.19.0. The stores existed and were built
+// only by their own tests, so a service with an audit block wrote no record of
+// any sign-in, failure or password change — and the discovery usually happens
+// during an investigation, which is the worst moment to find out there is
+// nothing to investigate with.
+//
+// The connector is named separately from the one auth keeps its users in,
+// because they are usually not the same: audit records outlive the accounts
+// they refer to and are often kept somewhere nobody can rewrite.
+func (r *Runtime) buildAuditStore(cfg *auth.Config) (auth.ManagerOption, error) {
+	if cfg == nil || cfg.Audit == nil {
+		return nil, nil
+	}
+	audit := cfg.Audit
+
+	// Writing the block is what turns it on, the same rule the mfa block sets;
+	// `enabled = false` is how it is turned off without deleting it.
+	if audit.Connector == "" {
+		return nil, fmt.Errorf("auth audit block names no connector to write records to")
+	}
+
+	db, driver, err := r.authDatabase(audit.Connector)
+	if err != nil {
+		return nil, fmt.Errorf("auth audit: %w", err)
+	}
+
+	table := audit.Table
+	if table == "" {
+		table = "auth_audit"
+	}
+
+	var store auth.AuditStore
+	switch driver {
+	case "postgres", "postgresql":
+		store = auth.NewPostgresAuditStore(db, table, audit.Events)
+	case "mysql", "mariadb":
+		store = auth.NewMySQLAuditStore(db, table, audit.Events)
+	default:
+		return nil, fmt.Errorf("auth audit connector %q is a %s database, and audit stores exist for postgres and mysql only",
+			audit.Connector, driver)
+	}
+
+	slog.Info("auth audit configured", "connector", audit.Connector, "table", table, "events", audit.Events)
+	return auth.WithAuditStore(store), nil
+}
+
 // authDatabase resolves the connector the auth storage names into a database
 // handle and the driver behind it.
 func (r *Runtime) authDatabase(name string) (db *sql.DB, driver string, err error) {
@@ -141,6 +190,12 @@ func (r *Runtime) initAuth(ctx context.Context) error {
 	stores, err := r.buildAuthStores(r.config.Auth)
 	if err != nil {
 		return err
+	}
+
+	if audit, err := r.buildAuditStore(r.config.Auth); err != nil {
+		return err
+	} else if audit != nil {
+		stores = append(stores, audit)
 	}
 
 	opts := append([]auth.ManagerOption{auth.WithLogger(r.logger)}, stores...)

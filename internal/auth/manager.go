@@ -24,6 +24,7 @@ type Manager struct {
 	sso             *SSOService
 	rateLimiter     *PerKeyRateLimiter
 	mfaStore        MFAStore
+	auditStore      AuditStore
 
 	// Components
 	tokenManager      *TokenManager
@@ -249,6 +250,9 @@ func (m *Manager) Register(ctx context.Context, req *RegisterRequest) (*User, *T
 	}
 
 	m.logger.Info("user registered", "user_id", user.ID, "email", user.Email)
+	m.audit(ctx, &AuditEvent{
+		Event: AuditRegister, UserID: user.ID, Email: user.Email, Success: true,
+	})
 
 	return user, tokens, nil
 }
@@ -263,10 +267,12 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 			return nil, nil, err
 		}
 		if !allowed {
-			return nil, nil, &AuthError{
+			locked := &AuthError{
 				Code:    "account_locked",
 				Message: fmt.Sprintf("Account is locked until %s", time.Now().Add(remaining).Format(time.RFC3339)),
 			}
+			m.auditFailure(ctx, AuditLogin, req.Email, ip, userAgent, locked)
+			return nil, nil, locked
 		}
 		// A progressive delay is the point of the feature: each failure makes
 		// the next attempt slower. The wait is abandoned if the caller goes
@@ -290,6 +296,7 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 		// without guessing a single password.
 		_, _ = m.passwordHasher.Verify(req.Password, decoyHash)
 		m.recordFailedLogin(ctx, req.Email, ip)
+		m.auditFailure(ctx, AuditLogin, req.Email, ip, userAgent, ErrInvalidCredentials)
 		m.delayFailure(ctx)
 		return nil, nil, ErrInvalidCredentials
 	}
@@ -298,6 +305,7 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 	valid, err := m.passwordHasher.Verify(req.Password, user.PasswordHash)
 	if err != nil || !valid {
 		m.recordFailedLogin(ctx, req.Email, ip)
+		m.auditFailure(ctx, AuditLogin, req.Email, ip, userAgent, ErrInvalidCredentials)
 		m.delayFailure(ctx)
 		return nil, nil, ErrInvalidCredentials
 	}
@@ -320,6 +328,7 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 			err = m.mfaService.ValidateRecoveryCode(ctx, user.ID, req.MFACode)
 			if err != nil {
 				m.recordFailedLogin(ctx, req.Email, ip)
+				m.auditFailure(ctx, AuditLogin, req.Email, ip, userAgent, ErrInvalidMFACode)
 				return nil, nil, ErrInvalidMFACode
 			}
 			m.logger.Warn("user logged in with recovery code", "user_id", user.ID)
@@ -337,6 +346,10 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 	}
 
 	m.logger.Info("user logged in", "user_id", user.ID, "email", user.Email)
+	m.audit(ctx, &AuditEvent{
+		Event: AuditLogin, UserID: user.ID, Email: user.Email,
+		IP: ip, UserAgent: userAgent, Success: true,
+	})
 
 	return user, tokens, nil
 }
@@ -392,6 +405,10 @@ func (m *Manager) Logout(ctx context.Context, sessionID string) error {
 	}
 
 	m.logger.Info("user logged out", "session_id", sessionID)
+	m.audit(ctx, &AuditEvent{
+		Event: AuditLogout, Success: true,
+		Metadata: `{"session_id":"` + sessionID + `"}`,
+	})
 	return nil
 }
 
@@ -402,6 +419,7 @@ func (m *Manager) LogoutAll(ctx context.Context, userID string) error {
 	}
 
 	m.logger.Info("all sessions revoked", "user_id", userID)
+	m.audit(ctx, &AuditEvent{Event: AuditLogout, UserID: userID, Success: true})
 	return nil
 }
 
@@ -545,7 +563,14 @@ func (m *Manager) ChangePassword(ctx context.Context, userID, currentPassword, n
 	// Verify current password
 	valid, err := m.passwordHasher.Verify(currentPassword, user.PasswordHash)
 	if err != nil || !valid {
-		return &AuthError{Code: "invalid_password", Message: "Current password is incorrect"}
+		refused := &AuthError{Code: "invalid_password", Message: "Current password is incorrect"}
+		// Somebody trying to change a password without knowing the current one
+		// is worth a record whether or not they are the account's owner.
+		m.audit(ctx, &AuditEvent{
+			Event: AuditPasswordChange, UserID: userID, Email: user.Email,
+			Success: false, ErrorReason: refused.Message,
+		})
+		return refused
 	}
 
 	// Validate new password
@@ -565,6 +590,9 @@ func (m *Manager) ChangePassword(ctx context.Context, userID, currentPassword, n
 	}
 
 	m.logger.Info("password changed", "user_id", userID)
+	m.audit(ctx, &AuditEvent{
+		Event: AuditPasswordChange, UserID: userID, Email: user.Email, Success: true,
+	})
 	return nil
 }
 
