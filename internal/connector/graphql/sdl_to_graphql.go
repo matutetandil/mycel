@@ -77,17 +77,18 @@ func (c *SDLConverter) Convert(parsed *ParsedSchema) error {
 		c.inputs[name] = c.convertInput(inputDef)
 	}
 
-	// Create placeholder objects first (for circular references)
-	for name := range parsed.Types {
-		c.types[name] = graphql.NewObject(graphql.ObjectConfig{
-			Name:   name,
-			Fields: graphql.Fields{},
-		})
-	}
-
-	// Now fill in the fields
+	// Object types are created with their fields behind a thunk, which is what
+	// lets one reference another whichever order they are converted in.
+	//
+	// They used to be created empty and then replaced by a filled copy. A field
+	// referring to another type resolved to whichever object was in the map at
+	// that moment — the empty placeholder, if that type had not been filled yet
+	// — and the placeholder was then thrown away while the field still pointed
+	// at it. Map iteration order is random, so a schema file whose types refer
+	// to each other built correctly or failed with "X fields must be an object"
+	// depending on the run: the same file, the same binary, a different start.
 	for name, typeDef := range parsed.Types {
-		c.fillObjectFields(name, typeDef)
+		c.types[name] = c.newObjectType(name, typeDef)
 	}
 
 	// Convert unions (now all types exist)
@@ -195,14 +196,13 @@ func (c *SDLConverter) convertInputField(def *ParsedArg) *graphql.InputObjectFie
 	}
 }
 
-// fillObjectFields fills in the fields for an object type.
-func (c *SDLConverter) fillObjectFields(name string, def *ParsedType) {
-	obj := c.types[name]
-	if obj == nil {
-		return
-	}
-
-	// Get interfaces
+// newObjectType builds an object whose fields are resolved on demand.
+//
+// The thunk runs after Convert has registered every type, so a field naming
+// another object — or naming its own type, which is how a tree is described —
+// finds the real one rather than whatever was in the map at the moment it was
+// built.
+func (c *SDLConverter) newObjectType(name string, def *ParsedType) *graphql.Object {
 	var interfaces []*graphql.Interface
 	for _, ifaceName := range def.Implements {
 		if iface, ok := c.interfaces[ifaceName]; ok {
@@ -210,21 +210,18 @@ func (c *SDLConverter) fillObjectFields(name string, def *ParsedType) {
 		}
 	}
 
-	// Create new object with fields
-	fields := graphql.Fields{}
-	for fieldName, fieldDef := range def.Fields {
-		fields[fieldName] = c.convertField(name, fieldDef)
-	}
-
-	// Replace the placeholder
-	newObj := graphql.NewObject(graphql.ObjectConfig{
+	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        name,
 		Description: def.Description,
-		Fields:      fields,
 		Interfaces:  interfaces,
+		Fields: graphql.FieldsThunk(func() graphql.Fields {
+			fields := graphql.Fields{}
+			for fieldName, fieldDef := range def.Fields {
+				fields[fieldName] = c.convertField(name, fieldDef)
+			}
+			return fields
+		}),
 	})
-
-	c.types[name] = newObj
 }
 
 // convertField converts a ParsedField to graphql.Field.

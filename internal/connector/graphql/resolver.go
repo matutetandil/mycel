@@ -188,7 +188,6 @@ func CreateSmartResolver(handler HandlerFunc) graphql.FieldResolveFn {
 	}
 }
 
-
 // unwrapSingleResult extracts the first element from a single-element array.
 func unwrapSingleResult(result interface{}) interface{} {
 	switch v := result.(type) {
@@ -310,24 +309,49 @@ func MapResultToGraphQL(result interface{}) interface{} {
 	}
 }
 
-// convertKeysToCamelCase converts all snake_case keys in a map to camelCase.
+// convertKeysToCamelCase offers every snake_case key under its camelCase
+// spelling as well, which is what a GraphQL schema usually calls it.
+//
+// Both spellings, not one. Renaming the key outright meant a field declared
+// the way the database spells it — `created_at: String`, which is perfectly
+// legal GraphQL and what someone mirroring their columns writes — resolved to
+// null, because the only key left in the row was `createdAt`. Nothing failed;
+// the field was simply empty. A field reads the one key it is named with, so
+// carrying both costs nothing and answers either.
 func convertKeysToCamelCase(m map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{}, len(m))
-	for key, value := range m {
-		camelKey := snakeToCamel(key)
-		// Recursively convert nested maps
+
+	convert := func(value interface{}) interface{} {
 		if nestedMap, ok := value.(map[string]interface{}); ok {
-			result[camelKey] = convertKeysToCamelCase(nestedMap)
-		} else if nestedSlice, ok := value.([]map[string]interface{}); ok {
+			return convertKeysToCamelCase(nestedMap)
+		}
+		if nestedSlice, ok := value.([]map[string]interface{}); ok {
 			converted := make([]map[string]interface{}, len(nestedSlice))
 			for i, item := range nestedSlice {
 				converted[i] = convertKeysToCamelCase(item)
 			}
-			result[camelKey] = converted
-		} else {
-			result[camelKey] = value
+			return converted
 		}
+		return value
 	}
+
+	for key, value := range m {
+		result[key] = convert(value)
+	}
+
+	// The camelCase spellings go in afterwards so that a key the row already
+	// holds under that name is never overwritten by a converted one.
+	for key, value := range m {
+		camelKey := snakeToCamel(key)
+		if camelKey == key {
+			continue
+		}
+		if _, taken := m[camelKey]; taken {
+			continue
+		}
+		result[camelKey] = convert(value)
+	}
+
 	return result
 }
 
