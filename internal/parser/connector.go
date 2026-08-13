@@ -303,7 +303,14 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("type attribute error: %s", diags.Error())
 		}
-		config.Type = val.AsString()
+		// AsString on anything that is not one takes the binary down with a Go
+		// stack trace before the service has said a word about its
+		// configuration.
+		typeName, err := stringValue("type", val)
+		if err != nil {
+			return nil, fmt.Errorf("connector %q: %w", config.Name, err)
+		}
+		config.Type = typeName
 	}
 
 	// Parse optional attributes
@@ -319,7 +326,11 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 
 		// Set driver on config directly for factory lookup
 		if name == "driver" {
-			config.Driver = val.AsString()
+			driver, err := stringValue("driver", val)
+			if err != nil {
+				return nil, fmt.Errorf("connector %q: %w", config.Name, err)
+			}
+			config.Driver = driver
 		}
 
 		config.Properties[name] = ctyValueToGo(val)
@@ -736,8 +747,14 @@ func parseProfileTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[str
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("transform %s error: %s", name, diags.Error())
 		}
-		// Store as string (CEL expression)
-		transform[name] = val.AsString()
+		// Same rule as a flow's transform, and for the same reason: calling
+		// AsString on anything that is not one takes the whole binary down
+		// with a Go stack trace at startup.
+		expr, err := mappingExpression(name, val)
+		if err != nil {
+			return nil, err
+		}
+		transform[name] = expr
 	}
 
 	return transform, nil
@@ -1174,68 +1191,118 @@ func parseOperationBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Ope
 			return nil, fmt.Errorf("attribute %s error: %s", name, diags.Error())
 		}
 
+		// Every string attribute below goes through the same reader: AsString
+		// on a number or a boolean panics the binary at startup.
+		text := func() (string, error) { return stringValue(name, val) }
+		assign := func(target *string) error {
+			s, err := text()
+			if err != nil {
+				return fmt.Errorf("operation %q: %w", operation.Name, err)
+			}
+			*target = s
+			return nil
+		}
+
 		switch name {
 		// Common
 		case "description":
-			operation.Description = val.AsString()
+			if err := assign(&operation.Description); err != nil {
+				return nil, err
+			}
 		case "input":
-			operation.Input = val.AsString()
+			if err := assign(&operation.Input); err != nil {
+				return nil, err
+			}
 		case "output":
-			operation.Output = val.AsString()
+			if err := assign(&operation.Output); err != nil {
+				return nil, err
+			}
 		case "timeout":
 			operation.Timeout = toInt(ctyValueToGo(val))
 
 		// REST
 		case "method":
-			operation.Method = val.AsString()
+			if err := assign(&operation.Method); err != nil {
+				return nil, err
+			}
 		case "path":
-			operation.Path = val.AsString()
+			if err := assign(&operation.Path); err != nil {
+				return nil, err
+			}
 
 		// Database
 		case "query":
-			operation.Query = val.AsString()
+			if err := assign(&operation.Query); err != nil {
+				return nil, err
+			}
 		case "table":
-			operation.Table = val.AsString()
+			if err := assign(&operation.Table); err != nil {
+				return nil, err
+			}
 
 		// GraphQL
 		case "operation_type":
-			operation.OperationType = val.AsString()
+			if err := assign(&operation.OperationType); err != nil {
+				return nil, err
+			}
 		case "field":
-			operation.Field = val.AsString()
+			if err := assign(&operation.Field); err != nil {
+				return nil, err
+			}
 
 		// gRPC
 		case "service":
-			operation.Service = val.AsString()
+			if err := assign(&operation.Service); err != nil {
+				return nil, err
+			}
 		case "rpc":
-			operation.RPC = val.AsString()
+			if err := assign(&operation.RPC); err != nil {
+				return nil, err
+			}
 
 		// MQ
 		case "exchange":
-			operation.Exchange = val.AsString()
+			if err := assign(&operation.Exchange); err != nil {
+				return nil, err
+			}
 		case "routing_key":
-			operation.RoutingKey = val.AsString()
+			if err := assign(&operation.RoutingKey); err != nil {
+				return nil, err
+			}
 		case "queue":
-			operation.Queue = val.AsString()
+			if err := assign(&operation.Queue); err != nil {
+				return nil, err
+			}
 
 		// TCP
 		case "protocol":
-			operation.Protocol = val.AsString()
+			if err := assign(&operation.Protocol); err != nil {
+				return nil, err
+			}
 		case "action":
-			operation.Action = val.AsString()
+			if err := assign(&operation.Action); err != nil {
+				return nil, err
+			}
 
 		// File/S3
 		case "path_pattern":
-			operation.PathPattern = val.AsString()
+			if err := assign(&operation.PathPattern); err != nil {
+				return nil, err
+			}
 
 		// Cache
 		case "key_pattern":
-			operation.KeyPattern = val.AsString()
+			if err := assign(&operation.KeyPattern); err != nil {
+				return nil, err
+			}
 		case "ttl":
 			operation.TTL = toInt(ctyValueToGo(val))
 
 		// Exec
 		case "command":
-			operation.Command = val.AsString()
+			if err := assign(&operation.Command); err != nil {
+				return nil, err
+			}
 		case "args":
 			args := ctyValueToGo(val)
 			if arr, ok := args.([]interface{}); ok {

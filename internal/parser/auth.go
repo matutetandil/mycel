@@ -1142,7 +1142,7 @@ func stringValue(name string, val cty.Value) (string, error) {
 		f, _ := bf.Float64()
 		return strconv.FormatFloat(f, 'f', -1, 64), nil
 	}
-	return "", fmt.Errorf("auth attribute %q must be a string, and %s cannot be read as one",
+	return "", fmt.Errorf("attribute %q must be a string, and %s cannot be read as one",
 		name, val.Type().FriendlyName())
 }
 
