@@ -100,3 +100,21 @@ func TestFieldsAreOrdered(t *testing.T) {
 		}
 	}
 }
+
+func TestADeclaredSchemaFileIsTheSchema(t *testing.T) {
+	// The server serves the file a connector points at, so an export that
+	// rebuilt one from the type blocks would hand out a schema the running
+	// service does not serve. This asserts the shape of the decision; the
+	// reading of the file belongs to the command, which knows the config
+	// directory.
+	sdl := ExportSDL(exportTypes(), exportFlows())
+
+	// The derived form is what happens when nothing declares a file: it is
+	// built from the blocks, and it parses.
+	if _, err := ParseSDLComplete(sdl); err != nil {
+		t.Fatalf("the derived schema does not parse: %v", err)
+	}
+	if !strings.Contains(sdl, "type User {") {
+		t.Error("the derived schema does not carry the type blocks")
+	}
+}

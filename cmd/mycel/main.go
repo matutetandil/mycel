@@ -815,7 +815,16 @@ func runExportGraphQLSchema(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse configuration: %w", err)
 	}
 
-	sdl := graphqlconn.ExportSDL(config.Types, config.Flows)
+	// A connector that declares a schema file is served that file, so that file
+	// is the schema. Rebuilding one from the type blocks would export something
+	// the running service does not serve.
+	sdl, err := declaredSchema(config)
+	if err != nil {
+		return err
+	}
+	if sdl == "" {
+		sdl = graphqlconn.ExportSDL(config.Types, config.Flows)
+	}
 
 	if exportOutput != "" {
 		if err := os.WriteFile(exportOutput, []byte(sdl), 0644); err != nil {
@@ -826,6 +835,37 @@ func runExportGraphQLSchema(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Print(sdl)
 	return nil
+}
+
+// declaredSchema returns the SDL a graphql connector points at, or empty when
+// none does.
+//
+// The path is resolved against the configuration directory, which is where a
+// running service resolves it from.
+func declaredSchema(config *parser.Configuration) (string, error) {
+	for _, conn := range config.Connectors {
+		if conn.Type != "graphql" {
+			continue
+		}
+		schemaCfg, ok := conn.Properties["schema"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		path, ok := schemaCfg["path"].(string)
+		if !ok || path == "" {
+			continue
+		}
+
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(configDir, path)
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("connector %q declares a schema at %s: %w", conn.Name, path, err)
+		}
+		return string(content), nil
+	}
+	return "", nil
 }
 
 func runExportOpenAPI(cmd *cobra.Command, args []string) error {
