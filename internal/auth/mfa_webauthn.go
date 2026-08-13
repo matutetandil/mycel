@@ -393,6 +393,34 @@ func (s *MFAService) RemoveWebAuthnCredential(ctx context.Context, userID, crede
 }
 
 // GetWebAuthnCredentials returns all WebAuthn credentials for a user
+// UpdateWebAuthnCredential stores what a use of a passkey changed about it.
+//
+// An authenticator counts its own uses, and the count only ever goes up. Keeping
+// the new one is what lets a cloned key be noticed: a copy carries a count that
+// has fallen behind, and the library refuses it. Not storing it would leave the
+// check comparing against the count from registration for ever.
+func (s *MFAService) UpdateWebAuthnCredential(ctx context.Context, userID string, cred *WebAuthnCredential) error {
+	if cred == nil {
+		return nil
+	}
+
+	data, err := s.store.GetMFAData(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	for i := range data.WebAuthnCredentials {
+		if data.WebAuthnCredentials[i].ID != cred.ID {
+			continue
+		}
+		data.WebAuthnCredentials[i].SignCount = cred.SignCount
+		data.WebAuthnCredentials[i].LastUsedAt = time.Now()
+		return s.store.SaveMFAData(ctx, data)
+	}
+
+	return nil
+}
+
 func (s *MFAService) GetWebAuthnCredentials(ctx context.Context, userID string) ([]WebAuthnCredential, error) {
 	data, err := s.store.GetMFAData(ctx, userID)
 	if err != nil {

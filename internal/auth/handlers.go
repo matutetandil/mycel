@@ -111,6 +111,7 @@ func (h *Handler) RegisterRoutes(mux Mux) {
 	}
 
 	h.registerMFARoutes(mux, prefix)
+	h.registerWebAuthnRoutes(mux, prefix)
 	h.registerSSORoutes(mux, prefix)
 }
 
@@ -153,6 +154,24 @@ func endpointPath(cfg *EndpointConfig, fallback string) string {
 		return cfg.Path
 	}
 	return fallback
+}
+
+// registerWebAuthnRoutes mounts the four calls a passkey ceremony needs, plus
+// the list of keys on an account.
+//
+// Only when the service can actually run one: paths that answer for a service
+// with no relying party configured invite a browser to start a ceremony that
+// cannot finish.
+func (h *Handler) registerWebAuthnRoutes(mux Mux, prefix string) {
+	if !h.manager.WebAuthnEnabled() {
+		return
+	}
+
+	mux.HandleFunc(prefix+"/webauthn/register/begin", h.limited("webauthn_register", h.handleWebAuthnRegisterBegin))
+	mux.HandleFunc(prefix+"/webauthn/register/finish", h.limited("webauthn_register", h.handleWebAuthnRegisterFinish))
+	mux.HandleFunc(prefix+"/webauthn/login/begin", h.limited("login", h.handleWebAuthnLoginBegin))
+	mux.HandleFunc(prefix+"/webauthn/login/finish", h.limited("login", h.handleWebAuthnLoginFinish))
+	mux.HandleFunc(prefix+"/webauthn/credentials", h.handleWebAuthnCredentials)
 }
 
 // registerSSORoutes mounts the two routes each sign-on family needs: one that

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -873,12 +874,22 @@ func (m *Manager) FinishWebAuthnRegistration(ctx context.Context, userID, sessio
 	return nil
 }
 
-// GetWebAuthnCredentials returns all WebAuthn credentials for a user
+// GetWebAuthnCredentials returns the passkeys on an account.
+//
+// An account with none has an empty list, not an error. Asking what keys I
+// have before I have added any is the ordinary first visit to a settings page,
+// and answering "MFA is not enabled for this user" would show a failure where
+// the answer is simply "none yet".
 func (m *Manager) GetWebAuthnCredentials(ctx context.Context, userID string) ([]WebAuthnCredential, error) {
 	if m.mfaService == nil {
 		return nil, nil
 	}
-	return m.mfaService.GetWebAuthnCredentials(ctx, userID)
+
+	credentials, err := m.mfaService.GetWebAuthnCredentials(ctx, userID)
+	if errors.Is(err, ErrMFANotEnabled) {
+		return nil, nil
+	}
+	return credentials, err
 }
 
 // RemoveWebAuthnCredential removes a WebAuthn credential

@@ -19,6 +19,11 @@ var (
 	ErrNoRecoveryCodesLeft   = errors.New("no recovery codes remaining")
 	ErrMFASetupIncomplete    = errors.New("MFA setup not completed")
 	ErrWebAuthnNotConfigured = errors.New("WebAuthn not configured")
+	// ErrWebAuthnNoCredentials is what an address with no passkey gets, and it
+	// is deliberately the same answer an address with no account gets: a
+	// sign-in page that distinguishes them is a way of asking which addresses
+	// are registered.
+	ErrWebAuthnNoCredentials = errors.New("no passkey is registered for this account")
 )
 
 // MFAMethod represents the type of MFA
