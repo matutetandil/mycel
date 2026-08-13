@@ -701,6 +701,12 @@ func (m *Manager) Cleanup(ctx context.Context) error {
 
 // ==================== MFA Methods ====================
 
+// MFAEnabled reports whether this service can enrol and check a second factor
+// at all — which decides whether the endpoints for it are worth serving.
+func (m *Manager) MFAEnabled() bool {
+	return m.mfaService != nil
+}
+
 // GetMFAStatus returns the MFA status for a user
 func (m *Manager) GetMFAStatus(ctx context.Context, userID string) (*MFAStatus, error) {
 	if m.mfaService == nil {

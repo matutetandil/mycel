@@ -110,7 +110,49 @@ func (h *Handler) RegisterRoutes(mux Mux) {
 		mux.HandleFunc(path, h.limited("sessions", h.handleSessionRevoke))
 	}
 
+	h.registerMFARoutes(mux, prefix)
 	h.registerSSORoutes(mux, prefix)
+}
+
+// registerMFARoutes mounts the four routes a second factor is set up and used
+// through.
+//
+// They exist only when a second factor does: paths that answer for a service
+// that cannot enrol anybody would be worse than none, since they invite a
+// client to build the flow.
+func (h *Handler) registerMFARoutes(mux Mux, prefix string) {
+	if !h.manager.MFAEnabled() {
+		return
+	}
+
+	if path := endpointPath(h.config.MFASetup, "/mfa/setup"); path != "" {
+		mux.HandleFunc(prefix+path, h.limited("mfa_setup", h.handleMFASetup))
+	}
+	if path := endpointPath(h.config.MFAVerify, "/mfa/verify"); path != "" {
+		mux.HandleFunc(prefix+path, h.limited("mfa_verify", h.handleMFAVerify))
+	}
+	if path := endpointPath(h.config.MFADisable, "/mfa/disable"); path != "" {
+		mux.HandleFunc(prefix+path, h.limited("mfa_disable", h.handleMFADisable))
+	}
+	if path := endpointPath(h.config.MFARecovery, "/mfa/recovery"); path != "" {
+		mux.HandleFunc(prefix+path, h.limited("mfa_recovery", h.handleMFARecovery))
+	}
+}
+
+// endpointPath returns the path an endpoint is served on, or "" when it is
+// turned off. An endpoint nobody configured takes the default, since leaving
+// the block out is not a decision to remove it.
+func endpointPath(cfg *EndpointConfig, fallback string) string {
+	if cfg == nil {
+		return fallback
+	}
+	if !cfg.Enabled {
+		return ""
+	}
+	if cfg.Path != "" {
+		return cfg.Path
+	}
+	return fallback
 }
 
 // registerSSORoutes mounts the two routes each sign-on family needs: one that
