@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/matutetandil/mycel/v2/internal/identity"
 	"net/http"
 	"strings"
 	"time"
@@ -231,8 +232,12 @@ func (c *Connector) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Add auth context to request
+		// Add auth context to request, and publish the identity in the shape
+		// expressions read. The context above was written and never read by
+		// anything; without this, `auth.user_id` in a flow could not compile,
+		// let alone resolve.
 		ctx := context.WithValue(r.Context(), authContextKey, authCtx)
+		ctx = identity.With(ctx, authCtx.identity())
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -685,4 +690,55 @@ func (c *Connector) validateBasic(r *http.Request, w http.ResponseWriter) (*Auth
 		Authenticated: true,
 		Username:      username,
 	}, nil
+}
+
+// identity renders what was learned about the caller in the shape the rest of
+// the service reads it, so that a flow can say auth.user_id without knowing
+// which of the three credential types answered.
+func (a *AuthContext) identity() *identity.Identity {
+	if a == nil || !a.Authenticated {
+		return nil
+	}
+
+	id := &identity.Identity{
+		UserID: a.UserID,
+		Claims: a.Claims,
+	}
+	if id.UserID == "" {
+		// Basic auth has no subject beyond the name it authenticated.
+		id.UserID = a.Username
+	}
+	if a.Claims != nil {
+		if email, ok := a.Claims["email"].(string); ok {
+			id.Email = email
+		}
+		id.Roles = claimStrings(a.Claims, "roles")
+	}
+	return id
+}
+
+// claimStrings reads a claim that carries a list of strings, which arrives from
+// JSON as a list of anything.
+func claimStrings(claims map[string]interface{}, name string) []string {
+	raw, ok := claims[name]
+	if !ok {
+		return nil
+	}
+
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	case string:
+		// A single role is a common enough shape to accept.
+		return []string{v}
+	}
+	return nil
 }

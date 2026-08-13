@@ -163,6 +163,74 @@ mfa {
 }
 ```
 
+### Reading who the caller is
+
+A connector that authenticates a request publishes what it learned, and flows
+read it as `auth`:
+
+| Expression | What it holds |
+|---|---|
+| `auth.authenticated` | Whether the request carried a valid credential |
+| `auth.user_id` | Who it belongs to — the subject of a JWT, the name for basic auth |
+| `auth.email` | From the `email` claim, when there is one |
+| `auth.roles` | From the `roles` claim, as a list |
+| `auth.claims.*` | Everything else the credential carried, so a field nobody mapped is still reachable |
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 8080
+
+  auth {
+    type   = "jwt"
+    secret = env("JWT_SECRET")
+    public = ["/health"]
+  }
+}
+
+flow "my_orders" {
+  from {
+    connector = "api"
+    operation = "GET /orders"
+  }
+
+  # Only the caller's own rows, decided by the credential rather than by a
+  # parameter the caller controls.
+  to {
+    connector = "db"
+    query     = "SELECT * FROM orders WHERE user_id = :user_id"
+  }
+
+  transform {
+    user_id = "auth.user_id"
+  }
+}
+```
+
+Authorisation is written the same way, as a condition rather than as a separate
+mechanism:
+
+```hcl
+flow "admin_report" {
+  from {
+    connector = "api"
+    operation = "GET /admin/report"
+  }
+
+  accept {
+    when = "'admin' in auth.roles"
+  }
+
+  to {
+    connector = "db"
+    query     = "SELECT * FROM report"
+  }
+}
+```
+
+On a request with no credential — a public path — `auth.authenticated` is false
+and the rest is empty, so an expression that reads it answers rather than fails.
+
 ### Rate limiting the auth endpoints
 
 Three protections answer different questions, and this is the one about volume:

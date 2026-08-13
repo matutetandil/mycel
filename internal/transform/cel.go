@@ -4,6 +4,7 @@ package transform
 import (
 	"context"
 	"fmt"
+	"github.com/matutetandil/mycel/v2/internal/identity"
 	"reflect"
 	"strings"
 	"sync"
@@ -68,6 +69,12 @@ func baseCELOptions() []cel.EnvOption {
 
 		// Context variable - for request context (headers, path params, etc.)
 		cel.Variable("ctx", cel.MapType(cel.StringType, cel.DynType)),
+
+		// auth is who the request belongs to, as the connector that
+		// authenticated it reported: authenticated, user_id, email, roles and
+		// claims. Documented since 2.7.0 and never declared, so every
+		// expression naming it failed to compile.
+		cel.Variable("auth", cel.MapType(cel.StringType, cel.DynType)),
 
 		// Enriched variable - for data fetched from external sources
 		cel.Variable("enriched", cel.MapType(cel.StringType, cel.DynType)),
@@ -875,6 +882,7 @@ func (t *CELTransformer) Evaluate(ctx context.Context, expr string, input map[st
 		"input":  input,
 		"output": make(map[string]interface{}),
 		"ctx":    make(map[string]interface{}),
+		"auth":   identity.Activation(ctx),
 	}
 
 	// Evaluate
@@ -916,6 +924,7 @@ func (t *CELTransformer) Transform(ctx context.Context, input map[string]interfa
 		"input":  input,
 		"output": output,
 		"ctx":    make(map[string]interface{}),
+		"auth":   identity.Activation(ctx),
 	}
 
 	hook := HookFromContext(ctx)
@@ -1019,6 +1028,7 @@ func (t *CELTransformer) EvaluateExpression(ctx context.Context, input map[strin
 		"output":   make(map[string]interface{}),
 		"ctx":      make(map[string]interface{}),
 		"enriched": enriched,
+		"auth":     identity.Activation(ctx),
 	}
 
 	// For aspect conditions, we need certain variables at the top level of activation.
@@ -1079,6 +1089,7 @@ func (t *CELTransformer) EvaluateExpressionWithOutput(ctx context.Context, input
 		"output":   output,
 		"ctx":      make(map[string]interface{}),
 		"enriched": make(map[string]interface{}),
+		"auth":     identity.Activation(ctx),
 	}
 
 	// Mirror EvaluateExpression's top-level bindings so post-success keys
@@ -1137,6 +1148,7 @@ func (t *CELTransformer) EvaluateExpressionWithSteps(ctx context.Context, input 
 		"ctx":      make(map[string]interface{}),
 		"enriched": make(map[string]interface{}),
 		"step":     steps,
+		"auth":     identity.Activation(ctx),
 	}
 
 	// For aspect conditions, we need certain variables at the top level of activation.
@@ -1201,6 +1213,7 @@ func (t *CELTransformer) TransformResponse(ctx context.Context, input map[string
 		"input":  input,
 		"output": output,
 		"ctx":    make(map[string]interface{}),
+		"auth":   identity.Activation(ctx),
 	}
 
 	hook := HookFromContext(ctx)
@@ -1262,6 +1275,7 @@ func (t *CELTransformer) TransformWithContext(ctx context.Context, input map[str
 		"ctx":      make(map[string]interface{}),
 		"enriched": enriched,
 		"step":     steps,
+		"auth":     identity.Activation(ctx),
 	}
 
 	hook := HookFromContext(ctx)
@@ -1330,6 +1344,7 @@ func (t *CELTransformer) EvaluateCondition(ctx context.Context, data map[string]
 		"_operation": "",
 		"_target":    "",
 		"_timestamp": int64(0),
+		"auth":       identity.Activation(ctx),
 	}
 
 	// Merge provided data into activation
