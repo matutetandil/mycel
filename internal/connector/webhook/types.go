@@ -42,6 +42,15 @@ type InboundConfig struct {
 	// AllowedIPs restricts which IPs can send webhooks
 	AllowedIPs []string
 
+	// TrustedProxies lists the peers whose forwarding headers are believed.
+	//
+	// X-Forwarded-For is written by whoever sends the request, so a service
+	// that reads it to decide who may deliver a webhook has no allow-list at
+	// all: anyone can claim to be the address on it. Only a hop we put there
+	// ourselves — an ingress, a load balancer — is worth believing, and it has
+	// to be named. Empty means the decision is made on the peer we can see.
+	TrustedProxies []string
+
 	// RequireHTTPS enforces HTTPS
 	RequireHTTPS bool
 }

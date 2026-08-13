@@ -236,6 +236,7 @@ func connectorBodySchema() *hcl.BodySchema {
 			{Name: "include_timestamp"}, // webhook
 			{Name: "require_https"},     // webhook
 			{Name: "allowed_ips"},       // webhook
+			{Name: "trusted_proxies"},   // webhook
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "pool"},

@@ -62,6 +62,9 @@ func (f *Factory) createInbound(name string, config map[string]interface{}) (con
 	if ips := getStringSlice(config, "allowed_ips"); len(ips) > 0 {
 		cfg.AllowedIPs = ips
 	}
+	if proxies := getStringSlice(config, "trusted_proxies"); len(proxies) > 0 {
+		cfg.TrustedProxies = proxies
+	}
 	if requireHTTPS, ok := config["require_https"].(bool); ok {
 		cfg.RequireHTTPS = requireHTTPS
 	}

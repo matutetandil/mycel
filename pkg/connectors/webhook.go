@@ -21,6 +21,7 @@ func (WebhookSchema) ConnectorSchema() schema.Block {
 			{Name: "timeout", Doc: "Request timeout", Type: schema.TypeDuration},
 			{Name: "require_https", Doc: "Require HTTPS for webhooks", Type: schema.TypeBool},
 			{Name: "allowed_ips", Doc: "Allowed source IP addresses", Type: schema.TypeList},
+			{Name: "trusted_proxies", Doc: "Peers whose X-Forwarded-For is believed. Without this the allow-list is decided on the peer address, since a forwarding header can be written by anyone", Type: schema.TypeList},
 		},
 		Children: []schema.Block{
 			{Type: "headers", Doc: "Custom HTTP headers", Open: true},

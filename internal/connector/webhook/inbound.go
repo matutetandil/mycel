@@ -191,37 +191,80 @@ func (c *InboundConnector) Read(ctx context.Context, source string) (interface{}
 	}
 }
 
+// getClientIP reports the address a request came from.
+//
+// X-Forwarded-For is written by whoever sends the request. Reading it to decide
+// who may deliver a webhook meant the allow-list was decorative: a single
+// header — `X-Forwarded-For: 203.0.113.9` — let anyone on the internet through
+// a list of the provider's addresses.
+//
+// So a forwarding header counts only when the peer that sent it is one we put
+// there ourselves and named in trusted_proxies. Otherwise the decision is made
+// on the peer address, which cannot be written by the caller. A service behind
+// an ingress names the ingress; a service reached directly names nothing and
+// loses nothing.
 func (c *InboundConnector) getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		ips := strings.Split(xff, ",")
-		return strings.TrimSpace(ips[0])
+	peer, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		peer = r.RemoteAddr
 	}
 
-	// Check X-Real-IP
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
+	if !c.isTrustedProxy(peer) {
+		return peer
 	}
 
-	// Fall back to RemoteAddr
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	return ip
+	// Walk the chain from the nearest hop outwards, skipping the proxies we
+	// know. The first address that is not one of ours is the caller — taking
+	// the leftmost instead would believe whatever the caller prepended.
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		hops := strings.Split(forwarded, ",")
+		for i := len(hops) - 1; i >= 0; i-- {
+			hop := strings.TrimSpace(hops[i])
+			if hop != "" && !c.isTrustedProxy(hop) {
+				return hop
+			}
+		}
+	}
+
+	if realIP := strings.TrimSpace(r.Header.Get("X-Real-IP")); realIP != "" {
+		return realIP
+	}
+
+	return peer
 }
 
-func (c *InboundConnector) isIPAllowed(ip string) bool {
-	for _, allowed := range c.config.AllowedIPs {
-		if allowed == ip {
+// isTrustedProxy reports whether an address is one of the hops we put in front
+// of this service.
+func (c *InboundConnector) isTrustedProxy(ip string) bool {
+	return matchesAny(ip, c.config.TrustedProxies)
+}
+
+// matchesAny reports whether an address is listed, by exact match or by any
+// range in the list.
+func matchesAny(ip string, list []string) bool {
+	if ip == "" {
+		return false
+	}
+	parsed := net.ParseIP(ip)
+	for _, entry := range list {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if entry == ip {
 			return true
 		}
-		// Check CIDR
-		if strings.Contains(allowed, "/") {
-			_, network, err := net.ParseCIDR(allowed)
-			if err == nil && network.Contains(net.ParseIP(ip)) {
+		if strings.Contains(entry, "/") {
+			if _, network, err := net.ParseCIDR(entry); err == nil && parsed != nil && network.Contains(parsed) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func (c *InboundConnector) isIPAllowed(ip string) bool {
+	return matchesAny(ip, c.config.AllowedIPs)
 }
 
 func (c *InboundConnector) extractHeaders(r *http.Request) map[string]string {
