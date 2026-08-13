@@ -358,6 +358,11 @@ type AppleConfig struct {
 type SSOConfig struct {
 	OIDC []*OIDCConfig `hcl:"oidc,block"`
 	SAML []*SAMLConfig `hcl:"saml,block"`
+
+	// Linking decides what happens when someone signs in through a provider
+	// with an address an account already uses. Absent, an identity with a
+	// verified address is attached to that account.
+	Linking *AccountLinkingConfig `hcl:"linking,block"`
 }
 
 // OIDCConfig for OpenID Connect

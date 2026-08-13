@@ -740,9 +740,38 @@ CREATE INDEX idx_audit_created ON auth_audit_log(created_at);
 | `/auth/sso/{provider}` | GET | Start an OIDC sign-in |
 | `/auth/sso/callback` | GET | Where an OIDC provider returns |
 
-Linking an identity to an existing account happens during a sign-in, decided by
-matching the verified email. There are no endpoints yet for managing links
-afterwards.
+| `/auth/linked-accounts` | GET | The identities attached to the caller's account |
+| `/auth/unlink/{provider}` | DELETE | Detach one of them |
+
+An identity is attached during a sign-in, by matching the address it carries
+against an account that already exists. What that match does is configurable:
+
+```hcl
+auth {
+  sso {
+    linking {
+      enabled              = true
+      match_by             = "email"   # email | phone | custom
+      require_verification = true      # only an address the provider says is verified
+      on_match             = "link"    # link | prompt | reject
+    }
+
+    oidc "corp" {
+      issuer        = env("OIDC_ISSUER")
+      client_id     = env("OIDC_CLIENT_ID")
+      client_secret = env("OIDC_CLIENT_SECRET")
+    }
+  }
+}
+```
+
+`on_match = "prompt"` answers the callback with `needs_confirmation` instead of
+signing the person in, so an account is never joined to an identity without its
+owner saying so. `reject` refuses the sign-in outright.
+
+Unlinking refuses to remove the last way into an account: someone who signed up
+through a provider and never set a password would otherwise lock themselves out,
+and that refusal is a `400` naming the reason.
 
 ## Security Considerations
 

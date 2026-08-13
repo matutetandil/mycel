@@ -847,6 +847,7 @@ func (p *HCLParser) parseAuthSSOBlock(block *hcl.Block) (*auth.SSOConfig, error)
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "oidc", LabelNames: []string{"name"}},
 			{Type: "saml", LabelNames: []string{"name"}},
+			{Type: "linking"},
 		},
 	})
 	if diags.HasErrors() {
@@ -865,6 +866,14 @@ func (p *HCLParser) parseAuthSSOBlock(block *hcl.Block) (*auth.SSOConfig, error)
 				return nil, fmt.Errorf("parsing oidc block: %s", diags.Error())
 			}
 			config.OIDC = append(config.OIDC, oidc)
+
+		case "linking":
+			linking := &auth.AccountLinkingConfig{}
+			diags := gohcl.DecodeBody(nested.Body, p.evalCtx, linking)
+			if diags.HasErrors() {
+				return nil, fmt.Errorf("parsing linking block: %s", diags.Error())
+			}
+			config.Linking = linking
 
 		case "saml":
 			saml := &auth.SAMLConfig{}

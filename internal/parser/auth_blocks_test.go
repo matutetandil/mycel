@@ -404,3 +404,45 @@ func TestStringValueNamesTheAttributeItCannotRead(t *testing.T) {
 		t.Errorf("error = %q, want it to name the attribute", err)
 	}
 }
+
+// The linking block decides what happens when someone signs in through a
+// provider with an address an account already uses. It appeared in the auth
+// guide, the parser rejected it, and the service that takes it was always
+// built with nil — so whatever anyone wrote, the defaults applied.
+func TestTheLinkingBlockReachesTheConfig(t *testing.T) {
+	cfg, err := tryParse(t, `
+auth {
+  sso {
+    linking {
+      enabled              = true
+      match_by             = "email"
+      require_verification = true
+      on_match             = "prompt"
+    }
+
+    oidc "corp" {
+      issuer        = "https://id.example.com"
+      client_id     = "c"
+      client_secret = "s"
+    }
+  }
+}
+`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.Auth == nil || cfg.Auth.SSO == nil {
+		t.Fatal("no sso configuration came back")
+	}
+	linking := cfg.Auth.SSO.Linking
+	if linking == nil {
+		t.Fatal("the linking block was dropped, so the defaults would apply instead")
+	}
+	if linking.MatchBy != "email" || linking.OnMatch != "prompt" || !linking.RequireVerification {
+		t.Errorf("linking = %+v", linking)
+	}
+	// And the provider beside it still arrives.
+	if len(cfg.Auth.SSO.OIDC) != 1 {
+		t.Errorf("got %d OIDC providers", len(cfg.Auth.SSO.OIDC))
+	}
+}

@@ -120,6 +120,15 @@ func (h *Handler) RegisterRoutes(mux Mux) {
 // provider the configuration declares. The literal callback path is registered
 // as well, and takes precedence over the wildcard by Go's own routing rules.
 func (h *Handler) registerSSORoutes(mux Mux, prefix string) {
+	// The identities attached to an account, once a sign-in has attached them.
+	// These exist whenever sign-on does, since an account that can gain an
+	// identity should be able to show and lose one.
+	if h.config.SocialCallback != nil && h.config.SocialCallback.Enabled ||
+		h.config.SSOCallback != nil && h.config.SSOCallback.Enabled {
+		mux.HandleFunc(prefix+"/linked-accounts", h.handleLinkedAccounts)
+		mux.HandleFunc(prefix+"/unlink/{provider}", h.handleUnlink)
+	}
+
 	if h.config.SocialCallback != nil && h.config.SocialCallback.Enabled {
 		mux.HandleFunc(prefix+getPath(h.config.SocialCallback, "/social/callback"), h.handleSSOCallback)
 		mux.HandleFunc(prefix+"/social/{provider}", h.handleSSOBegin)

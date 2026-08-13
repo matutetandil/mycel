@@ -57,10 +57,13 @@ func NewSSOService(config *Config, linkingStore LinkedAccountStore, userStore Us
 		states:          make(map[string]*ssoState),
 	}
 
-	// Initialize account linking
+	// Account linking, configured by the sso block. This used to be declared
+	// and left nil with a note saying to use the social config, so the block
+	// deciding how identities attach to accounts had nowhere to arrive and the
+	// defaults applied whatever anyone wrote.
 	var linkingConfig *AccountLinkingConfig
-	if config != nil && config.Social != nil {
-		// Use social config for now
+	if config != nil && config.SSO != nil {
+		linkingConfig = config.SSO.Linking
 	}
 	svc.linking = NewAccountLinkingService(linkingConfig, linkingStore, userStore)
 
@@ -284,6 +287,12 @@ type SSOResult struct {
 	Provider          string
 	UserInfo          *OAuth2UserInfo
 	Token             *OAuth2Token
+}
+
+// Linking returns the account linking service, which manages the identities
+// attached to an account after the sign-in that created them.
+func (s *SSOService) Linking() *AccountLinkingService {
+	return s.linking
 }
 
 // ConfirmLink confirms account linking when user approval is needed
