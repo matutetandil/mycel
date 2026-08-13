@@ -202,7 +202,7 @@ func (e *Executor) executeBefore(ctx context.Context, aspects []*Config, input m
 
 		// Execute rate limit if present
 		if aspect.RateLimit != nil {
-			if err := e.executeRateLimit(ctx, aspect.RateLimit, current); err != nil {
+			if err := e.executeRateLimit(ctx, aspect.Name, aspect.RateLimit, current); err != nil {
 				return nil, fmt.Errorf("aspect %s rate limit error: %w", aspect.Name, err)
 			}
 		}
@@ -230,7 +230,7 @@ func (e *Executor) wrapAround(ctx context.Context, aspect *Config, input map[str
 
 		// Handle circuit breaker aspect
 		if aspect.CircuitBreaker != nil {
-			return e.executeCircuitBreaker(execCtx, aspect.CircuitBreaker, execInput, next)
+			return e.executeCircuitBreaker(execCtx, aspect.Name, aspect.CircuitBreaker, execInput, next)
 		}
 
 		// Default: just execute next
@@ -825,7 +825,7 @@ func (e *Executor) executeInvalidate(ctx context.Context, invalidate *Invalidate
 }
 
 // executeRateLimit checks rate limit before flow execution.
-func (e *Executor) executeRateLimit(ctx context.Context, rl *RateLimitConfig, input map[string]interface{}) error {
+func (e *Executor) executeRateLimit(ctx context.Context, aspectName string, rl *RateLimitConfig, input map[string]interface{}) error {
 	// Evaluate key expression to get the rate limit key
 	key, err := e.interpolateString(ctx, rl.Key, input)
 	if err != nil {
@@ -835,7 +835,7 @@ func (e *Executor) executeRateLimit(ctx context.Context, rl *RateLimitConfig, in
 	}
 
 	// Get or create rate limiter for this config
-	limiter := e.getOrCreateRateLimiter(rl)
+	limiter := e.getOrCreateRateLimiter(aspectName, rl)
 
 	// Check if request is allowed
 	if !limiter.AllowKey(key) {
@@ -851,10 +851,16 @@ func (e *Executor) executeRateLimit(ctx context.Context, rl *RateLimitConfig, in
 	return nil
 }
 
-// getOrCreateRateLimiter gets or creates a rate limiter for the given config.
-func (e *Executor) getOrCreateRateLimiter(rl *RateLimitConfig) *ratelimit.Limiter {
-	// Create config key from RPS and burst
-	configKey := fmt.Sprintf("%.2f:%d", rl.RequestsPerSecond, rl.Burst)
+// getOrCreateRateLimiter gets or creates the rate limiter belonging to an
+// aspect.
+//
+// The budget belongs to the aspect that declared it. Keying it on the numbers
+// alone meant two separately named aspects that happen to allow the same rate
+// shared one budget, so a caller allowed ten requests a second by each of them
+// got ten between the two — an allowance quietly halved by an unrelated aspect
+// written elsewhere in the configuration.
+func (e *Executor) getOrCreateRateLimiter(aspectName string, rl *RateLimitConfig) *ratelimit.Limiter {
+	configKey := fmt.Sprintf("%s:%.2f:%d", aspectName, rl.RequestsPerSecond, rl.Burst)
 
 	e.rateLimitersMu.RLock()
 	limiter, exists := e.rateLimiters[configKey]
@@ -890,8 +896,13 @@ func (e *Executor) getOrCreateRateLimiter(rl *RateLimitConfig) *ratelimit.Limite
 }
 
 // executeCircuitBreaker wraps flow with circuit breaker.
-func (e *Executor) executeCircuitBreaker(ctx context.Context, cb *CircuitBreakerConfig, input map[string]interface{}, next FlowFunc) (*connector.Result, error) {
-	breaker := e.getOrCreateCircuitBreaker(cb)
+func (e *Executor) executeCircuitBreaker(ctx context.Context, aspectName string, cb *CircuitBreakerConfig, input map[string]interface{}, next FlowFunc) (*connector.Result, error) {
+	breaker := e.getOrCreateCircuitBreaker(aspectName, cb)
+
+	name := cb.Name
+	if name == "" {
+		name = aspectName
+	}
 
 	// Execute through circuit breaker
 	result, err := breaker.ExecuteWithResult(ctx, func() (interface{}, error) {
@@ -902,9 +913,9 @@ func (e *Executor) executeCircuitBreaker(ctx context.Context, cb *CircuitBreaker
 		// Check if it's a circuit breaker error
 		if err == circuitbreaker.ErrCircuitOpen {
 			slog.Debug("circuit breaker open",
-				"name", cb.Name,
+				"name", name,
 				"state", breaker.State().String())
-			return nil, fmt.Errorf("circuit breaker %s is open: %w", cb.Name, err)
+			return nil, fmt.Errorf("circuit breaker %s is open: %w", name, err)
 		}
 		return nil, err
 	}
@@ -916,10 +927,21 @@ func (e *Executor) executeCircuitBreaker(ctx context.Context, cb *CircuitBreaker
 	return nil, nil
 }
 
-// getOrCreateCircuitBreaker gets or creates a circuit breaker for the given config.
-func (e *Executor) getOrCreateCircuitBreaker(cb *CircuitBreakerConfig) *circuitbreaker.Breaker {
+// getOrCreateCircuitBreaker gets or creates a circuit breaker.
+//
+// A breaker is shared by every aspect naming it, which is what the name is for:
+// several flows calling one dependency should trip together. Without a name it
+// belongs to the aspect that declared it — sharing every unnamed breaker under
+// the empty name meant one failing dependency opened the circuit on unrelated
+// flows that had never called it.
+func (e *Executor) getOrCreateCircuitBreaker(aspectName string, cb *CircuitBreakerConfig) *circuitbreaker.Breaker {
+	name := cb.Name
+	if name == "" {
+		name = aspectName
+	}
+
 	e.circuitBreakersMu.RLock()
-	breaker, exists := e.circuitBreakers[cb.Name]
+	breaker, exists := e.circuitBreakers[name]
 	e.circuitBreakersMu.RUnlock()
 
 	if exists {
@@ -930,7 +952,7 @@ func (e *Executor) getOrCreateCircuitBreaker(cb *CircuitBreakerConfig) *circuitb
 	defer e.circuitBreakersMu.Unlock()
 
 	// Double-check after acquiring write lock
-	if breaker, exists = e.circuitBreakers[cb.Name]; exists {
+	if breaker, exists = e.circuitBreakers[name]; exists {
 		return breaker
 	}
 
@@ -951,7 +973,7 @@ func (e *Executor) getOrCreateCircuitBreaker(cb *CircuitBreakerConfig) *circuitb
 	}
 
 	breaker = circuitbreaker.New(&circuitbreaker.Config{
-		Name:             cb.Name,
+		Name:             name,
 		FailureThreshold: failureThreshold,
 		SuccessThreshold: successThreshold,
 		Timeout:          timeout,
@@ -963,7 +985,7 @@ func (e *Executor) getOrCreateCircuitBreaker(cb *CircuitBreakerConfig) *circuitb
 		},
 	})
 
-	e.circuitBreakers[cb.Name] = breaker
+	e.circuitBreakers[name] = breaker
 	return breaker
 }
 
