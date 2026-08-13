@@ -59,6 +59,32 @@ The transform one matters for the coverage target as well as for tidiness: it
 is ~127 uncovered statements in `functions.go` alone that are being counted
 against a percentage while not being part of the running product.
 
+### The push connector speaks a Firebase API that is gone
+
+Found 2026-08-13 while covering it. `internal/connector/push` sends with
+`POST {api_url}/fcm/send` and an `Authorization: key=<server_key>` header —
+the legacy FCM HTTP API. Google superseded it with HTTP v1 and has
+decommissioned it, so `type = "push", driver = "fcm"` cannot deliver
+anything: the request comes back 404 from Google.
+
+Not fixed here because it is a feature with a decision in it rather than a
+defect to correct. HTTP v1 means:
+
+- a different endpoint, `POST /v1/projects/{project_id}/messages:send`
+- OAuth2 with a service account rather than a static server key, so the
+  configuration gains credentials someone has to supply and the connector
+  gains a token it has to refresh
+- a different message shape: everything moves under a `message` object,
+  and the platform-specific parts (`android`, `apns`, `webpush`) become
+  explicit rather than the flat fields the legacy API took
+
+The payload reading was fixed and tested in the same pass, and those tests
+survive the migration: what a flow may write, and that all of it arrives.
+What changes is the envelope it is put in.
+
+The APNs side of the same connector is unaffected — it already speaks the
+current HTTP/2 API.
+
 ### The shape U8 should take: a cache is a service, not a connector call
 
 Decided 2026-08-13. Redis is a connector like any other and should be usable as
