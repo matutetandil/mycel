@@ -2394,19 +2394,22 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 	defer r.mu.Unlock()
 
 	// Parse new configuration
-	p := parser.NewHCLParser()
+	p := parser.NewHCLParserWithRegistry(r.schemaRegistry)
 	newConfig, err := p.Parse(ctx, r.configDir)
 	if err != nil {
 		return fmt.Errorf("failed to parse configuration: %w", err)
 	}
 
-	// Clear suspended starters from previous config (they will be re-populated if needed)
-	r.suspendedStarters = nil
-
-	// Close existing connectors gracefully
-	if err := r.connectors.CloseAll(ctx); err != nil {
-		r.logger.Warn("some connectors failed to close during reload", "error", err)
+	// The same check startup makes, so a reload cannot install a configuration
+	// that would have been refused on the way in.
+	if errs := ValidateFlowSchemas(newConfig, r.schemaRegistry); len(errs) > 0 {
+		return fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
+
+	// Everything below builds the new configuration beside the running one and
+	// swaps it in only once it stands up. See reload_state.go: dismantling
+	// first left a failed reload serving nothing at all.
+	previous := r.snapshotForReload()
 
 	// Create new connector registry
 	newRegistry := connector.NewRegistry()
@@ -2416,10 +2419,10 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 	newResolver := connector.NewOperationResolver()
 
 	// Update runtime state
-	oldConfig := r.config
 	r.config = newConfig
 	r.connectors = newRegistry
 	r.operationResolver = newResolver
+	r.suspendedStarters = nil
 
 	// Rebuild transforms map
 	r.transforms = make(map[string]*transform.Config)
@@ -2442,7 +2445,8 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 	// Rebuild aspect registry
 	r.aspectRegistry = aspect.NewRegistry()
 	if err := r.aspectRegistry.RegisterAll(newConfig.Aspects); err != nil {
-		r.config = oldConfig
+		r.restore(previous)
+		r.abandon(ctx, newRegistry)
 		return fmt.Errorf("failed to register aspects: %w", err)
 	}
 
@@ -2451,26 +2455,35 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 
 	// Initialize new connectors
 	if err := r.initConnectors(ctx); err != nil {
-		// Rollback to old config
-		r.config = oldConfig
+		r.restore(previous)
+		r.abandon(ctx, newRegistry)
 		return fmt.Errorf("failed to initialize connectors: %w", err)
 	}
 
 	// Initialize aspects (creates executor with new connectors)
 	if err := r.initAspects(); err != nil {
-		r.config = oldConfig
+		r.restore(previous)
+		r.abandon(ctx, newRegistry)
 		return fmt.Errorf("failed to initialize aspects: %w", err)
 	}
 
 	// Register flows with new connectors
 	if err := r.registerFlows(); err != nil {
-		r.config = oldConfig
+		r.restore(previous)
+		r.abandon(ctx, newRegistry)
 		return fmt.Errorf("failed to register flows: %w", err)
 	}
 
 	// Wire flow invoker into aspect executor
 	if r.aspectExecutor != nil {
 		r.aspectExecutor.SetFlowInvoker(r.flows)
+	}
+
+	// The new configuration stands up, so the old one can go. Until this line
+	// the service was still serving it, which is what makes a failed reload
+	// harmless rather than fatal.
+	if err := previous.connectors.CloseAll(ctx); err != nil {
+		r.logger.Warn("some connectors failed to close during reload", "error", err)
 	}
 
 	// Note: HTTP/REST/GraphQL/gRPC servers are not restarted here — they're
