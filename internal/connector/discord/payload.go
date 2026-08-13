@@ -29,6 +29,7 @@ func discordFromData(payload interface{}) (*Message, error) {
 			ThreadName:      textOf(p["thread_name"]),
 			Embeds:          embedsOf(p["embeds"]),
 			AllowedMentions: mentionsOf(p["allowed_mentions"]),
+			Components:      componentsOf(p["components"]),
 		}
 		if tts, ok := p["tts"].(bool); ok {
 			msg.TTS = tts
@@ -36,6 +37,65 @@ func discordFromData(payload interface{}) (*Message, error) {
 		return msg, nil
 	}
 	return nil, fmt.Errorf("a Discord message is a record or a line of text, and %T is neither", payload)
+}
+
+// componentsOf reads the buttons and menus attached to a message.
+//
+// They nest: an action row holds the components inside it, which is why this
+// calls itself. Discord sends whatever the message carries, so a flow that
+// attaches a button gets one — it just had no way to say so.
+func componentsOf(value interface{}) []Component {
+	switch v := value.(type) {
+	case []Component:
+		return v
+	case Component:
+		return []Component{v}
+	case map[string]interface{}:
+		return []Component{componentOf(v)}
+	case []interface{}:
+		out := make([]Component, 0, len(v))
+		for _, item := range v {
+			switch entry := item.(type) {
+			case Component:
+				out = append(out, entry)
+			case map[string]interface{}:
+				out = append(out, componentOf(entry))
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+	return nil
+}
+
+func componentOf(m map[string]interface{}) Component {
+	component := Component{
+		Label:      textOf(m["label"]),
+		CustomID:   textOf(m["custom_id"]),
+		URL:        textOf(m["url"]),
+		Components: componentsOf(m["components"]),
+	}
+	if kind, ok := intOf(m["type"]); ok {
+		component.Type = kind
+	}
+	if style, ok := intOf(m["style"]); ok {
+		component.Style = style
+	}
+	if disabled, ok := m["disabled"].(bool); ok {
+		component.Disabled = disabled
+	}
+	if emoji, ok := m["emoji"].(map[string]interface{}); ok {
+		component.Emoji = &Emoji{
+			ID:   textOf(emoji["id"]),
+			Name: textOf(emoji["name"]),
+		}
+		if animated, ok := emoji["animated"].(bool); ok {
+			component.Emoji.Animated = animated
+		}
+	}
+	return component
 }
 
 func embedsOf(value interface{}) []Embed {
