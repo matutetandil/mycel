@@ -2,6 +2,7 @@ package parser
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/matutetandil/mycel/v2/internal/validate"
@@ -197,22 +198,43 @@ type "product" {
 	}
 }
 
-func TestUnknownConstraintIsIgnoredRatherThanAttachedAsNil(t *testing.T) {
-	// createConstraint returns nil for a name it does not know. A nil landing
-	// in the slice would panic the validator on first use.
-	cfg := parseOne(t, `
+func TestAConstraintNameThatIsNotOneIsRefused(t *testing.T) {
+	// It used to be dropped, which is the worst of the three options: the
+	// field then accepts everything while the configuration says it does not,
+	// and validate reports the file as fine. A rule nobody applies is not a
+	// rule, and the name it was written under is a typo worth naming.
+	//
+	// Nothing is ever appended for it either, so a nil cannot reach the
+	// validator — the concern this replaces.
+	_, err := parseOneErr(t, `
 type "odd" {
-  field = string({ definitely_not_a_constraint = "x", format = "email" })
+  field = string({ max_lenght = 5 })
 }
 `)
-	f := fieldNamed(t, typeNamed(t, cfg, "odd"), "field")
-	for i, c := range f.Constraints {
-		if c == nil {
-			t.Fatalf("constraint %d is nil", i)
+	if err == nil {
+		t.Fatal("a constraint nobody applies was accepted")
+	}
+	for _, want := range []string{"field", "max_lenght", "max_length"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to name %q", err, want)
 		}
 	}
-	// The one that is real must still have attached.
-	constraintOf[*validate.FormatConstraint](t, f)
+}
+
+func TestAConstraintGivenTheWrongKindOfValueIsRefused(t *testing.T) {
+	// format takes a name, not a number. Dropping it left the field
+	// unconstrained in exactly the same silent way.
+	_, err := parseOneErr(t, `
+type "odd" {
+  field = string({ format = 5 })
+}
+`)
+	if err == nil {
+		t.Fatal("a constraint given the wrong kind of value was accepted")
+	}
+	if !strings.Contains(err.Error(), "format") {
+		t.Errorf("error = %q, want it to name the constraint", err)
+	}
 }
 
 func TestToFloat64AndToInt(t *testing.T) {

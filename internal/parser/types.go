@@ -253,14 +253,37 @@ func parseConstraintsAndDirectives(field *validate.FieldSchema, args []hclsyntax
 
 				// Otherwise treat as validation constraint
 				constraint := createConstraint(key, value)
-				if constraint != nil {
-					field.Constraints = append(field.Constraints, constraint)
+				if constraint == nil {
+					// A constraint that produces nothing is a rule somebody
+					// wrote and the service does not apply. Since the whole
+					// point of the field is to refuse what does not fit, a
+					// name with a typo in it — max_lenght — would leave the
+					// field accepting everything, with the configuration
+					// saying otherwise and validate reporting it as fine.
+					return fmt.Errorf("field %q: %s", field.Name, describeConstraint(key, value))
 				}
+				field.Constraints = append(field.Constraints, constraint)
 			}
 		}
 	}
 
 	return nil
+}
+
+// constraintNames are the rules a field can carry, in the order they are worth
+// reading.
+var constraintNames = []string{"format", "min", "max", "min_length", "max_length", "pattern", "enum"}
+
+// describeConstraint explains why a constraint produced nothing: either the
+// name is not one, or the value is not the kind that name takes.
+func describeConstraint(key string, value interface{}) string {
+	for _, known := range constraintNames {
+		if known == key {
+			return fmt.Sprintf("constraint %q was given %v, which is not the kind of value it takes", key, value)
+		}
+	}
+	return fmt.Sprintf("there is no constraint called %q; the ones there are: %s",
+		key, strings.Join(constraintNames, ", "))
 }
 
 // parseFieldDirective parses a federation directive for a field.

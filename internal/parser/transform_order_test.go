@@ -27,6 +27,17 @@ func parseOne(t *testing.T, hcl string) *Configuration {
 	return cfg
 }
 
+// parseOneErr is parseOne for the cases where the refusal is the point.
+func parseOneErr(t *testing.T, hcl string) (*Configuration, error) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "flows.mycel")
+	if err := os.WriteFile(path, []byte(hcl), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	return NewHCLParser().ParseFile(context.Background(), path)
+}
+
 func assertOrder(t *testing.T, got, want []string) {
 	t.Helper()
 	if len(got) != len(want) {
