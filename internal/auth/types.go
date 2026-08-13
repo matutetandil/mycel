@@ -89,6 +89,11 @@ type FieldsConfig struct {
 	PasswordHash string `hcl:"password_hash,optional"`
 	CreatedAt    string `hcl:"created_at,optional"`
 	UpdatedAt    string `hcl:"updated_at,optional"`
+
+	// Roles names the column a user's roles are stored in. Naming one is what
+	// turns roles on for a SQL-backed store: without it the column is neither
+	// written nor read, so a users table that already exists keeps working.
+	Roles string `hcl:"roles,optional"`
 }
 
 // JWTConfig defines JWT token settings

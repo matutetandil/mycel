@@ -904,7 +904,19 @@ func AuthSchema() Block {
 				{Name: "connector", Doc: "Connector to store into (database)", Type: TypeString, Ref: RefConnector},
 				{Name: "table", Doc: "Table name (database)", Type: TypeString},
 			}},
-			{Type: "users", Doc: "Where user records live"},
+			{Type: "users", Doc: "Where user records live", Attrs: []Attr{
+				{Name: "connector", Doc: "Connector holding the users table", Type: TypeString, Ref: RefConnector},
+				{Name: "table", Doc: "Table name; defaults to users", Type: TypeString},
+			}, Children: []Block{
+				{Type: "fields", Doc: "Column names, when the table already exists under other ones", Attrs: []Attr{
+					{Name: "id", Doc: "Identifier column; defaults to id", Type: TypeString},
+					{Name: "email", Doc: "Email column; defaults to email", Type: TypeString},
+					{Name: "password_hash", Doc: "Password hash column; defaults to password_hash", Type: TypeString},
+					{Name: "created_at", Doc: "Creation timestamp column; defaults to created_at", Type: TypeString},
+					{Name: "updated_at", Doc: "Update timestamp column; defaults to updated_at", Type: TypeString},
+					{Name: "roles", Doc: "Roles column. Naming one turns roles on for a database-backed store; without it roles are neither written nor read", Type: TypeString},
+				}},
+			}},
 			{Type: "jwt", Doc: "Token issuing and validation"},
 			{Type: "password", Doc: "Hashing and password policy"},
 			{Type: "mfa", Doc: "Multi-factor authentication; present means enabled"},

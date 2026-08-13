@@ -58,22 +58,24 @@ func (s *MySQLUserStore) Create(ctx context.Context, user *User) error {
 	table := s.getTableName()
 	fields := s.getFields()
 
-	query := fmt.Sprintf(`
-		INSERT INTO %s (%s, %s, %s, %s, %s)
-		VALUES (?, ?, ?, ?, ?)
-	`, table, fields.ID, fields.Email, fields.PasswordHash, fields.CreatedAt, fields.UpdatedAt)
-
 	now := time.Now()
 	user.CreatedAt = now
 	user.UpdatedAt = now
 
-	_, err := s.db.ExecContext(ctx, query,
-		user.ID,
-		user.Email,
-		user.PasswordHash,
-		user.CreatedAt,
-		user.UpdatedAt,
-	)
+	columns := fmt.Sprintf("%s, %s, %s, %s, %s",
+		fields.ID, fields.Email, fields.PasswordHash, fields.CreatedAt, fields.UpdatedAt)
+	placeholders := "?, ?, ?, ?, ?"
+	args := []interface{}{user.ID, user.Email, user.PasswordHash, user.CreatedAt, user.UpdatedAt}
+
+	if column := rolesColumn(fields); column != "" {
+		columns += ", " + column
+		placeholders += ", ?"
+		args = append(args, encodeRoles(user.Roles))
+	}
+
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, columns, placeholders)
+
+	_, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		// Check for unique constraint violation
 		if isMySQLUniqueViolation(err) {
@@ -90,27 +92,20 @@ func (s *MySQLUserStore) GetByID(ctx context.Context, id string) (*User, error) 
 	table := s.getTableName()
 	fields := s.getFields()
 
-	query := fmt.Sprintf(`
-		SELECT %s, %s, %s, %s, %s
-		FROM %s
-		WHERE %s = ?
-	`, fields.ID, fields.Email, fields.PasswordHash, fields.CreatedAt, fields.UpdatedAt,
-		table, fields.ID)
+	columns, rolesCol := userColumns(fields)
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", columns, table, fields.ID)
 
 	user := &User{}
-	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&user.ID,
-		&user.Email,
-		&user.PasswordHash,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
+	targets, storedRoles := userScanTargets(user, rolesCol)
+
+	err := s.db.QueryRowContext(ctx, query, id).Scan(targets...)
 	if err == sql.ErrNoRows {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user by ID: %w", err)
 	}
+	applyStoredRoles(user, rolesCol, storedRoles)
 
 	return user, nil
 }
@@ -120,27 +115,20 @@ func (s *MySQLUserStore) GetByEmail(ctx context.Context, email string) (*User, e
 	table := s.getTableName()
 	fields := s.getFields()
 
-	query := fmt.Sprintf(`
-		SELECT %s, %s, %s, %s, %s
-		FROM %s
-		WHERE %s = ?
-	`, fields.ID, fields.Email, fields.PasswordHash, fields.CreatedAt, fields.UpdatedAt,
-		table, fields.Email)
+	columns, rolesCol := userColumns(fields)
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", columns, table, fields.Email)
 
 	user := &User{}
-	err := s.db.QueryRowContext(ctx, query, email).Scan(
-		&user.ID,
-		&user.Email,
-		&user.PasswordHash,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
+	targets, storedRoles := userScanTargets(user, rolesCol)
+
+	err := s.db.QueryRowContext(ctx, query, email).Scan(targets...)
 	if err == sql.ErrNoRows {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user by email: %w", err)
 	}
+	applyStoredRoles(user, rolesCol, storedRoles)
 
 	return user, nil
 }
@@ -152,18 +140,18 @@ func (s *MySQLUserStore) Update(ctx context.Context, user *User) error {
 
 	user.UpdatedAt = time.Now()
 
-	query := fmt.Sprintf(`
-		UPDATE %s
-		SET %s = ?, %s = ?, %s = ?
-		WHERE %s = ?
-	`, table, fields.Email, fields.PasswordHash, fields.UpdatedAt, fields.ID)
+	assignments := fmt.Sprintf("%s = ?, %s = ?, %s = ?", fields.Email, fields.PasswordHash, fields.UpdatedAt)
+	args := []interface{}{user.Email, user.PasswordHash, user.UpdatedAt}
 
-	result, err := s.db.ExecContext(ctx, query,
-		user.Email,
-		user.PasswordHash,
-		user.UpdatedAt,
-		user.ID,
-	)
+	if column := rolesColumn(fields); column != "" {
+		assignments += ", " + column + " = ?"
+		args = append(args, encodeRoles(user.Roles))
+	}
+
+	args = append(args, user.ID)
+	query := fmt.Sprintf("UPDATE %s SET %s WHERE %s = ?", table, assignments, fields.ID)
+
+	result, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		if isMySQLUniqueViolation(err) {
 			return ErrUserAlreadyExists
