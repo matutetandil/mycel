@@ -72,3 +72,6 @@ site/
 
 # Coverage counters dropped by the integration suite when built with -cover
 tests/integration/.coverage/
+tests/integration/.coverage-unit/
+tests/integration/.coverage-merged/
+tests/integration/coverage.out

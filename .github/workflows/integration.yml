@@ -32,7 +32,15 @@ jobs:
       # Start all services
       # ---------------------------------------------------------------
       - name: Start services
+        env:
+          # The binary is built with -cover and writes its counters to the
+          # mounted directory when it shuts down. Nothing else about the run
+          # changes; without these two the build is byte-identical.
+          COVERAGE: "-cover"
+          GOCOVERDIR: /covdata
         run: |
+          # The container runs as uid 1000 and has to be able to write here.
+          mkdir -p .coverage && chmod 777 .coverage
           docker compose up -d --build --wait 2>&1 | tail -10
           bash scripts/wait-for-services.sh 120
 
@@ -97,9 +105,68 @@ jobs:
       # ---------------------------------------------------------------
       # Cleanup & diagnostics
       # ---------------------------------------------------------------
+      # ---------------------------------------------------------------
+      # Coverage. The counters are written while the service shuts down, so
+      # this has to come after the services are stopped and before anything
+      # removes the volume.
+      # ---------------------------------------------------------------
       - name: Stop services
         if: always()
         run: docker compose down -v
+
+      - name: Coverage from the integration run
+        if: always()
+        run: |
+          if [ ! -d .coverage ] || [ -z "$(ls -A .coverage 2>/dev/null)" ]; then
+            echo "No counters were written — the service did not shut down cleanly." >&2
+            exit 0
+          fi
+
+          # The unit tests, in the same binary format, so the two can be added
+          # together rather than reported as separate halves of one number.
+          mkdir -p .coverage-unit
+          unit_dir="$(pwd)/.coverage-unit"
+          (cd ../.. && go test ./... -coverpkg=./... -args -test.gocoverdir="$unit_dir") > /dev/null 2>&1 || true
+
+          mkdir -p .coverage-merged
+          go tool covdata merge -i=.coverage,.coverage-unit -o .coverage-merged
+          go tool covdata textfmt -i=.coverage-merged -o coverage.out
+
+          # Each figure comes the same way, so the three are comparable:
+          # `covdata percent` reports per package and has no total line.
+          percent() {
+            go tool covdata textfmt -i="$1" -o "$2" 2>/dev/null || return
+            go tool cover -func="$2" | tail -1 | awk '{print $NF}'
+          }
+          total=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}')
+          unit=$(percent .coverage-unit unit.out)
+          integration=$(percent .coverage integration.out)
+
+          {
+            echo "## Coverage"
+            echo
+            echo "| Source | Statements |"
+            echo "|---|---|"
+            echo "| Unit tests | ${unit:-n/a} |"
+            echo "| Integration run | ${integration:-n/a} |"
+            echo "| **Together** | **${total}** |"
+            echo
+            echo "The integration figure is what the running binary exercised against the"
+            echo "real services. The two are merged rather than averaged, so the total is"
+            echo "at least the larger of them: a line covered by both is covered once."
+            echo
+            echo "Counted with -coverpkg=./..., so a test in one package counts for the"
+            echo "code it exercises in another. That reads higher than the per-package"
+            echo "figure the unit workflow reports, and it is the same code either way."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the coverage profile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: tests/integration/coverage.out
+          if-no-files-found: ignore
 
       - name: Mycel logs on failure
         if: failure()
