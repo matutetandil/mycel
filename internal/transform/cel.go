@@ -800,38 +800,69 @@ func pickKeysMultiple(mapVal ref.Val, keys ...ref.Val) ref.Val {
 }
 
 // compare compares two ref.Val values and returns -1, 0, or 1.
+// compare orders two values for min_val, max_val and sort_by.
+//
+// A number has to compare with a number whichever way each of them happens to
+// be typed. JSON has one number type and CEL has three, so a single field
+// arrives as an integer from one record and a double from the next — a price
+// of 30 beside a price of 2.5 — and requiring both sides to be the same type
+// made every such pair compare equal. That is not an error anywhere: min_val
+// returns whichever element happened to come first, and sort_by leaves the
+// list in the order it was given, both of them silently.
 func compare(a, b ref.Val) int {
-	switch av := a.(type) {
-	case types.Int:
+	// Same-typed integers are compared as integers so that identifiers beyond
+	// the range a float can hold exactly still order correctly.
+	if av, ok := a.(types.Int); ok {
 		if bv, ok := b.(types.Int); ok {
-			if av < bv {
-				return -1
-			} else if av > bv {
-				return 1
-			}
-			return 0
-		}
-	case types.Double:
-		if bv, ok := b.(types.Double); ok {
-			if av < bv {
-				return -1
-			} else if av > bv {
-				return 1
-			}
-			return 0
-		}
-	case types.String:
-		if bv, ok := b.(types.String); ok {
-			as, bs := string(av), string(bv)
-			if as < bs {
-				return -1
-			} else if as > bs {
-				return 1
-			}
-			return 0
+			return compareOrdered(int64(av), int64(bv))
 		}
 	}
+	if av, ok := a.(types.Uint); ok {
+		if bv, ok := b.(types.Uint); ok {
+			return compareOrdered(uint64(av), uint64(bv))
+		}
+	}
+
+	if an, ok := asFloat(a); ok {
+		if bn, ok := asFloat(b); ok {
+			return compareOrdered(an, bn)
+		}
+	}
+
+	if av, ok := a.(types.String); ok {
+		if bv, ok := b.(types.String); ok {
+			return compareOrdered(string(av), string(bv))
+		}
+	}
+
+	// Anything else — a map against a number, a missing key — has no order to
+	// report, and saying so keeps the sort stable rather than arbitrary.
 	return 0
+}
+
+// asFloat reports a CEL number as a float, whichever of the three numeric
+// types it is.
+func asFloat(v ref.Val) (float64, bool) {
+	switch n := v.(type) {
+	case types.Int:
+		return float64(n), true
+	case types.Uint:
+		return float64(n), true
+	case types.Double:
+		return float64(n), true
+	}
+	return 0, false
+}
+
+func compareOrdered[T int64 | uint64 | float64 | string](a, b T) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
 }
 
 // Compile compiles a CEL expression and caches the program.
