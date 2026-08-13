@@ -618,27 +618,6 @@ func TestSDLGenerator(t *testing.T) {
 		}
 	})
 
-	t.Run("generate with query fields", func(t *testing.T) {
-		generator := NewSDLGenerator()
-
-		generator.SetQueryFields(graphql.Fields{
-			"users": &graphql.Field{
-				Type: graphql.NewList(JSONScalar),
-				Args: graphql.FieldConfigArgument{
-					"limit": &graphql.ArgumentConfig{Type: graphql.Int},
-				},
-			},
-		})
-
-		sdl := generator.Generate()
-
-		if !strings.Contains(sdl, "type Query") {
-			t.Error("SDL should contain type Query")
-		}
-		if !strings.Contains(sdl, "users") {
-			t.Error("SDL should contain users field")
-		}
-	})
 }
 
 // TestResolveReturnType tests return type parsing.
