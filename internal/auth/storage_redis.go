@@ -409,8 +409,12 @@ func (s *RedisBruteForceStore) Reset(ctx context.Context, key string) error {
 	if err := s.client.Del(ctx, s.attemptsKey(key)).Err(); err != nil {
 		return fmt.Errorf("failed to clear attempts: %w", err)
 	}
-	// Also clear any progressive delay
+	// The delay and the lockout go with the attempts. The memory store clears
+	// all three, since it holds them in one entry it deletes, and two backends
+	// behind one interface that disagree about what reset means are two
+	// different behaviours wearing one name.
 	s.client.Del(ctx, s.delayKey(key))
+	s.client.Del(ctx, s.lockoutKey(key))
 	return nil
 }
 
