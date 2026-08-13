@@ -59,6 +59,54 @@ The transform one matters for the coverage target as well as for tidiness: it
 is ~127 uncovered statements in `functions.go` alone that are being counted
 against a percentage while not being part of the running product.
 
+### The shape U8 should take: a cache is a service, not a connector call
+
+Decided 2026-08-13. Redis is a connector like any other and should be usable as
+one — `to { connector.redis = "set" }` — but that alone is the small half of
+the problem. What the Mercury cache service actually is, is a *tiered* cache:
+memory in front of Redis, with each tier holding the same keys for a different
+length of time. Wiring that by hand means a flow per tier, a promotion path
+written by the author, and an invalidation fan-out they have to remember on
+every write. That is the plumbing Mycel exists to absorb.
+
+So the block declares the tiers and the runtime does the walking:
+
+    cache "products" {
+      tier "l1" { connector = "memory", ttl = "30s"  }
+      tier "l2" { connector = "redis",  ttl = "6h"   }
+
+      invalidate_via = "redis_pubsub"   # see below
+    }
+
+What the runtime owes it:
+
+- **Read walks down and promotes up.** L1, then L2, then a miss. A hit in L2
+  is written back into L1 with L1's own ttl, which is what makes the second
+  request cheap and the tenth free. The tiers hold the same key, not different
+  keys.
+- **Write and invalidate go to every tier**, nearest last on invalidate so a
+  concurrent read cannot repopulate a tier that was already cleared.
+- **A ttl per tier is the whole point** — seconds in memory, hours in Redis.
+  One ttl for the service would make the tiers pointless.
+- **Cross-instance invalidation is the hard part and has to be in the box.**
+  Every replica has its own L1, so a write on one leaves the other nine serving
+  what they already have. The shared tier is the one that can carry the
+  message: publish the invalidated key on a channel every replica is
+  subscribed to. Mycel already has the Redis pub/sub connector for it, and
+  doing this by hand is precisely what the service being replaced does today.
+  A single-replica or memory-only service should not have to configure it.
+- **A namespace chosen per request**, not fixed in the configuration, so one
+  cache service can serve several callers without them seeing each other —
+  the same key discipline the connector's `prefix` already applies, but
+  evaluated per request.
+
+The same declaration is what the two aspect blocks should use: an around
+`cache { storage = "products" }` reads and writes through the tiers rather
+than through one connector, and an after `invalidate { storage = "products" }`
+clears all of them and publishes. That is why the aspect bug and the missing
+destination are one piece of work — a cache the runtime understands, rather
+than three places that each ask a connector for a method it does not have.
+
 ### Notes on the open ones
 
 Nothing is open. Both directions of the schema/parser boundary are now checked
