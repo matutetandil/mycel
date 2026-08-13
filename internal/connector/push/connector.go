@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
@@ -491,20 +493,18 @@ func pushFromData(target string, payload interface{}) (*Message, error) {
 	case Message:
 		return &p, nil
 	case map[string]interface{}:
-		if token, ok := p["token"].(string); ok {
-			msg.Token = token
-		}
-		if topic, ok := p["topic"].(string); ok {
-			msg.Topic = topic
-		}
-		if title, ok := p["title"].(string); ok {
-			msg.Title = title
-		}
-		if body, ok := p["body"].(string); ok {
-			msg.Body = body
-		}
-		if data, ok := p["data"].(map[string]string); ok {
-			msg.Data = data
+		msg.Token = textOf(p["token"])
+		msg.Topic = textOf(p["topic"])
+		msg.Condition = textOf(p["condition"])
+		msg.Title = textOf(p["title"])
+		msg.Body = textOf(p["body"])
+		msg.Priority = textOf(p["priority"])
+		msg.CollapseKey = textOf(p["collapse_key"])
+		msg.Data = dataOf(p["data"])
+		msg.Tokens = tokensOf(p["tokens"])
+
+		if ttl, ok := intOf(p["ttl"]); ok {
+			msg.TTL = ttl
 		}
 	case string:
 		msg.Body = p
@@ -512,7 +512,7 @@ func pushFromData(target string, payload interface{}) (*Message, error) {
 			msg.Token = target
 		}
 	default:
-		return nil, fmt.Errorf("unsupported data type for push notification")
+		return nil, fmt.Errorf("a push notification is a record or a line of text, and %T is neither", payload)
 	}
 
 	if msg.Token == "" && target != "" {
@@ -520,6 +520,97 @@ func pushFromData(target string, payload interface{}) (*Message, error) {
 	}
 
 	return msg, nil
+}
+
+// dataOf reads the data payload a notification carries for the app to act on.
+//
+// It used to be read with a `map[string]string` type assertion, and a flow's
+// payload is a `map[string]interface{}` — which is what a transform produces
+// and what JSON decodes into — so the assertion never held and the data was
+// dropped every time. The notification still arrived and still said the right
+// thing; tapping it landed nowhere, because the order id was not in it.
+//
+// The values are rendered as text because that is all the platform carries. A
+// transform that computes a number would otherwise lose exactly the identifier
+// the app needs.
+func dataOf(value interface{}) map[string]string {
+	switch data := value.(type) {
+	case nil:
+		return nil
+	case map[string]string:
+		return data
+	case map[string]interface{}:
+		if len(data) == 0 {
+			return nil
+		}
+		out := make(map[string]string, len(data))
+		for key, item := range data {
+			out[key] = textOf(item)
+		}
+		return out
+	}
+	return nil
+}
+
+// tokensOf reads a list of devices, however the list arrived.
+func tokensOf(value interface{}) []string {
+	switch list := value.(type) {
+	case []string:
+		return list
+	case []interface{}:
+		out := make([]string, 0, len(list))
+		for _, item := range list {
+			if token := textOf(item); token != "" {
+				out = append(out, token)
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+	return nil
+}
+
+// textOf renders a value as the text a push payload carries.
+func textOf(value interface{}) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	case bool:
+		return strconv.FormatBool(v)
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float64:
+		// Whole numbers are identifiers, not measurements: an order id must
+		// not arrive as 1234.
+		if v == math.Trunc(v) && math.Abs(v) < 1e15 {
+			return strconv.FormatInt(int64(v), 10)
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	}
+	return fmt.Sprintf("%v", value)
+}
+
+// intOf reads a whole number however it arrived.
+func intOf(value interface{}) (int, bool) {
+	switch n := value.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	case string:
+		if parsed, err := strconv.Atoi(n); err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
 }
 
 // Ensure connectors implement interface
