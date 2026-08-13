@@ -318,3 +318,76 @@ func TestAParsedKeyIsTheKindASignatureLibraryUses(t *testing.T) {
 		t.Errorf("an EC key parsed to %T", parsed)
 	}
 }
+
+func TestARequestCarryingAValidTokenIsAuthenticated(t *testing.T) {
+	// The whole path a request takes, rather than the signature check alone:
+	// the header is read, the scheme stripped, the algorithm checked against
+	// what is allowed, the key fetched, the signature verified, and the claims
+	// handed on. A fix to one step is only a fix if the request gets through.
+	private, jwk := rsaJWK(t, "k1")
+	var keys atomic.Value
+	keys.Store(JWKS{Keys: []JWK{jwk}})
+	server, _ := publishing(t, &keys)
+
+	c := &Connector{authConfig: &AuthConfig{
+		Type: "jwt",
+		JWT: &JWTAuthConfig{
+			JWKSURL:    server.URL,
+			Algorithms: []string{"RS256"},
+		},
+	}}
+
+	request := httptest.NewRequest(http.MethodGet, "/orders", nil)
+	request.Header.Set("Authorization", "Bearer "+signedWith(t, jwt.SigningMethodRS256, private, "k1"))
+
+	authContext, err := c.validateJWT(request)
+	if err != nil {
+		t.Fatalf("a request with a valid token was refused: %v", err)
+	}
+	if authContext == nil {
+		t.Fatal("no identity came back for an authenticated request")
+	}
+	if !authContext.Authenticated {
+		t.Error("the request came back unauthenticated")
+	}
+	// The claims have to arrive too: they are what a flow reads as auth.* and
+	// what any authorization decision is made on.
+	if authContext.Claims == nil || authContext.Claims["sub"] != "user-1" {
+		t.Errorf("claims = %v, want the subject from the token", authContext.Claims)
+	}
+}
+
+func TestARequestIsRefusedForEachWayATokenCanBeWrong(t *testing.T) {
+	private, jwk := rsaJWK(t, "k1")
+	forged, _ := rsaJWK(t, "k1")
+	var keys atomic.Value
+	keys.Store(JWKS{Keys: []JWK{jwk}})
+	server, _ := publishing(t, &keys)
+
+	c := &Connector{authConfig: &AuthConfig{
+		Type: "jwt",
+		JWT: &JWTAuthConfig{
+			JWKSURL:    server.URL,
+			Algorithms: []string{"RS256"},
+		},
+	}}
+
+	for name, header := range map[string]string{
+		"no header at all":             "",
+		"the token without a scheme":   signedWith(t, jwt.SigningMethodRS256, private, "k1"),
+		"another scheme":               "Basic " + signedWith(t, jwt.SigningMethodRS256, private, "k1"),
+		"signed by somebody else":      "Bearer " + signedWith(t, jwt.SigningMethodRS256, forged, "k1"),
+		"naming a key nobody has":      "Bearer " + signedWith(t, jwt.SigningMethodRS256, private, "unknown"),
+		"nonsense in place of a token": "Bearer not-a-token",
+	} {
+		t.Run(name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/orders", nil)
+			if header != "" {
+				request.Header.Set("Authorization", header)
+			}
+			if _, err := c.validateJWT(request); err == nil {
+				t.Error("the request was authenticated")
+			}
+		})
+	}
+}
