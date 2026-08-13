@@ -780,3 +780,24 @@ func isMySQLUniqueViolation(err error) bool {
 	errStr := err.Error()
 	return containsAny(errStr, "Duplicate entry", "1062", "unique", "UNIQUE constraint")
 }
+
+// DeleteIdle removes sessions nobody has touched since the threshold, which is
+// what an idle timeout ends.
+//
+// It is separate from DeleteExpired: that one removes sessions past their
+// absolute lifetime, and a session can be well inside its lifetime and still
+// have been abandoned on a screen an hour ago.
+func (s *MySQLSessionStore) DeleteIdle(ctx context.Context, threshold time.Time) (int, error) {
+	query := fmt.Sprintf(`DELETE FROM %s WHERE last_active_at < ?`, s.table)
+
+	result, err := s.db.ExecContext(ctx, query, threshold)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete idle sessions: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to count deleted sessions: %w", err)
+	}
+	return int(affected), nil
+}

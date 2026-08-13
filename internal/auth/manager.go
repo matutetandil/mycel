@@ -112,7 +112,9 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 		m.userStore = NewMemoryUserStore()
 	}
 	if m.sessionStore == nil {
-		m.sessionStore = NewMemorySessionStore()
+		// The idle-capable one, so that sessions { idle_timeout } is enforced
+		// out of the box rather than only when a store is supplied by hand.
+		m.sessionStore = NewMemorySessionStoreWithIdle()
 	}
 	if m.tokenStore == nil {
 		m.tokenStore = NewMemoryTokenStore()
