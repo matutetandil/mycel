@@ -1876,6 +1876,18 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 		}
 	}
 
+	// Check the answer against the contract the flow declares for it.
+	//
+	// The input side has always been checked, which is what makes the absence
+	// of this one dangerous rather than merely missing: someone who sees
+	// `validate { input = ... }` refuse a bad request reasonably assumes the
+	// output half does the same. See validateResult.
+	if _, valErr := trace.RecordStage(ctx, trace.StageValidateOut, "", result, func() (interface{}, error) {
+		return nil, h.validateResult(ctx, result)
+	}); valErr != nil {
+		return nil, valErr
+	}
+
 	// For read operations, store result in cache
 	if operation.IsRead() && h.hasCacheConfig() {
 		cacheKey := h.buildCacheKey(input)
