@@ -3,16 +3,20 @@ package rest
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rsa"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/matutetandil/mycel/v2/internal/identity"
+	"math/big"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/matutetandil/mycel/v2/internal/identity"
 )
 
 // AuthConfig holds authentication configuration for the REST server.
@@ -408,11 +412,25 @@ func getAudience(claims jwt.MapClaims) []string {
 	}
 }
 
-// getJWKSKey fetches the appropriate key from JWKS.
+// getJWKSKey finds the key a token was signed with.
+//
+// The set is fetched once and kept, since it changes rarely and fetching it
+// per request would put an HTTP call in front of every authenticated one. But
+// issuers do rotate: a token arrives signed with a key that was published
+// after the set was cached, and its identifier is not in what we hold. Kept
+// for ever, that would refuse every request from the moment of a rotation
+// until somebody restarted the service. So an unknown identifier is a reason
+// to look again — once, and only then.
 func (c *Connector) getJWKSKey(token *jwt.Token) (interface{}, error) {
 	cfg := c.authConfig.JWT
 
-	// Fetch JWKS if not cached
+	// The identifier first: a token that names no key cannot be matched
+	// against any set, so there is nothing to fetch for it.
+	kid, ok := token.Header["kid"].(string)
+	if !ok || kid == "" {
+		return nil, fmt.Errorf("the token names no signing key, so it cannot be checked against %s", cfg.JWKSURL)
+	}
+
 	if cfg.jwks == nil {
 		jwks, err := fetchJWKS(cfg.JWKSURL)
 		if err != nil {
@@ -421,19 +439,35 @@ func (c *Connector) getJWKSKey(token *jwt.Token) (interface{}, error) {
 		cfg.jwks = jwks
 	}
 
-	// Find key by kid
-	kid, ok := token.Header["kid"].(string)
-	if !ok {
-		return nil, fmt.Errorf("token missing kid header")
+	if key, found := findKey(cfg.jwks, kid); found {
+		return parseJWK(key)
 	}
 
-	for _, key := range cfg.jwks.Keys {
+	// Not in what we hold. The issuer may have rotated since.
+	refreshed, err := fetchJWKS(cfg.JWKSURL)
+	if err != nil {
+		return nil, fmt.Errorf("token names key %q, which is not in the set we hold, and it could not be fetched again: %w", kid, err)
+	}
+	cfg.jwks = refreshed
+
+	if key, found := findKey(refreshed, kid); found {
+		return parseJWK(key)
+	}
+
+	return nil, fmt.Errorf("no key named %q is published at %s", kid, cfg.JWKSURL)
+}
+
+// findKey looks up one key of a set by its identifier.
+func findKey(jwks *JWKS, kid string) (JWK, bool) {
+	if jwks == nil {
+		return JWK{}, false
+	}
+	for _, key := range jwks.Keys {
 		if key.Kid == kid {
-			return parseJWK(key)
+			return key, true
 		}
 	}
-
-	return nil, fmt.Errorf("key not found in JWKS: %s", kid)
+	return JWK{}, false
 }
 
 // fetchJWKS fetches a JWKS from a URL.
@@ -469,50 +503,82 @@ func parseJWK(key JWK) (interface{}, error) {
 	}
 }
 
-// parseRSAPublicKey parses an RSA public key from JWK.
+// parseRSAPublicKey builds an RSA public key from a JWK.
+//
+// It used to return an anonymous struct holding the modulus and exponent,
+// which is not a key any signature library can verify with: every token
+// checked against a JWKS was refused with "key is of invalid type: RSA verify
+// expects *rsa.PublicKey". A service pointed at Auth0, Cognito or Keycloak
+// rejected every authenticated request. It failed closed, which is the safe
+// direction and the reason it could go unnoticed as a configuration problem.
 func parseRSAPublicKey(key JWK) (interface{}, error) {
-	// Decode n and e from base64url
 	nBytes, err := base64.RawURLEncoding.DecodeString(key.N)
 	if err != nil {
-		return nil, fmt.Errorf("invalid RSA n: %w", err)
+		return nil, fmt.Errorf("invalid RSA modulus in key %q: %w", key.Kid, err)
+	}
+	if len(nBytes) == 0 {
+		return nil, fmt.Errorf("key %q has no RSA modulus", key.Kid)
 	}
 
 	eBytes, err := base64.RawURLEncoding.DecodeString(key.E)
 	if err != nil {
-		return nil, fmt.Errorf("invalid RSA e: %w", err)
+		return nil, fmt.Errorf("invalid RSA exponent in key %q: %w", key.Kid, err)
+	}
+	if len(eBytes) == 0 {
+		return nil, fmt.Errorf("key %q has no RSA exponent", key.Kid)
 	}
 
-	// Convert e to int
-	var e int
+	// The exponent is a big-endian integer, almost always 65537.
+	exponent := 0
 	for _, b := range eBytes {
-		e = e<<8 + int(b)
+		exponent = exponent<<8 + int(b)
+	}
+	if exponent <= 0 {
+		return nil, fmt.Errorf("key %q has an unusable RSA exponent", key.Kid)
 	}
 
-	return &struct {
-		N []byte
-		E int
-	}{N: nBytes, E: e}, nil
+	return &rsa.PublicKey{
+		N: new(big.Int).SetBytes(nBytes),
+		E: exponent,
+	}, nil
 }
 
-// parseECPublicKey parses an EC public key from JWK.
+// parseECPublicKey builds an EC public key from a JWK.
+//
+// The curve is named in the key rather than implied, and it decides how the
+// coordinates are read — so a key naming one we do not know is refused rather
+// than assumed to be P-256, which would verify nothing and say the signature
+// was bad.
 func parseECPublicKey(key JWK) (interface{}, error) {
-	// For EC keys, we need to use crypto/ecdsa
-	// This is a simplified implementation
+	var curve elliptic.Curve
+	switch key.Crv {
+	case "P-256":
+		curve = elliptic.P256()
+	case "P-384":
+		curve = elliptic.P384()
+	case "P-521":
+		curve = elliptic.P521()
+	default:
+		return nil, fmt.Errorf("key %q names curve %q, which is not one of P-256, P-384 or P-521", key.Kid, key.Crv)
+	}
+
 	xBytes, err := base64.RawURLEncoding.DecodeString(key.X)
 	if err != nil {
-		return nil, fmt.Errorf("invalid EC x: %w", err)
+		return nil, fmt.Errorf("invalid EC x coordinate in key %q: %w", key.Kid, err)
 	}
-
 	yBytes, err := base64.RawURLEncoding.DecodeString(key.Y)
 	if err != nil {
-		return nil, fmt.Errorf("invalid EC y: %w", err)
+		return nil, fmt.Errorf("invalid EC y coordinate in key %q: %w", key.Kid, err)
+	}
+	if len(xBytes) == 0 || len(yBytes) == 0 {
+		return nil, fmt.Errorf("key %q is missing a coordinate", key.Kid)
 	}
 
-	return &struct {
-		Curve string
-		X     []byte
-		Y     []byte
-	}{Curve: key.Crv, X: xBytes, Y: yBytes}, nil
+	return &ecdsa.PublicKey{
+		Curve: curve,
+		X:     new(big.Int).SetBytes(xBytes),
+		Y:     new(big.Int).SetBytes(yBytes),
+	}, nil
 }
 
 // validateAPIKey validates an API key from the request.
