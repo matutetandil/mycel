@@ -680,6 +680,13 @@ func (c *Connector) refreshAccessToken(ctx context.Context) error {
 	if tokenResp.ExpiresIn > 0 {
 		// Set expiry with a small buffer
 		c.tokenExpiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn-60) * time.Second)
+	} else {
+		// A provider that states no lifetime is not saying the token lasts for
+		// ever. Leaving the expiry unset means it is never refreshed, so the
+		// service works until the token quietly expires and then fails every
+		// request until it is restarted. An hour, as the client credentials
+		// grant already assumes.
+		c.tokenExpiry = time.Now().Add(time.Hour)
 	}
 
 	// Update refresh token if a new one was provided
