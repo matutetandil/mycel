@@ -1,6 +1,9 @@
 package connector
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+)
 
 // IntFromProps extracts an int from a connector properties map, accepting any
 // reasonable representation. The HCL parser stores numbers as int / int64 /
@@ -52,4 +55,42 @@ func intFromProps(props map[string]interface{}, key string) (int, bool) {
 		return i, true
 	}
 	return 0, false
+}
+
+// BoolFromProps extracts a bool from a connector properties map, accepting the
+// spellings a value can arrive in.
+//
+// HCL gives a real bool, but anything sourced from env() is a string — so a
+// flag set in a container's environment reads as text and would otherwise be
+// false however it was written.
+func BoolFromProps(props map[string]interface{}, key string, defaultVal bool) bool {
+	b, ok := BoolFromPropsStrict(props, key)
+	if !ok {
+		return defaultVal
+	}
+	return b
+}
+
+// BoolFromPropsStrict returns (value, ok), so a caller can tell "not set" from
+// "set to false".
+func BoolFromPropsStrict(props map[string]interface{}, key string) (bool, bool) {
+	if props == nil {
+		return false, false
+	}
+	v, ok := props[key]
+	if !ok || v == nil {
+		return false, false
+	}
+	switch b := v.(type) {
+	case bool:
+		return b, true
+	case string:
+		// The set ParseBool accepts, which is the one people write.
+		parsed, err := strconv.ParseBool(strings.TrimSpace(b))
+		if err != nil {
+			return false, false
+		}
+		return parsed, true
+	}
+	return false, false
 }
