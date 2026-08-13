@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -2558,6 +2558,12 @@ func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string
 		Success: true,
 	}
 
+	// Two destinations may share a connector — an order and its lines, both
+	// going to the same database — and the report is keyed by name, so one
+	// used to overwrite the other. Both writes happened; only one was ever
+	// accounted for. Repeats are named by what distinguishes them.
+	labels := destinationLabels(h.Config.MultiTo)
+
 	// Execute parallel destinations concurrently
 	if len(parallelDests) > 0 {
 		var wg sync.WaitGroup
@@ -2573,10 +2579,10 @@ func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string
 				mu.Lock()
 				defer mu.Unlock()
 				if destErr != nil {
-					result.Errors[dc.Connector] = destErr.Error()
+					result.Errors[labels[dc]] = destErr.Error()
 					result.Success = false
 				} else {
-					result.Results[dc.Connector] = destResult
+					result.Results[labels[dc]] = destResult
 				}
 			}(destConfig)
 		}
@@ -2587,10 +2593,10 @@ func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string
 	for _, destConfig := range sequentialDests {
 		destResult, destErr := h.writeToDestination(ctx, input, basePayload, destConfig, operation)
 		if destErr != nil {
-			result.Errors[destConfig.Connector] = destErr.Error()
+			result.Errors[labels[destConfig]] = destErr.Error()
 			result.Success = false
 		} else {
-			result.Results[destConfig.Connector] = destResult
+			result.Results[labels[destConfig]] = destResult
 		}
 	}
 
@@ -2602,15 +2608,50 @@ func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string
 	return result, nil
 }
 
+// destinationLabels names each destination in the report.
+//
+// A connector that appears once keeps its bare name, which is what anything
+// reading the result already expects. A connector that appears twice has its
+// entries told apart by what distinguishes them — the table, the queue, the
+// path — so neither is lost to the other.
+func destinationLabels(destinations []*flow.ToConfig) map[*flow.ToConfig]string {
+	appearances := map[string]int{}
+	for _, dest := range destinations {
+		appearances[dest.Connector]++
+	}
+
+	labels := make(map[*flow.ToConfig]string, len(destinations))
+	seen := map[string]int{}
+	for _, dest := range destinations {
+		if appearances[dest.Connector] == 1 {
+			labels[dest] = dest.Connector
+			continue
+		}
+
+		seen[dest.Connector]++
+		if target := dest.GetTarget(); target != "" {
+			labels[dest] = dest.Connector + ":" + target
+			continue
+		}
+		labels[dest] = fmt.Sprintf("%s#%d", dest.Connector, seen[dest.Connector])
+	}
+	return labels
+}
+
 // writeToDestination writes data to a single destination.
 func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload map[string]interface{}, destConfig *flow.ToConfig, operation Operation) (interface{}, error) {
 	// Check when condition if specified
 	if destConfig.When != "" {
-		// Build context with output (the transformed data)
-		evalInput := make(map[string]interface{})
+		// `input` is the message as it arrived and `output` is what the
+		// transform made of it. Only the second used to be bound: the fields
+		// were copied to the top level instead, where CEL cannot see them, so
+		// `input.total > 1000` — the spelling every other condition in a flow
+		// uses — failed the write with "no such key" rather than deciding it.
+		evalInput := make(map[string]interface{}, len(input)+2)
 		for k, v := range input {
 			evalInput[k] = v
 		}
+		evalInput["input"] = input
 		evalInput["output"] = basePayload
 
 		shouldWrite, err := h.Transformer.EvaluateCondition(ctx, evalInput, destConfig.When)
