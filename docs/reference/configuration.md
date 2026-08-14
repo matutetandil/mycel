@@ -62,6 +62,15 @@ service {
     storage     = "db"              # Database connector name
     table       = "mycel_workflows" # Table name (default: mycel_workflows)
     auto_create = true              # Create table on startup
+
+    api {                           # optional; no api block means no endpoints
+      port = 9091                   # default 9091; may not be the admin port
+
+      auth {                        # required when api is written
+        type = "api_key"            # jwt, api_key or basic — a connector's auth block
+        keys = [env("WORKFLOW_API_KEY")]
+      }
+    }
   }
 }
 ```

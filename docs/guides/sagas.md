@@ -197,6 +197,18 @@ service {
     storage     = "db"              # Database connector name
     table       = "mycel_workflows" # Table name (default)
     auto_create = true              # Create table on startup
+
+    # The HTTP interface to running workflows. Optional, and off unless it is
+    # written: these endpoints wake and cancel workflows, so they are not on
+    # the admin server and they are never served without authentication.
+    api {
+      port = 9091                   # default 9091; the admin port is refused
+
+      auth {                        # required — the same block a connector takes
+        type = "api_key"
+        keys = [env("WORKFLOW_API_KEY")]
+      }
+    }
   }
 }
 ```
@@ -281,6 +293,7 @@ Signal the workflow via the auto-registered REST API:
 
 ```bash
 POST /workflows/{workflow_id}/signal/loan_approved
+X-API-Key: $WORKFLOW_API_KEY
 Content-Type: application/json
 
 { "approved_by": "manager@company.com", "note": "Approved" }
@@ -297,6 +310,18 @@ The engine auto-registers three endpoints:
 | `GET /workflows/{id}` | Get workflow status, current step, timestamps |
 | `POST /workflows/{id}/signal/{event}` | Resume a paused workflow awaiting an event |
 | `POST /workflows/{id}/cancel` | Cancel an active workflow (runs compensation) |
+
+They are served on the port the `api` block names — 9091 by default — and every
+request carries the credentials that block configures:
+
+```bash
+curl -H "X-API-Key: $WORKFLOW_API_KEY" http://localhost:9091/workflows/wf_abc123
+```
+
+Without an `api` block there are no workflow endpoints at all. They are not on
+the admin server: that port carries health and metrics, is read-only and
+unauthenticated by design, and signalling a workflow resumes it with whatever
+data the caller sends.
 
 When a saga with delay/await steps is triggered, the response is HTTP 202 with the workflow ID:
 
