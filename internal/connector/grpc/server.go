@@ -416,7 +416,7 @@ func (c *ServerConnector) registerDynamicService(serviceName string, methods map
 		svcDesc.Methods = append(svcDesc.Methods, grpc.MethodDesc{
 			MethodName: name,
 			Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-				return c.handleDynamicUnary(ctx, h, dec, interceptor)
+				return c.handleDynamicUnary(ctx, "/"+serviceName+"/"+name, h, dec, interceptor)
 			},
 		})
 	}
@@ -435,6 +435,35 @@ func (c *ServerConnector) handleUnary(ctx context.Context, md *desc.MethodDescri
 		return nil, err
 	}
 
+	// The server hands a unary interceptor to the method handler and expects
+	// the handler to invoke it — that is what generated code does. This one
+	// took the argument and ignored it, so every server-side interceptor was
+	// dead: a service configured with auth answered calls carrying no
+	// credentials at all, while logging that authentication was enabled.
+	return c.throughInterceptor(ctx, inputMsg, interceptor, fullMethodOf(md), func(ctx context.Context) (interface{}, error) {
+		return c.serveUnary(ctx, md, handler, inputMsg)
+	})
+}
+
+// throughInterceptor runs the call through whatever the server chained onto it
+// — authentication among them — and calls the flow only if that lets it past.
+func (c *ServerConnector) throughInterceptor(ctx context.Context, req interface{}, interceptor grpc.UnaryServerInterceptor, fullMethod string, serve func(context.Context) (interface{}, error)) (interface{}, error) {
+	if interceptor == nil {
+		return serve(ctx)
+	}
+	info := &grpc.UnaryServerInfo{FullMethod: fullMethod}
+	return interceptor(ctx, req, info, func(ctx context.Context, _ interface{}) (interface{}, error) {
+		return serve(ctx)
+	})
+}
+
+// fullMethodOf builds the /package.Service/Method name a interceptor matches
+// its public list against.
+func fullMethodOf(md *desc.MethodDescriptor) string {
+	return "/" + md.GetService().GetFullyQualifiedName() + "/" + md.GetName()
+}
+
+func (c *ServerConnector) serveUnary(ctx context.Context, md *desc.MethodDescriptor, handler HandlerFunc, inputMsg *dynamic.Message) (interface{}, error) {
 	// Convert to map
 	inputData, err := dynamicMessageToMap(inputMsg)
 	if err != nil {
@@ -476,7 +505,7 @@ func (c *ServerConnector) handleUnary(ctx context.Context, md *desc.MethodDescri
 }
 
 // handleDynamicUnary handles a unary RPC call without proto definition.
-func (c *ServerConnector) handleDynamicUnary(ctx context.Context, handler HandlerFunc, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func (c *ServerConnector) handleDynamicUnary(ctx context.Context, fullMethod string, handler HandlerFunc, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	// For dynamic calls, we use JSON encoding
 	var input map[string]interface{}
 	if err := dec(&input); err != nil {
@@ -490,7 +519,9 @@ func (c *ServerConnector) handleDynamicUnary(ctx context.Context, handler Handle
 		}
 	}
 
-	return handler(ctx, input)
+	return c.throughInterceptor(ctx, input, interceptor, fullMethod, func(ctx context.Context) (interface{}, error) {
+		return handler(ctx, input)
+	})
 }
 
 // handleStream handles a streaming RPC call.
