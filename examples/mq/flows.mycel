@@ -29,6 +29,9 @@ flow "publish_order" {
 
 // Flow: Consume order events -> Store in database
 // When a message arrives on the orders queue, it's processed and stored
+// A message from a queue arrives wrapped: input.body holds what was published,
+// beside input.headers, input.properties, input.routing_key and input.exchange.
+// So everything the publisher sent is read through input.body.
 flow "process_order" {
   from {
     connector = "order_events"
@@ -36,10 +39,10 @@ flow "process_order" {
   }
 
   transform {
-    id           = "input.order_id"
-    product      = "input.product"
-    quantity     = "input.quantity"
-    customer     = "input.customer"
+    id           = "input.body.order_id"
+    product      = "input.body.product"
+    quantity     = "input.body.quantity"
+    customer     = "input.body.customer"
     status       = "'processed'"
     processed_at = "now()"
   }
@@ -60,10 +63,10 @@ flow "notify_order" {
 
   transform {
     notification_type = "'email'"
-    recipient         = "input.customer.email"
+    recipient         = "input.body.customer.email"
     subject           = "'Order Confirmation'"
-    order_id          = "input.order_id"
-    message           = "concat('Your order ', input.order_id, ' has been received.')"
+    order_id          = "input.body.order_id"
+    message           = "concat('Your order ', input.body.order_id, ' has been received.')"
   }
 
   to {

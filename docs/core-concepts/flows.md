@@ -169,7 +169,7 @@ from {
   filter {
     condition   = "input.amount > 0"
     on_reject   = "requeue"  # "ack" (discard), "reject" (DLQ), "requeue" (retry)
-    id_field    = "input.payment_id"   # For deduplication tracking
+    id_field    = "input.body.payment_id"  # identifies the message; see the envelope below
     max_requeue = 3          # Maximum times a message can be requeued
   }
 }

@@ -649,7 +649,7 @@ from {
   filter {
     condition   = "input.amount > 0"
     on_reject   = "requeue"  # "ack", "reject", "requeue"
-    id_field    = "input.payment_id"
+    id_field    = "input.body.payment_id"
     max_requeue = 3
   }
 }
