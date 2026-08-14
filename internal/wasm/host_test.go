@@ -3,6 +3,7 @@ package wasm
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -200,5 +201,60 @@ func TestAModuleIsLoadedOnceAndSharedAfterwards(t *testing.T) {
 	}
 	if second != first {
 		t.Error("loading the same plugin twice compiled it twice")
+	}
+}
+
+func TestAModuleIsReloadedWhenItsFileHasChanged(t *testing.T) {
+	// A plugin is upgraded in place — mycel plugin install writes the new
+	// binary over the old one — and then the service reloads. Keyed by name
+	// alone, the cache handed back the module compiled from the previous file,
+	// so the new version never ran and nothing said so: the plugin was
+	// upgraded, the configuration reloaded, and the old code kept answering.
+	runtime, err := NewRuntime(context.Background())
+	if err != nil {
+		t.Fatalf("NewRuntime: %v", err)
+	}
+	defer func() { _ = runtime.Close() }()
+
+	path := fixtureFile(t)
+	if _, err := runtime.LoadModule("plugin", path); err != nil {
+		t.Fatalf("LoadModule: %v", err)
+	}
+
+	// The upgraded plugin: same path, different contents. This one exports a
+	// function the first does not.
+	if err := os.WriteFile(path, upgradedWASM(), 0o644); err != nil {
+		t.Fatalf("writing the upgrade: %v", err)
+	}
+
+	upgraded, err := runtime.LoadModule("plugin", path)
+	if err != nil {
+		t.Fatalf("LoadModule: %v", err)
+	}
+	if !upgraded.HasFunction("added_in_the_new_version") {
+		t.Error("the module from the previous file was handed back, so the upgrade never ran")
+	}
+}
+
+func TestTheSameFileIsNotCompiledTwice(t *testing.T) {
+	// Compiling is the expensive part: noticing a change must not turn into
+	// recompiling on every connect.
+	runtime, err := NewRuntime(context.Background())
+	if err != nil {
+		t.Fatalf("NewRuntime: %v", err)
+	}
+	defer func() { _ = runtime.Close() }()
+
+	path := fixtureFile(t)
+	first, err := runtime.LoadModule("plugin", path)
+	if err != nil {
+		t.Fatalf("LoadModule: %v", err)
+	}
+	second, err := runtime.LoadModule("plugin", path)
+	if err != nil {
+		t.Fatalf("LoadModule: %v", err)
+	}
+	if first != second {
+		t.Error("an unchanged plugin was compiled again")
 	}
 }

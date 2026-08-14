@@ -121,6 +121,14 @@ func (c *WASMConnector) Close(ctx context.Context) error {
 		_, _ = c.callWASM("close", nil)
 	}
 
+	// And give the module back. The name it is loaded under belongs to this
+	// connector, so a reload that drops the connector should not leave its
+	// compiled module in the shared runtime for the life of the process.
+	if runtime, err := getWASMRuntime(); err == nil {
+		_ = runtime.UnloadModule("plugin_" + c.typeName + "_" + c.name)
+	}
+	c.module = nil
+
 	c.connected = false
 	return nil
 }

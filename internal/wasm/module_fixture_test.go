@@ -15,7 +15,7 @@ import (
 //	validate_always_valid(ptr,len) -> 0  a check that passes
 //	validate_always_invalid -> 1         a check that fails
 //	boom(ptr,len)                        traps, the way a broken plugin does
-func fixtureWASM() []byte {
+func fixtureWASM(extraExports ...string) []byte {
 	var w []byte
 	w = append(w, 0x00, 0x61, 0x73, 0x6d) // \0asm
 	w = append(w, 0x01, 0x00, 0x00, 0x00) // version 1
@@ -54,6 +54,12 @@ func fixtureWASM() []byte {
 	addExport("validate_always_valid", 0x00, 0x03)
 	addExport("validate_always_invalid", 0x00, 0x04)
 	addExport("boom", 0x00, 0x05)
+	for _, name := range extraExports {
+		// An alias of validate_always_valid, so the module is the same one
+		// with a name it did not have before.
+		addExport(name, 0x00, 0x03)
+	}
+	exports[0] = byte(0x07 + len(extraExports))
 	section(0x07, exports)
 
 	// Code
@@ -87,4 +93,10 @@ func fixtureFile(t *testing.T) string {
 // writeGarbage replaces a file with something that is not WebAssembly.
 func writeGarbage(path string) error {
 	return os.WriteFile(path, []byte("this is not a module"), 0o644)
+}
+
+// upgradedWASM is the same module with one more exported function, standing in
+// for a plugin that has been upgraded in place.
+func upgradedWASM() []byte {
+	return fixtureWASM("added_in_the_new_version")
 }

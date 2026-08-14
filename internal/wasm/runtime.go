@@ -4,6 +4,7 @@ package wasm
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,8 +25,13 @@ type Runtime struct {
 
 // Module represents a loaded WASM module.
 type Module struct {
-	name     string
-	path     string
+	name string
+	path string
+
+	// fingerprint is the hash of the file this was compiled from, so a plugin
+	// upgraded in place is noticed rather than served from the cache.
+	fingerprint [32]byte
+
 	compiled wazero.CompiledModule
 	instance api.Module
 	runtime  *Runtime
@@ -65,19 +71,34 @@ func NewRuntime(ctx context.Context) (*Runtime, error) {
 }
 
 // LoadModule loads a WASM module from a file.
+//
+// A module already loaded under this name is reused, unless the file it was
+// compiled from has changed — a plugin upgraded in place, which is what
+// installing a new version does. Keyed by name alone, an upgrade never ran:
+// the new binary was on disk, the configuration was reloaded, and the module
+// compiled from the previous file kept answering with nothing to say it had.
 func (r *Runtime) LoadModule(name, path string) (*Module, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	// Check if already loaded
-	if m, ok := r.modules[name]; ok {
-		return m, nil
-	}
 
 	// Read WASM file
 	wasmBytes, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read WASM file: %w", err)
+	}
+	fingerprint := sha256.Sum256(wasmBytes)
+
+	// Check if already loaded from the same file
+	if m, ok := r.modules[name]; ok {
+		if m.path == path && m.fingerprint == fingerprint {
+			return m, nil
+		}
+		// Replaced: take the old one out before compiling its successor, so a
+		// failure here does not leave two modules answering to one name.
+		if err := m.instance.Close(r.ctx); err != nil {
+			return nil, fmt.Errorf("failed to close the previous version of module %s: %w", name, err)
+		}
+		delete(r.modules, name)
 	}
 
 	// Compile the module
@@ -93,11 +114,12 @@ func (r *Runtime) LoadModule(name, path string) (*Module, error) {
 	}
 
 	module := &Module{
-		name:     name,
-		path:     path,
-		compiled: compiled,
-		instance: instance,
-		runtime:  r,
+		fingerprint: fingerprint,
+		name:        name,
+		path:        path,
+		compiled:    compiled,
+		instance:    instance,
+		runtime:     r,
 	}
 
 	r.modules[name] = module
