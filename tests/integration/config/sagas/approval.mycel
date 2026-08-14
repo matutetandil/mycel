@@ -1,0 +1,48 @@
+# A workflow that waits for something outside itself.
+#
+# This is the first saga in the integration suite, and long-running workflows
+# are the reason the workflow endpoints exist: the request that starts one is
+# long gone by the time somebody approves it, so the only way to see it, wake it
+# or stop it is over HTTP. Those endpoints used to sit on the admin port with no
+# authentication at all.
+
+saga "approval" {
+  timeout = "1h"
+
+  from {
+    connector = "api"
+    operation = "POST /test/approval"
+  }
+
+  # Record what was asked for.
+  step "record" {
+    action {
+      connector = "postgres"
+      operation = "INSERT"
+      target    = "items"
+      data = {
+        title  = "input.title"
+        status = "\"awaiting_approval\""
+      }
+    }
+  }
+
+  # And then wait to be told. The workflow is paused here until a signal
+  # arrives, which is what the api block serves.
+  step "await_approval" {
+    timeout = "1h"
+    await   = "approved"
+
+    action {
+      connector = "postgres"
+      operation = "UPDATE"
+      target    = "items"
+      set = {
+        status = "\"approved\""
+      }
+      where = {
+        title = "input.title"
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+# A message the flow does not want, requeued a bounded number of times.
+#
+# The filter rejects everything that is not marked wanted, and the policy is to
+# put it back. What stops that being a loop is the identifier: the consumer
+# counts redeliveries per message and acknowledges once the count is reached.
+# id_field is the expression that produces it.
+
+flow "requeue_bounded" {
+  from {
+    connector = "rabbit_requeue_sub"
+
+    filter {
+      condition   = "input.wanted == true"
+      on_reject   = "requeue"
+      max_requeue = 2
+      id_field    = "input.reference"
+    }
+  }
+
+  to {
+    connector = "postgres"
+    target    = "items"
+  }
+
+  transform {
+    title  = "input.reference"
+    status = "\"wanted\""
+  }
+}
+
+# Publishing side, so a test can put a message on that queue over HTTP.
+flow "publish_requeue" {
+  from {
+    connector = "api"
+    operation = "POST /test/requeue"
+  }
+  to {
+    connector = "rabbit_requeue_pub"
+  }
+}

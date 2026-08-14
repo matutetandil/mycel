@@ -7,5 +7,18 @@ connector "grpc_api" {
   port        = 50051
   proto_path  = "/etc/mycel/protos"
   proto_files = ["test.proto"]
-  reflection  = true
+
+  # Written as a word on purpose: env() hands back strings, and reading a
+  # switch as a native boolean only meant a spelt-out value fell through to
+  # the default.
+  reflection = "true"
+
+  # The interceptor behind this was never invoked: the server handed it to the
+  # method handler and the handler ignored it, so every call was answered
+  # whatever it carried.
+  auth {
+    type   = "api_key"
+    keys   = ["grpc-test-key"]
+    public = ["/integration.UserService/ListUsers"]
+  }
 }

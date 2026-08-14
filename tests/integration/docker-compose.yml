@@ -18,6 +18,8 @@ services:
       - "${PORT_SOAP:-8081}:8081"     # SOAP
       - "${PORT_GRPC:-50051}:50051"   # gRPC
       - "${PORT_ADMIN:-9090}:9090"    # Admin (health/metrics)
+      - "${PORT_AUTH:-3001}:3001"     # REST behind auth
+      - "${PORT_WORKFLOW:-9091}:9091" # Workflow api (its own port, authenticated)
     volumes:
       - ./config:/etc/mycel
       # Always mounted; the binary only writes here when built with -cover.

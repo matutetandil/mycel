@@ -110,3 +110,53 @@ connector "kafka_sub" {
     topics   = ["test_topic"]
   }
 }
+
+# --- Requeue with an identifier ---------------------------------------------
+#
+# A filter that requeues needs something to count redeliveries under, or a
+# message nobody wants circles for ever. id_field names the expression that
+# identifies it — and every form the documentation shows failed to evaluate,
+# so the identifier was always empty and the consumer fell back to
+# acknowledging: a rejected message dropped rather than retried.
+
+connector "rabbit_requeue_pub" {
+  type   = "mq"
+  driver = "rabbitmq"
+
+  host     = env("RABBITMQ_HOST", "localhost")
+  port     = env("RABBITMQ_PORT", 5672)
+  username = env("RABBITMQ_USER", "guest")
+  password = env("RABBITMQ_PASS", "guest")
+  vhost    = "/"
+
+  publisher {
+    exchange     = ""
+    routing_key  = "requeue_queue"
+    persistent   = true
+    content_type = "application/json"
+  }
+}
+
+connector "rabbit_requeue_sub" {
+  type   = "mq"
+  driver = "rabbitmq"
+
+  host     = env("RABBITMQ_HOST", "localhost")
+  port     = env("RABBITMQ_PORT", 5672)
+  username = env("RABBITMQ_USER", "guest")
+  password = env("RABBITMQ_PASS", "guest")
+  vhost    = "/"
+
+  queue {
+    name              = "requeue_queue"
+    durable           = true
+    auto_delete       = false
+    create_if_missing = true
+  }
+
+  consumer {
+    auto_ack    = false
+    concurrency = 1
+    prefetch    = 10
+  }
+}

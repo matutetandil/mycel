@@ -1,0 +1,17 @@
+# A REST connector behind authentication, on its own port so the rest of the
+# suite is unaffected.
+#
+# The type is written in capitals on purpose. It used to be compared exactly, so
+# `type = "JWT"` left the settings underneath unparsed and the server turned away
+# every request with "unknown auth type" while the file looked correct.
+connector "authed_api" {
+  type = "rest"
+  port = 3001
+
+  auth {
+    type   = "API_KEY"
+    header = "X-API-Key"
+    keys   = ["integration-key"]
+    public = ["/public/ping"]
+  }
+}

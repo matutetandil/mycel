@@ -1,0 +1,29 @@
+# A connector made of profiles, chosen at runtime.
+#
+# A profile is a connector picked by configuration, and it used to be parsed
+# against a second hand-written list of forty attributes against the connector's
+# hundred and fifty-nine — so a profile could not name a vhost, a topic, a path
+# or a command, and could not carry a consumer, retry or tls block at all. Those
+# are exactly the settings that differ between environments, which is what
+# profiles are for.
+connector "profiled_store" {
+  select  = env("STORE_PROFILE", "local")
+  default = "local"
+
+  profile "local" {
+    type     = "database"
+    driver   = "sqlite"
+    database = "/tmp/profiled.db"
+  }
+
+  profile "remote" {
+    type     = "http"
+    base_url = "http://mock:8888"
+
+    # A block the old profile schema had no room for.
+    retry {
+      attempts = 2
+      delay    = "100ms"
+    }
+  }
+}

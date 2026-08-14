@@ -1,0 +1,27 @@
+# Flows behind the authenticated connector.
+#
+# Nothing here is about what the flow does — it is about who is allowed to reach
+# it. The connector's auth block decides that, and until this suite existed
+# nothing exercised a Mycel service with authentication turned on at all.
+
+flow "authed_list_users" {
+  from {
+    connector = "authed_api"
+    operation = "GET /secure/users"
+  }
+  to {
+    connector = "postgres"
+    target    = "users"
+  }
+}
+
+flow "public_ping" {
+  from {
+    connector = "authed_api"
+    operation = "GET /public/ping"
+  }
+
+  transform {
+    status = "\"ok\""
+  }
+}

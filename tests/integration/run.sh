@@ -76,6 +76,8 @@ PORT_DEFS=(
   PORT_COSMO:5000
   PORT_MOCK:8888
   PORT_RABBIT:5672
+  PORT_AUTH:3001
+  PORT_WORKFLOW:9091
 )
 
 echo "Checking ports..."
@@ -151,6 +153,11 @@ else
     scripts/test-federation.sh
     scripts/test-aspects.sh
     scripts/test-security.sh
+    scripts/test-auth.sh
+    scripts/test-workflow.sh
+    scripts/test-requeue.sh
+    scripts/test-functions.sh
+    scripts/test-profiles.sh
     scripts/test-plugin.sh
     scripts/test-new-features.sh
     scripts/test-fanout.sh
