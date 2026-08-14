@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -436,7 +437,8 @@ func (c *Connector) buildSelectQuery(query connector.Query) (string, []interface
 	// Add WHERE clause
 	if len(query.Filters) > 0 {
 		var conditions []string
-		for col, val := range query.Filters {
+		for _, col := range sortedKeys(query.Filters) {
+			val := query.Filters[col]
 			conditions = append(conditions, fmt.Sprintf("%s = ?", col))
 			args = append(args, val)
 		}
@@ -479,7 +481,8 @@ func (c *Connector) buildInsertQuery(data *connector.Data) (string, []interface{
 		return "", nil
 	}
 
-	for col, val := range data.Payload {
+	for _, col := range sortedKeys(data.Payload) {
+		val := data.Payload[col]
 		columns = append(columns, col)
 		placeholders = append(placeholders, "?")
 		args = append(args, val)
@@ -504,7 +507,8 @@ func (c *Connector) buildUpdateQuery(data *connector.Data) (string, []interface{
 		return "", nil
 	}
 
-	for col, val := range data.Payload {
+	for _, col := range sortedKeys(data.Payload) {
+		val := data.Payload[col]
 		setClauses = append(setClauses, fmt.Sprintf("%s = ?", col))
 		args = append(args, val)
 	}
@@ -514,7 +518,8 @@ func (c *Connector) buildUpdateQuery(data *connector.Data) (string, []interface{
 	// Add WHERE clause
 	if len(data.Filters) > 0 {
 		var conditions []string
-		for col, val := range data.Filters {
+		for _, col := range sortedKeys(data.Filters) {
+			val := data.Filters[col]
 			conditions = append(conditions, fmt.Sprintf("%s = ?", col))
 			args = append(args, val)
 		}
@@ -533,7 +538,8 @@ func (c *Connector) buildDeleteQuery(data *connector.Data) (string, []interface{
 	// Add WHERE clause
 	if len(data.Filters) > 0 {
 		var conditions []string
-		for col, val := range data.Filters {
+		for _, col := range sortedKeys(data.Filters) {
+			val := data.Filters[col]
 			conditions = append(conditions, fmt.Sprintf("%s = ?", col))
 			args = append(args, val)
 		}
@@ -618,4 +624,21 @@ func isParamChar(c byte) bool {
 		(c >= 'A' && c <= 'Z') ||
 		(c >= '0' && c <= '9') ||
 		c == '_'
+}
+
+// sortedKeys returns a map's keys in a fixed order.
+//
+// Every clause below is built by walking a map, and a map is walked in a
+// different order each time, so the same logical query produced a different
+// string on each call. Values still lined up with their placeholders, but the
+// driver caches prepared statements by the text of the query — so the cache
+// missed every time, and one query appeared under several forms in logs and
+// traces.
+func sortedKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
@@ -279,9 +280,9 @@ func (c *Connector) buildSelectQuery(query connector.Query) (string, []interface
 	if len(query.Filters) > 0 {
 		sb.WriteString(" WHERE ")
 		conditions := make([]string, 0, len(query.Filters))
-		for k, v := range query.Filters {
+		for _, k := range sortedKeys(query.Filters) {
 			conditions = append(conditions, fmt.Sprintf("%s = ?", k))
-			args = append(args, v)
+			args = append(args, query.Filters[k])
 		}
 		sb.WriteString(strings.Join(conditions, " AND "))
 	}
@@ -321,10 +322,10 @@ func (c *Connector) buildInsertQuery(data *connector.Data) (string, []interface{
 	columns := make([]string, 0, len(data.Payload))
 	placeholders := make([]string, 0, len(data.Payload))
 
-	for k, v := range data.Payload {
+	for _, k := range sortedKeys(data.Payload) {
 		columns = append(columns, k)
 		placeholders = append(placeholders, "?")
-		args = append(args, v)
+		args = append(args, data.Payload[k])
 	}
 
 	sb.WriteString("INSERT INTO ")
@@ -348,9 +349,9 @@ func (c *Connector) buildUpdateQuery(data *connector.Data) (string, []interface{
 	sb.WriteString(" SET ")
 
 	sets := make([]string, 0, len(data.Payload))
-	for k, v := range data.Payload {
+	for _, k := range sortedKeys(data.Payload) {
 		sets = append(sets, fmt.Sprintf("%s = ?", k))
-		args = append(args, v)
+		args = append(args, data.Payload[k])
 	}
 	sb.WriteString(strings.Join(sets, ", "))
 
@@ -358,9 +359,9 @@ func (c *Connector) buildUpdateQuery(data *connector.Data) (string, []interface{
 	if len(data.Filters) > 0 {
 		sb.WriteString(" WHERE ")
 		conditions := make([]string, 0, len(data.Filters))
-		for k, v := range data.Filters {
+		for _, k := range sortedKeys(data.Filters) {
 			conditions = append(conditions, fmt.Sprintf("%s = ?", k))
-			args = append(args, v)
+			args = append(args, data.Filters[k])
 		}
 		sb.WriteString(strings.Join(conditions, " AND "))
 	}
@@ -380,14 +381,31 @@ func (c *Connector) buildDeleteQuery(data *connector.Data) (string, []interface{
 	if len(data.Filters) > 0 {
 		sb.WriteString(" WHERE ")
 		conditions := make([]string, 0, len(data.Filters))
-		for k, v := range data.Filters {
+		for _, k := range sortedKeys(data.Filters) {
 			conditions = append(conditions, fmt.Sprintf("%s = ?", k))
-			args = append(args, v)
+			args = append(args, data.Filters[k])
 		}
 		sb.WriteString(strings.Join(conditions, " AND "))
 	}
 
 	return sb.String(), args
+}
+
+// sortedKeys returns a map's keys in a fixed order.
+//
+// Every clause below is built by walking a map, and a map is walked in a
+// different order each time — so the same logical query produced a different
+// string on each call. The values still lined up with their placeholders, but
+// the driver caches prepared statements by the text of the query, so the cache
+// missed every time, and one query appeared under several forms in logs and
+// traces.
+func sortedKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // Exec executes a raw SQL query (for migrations, etc.).
