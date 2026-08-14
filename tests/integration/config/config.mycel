@@ -34,3 +34,12 @@ service {
 plugin "test-plugin" {
   source = "./plugins/test-plugin"
 }
+
+# A connector type the runtime does not ship, compiled from Rust.
+#
+# Everything about it — the type name, the attributes its connector block
+# takes, what a read answers with, and the rule that refuses a reservation
+# larger than the stock — lives in the module, not here.
+plugin "inventory-store" {
+  source = "./plugins/inventory-store"
+}

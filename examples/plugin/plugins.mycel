@@ -1,18 +1,14 @@
 // Plugin Declarations
 // Declare which plugins to load at startup.
 
-// Local plugin from directory
-plugin "example" {
-  source = "./plugins/example-plugin"
+// A connector type the runtime does not ship, compiled from Rust in
+// plugins/inventory-store. See the README for the build command.
+plugin "inventory-store" {
+  source = "./plugins/inventory-store"
 }
 
 // Git-hosted plugin (supported; the URL below is illustrative)
 // plugin "salesforce" {
 //   source  = "github.com/acme/mycel-salesforce"
 //   version = "~> 1.0"
-// }
-
-// Registry plugin (future feature)
-// plugin "stripe" {
-//   source = "registry.mycel.dev/stripe"
 // }

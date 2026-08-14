@@ -1,0 +1,10 @@
+# A connector of the type the plugin brought.
+#
+# warehouse is declared in the plugin's own manifest, which the parser has never
+# read: attributes a plugin declares used to be rejected by name, so a plugin
+# connector could not be configured at all.
+connector "stock" {
+  type = "inventory_store"
+
+  warehouse = "integration"
+}

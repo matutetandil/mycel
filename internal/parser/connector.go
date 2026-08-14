@@ -9,6 +9,7 @@ import (
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
 	"github.com/matutetandil/mycel/v2/internal/connector/profile"
+	"github.com/matutetandil/mycel/v2/pkg/schema"
 )
 
 // connectorBodySchema is the set of attributes and blocks a connector may
@@ -289,7 +290,14 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 
 	schema := connectorBodySchema()
 
-	content, diags := block.Body.Content(schema)
+	// A connector of a type this runtime ships is held to the list of
+	// attributes that exist, because a mistyped one is a setting that silently
+	// does nothing. A connector whose type arrives with a plugin cannot be:
+	// its attributes are declared in the plugin's own manifest, which the
+	// parser has never seen. Those used to be rejected by name, so a plugin
+	// connector could not be configured at all — the type loaded, and the one
+	// setting it needed was an "unsupported argument".
+	content, extra, diags := connectorContent(block, schema, ctx)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("connector content error: %s", diags.Error())
 	}
@@ -335,6 +343,12 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 		}
 
 		config.Properties[name] = ctyValueToGo(val)
+	}
+
+	// Whatever the plugin declared for itself, which the runtime hands to the
+	// module as its configuration.
+	for name, val := range extra {
+		config.Properties[name] = val
 	}
 
 	// Parse nested blocks
@@ -1350,4 +1364,118 @@ func applyConnectorBlock(config *connector.Config, nestedBlock *hcl.Block, ctx *
 		return false, nil
 	}
 	return true, nil
+}
+
+// connectorContent reads a connector block, returning the attributes this
+// runtime knows and, separately, the ones it does not.
+//
+// Unknown attributes are an error for a connector of a type Mycel ships: the
+// list is the only thing standing between a mistyped setting and a service
+// that starts and quietly ignores it. For a type that arrives with a plugin
+// there is no list to check against — the plugin's manifest declares its own
+// attributes, and the parser has never read it — so they are carried through
+// to the connector's properties, which is where the plugin is handed them.
+func connectorContent(block *hcl.Block, bodySchema *hcl.BodySchema, ctx *hcl.EvalContext) (*hcl.BodyContent, map[string]interface{}, hcl.Diagnostics) {
+	content, _, diags := block.Body.PartialContent(bodySchema)
+	if diags.HasErrors() {
+		return nil, nil, diags
+	}
+
+	leftover := unconsumedAttributes(block.Body, content)
+	if len(leftover) == 0 {
+		return content, nil, nil
+	}
+
+	// The type decides whether anything unknown is a mistake. Read strictly
+	// again so the message names the attribute and its position exactly as it
+	// always has.
+	if isBuiltInConnectorType(connectorTypeOf(content, ctx)) {
+		_, strictDiags := block.Body.Content(bodySchema)
+		if !strictDiags.HasErrors() {
+			// Cannot happen — something was left over — but returning no
+			// content and no error would take the process down.
+			strictDiags = append(strictDiags, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "Unsupported argument",
+				Detail:   fmt.Sprintf("connector %q: %s is not an argument this connector type accepts", block.Labels[0], anyKey(leftover)),
+				Subject:  block.DefRange.Ptr(),
+			})
+		}
+		return nil, nil, strictDiags
+	}
+
+	extra := make(map[string]interface{}, len(leftover))
+	for name, attr := range leftover {
+		val, valDiags := attr.Expr.Value(ctx)
+		if valDiags.HasErrors() {
+			return nil, nil, valDiags
+		}
+		extra[name] = ctyValueToGo(val)
+	}
+	return content, extra, nil
+}
+
+// unconsumedAttributes is what the block holds that the schema did not name.
+//
+// The remaining body handed back by PartialContent cannot simply be asked for
+// its attributes: for the syntax the parser reads, that field still holds every
+// attribute in the block, and JustAttributes refuses a body with any nested
+// block in it — which a connector nearly always has. Taking the difference is
+// the reliable form.
+func unconsumedAttributes(body hcl.Body, content *hcl.BodyContent) hcl.Attributes {
+	syntaxBody, ok := body.(*hclsyntax.Body)
+	if !ok {
+		return nil
+	}
+
+	leftover := make(hcl.Attributes)
+	for name, attr := range syntaxBody.Attributes {
+		if _, consumed := content.Attributes[name]; consumed {
+			continue
+		}
+		leftover[name] = attr.AsHCLAttribute()
+	}
+	return leftover
+}
+
+// anyKey names one of them, for a message that would otherwise say nothing.
+func anyKey(attrs hcl.Attributes) string {
+	for name := range attrs {
+		return name
+	}
+	return ""
+}
+
+// connectorTypeOf reads the type attribute, which decides how strictly the
+// rest of the block is read.
+func connectorTypeOf(content *hcl.BodyContent, ctx *hcl.EvalContext) string {
+	attr, ok := content.Attributes["type"]
+	if !ok {
+		return ""
+	}
+	val, diags := attr.Expr.Value(ctx)
+	if diags.HasErrors() {
+		return ""
+	}
+	typeName, err := stringValue("type", val)
+	if err != nil {
+		return ""
+	}
+	return typeName
+}
+
+// isBuiltInConnectorType reports whether the runtime ships this type.
+//
+// A connector with no type at all is a profiled one, whose type lives inside
+// its profiles — it is held to the list, the way it always has been.
+func isBuiltInConnectorType(typeName string) bool {
+	if typeName == "" {
+		return true
+	}
+	for _, known := range schema.ConnectorTypeNames() {
+		if known == typeName {
+			return true
+		}
+	}
+	return false
 }

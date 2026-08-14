@@ -1,10 +1,34 @@
-// Example Plugin Manifest
-//
-// The WASM plugin system is implemented (local and git sources). This is an
-// illustrative manifest; actually loading the connector requires a compiled
-// connector.wasm in this directory (see ../../README.md).
+# An illustrative manifest.
+#
+# This is what a plugin declares about itself, and it is a different thing from
+# the plugin block in ../../plugins.mycel: that one says which plugins to load
+# and where they live, this one says what the plugin provides. The file here
+# used to hold a declaration, which meant it was never a manifest anything
+# could load — nobody noticed, because nothing loaded it.
+#
+# There is no module beside it, so it is not declared in plugins.mycel. For one
+# that is, see ../inventory-store.
 
-plugin "example" {
-  source  = "./plugins/example-plugin"
-  version = "1.0.0"
+plugin {
+  name        = "example"
+  version     = "1.0.0"
+  description = "What a plugin manifest looks like"
+}
+
+provides {
+  connector "example" {
+    wasm = "connector.wasm"
+
+    config {
+      api_key  = string({ required = true, sensitive = true })
+      endpoint = string({ required = true })
+      timeout  = string({ default = "30s" })
+    }
+  }
+
+  validator "example_id" {
+    wasm       = "validators.wasm"
+    entrypoint = "validate_example_id"
+    message    = "Not an example id"
+  }
 }

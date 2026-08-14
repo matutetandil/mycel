@@ -1,5 +1,6 @@
 // Service configuration
 service {
-  name    = "plugin-example"
-  version = "1.0.0"
+  name       = "plugin-example"
+  version    = "1.0.0"
+  admin_port = 9095
 }

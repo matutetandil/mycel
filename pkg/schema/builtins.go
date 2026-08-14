@@ -1027,6 +1027,16 @@ func EnvironmentSchema() Block {
 }
 
 // connectorTypes returns all known connector type values.
+// ConnectorTypeNames is every connector type this runtime ships.
+//
+// The parser reads it to decide how strictly a connector block is checked: a
+// type from this list is held to the attributes that exist, and one that is
+// not — a type a plugin brought — carries its own, declared in the plugin's
+// manifest rather than here.
+func ConnectorTypeNames() []string {
+	return connectorTypes()
+}
+
 func connectorTypes() []string {
 	return []string{
 		"rest", "http", "database", "mq", "graphql", "grpc", "file", "s3",

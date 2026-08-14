@@ -1,0 +1,23 @@
+# A connector Mycel does not ship.
+#
+# The runtime knows nothing about stock levels; this plugin adds a connector
+# type called inventory_store, and a flow names it exactly like any built-in
+# one. The module is compiled from src/lib.rs — see the README for the command.
+
+plugin {
+  name        = "inventory-store"
+  version     = "1.0.0"
+  description = "Stock levels, as a connector type the runtime does not ship"
+  author      = "Mycel"
+  license     = "MIT"
+}
+
+provides {
+  connector "inventory_store" {
+    wasm = "connector.wasm"
+
+    config {
+      warehouse = string({ required = true, description = "Which warehouse this connector holds" })
+    }
+  }
+}

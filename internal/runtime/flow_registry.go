@@ -1900,8 +1900,14 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	}
 
 	// For flows with steps, execute steps + transform instead of reading from destination
-	// This supports orchestration flows where data comes from multiple sources
-	if len(h.Config.Steps) > 0 && operation.IsRead() {
+	// This supports orchestration flows where data comes from multiple sources.
+	//
+	// A flow with no destination counts however it was triggered. Steps ran
+	// only for a read, so an orchestration flow answering POST — call these
+	// three things, answer with what they said — skipped every step it
+	// declared and echoed the request back, headers and all. A flow that does
+	// have a destination already runs its steps on the way to writing.
+	if len(h.Config.Steps) > 0 && (operation.IsRead() || h.Dest == nil) {
 		result, err = h.handleStepsFlow(ctx, input)
 	} else if len(h.Config.MultiTo) > 0 && !operation.IsRead() {
 		// Check for multi-destination writes

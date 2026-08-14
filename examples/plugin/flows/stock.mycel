@@ -1,0 +1,49 @@
+// Reading what the plugin holds.
+flow "list_stock" {
+  from {
+    connector = "api"
+    operation = "GET /stock"
+  }
+  to {
+    connector = "stock"
+    target    = "levels"
+  }
+}
+
+// Adjusting a SKU: the body says which and by how much.
+flow "adjust_stock" {
+  from {
+    connector = "api"
+    operation = "POST /stock"
+  }
+  to {
+    connector = "stock"
+    target    = "levels"
+  }
+}
+
+// An operation that is neither a read nor a write. The plugin refuses to
+// reserve more than it holds, which is the sort of rule a connector for your
+// own system exists to enforce.
+flow "reserve_stock" {
+  from {
+    connector = "api"
+    operation = "POST /stock/reserve"
+  }
+
+  step "reservation" {
+    connector = "stock"
+    operation = "reserve"
+
+    params = {
+      sku      = "input.sku"
+      quantity = "input.quantity"
+    }
+  }
+
+  transform {
+    sku       = "step.reservation.sku"
+    reserved  = "step.reservation.reserved"
+    remaining = "step.reservation.remaining"
+  }
+}

@@ -202,17 +202,14 @@ func (m *Module) CallFunction(name string, input interface{}) (interface{}, erro
 		return nil, fmt.Errorf("function call failed: %w", err)
 	}
 
-	// Parse results - expecting (ptr, len) tuple
-	if len(results) < 2 {
-		// Single return value (e.g., status code)
+	resultPtr, resultLen, ok := answerLocation(fn, results)
+	if !ok {
+		// Something that is not an answer at all: a status code, or nothing.
 		if len(results) == 1 {
 			return results[0], nil
 		}
 		return nil, nil
 	}
-
-	resultPtr := uint32(results[0])
-	resultLen := uint32(results[1])
 
 	if resultLen == 0 {
 		return nil, nil
@@ -234,6 +231,39 @@ func (m *Module) CallFunction(name string, input interface{}) (interface{}, erro
 	}
 
 	return result, nil
+}
+
+// answerLocation works out where a module left its answer.
+//
+// The interface has always been documented as returning (ptr, len) — two
+// values — and no toolchain anyone is told to use can emit that: Rust and
+// TinyGo both lower a two-word return through the C ABI, which becomes a
+// pointer argument rather than two results. So the documented shape was one
+// nothing could produce, which is why no connector plugin had ever been built
+// against it.
+//
+// Both are accepted now:
+//
+//	read(ptr: i32, len: i32) -> (ptr: i32, len: i32)   two results
+//	read(ptr: i32, len: i32) -> i64                    one, packed ptr<<32|len
+//
+// The packed form is what a plugin written in any language can actually
+// return, and it is unambiguous: a single i64 result is an answer, a single
+// i32 is a status code.
+func answerLocation(fn api.Function, results []uint64) (ptr uint32, length uint32, ok bool) {
+	if len(results) >= 2 {
+		return uint32(results[0]), uint32(results[1]), true
+	}
+	if len(results) != 1 {
+		return 0, 0, false
+	}
+
+	types := fn.Definition().ResultTypes()
+	if len(types) != 1 || types[0] != api.ValueTypeI64 {
+		return 0, 0, false
+	}
+	packed := results[0]
+	return uint32(packed >> 32), uint32(packed), true
 }
 
 // CallValidate calls a validate function that returns a status code.
