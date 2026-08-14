@@ -85,6 +85,16 @@ provides {
   # New connector type
   connector "salesforce" {
     wasm = "connector.wasm"
+
+    # What the connector takes, so somebody configuring it knows which
+    # settings exist, which are required, and which must not be printed.
+    config {
+      instance_url  = string({ required = true, description = "Your Salesforce instance" })
+      client_id     = string({ required = true })
+      client_secret = string({ required = true, sensitive = true })
+      api_version   = string({ default = "v58.0" })
+      timeout       = "number"
+    }
   }
 
   # Custom validator

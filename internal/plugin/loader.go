@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/matutetandil/mycel/v2/internal/functions"
@@ -502,42 +503,104 @@ func (l *Loader) parseConfigSchema(block *hcl.Block, ctx *hcl.EvalContext) (map[
 	schema := make(map[string]*ConfigField)
 
 	for name, attr := range attrs {
-		val, diags := attr.Expr.Value(ctx)
-		if diags.HasErrors() {
-			continue
+		field, err := parseConfigField(attr, ctx)
+		if err != nil {
+			return nil, fmt.Errorf("config schema: %s: %w", name, err)
 		}
-
-		field := &ConfigField{
-			Type: "string", // default
-		}
-
-		// Check if it's a simple type or a complex definition
-		if val.Type() == cty.String {
-			field.Type = val.AsString()
-		} else if val.Type().IsObjectType() {
-			// Complex definition like: string { required = true }
-			valMap := val.AsValueMap()
-			if t, ok := valMap["type"]; ok {
-				field.Type = t.AsString()
-			}
-			if r, ok := valMap["required"]; ok {
-				field.Required = r.True()
-			}
-			if d, ok := valMap["default"]; ok && !d.IsNull() {
-				field.Default = ctyToGo(d)
-			}
-			if s, ok := valMap["sensitive"]; ok {
-				field.Sensitive = s.True()
-			}
-			if desc, ok := valMap["description"]; ok {
-				field.Description = desc.AsString()
-			}
-		}
-
 		schema[name] = field
 	}
 
 	return schema, nil
+}
+
+// parseConfigField reads one setting of a plugin connector's schema.
+//
+// It reads the expression rather than evaluating it, the way type constraints
+// are read everywhere else in Mycel — because the form with constraints,
+//
+//	base_url = string({ required = true })
+//
+// is a call to a function nothing defines, so evaluating it fails. It used to
+// fail silently: the setting was skipped, and the schema a plugin author wrote
+// simply was not there. Nothing required was required, nothing sensitive was
+// hidden, and no default was applied.
+func parseConfigField(attr *hcl.Attribute, ctx *hcl.EvalContext) (*ConfigField, error) {
+	field := &ConfigField{Type: "string"}
+
+	switch expr := attr.Expr.(type) {
+	case *hclsyntax.ScopeTraversalExpr:
+		// The type on its own: retries = number
+		field.Type = traversalName(expr.Traversal)
+		return field, nil
+
+	case *hclsyntax.FunctionCallExpr:
+		// The type with its constraints: base_url = string({ required = true })
+		field.Type = expr.Name
+		if len(expr.Args) == 0 {
+			return field, nil
+		}
+		val, diags := expr.Args[0].Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("%s", diags.Error())
+		}
+		applyFieldAttributes(field, val)
+		return field, nil
+	}
+
+	val, diags := attr.Expr.Value(ctx)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("%s", diags.Error())
+	}
+
+	switch {
+	case val.Type() == cty.String:
+		// The type as a quoted word: retries = "number"
+		field.Type = val.AsString()
+	case val.Type().IsObjectType():
+		// The whole thing spelled out: { type = "string", required = true }
+		applyFieldAttributes(field, val)
+	}
+	return field, nil
+}
+
+// applyFieldAttributes reads what a setting says about itself.
+func applyFieldAttributes(field *ConfigField, val cty.Value) {
+	if !val.Type().IsObjectType() && !val.Type().IsMapType() {
+		return
+	}
+	for key, v := range val.AsValueMap() {
+		if v.IsNull() {
+			continue
+		}
+		switch key {
+		case "type":
+			if v.Type() == cty.String {
+				field.Type = v.AsString()
+			}
+		case "required":
+			field.Required = v.True()
+		case "sensitive":
+			field.Sensitive = v.True()
+		case "default":
+			field.Default = ctyToGo(v)
+		case "description":
+			if v.Type() == cty.String {
+				field.Description = v.AsString()
+			}
+		}
+	}
+}
+
+// traversalName renders a bare reference, which is how a type written without
+// quotes arrives.
+func traversalName(traversal hcl.Traversal) string {
+	if len(traversal) == 0 {
+		return "string"
+	}
+	if root, ok := traversal[0].(hcl.TraverseRoot); ok {
+		return root.Name
+	}
+	return "string"
 }
 
 // parseFunctionsProvide parses a functions {} block in provides.
