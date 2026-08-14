@@ -107,3 +107,35 @@ SELECT pg_reload_conf();
 
 -- Create publication for CDC
 CREATE PUBLICATION mycel_pub FOR ALL TABLES;
+
+-- Accounts, for the root auth block.
+--
+-- The SQL user stores map onto a table somebody already has rather than
+-- creating one, so this is what a service points auth at. Only integration can
+-- cover them: they speak Postgres, not something a unit test can stand up.
+CREATE TABLE auth_users (
+    id            TEXT PRIMARY KEY,
+    email         TEXT UNIQUE NOT NULL,
+    password_hash TEXT,
+    name          TEXT,
+    roles         TEXT,
+    email_verified BOOLEAN DEFAULT false,
+    active        BOOLEAN DEFAULT true,
+    metadata      TEXT,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login_at TIMESTAMP
+);
+
+-- What the audit block writes: who signed in, what failed, when.
+CREATE TABLE auth_audit_log (
+    id         SERIAL PRIMARY KEY,
+    event      TEXT,
+    user_id    TEXT,
+    email      TEXT,
+    ip         TEXT,
+    user_agent TEXT,
+    success    BOOLEAN,
+    reason     TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

@@ -25,3 +25,16 @@ flow "public_ping" {
     status = "\"ok\""
   }
 }
+
+# Reading the accounts table directly, so a test can tell what Postgres holds
+# from what the auth manager happens to remember.
+flow "list_auth_users" {
+  from {
+    connector = "api"
+    operation = "GET /auth-users"
+  }
+  to {
+    connector = "postgres"
+    target    = "auth_users"
+  }
+}

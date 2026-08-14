@@ -154,6 +154,7 @@ else
     scripts/test-aspects.sh
     scripts/test-security.sh
     scripts/test-auth.sh
+    scripts/test-auth-storage.sh
     scripts/test-workflow.sh
     scripts/test-requeue.sh
     scripts/test-functions.sh
