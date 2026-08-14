@@ -11,6 +11,16 @@ import (
 // RedisLock implements Lock interface using Redis.
 // Uses SET NX PX for atomic lock acquisition and Lua script for safe release.
 type RedisLock struct {
+	// ownsClient is true only when this instance dialled Redis itself.
+	//
+	// The FromClient constructors are handed a client the sync manager shares
+	// between every primitive configured on the same address, so closing it
+	// here would take the locks and the sequence guard down with it — while
+	// the service carried on running and every later call answered "redis:
+	// client is closed". The manager works around that today by reaching for
+	// stop() instead of Close(); anyone else calling the obvious method got
+	// the trap.
+	ownsClient bool
 	client     *redis.Client
 	prefix     string
 	instanceID string
@@ -58,6 +68,7 @@ func NewRedisLock(cfg *RedisLockConfig) (*RedisLock, error) {
 		client:     client,
 		prefix:     prefix,
 		instanceID: uuid.New().String(),
+		ownsClient: true,
 	}, nil
 }
 
@@ -133,6 +144,9 @@ func (r *RedisLock) IsHeld(ctx context.Context, key string) (bool, error) {
 
 // Close closes the Redis client.
 func (r *RedisLock) Close() error {
+	if !r.ownsClient {
+		return nil
+	}
 	return r.client.Close()
 }
 
