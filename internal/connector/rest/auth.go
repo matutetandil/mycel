@@ -3,20 +3,17 @@ package rest
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rsa"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/matutetandil/mycel/v2/internal/identity"
+	"github.com/matutetandil/mycel/v2/internal/jwks"
 )
 
 // AuthConfig holds authentication configuration for the REST server.
@@ -503,82 +500,23 @@ func parseJWK(key JWK) (interface{}, error) {
 	}
 }
 
-// parseRSAPublicKey builds an RSA public key from a JWK.
-//
-// It used to return an anonymous struct holding the modulus and exponent,
-// which is not a key any signature library can verify with: every token
-// checked against a JWKS was refused with "key is of invalid type: RSA verify
-// expects *rsa.PublicKey". A service pointed at Auth0, Cognito or Keycloak
-// rejected every authenticated request. It failed closed, which is the safe
-// direction and the reason it could go unnoticed as a configuration problem.
+// parseRSAPublicKey and parseECPublicKey build keys through internal/jwks,
+// which both connectors share — the defect this replaces existed in each of
+// them separately, written the same wrong way twice.
 func parseRSAPublicKey(key JWK) (interface{}, error) {
-	nBytes, err := base64.RawURLEncoding.DecodeString(key.N)
-	if err != nil {
-		return nil, fmt.Errorf("invalid RSA modulus in key %q: %w", key.Kid, err)
-	}
-	if len(nBytes) == 0 {
-		return nil, fmt.Errorf("key %q has no RSA modulus", key.Kid)
-	}
-
-	eBytes, err := base64.RawURLEncoding.DecodeString(key.E)
-	if err != nil {
-		return nil, fmt.Errorf("invalid RSA exponent in key %q: %w", key.Kid, err)
-	}
-	if len(eBytes) == 0 {
-		return nil, fmt.Errorf("key %q has no RSA exponent", key.Kid)
-	}
-
-	// The exponent is a big-endian integer, almost always 65537.
-	exponent := 0
-	for _, b := range eBytes {
-		exponent = exponent<<8 + int(b)
-	}
-	if exponent <= 0 {
-		return nil, fmt.Errorf("key %q has an unusable RSA exponent", key.Kid)
-	}
-
-	return &rsa.PublicKey{
-		N: new(big.Int).SetBytes(nBytes),
-		E: exponent,
-	}, nil
+	return jwks.PublicKey(asJWKSKey(key))
 }
 
-// parseECPublicKey builds an EC public key from a JWK.
-//
-// The curve is named in the key rather than implied, and it decides how the
-// coordinates are read — so a key naming one we do not know is refused rather
-// than assumed to be P-256, which would verify nothing and say the signature
-// was bad.
 func parseECPublicKey(key JWK) (interface{}, error) {
-	var curve elliptic.Curve
-	switch key.Crv {
-	case "P-256":
-		curve = elliptic.P256()
-	case "P-384":
-		curve = elliptic.P384()
-	case "P-521":
-		curve = elliptic.P521()
-	default:
-		return nil, fmt.Errorf("key %q names curve %q, which is not one of P-256, P-384 or P-521", key.Kid, key.Crv)
-	}
+	return jwks.PublicKey(asJWKSKey(key))
+}
 
-	xBytes, err := base64.RawURLEncoding.DecodeString(key.X)
-	if err != nil {
-		return nil, fmt.Errorf("invalid EC x coordinate in key %q: %w", key.Kid, err)
+// asJWKSKey is this connector's JWK in the shared shape.
+func asJWKSKey(key JWK) jwks.Key {
+	return jwks.Key{
+		Kty: key.Kty, Kid: key.Kid, Use: key.Use, Alg: key.Alg,
+		N: key.N, E: key.E, X: key.X, Y: key.Y, Crv: key.Crv,
 	}
-	yBytes, err := base64.RawURLEncoding.DecodeString(key.Y)
-	if err != nil {
-		return nil, fmt.Errorf("invalid EC y coordinate in key %q: %w", key.Kid, err)
-	}
-	if len(xBytes) == 0 || len(yBytes) == 0 {
-		return nil, fmt.Errorf("key %q is missing a coordinate", key.Kid)
-	}
-
-	return &ecdsa.PublicKey{
-		Curve: curve,
-		X:     new(big.Int).SetBytes(xBytes),
-		Y:     new(big.Int).SetBytes(yBytes),
-	}, nil
 }
 
 // validateAPIKey validates an API key from the request.

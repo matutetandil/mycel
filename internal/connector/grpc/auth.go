@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"github.com/matutetandil/mycel/v2/internal/jwks"
 	"net/http"
 	"strings"
 	"sync"
@@ -482,46 +483,12 @@ func (c *jwksCache) fetchJWKS(url string) error {
 
 // parseRSAPublicKey parses RSA public key from JWK parameters.
 func parseRSAPublicKey(n, e string) (interface{}, error) {
-	// Base64url decode N and E
-	nBytes, err := jwt.NewParser().DecodeSegment(n)
-	if err != nil {
-		return nil, err
-	}
-	eBytes, err := jwt.NewParser().DecodeSegment(e)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert E to int
-	var eInt int
-	for _, b := range eBytes {
-		eInt = eInt<<8 + int(b)
-	}
-
-	return &struct {
-		N []byte
-		E int
-	}{N: nBytes, E: eInt}, nil
+	return jwks.PublicKey(jwks.Key{Kty: "RSA", N: n, E: e})
 }
 
-// parseECPublicKey parses EC public key from JWK parameters.
+// parseECPublicKey builds an EC public key from JWK parameters.
 func parseECPublicKey(crv, x, y string) (interface{}, error) {
-	// For EC keys, we need to parse and create ecdsa.PublicKey
-	// This is a simplified implementation
-	xBytes, err := jwt.NewParser().DecodeSegment(x)
-	if err != nil {
-		return nil, err
-	}
-	yBytes, err := jwt.NewParser().DecodeSegment(y)
-	if err != nil {
-		return nil, err
-	}
-
-	return &struct {
-		Curve string
-		X     []byte
-		Y     []byte
-	}{Curve: crv, X: xBytes, Y: yBytes}, nil
+	return jwks.PublicKey(jwks.Key{Kty: "EC", Crv: crv, X: x, Y: y})
 }
 
 // BuildMTLSConfig builds TLS config for mTLS authentication.
