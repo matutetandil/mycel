@@ -1234,6 +1234,60 @@ func (t *CELTransformer) TransformWithSteps(ctx context.Context, input map[strin
 	return t.TransformWithContext(ctx, input, enriched, steps, rules)
 }
 
+// TransformOnError applies rules where the failure itself is part of what is
+// being described: a dead-letter record, the body of an error response.
+//
+// `error` is a declared CEL variable and no Transform bound it, so the two
+// places that build something out of a failure passed it as part of the input
+// map and got neither — `input.id` read the wrapper rather than the message,
+// and `error.message` did not resolve at all. Both quietly fell back to their
+// defaults.
+func (t *CELTransformer) TransformOnError(ctx context.Context, input map[string]interface{}, failure error, rules []Rule) (map[string]interface{}, error) {
+	details := map[string]interface{}{"message": ""}
+	if failure != nil {
+		details = buildErrorDetails(failure)
+	}
+
+	output := make(map[string]interface{})
+	activation := map[string]interface{}{
+		"input":  input,
+		"output": output,
+		"ctx":    make(map[string]interface{}),
+		"auth":   identity.Activation(ctx),
+		"error":  details,
+	}
+
+	for _, rule := range rules {
+		prog, err := t.Compile(rule.Expression)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compile expression for %q: %w", rule.Target, err)
+		}
+
+		value, _, err := prog.Eval(activation)
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate expression for %q: %w", rule.Target, err)
+		}
+
+		if err := setNestedValue(output, rule.Target, CELValueToNative(value)); err != nil {
+			return nil, fmt.Errorf("failed to set %q: %w", rule.Target, err)
+		}
+	}
+
+	return output, nil
+}
+
+// buildErrorDetails describes a failure in the shape an expression reads it.
+func buildErrorDetails(failure error) map[string]interface{} {
+	details := map[string]interface{}{
+		"message": failure.Error(),
+		"type":    fmt.Sprintf("%T", failure),
+	}
+	if statusCarrier, ok := failure.(interface{ StatusCode() int }); ok {
+		details["code"] = statusCarrier.StatusCode()
+	}
+	return details
+}
+
 // TransformResponse applies transformation rules for response blocks.
 // input = original request data, output = destination result (pre-filled).
 // In CEL expressions: input.* references request, output.* references destination result.

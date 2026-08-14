@@ -762,16 +762,17 @@ func (h *FlowHandler) sendToFallback(ctx context.Context, input map[string]inter
 	// Apply transform if configured
 	if len(fb.Transform) > 0 && h.Transformer != nil {
 		rules := transform.RulesFromMappings(fb.Transform, fb.TransformOrder)
-		// Build context with input and error
-		data := map[string]interface{}{
-			"input": input,
-			"error": map[string]interface{}{
-				"message": flowErr.Error(),
-			},
-		}
-		transformed, err := h.Transformer.Transform(ctx, data, rules)
+		transformed, err := h.Transformer.TransformOnError(ctx, input, flowErr, rules)
 		if err == nil {
 			message = transformed
+		} else {
+			// The message still goes to the fallback, because losing it
+			// entirely is worse — but in the shape the flow did not ask for.
+			// A record that lands in a dead-letter queue looking like
+			// something else is one nobody can replay, so it cannot go
+			// unsaid.
+			h.logger().Warn("the fallback transform failed; the message was sent unshaped",
+				"flow", h.Config.Name, "connector", fb.Connector, "error", err)
 		}
 	}
 
@@ -795,6 +796,15 @@ func (h *FlowHandler) sendToFallback(ctx context.Context, input map[string]inter
 
 	_, err := meteredWrite(ctx, writer, data)
 	return err
+}
+
+// logger is the handler's logger, or the default one when a handler was built
+// without it — a warning that cannot be written is worse than a nil check.
+func (h *FlowHandler) logger() *slog.Logger {
+	if h.Logger != nil {
+		return h.Logger
+	}
+	return slog.Default()
 }
 
 // getConnector gets a connector from the handler's connector registry.
@@ -821,17 +831,15 @@ func (h *FlowHandler) wrapErrorResponse(ctx context.Context, input map[string]in
 	var body map[string]interface{}
 	if len(er.Body) > 0 && h.Transformer != nil {
 		rules := transform.RulesFromMappings(er.Body, er.BodyOrder)
-
-		data := map[string]interface{}{
-			"input": input,
-			"error": map[string]interface{}{
-				"message": err.Error(),
-			},
-		}
-
-		transformed, transformErr := h.Transformer.Transform(ctx, data, rules)
+		transformed, transformErr := h.Transformer.TransformOnError(ctx, input, err, rules)
 		if transformErr == nil {
 			body = transformed
+		} else {
+			// The caller still gets an answer, in the default shape rather
+			// than the one that was written. Saying so is what stops the
+			// difference being blamed on the client.
+			h.logger().Warn("the error_response body failed to build; the default was sent instead",
+				"flow", h.Config.Name, "error", transformErr)
 		}
 	}
 
