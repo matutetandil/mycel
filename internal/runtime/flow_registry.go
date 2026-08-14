@@ -476,10 +476,7 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 					Detail:     h.Config.From.FilterConfig.Condition,
 				}
 				// Evaluate ID field if configured (for requeue dedup)
-				if h.Config.From.FilterConfig.IDField != "" && h.Config.From.FilterConfig.OnReject == "requeue" {
-					msgID, _ := h.evaluateIDField(ctx, input)
-					result.MessageID = msgID
-				}
+				h.attachMessageID(ctx, input, result)
 				return h.prepareDropResult(ctx, input, result)
 			}
 			return FilteredResult, nil
@@ -908,6 +905,31 @@ func (h *FlowHandler) evaluateAccept(ctx context.Context, input map[string]inter
 	return h.Transformer.EvaluateCondition(ctx, data, h.Config.Accept.When)
 }
 
+// attachMessageID puts the message identifier on a rejected result so the
+// consumer can count how many times it has been requeued.
+//
+// An expression that cannot be evaluated is said out loud rather than dropped:
+// without an identifier the consumer falls back to acknowledging, so the
+// message is discarded instead of retried, and its warning — "no message ID
+// available" — reads as a message that arrived without one rather than a
+// configuration mistake in this flow.
+func (h *FlowHandler) attachMessageID(ctx context.Context, input map[string]interface{}, result *flow.FilteredResultWithPolicy) {
+	filter := h.Config.From.FilterConfig
+	if filter == nil || filter.IDField == "" || filter.OnReject != "requeue" {
+		return
+	}
+
+	msgID, err := h.evaluateIDField(ctx, input)
+	if err != nil {
+		h.logger().WarnContext(ctx, "id_field could not be evaluated, so the message has no identifier to be counted under and will be acknowledged rather than requeued",
+			"flow", h.Config.Name,
+			"id_field", filter.IDField,
+			"error", err)
+		return
+	}
+	result.MessageID = msgID
+}
+
 // evaluateIDField evaluates the id_field CEL expression to extract a message ID.
 func (h *FlowHandler) evaluateIDField(ctx context.Context, input map[string]interface{}) (string, error) {
 	if h.Config.From.FilterConfig == nil || h.Config.From.FilterConfig.IDField == "" {
@@ -924,17 +946,25 @@ func (h *FlowHandler) evaluateIDField(ctx context.Context, input map[string]inte
 		}
 	}
 
-	data := map[string]interface{}{
-		"input": input,
-	}
-
-	result, err := h.Transformer.EvaluateExpression(ctx, data, nil, h.Config.From.FilterConfig.IDField)
+	// The message itself, not wrapped: EvaluateExpression binds what it is
+	// given as `input`. Wrapping it once more put the message a level down, so
+	// every expression the documentation shows — id_field = "input.payment_id"
+	// — failed with "no such key", the error was discarded by the caller, and
+	// the feature never produced an identifier for anyone.
+	result, err := h.Transformer.EvaluateExpression(ctx, input, nil, h.Config.From.FilterConfig.IDField)
 	if err != nil {
 		return "", err
 	}
 
 	if s, ok := result.(string); ok {
 		return s, nil
+	}
+	// A number arrives from JSON as a float, and the default formatting turns a
+	// large one into 1.2345678e+07 — the key the requeue counter is kept under
+	// and the identifier in every log line about the message, so an operator
+	// searching for order 12345678 would find nothing.
+	if f, ok := result.(float64); ok {
+		return strconv.FormatFloat(f, 'f', -1, 64), nil
 	}
 	return fmt.Sprintf("%v", result), nil
 }
