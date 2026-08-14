@@ -53,7 +53,7 @@ three options.
 | Where | Size | What it looks like |
 |---|---|---|
 | `pkg/errors` | 19 unreachable funcs | A typed-error package with exactly one consumer in the whole repo (`internal/aspect/executor.go`). Either it was meant to be adopted everywhere and never was — in which case the *absence* of its use is the bug — or it is dead. |
-| `internal/transform/functions.go` + the `ExpressionParser` half of `transformer.go` | **72 unreachable funcs** | A complete native expression engine: 23 function types (`lower`, `upper`, `pluck`, `format_date`, `coalesce`, …) with Name/Arity/Execute, reached through `NewDefaultTransformer` → `NewBaseTransformer` → `DefaultFunctionRegistry`. **Nothing outside `transformer.go` constructs any of it** — every caller in runtime, aspect and cmd uses `NewCELTransformer`. It reads as the pre-CEL engine that was never removed. |
+| ~~`internal/transform/functions.go` + the `ExpressionParser` half of `transformer.go`~~ | **gone** | The pre-CEL expression engine — 23 function types nothing outside its own file ever constructed — has been deleted. `internal/transform/native.go` now holds something else entirely, a CEL-to-Go conversion helper with nine callers. Entry kept so the next reader does not go looking for it | done |
 
 The transform one matters for the coverage target as well as for tidiness: it
 is ~127 uncovered statements in `functions.go` alone that are being counted
