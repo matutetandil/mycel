@@ -337,6 +337,8 @@ var (
 
 	verboseFlow  bool
 	debugSuspend bool
+	mockOnly     []string
+	noMock       []string
 
 	// Check flags
 	checkTimeout time.Duration
@@ -359,6 +361,12 @@ func init() {
 	startCmd.Flags().BoolVar(&hotReload, "hot-reload", true, "Enable hot reload (auto-reload on config changes)")
 	startCmd.Flags().BoolVar(&verboseFlow, "verbose-flow", false, "Log all flow pipeline stages per request (debug)")
 	startCmd.Flags().BoolVar(&debugSuspend, "debug-suspend", false, "Defer event-driven connector start until debugger connects")
+	// The runtime and the parser have always handled these; the flags were
+	// documented in four places and never registered, so following the
+	// documentation produced "unknown flag: --mock". Repeatable and
+	// comma-separated both work, because both spellings are documented.
+	startCmd.Flags().StringSliceVar(&mockOnly, "mock", nil, "Mock these connectors, or \"all\" (repeatable, or comma-separated)")
+	startCmd.Flags().StringSliceVar(&noMock, "no-mock", nil, "Do not mock these connectors, or \"all\" (repeatable, or comma-separated)")
 
 	// Check command flags
 	checkCmd.Flags().DurationVar(&checkTimeout, "timeout", runtime.DefaultConnectivityTimeout,
@@ -469,14 +477,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	// Create runtime
 	rt, err := runtime.New(runtime.Options{
-		ConfigDir:       configDir,
-		Environment:     env,
-		Logger:          logger,
-		HotReload:       hotReloadEnabled,
-		VerboseFlow:     effectiveVerboseFlow,
-		ShowPayload:     payloadCfg.Show,
-		PayloadMaxBytes: payloadCfg.MaxBytes,
-		DebugSuspend:    effectiveDebugSuspend,
+		ConfigDir:        configDir,
+		Environment:      env,
+		Logger:           logger,
+		HotReload:        hotReloadEnabled,
+		VerboseFlow:      effectiveVerboseFlow,
+		ShowPayload:      payloadCfg.Show,
+		PayloadMaxBytes:  payloadCfg.MaxBytes,
+		DebugSuspend:     effectiveDebugSuspend,
+		MockConnectors:   strings.Join(mockOnly, ","),
+		NoMockConnectors: strings.Join(noMock, ","),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create runtime: %w", err)
