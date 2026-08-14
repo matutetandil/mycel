@@ -160,3 +160,46 @@ connector "rabbit_requeue_sub" {
     prefetch    = 10
   }
 }
+
+# --- Kafka: a message a filter turns away -----------------------------------
+#
+# Kafka has no requeue — an offset moves forward and does not come back — so a
+# rejected message is republished to <topic>.dlq. That path needs a broker: the
+# republish builds a writer and puts the message on another topic, which is
+# exactly what a unit test cannot do.
+
+connector "kafka_dlq_pub" {
+  type   = "mq"
+  driver = "kafka"
+
+  brokers = [env("KAFKA_BROKERS", "localhost:9092")]
+
+  producer {
+    acks = "all"
+  }
+}
+
+connector "kafka_dlq_sub" {
+  type   = "mq"
+  driver = "kafka"
+
+  brokers = [env("KAFKA_BROKERS", "localhost:9092")]
+
+  consumer {
+    group_id = "integration-dlq"
+    topics   = ["dlq_topic"]
+  }
+}
+
+# Reads what ended up in the dead-letter topic.
+connector "kafka_dlq_watch" {
+  type   = "mq"
+  driver = "kafka"
+
+  brokers = [env("KAFKA_BROKERS", "localhost:9092")]
+
+  consumer {
+    group_id = "integration-dlq-watch"
+    topics   = ["dlq_topic.dlq"]
+  }
+}

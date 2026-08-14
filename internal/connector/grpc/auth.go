@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/matutetandil/mycel/v2/internal/jwks"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -553,9 +554,23 @@ func BuildMTLSConfig(tlsCfg *TLSConfig) (*tls.Config, error) {
 	return config, nil
 }
 
-// loadCACert loads CA certificate pool from file.
+// loadCACert loads the authority that client certificates are checked against.
+//
+// This used to return the system pool and ignore the file entirely, which is
+// worse than not implementing it: a server configured for mTLS against a
+// private authority started, reported nothing, and then refused every client
+// it was set up to accept — because the certificates were checked against the
+// public roots instead. An authority that cannot be loaded is refused here, at
+// startup, where the path can be fixed.
 func loadCACert(caFile string) (*x509.CertPool, error) {
-	// Note: Implementation would read the file and parse certificates
-	// For now, return system pool as placeholder
-	return x509.SystemCertPool()
+	pem, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA file %s: %w", caFile, err)
+	}
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("no certificate found in CA file %s", caFile)
+	}
+	return pool, nil
 }

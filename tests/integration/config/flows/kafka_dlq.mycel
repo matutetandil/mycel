@@ -1,0 +1,53 @@
+# Publishing onto the topic the filter watches.
+flow "kafka_dlq_publish" {
+  from {
+    connector = "api"
+    operation = "POST /mq/kafka/dlq"
+  }
+  to {
+    connector = "kafka_dlq_pub"
+    target    = "dlq_topic"
+  }
+}
+
+# The filter turns away anything not marked wanted, and the policy sends it to
+# the dead-letter topic rather than dropping it.
+flow "kafka_dlq_consume" {
+  from {
+    connector = "kafka_dlq_sub"
+    operation = "dlq_topic"
+
+    filter {
+      condition = "input.body.wanted == true"
+      on_reject = "reject"
+    }
+  }
+
+  transform {
+    title  = "input.body.reference"
+    status = "\"wanted\""
+  }
+
+  to {
+    connector = "postgres"
+    target    = "items"
+  }
+}
+
+# And what lands in the dead-letter topic is written where a test can see it.
+flow "kafka_dlq_watch" {
+  from {
+    connector = "kafka_dlq_watch"
+    operation = "dlq_topic.dlq"
+  }
+
+  transform {
+    title  = "input.body.reference"
+    status = "\"dead-lettered\""
+  }
+
+  to {
+    connector = "postgres"
+    target    = "items"
+  }
+}
