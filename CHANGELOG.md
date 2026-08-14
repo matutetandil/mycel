@@ -7,7 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: the workflow endpoints have their own port and require authentication.** `GET /workflows/{id}`, `POST /workflows/{id}/signal/{event}` and `POST /workflows/{id}/cancel` were mounted on the admin server as soon as a `workflow` block was configured. That port carries health and metrics — read-only, unauthenticated, and reachable by anything on the network the process is on — while these three are not read-only: signalling wakes a paused workflow with data the caller chooses, and the documentation's own example is a loan approval. They are now served only when the configuration asks for them, on a port of their own, and never without something to check callers against:
+
+  ```hcl
+  service {
+    workflow {
+      storage = "db"
+
+      api {
+        port = 9091                 # default 9091; the admin port is refused
+
+        auth {                      # required — the same block a connector takes
+          type = "api_key"
+          keys = [env("WORKFLOW_API_KEY")]
+        }
+      }
+    }
+  }
+  ```
+
+  `auth` is the connector auth block, so `jwt`, `api_key` and `basic` all work and are checked by the same code a REST connector uses — extracted from it rather than written again. An `api` block with no `auth`, an `auth` with nothing to check against, or a port equal to the admin port are each refused by `mycel validate`. A service that has a `workflow` block and no `api` block now serves no workflow endpoints at all: this is the breaking part.
+
 ### Fixed
+
+- **Stopping the workflow engine twice panicked the process.** `Stop` closed its ticker channel with no guard, and shutdown reaches it twice — a cancelled context and an explicit `Shutdown` — so a service stopping cleanly could end on "close of closed channel" instead of an exit code.
 
 - **A federation v2 subgraph schema file did not load.** Every such file opens by declaring which version of the specification it speaks — `extend schema @link(url: "https://specs.apollo.dev/federation/v2.0", import: [...])` — and the AST parser behind the schema reader only understands `extend type`. Pointing a `graphql` connector at a real subgraph schema failed at the second line with a syntax error on text copied from the specification, and the service did not start. The same preamble is what Mycel generates for its own `_service` reply, so it was emitting SDL it could not read back. Two more things in the same file were refused or lost: `repeatable`, the keyword federation's own `@key` and `@tag` are declared with, and a schema block naming roots of its own (`schema { query: RootQuery }`), which left the root with the right name and no fields while the fields sat under the type's own name — a schema file that looks complete and exposes nothing.
 - **`min_val`, `max_val` and `sort_by` ignored numbers typed differently.** JSON has one number type and CEL has three, so a single field arrives as an integer from one record and a double from the next — a price of 30 beside a price of 2.5 — and the comparison behind all three functions required both sides to be the same type, so every such pair compared equal. Nothing failed: `min_val([10, 2.5, 30, 1.5])` returned 10, and `sort_by` over totals of 30, 2.5 and 10 returned them in the order they were given. Numbers now compare as numbers whichever way each side is typed, while two integers are still compared as integers so identifiers beyond the range a float holds exactly are not flattened together.

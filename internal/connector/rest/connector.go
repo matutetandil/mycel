@@ -35,6 +35,7 @@ type Connector struct {
 	mounted       map[string]http.HandlerFunc
 	cors          *CORSConfig
 	authConfig    *AuthConfig
+	authenticator *Authenticator
 	logger        *slog.Logger
 	health        *health.Manager
 	metrics       *metrics.Registry

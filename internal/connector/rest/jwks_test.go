@@ -68,20 +68,20 @@ func signedWith(t *testing.T, method jwt.SigningMethod, key interface{}, kid str
 
 // verifying is what the connector does: hand the token's header to the key
 // lookup and check the signature against whatever comes back.
-func verifying(t *testing.T, c *Connector, token string) error {
+func verifying(t *testing.T, a *Authenticator, token string) error {
 	t.Helper()
 	_, err := jwt.Parse(token, func(tok *jwt.Token) (interface{}, error) {
-		return c.getJWKSKey(tok)
+		return a.getJWKSKey(tok)
 	})
 	return err
 }
 
-func connectorFor(t *testing.T, jwksURL string) *Connector {
+func connectorFor(t *testing.T, jwksURL string) *Authenticator {
 	t.Helper()
-	return &Connector{authConfig: &AuthConfig{
+	return NewAuthenticator(&AuthConfig{
 		Type: "jwt",
 		JWT:  &JWTAuthConfig{JWKSURL: jwksURL},
-	}}
+	}, nil)
 }
 
 // publishing serves a key set and counts how often it is asked for.
@@ -329,13 +329,13 @@ func TestARequestCarryingAValidTokenIsAuthenticated(t *testing.T) {
 	keys.Store(JWKS{Keys: []JWK{jwk}})
 	server, _ := publishing(t, &keys)
 
-	c := &Connector{authConfig: &AuthConfig{
+	c := NewAuthenticator(&AuthConfig{
 		Type: "jwt",
 		JWT: &JWTAuthConfig{
 			JWKSURL:    server.URL,
 			Algorithms: []string{"RS256"},
 		},
-	}}
+	}, nil)
 
 	request := httptest.NewRequest(http.MethodGet, "/orders", nil)
 	request.Header.Set("Authorization", "Bearer "+signedWith(t, jwt.SigningMethodRS256, private, "k1"))
@@ -364,13 +364,13 @@ func TestARequestIsRefusedForEachWayATokenCanBeWrong(t *testing.T) {
 	keys.Store(JWKS{Keys: []JWK{jwk}})
 	server, _ := publishing(t, &keys)
 
-	c := &Connector{authConfig: &AuthConfig{
+	c := NewAuthenticator(&AuthConfig{
 		Type: "jwt",
 		JWT: &JWTAuthConfig{
 			JWKSURL:    server.URL,
 			Algorithms: []string{"RS256"},
 		},
-	}}
+	}, nil)
 
 	for name, header := range map[string]string{
 		"no header at all":             "",

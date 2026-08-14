@@ -247,3 +247,13 @@ func TestEngine_NeedsPersistence(t *testing.T) {
 		})
 	}
 }
+
+func TestStoppingTwiceIsNotACrash(t *testing.T) {
+	// Shutdown paths overlap: a cancelled context and an explicit Shutdown both
+	// reach the engine. Closing its channel a second time panicked the process
+	// on the way out — a crash report for a service that was stopping cleanly.
+	engine := NewEngine(nil, nil, nil)
+
+	engine.Stop()
+	engine.Stop()
+}

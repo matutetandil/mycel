@@ -150,7 +150,10 @@ func sampleValue(a schema.Attr) string {
 	}
 	switch a.Type {
 	case schema.TypeNumber:
-		return "1"
+		// Distinct per attribute, because some numbers may not be equal to
+		// each other: a workflow api on the admin port is refused, and every
+		// number being 1 turned that rule into a failure of this test.
+		return fmt.Sprintf("%d", 1+len(a.Name))
 	case schema.TypeBool:
 		return "true"
 	case schema.TypeList:

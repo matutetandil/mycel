@@ -82,6 +82,15 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 	return conn, nil
 }
 
+// AuthConfigFromMap builds an AuthConfig from the map an auth block parses to.
+//
+// Exported because the workflow API is checked the same way a REST connector
+// is — the same block, the same words, the same validators — and the
+// alternative was a second vocabulary meaning the same thing.
+func AuthConfigFromMap(authMap map[string]interface{}) (*AuthConfig, error) {
+	return parseAuthConfig(authMap)
+}
+
 // parseAuthConfig parses auth configuration from HCL map.
 //
 // The type is read without regard to case — the word is also the name of a

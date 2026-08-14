@@ -21,6 +21,9 @@ type Engine struct {
 	tickInterval time.Duration
 	done         chan struct{}
 	running      sync.Map // instanceID → context.CancelFunc
+
+	// stopOnce guards the close in Stop, which shutdown can reach twice.
+	stopOnce sync.Once
 }
 
 // NewEngine creates a new workflow engine.
@@ -66,7 +69,16 @@ func (e *Engine) Start(ctx context.Context) error {
 }
 
 // Stop stops the background ticker and cancels all active workflows.
+//
+// Idempotent: shutdown paths overlap — a cancelled context and an explicit
+// Shutdown both reach here — and closing the channel a second time panicked
+// the process on the way out, which is a crash report for a service that was
+// stopping cleanly.
 func (e *Engine) Stop() {
+	e.stopOnce.Do(e.stop)
+}
+
+func (e *Engine) stop() {
 	close(e.done)
 	e.running.Range(func(key, value interface{}) bool {
 		if cancel, ok := value.(context.CancelFunc); ok {

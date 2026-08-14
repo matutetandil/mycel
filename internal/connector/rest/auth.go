@@ -7,8 +7,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -155,28 +157,75 @@ func GetAuthContext(ctx context.Context) *AuthContext {
 	return nil
 }
 
+// Authenticator checks a request against an AuthConfig.
+//
+// This was six methods on the REST connector, which meant the only way to have
+// a request checked the way a rest connector checks one was to be a rest
+// connector. The workflow API needs exactly that — the same block, the same
+// words, the same validators — so it lives on its own here and the connector
+// delegates to it. Nothing about how a REST connector authenticates changed.
+type Authenticator struct {
+	config *AuthConfig
+	logger *slog.Logger
+	mu     sync.RWMutex
+}
+
+// NewAuthenticator returns something that can check requests against cfg.
+func NewAuthenticator(cfg *AuthConfig, logger *slog.Logger) *Authenticator {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Authenticator{config: cfg, logger: logger}
+}
+
+// Config returns what this checks against.
+func (a *Authenticator) Config() *AuthConfig { return a.config }
+
+func (a *Authenticator) writeJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if data != nil {
+		if err := json.NewEncoder(w).Encode(data); err != nil {
+			a.logger.Error("Failed to encode response", slog.Any("error", err))
+		}
+	}
+}
+
 // SetAuthConfig sets the authentication configuration for this connector.
 func (c *Connector) SetAuthConfig(cfg *AuthConfig) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.authConfig = cfg
+	c.authenticator = NewAuthenticator(cfg, c.logger)
+}
+
+// authMiddleware checks a request the way this connector was configured to.
+func (c *Connector) authMiddleware(next http.Handler) http.Handler {
+	c.mu.Lock()
+	authenticator := c.authenticator
+	c.mu.Unlock()
+
+	if authenticator == nil {
+		return next
+	}
+	return authenticator.Middleware(next)
 }
 
 // authMiddleware validates incoming requests based on auth configuration.
-func (c *Connector) authMiddleware(next http.Handler) http.Handler {
+func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Add custom response headers
-		if c.authConfig.ResponseHeaders != nil {
-			for k, v := range c.authConfig.ResponseHeaders {
+		if a.config.ResponseHeaders != nil {
+			for k, v := range a.config.ResponseHeaders {
 				w.Header().Set(k, v)
 			}
 		}
 
 		// Check required headers
-		if len(c.authConfig.RequiredHeaders) > 0 {
-			for _, header := range c.authConfig.RequiredHeaders {
+		if len(a.config.RequiredHeaders) > 0 {
+			for _, header := range a.config.RequiredHeaders {
 				if r.Header.Get(header) == "" {
-					c.writeJSON(w, http.StatusBadRequest, map[string]string{
+					a.writeJSON(w, http.StatusBadRequest, map[string]string{
 						"error": fmt.Sprintf("missing required header: %s", header),
 					})
 					return
@@ -185,13 +234,13 @@ func (c *Connector) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Check if path is public
-		if c.isPublicPath(r.URL.Path) {
+		if a.isPublicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		// Skip auth if no auth type configured
-		if c.authConfig.Type == "" {
+		if a.config.Type == "" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -200,34 +249,34 @@ func (c *Connector) authMiddleware(next http.Handler) http.Handler {
 		var authCtx *AuthContext
 		var err error
 
-		switch c.authConfig.Type {
+		switch a.config.Type {
 		case "jwt":
-			authCtx, err = c.validateJWT(r)
+			authCtx, err = a.validateJWT(r)
 		case "api_key":
-			authCtx, err = c.validateAPIKey(r)
+			authCtx, err = a.validateAPIKey(r)
 		case "basic":
-			authCtx, err = c.validateBasic(r, w)
+			authCtx, err = a.validateBasic(r, w)
 		default:
-			err = fmt.Errorf("unknown auth type: %s", c.authConfig.Type)
+			err = fmt.Errorf("unknown auth type: %s", a.config.Type)
 		}
 
 		if err != nil {
-			c.logger.Warn("authentication failed",
+			a.logger.Warn("authentication failed",
 				"path", r.URL.Path,
 				"method", r.Method,
 				"error", err.Error(),
 			)
 
 			status := http.StatusUnauthorized
-			if c.authConfig.Type == "basic" && c.authConfig.Basic != nil {
-				realm := c.authConfig.Basic.Realm
+			if a.config.Type == "basic" && a.config.Basic != nil {
+				realm := a.config.Basic.Realm
 				if realm == "" {
 					realm = "Restricted"
 				}
 				w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Basic realm="%s"`, realm))
 			}
 
-			c.writeJSON(w, status, map[string]string{
+			a.writeJSON(w, status, map[string]string{
 				"error": "unauthorized",
 			})
 			return
@@ -244,12 +293,12 @@ func (c *Connector) authMiddleware(next http.Handler) http.Handler {
 }
 
 // isPublicPath checks if the path is in the public paths list.
-func (c *Connector) isPublicPath(path string) bool {
-	if c.authConfig == nil || len(c.authConfig.Public) == 0 {
+func (a *Authenticator) isPublicPath(path string) bool {
+	if a.config == nil || len(a.config.Public) == 0 {
 		return false
 	}
 
-	for _, publicPath := range c.authConfig.Public {
+	for _, publicPath := range a.config.Public {
 		if publicPath == path {
 			return true
 		}
@@ -266,8 +315,8 @@ func (c *Connector) isPublicPath(path string) bool {
 }
 
 // validateJWT validates a JWT token from the request.
-func (c *Connector) validateJWT(r *http.Request) (*AuthContext, error) {
-	cfg := c.authConfig.JWT
+func (a *Authenticator) validateJWT(r *http.Request) (*AuthContext, error) {
+	cfg := a.config.JWT
 	if cfg == nil {
 		return nil, fmt.Errorf("JWT configuration not set")
 	}
@@ -327,7 +376,7 @@ func (c *Connector) validateJWT(r *http.Request) (*AuthContext, error) {
 			if cfg.JWKSURL == "" {
 				return nil, fmt.Errorf("JWKS URL not configured for %s algorithm", alg)
 			}
-			return c.getJWKSKey(token)
+			return a.getJWKSKey(token)
 
 		default:
 			return nil, fmt.Errorf("unsupported algorithm: %s", alg)
@@ -418,8 +467,8 @@ func getAudience(claims jwt.MapClaims) []string {
 // for ever, that would refuse every request from the moment of a rotation
 // until somebody restarted the service. So an unknown identifier is a reason
 // to look again — once, and only then.
-func (c *Connector) getJWKSKey(token *jwt.Token) (interface{}, error) {
-	cfg := c.authConfig.JWT
+func (a *Authenticator) getJWKSKey(token *jwt.Token) (interface{}, error) {
+	cfg := a.config.JWT
 
 	// The identifier first: a token that names no key cannot be matched
 	// against any set, so there is nothing to fetch for it.
@@ -520,8 +569,8 @@ func asJWKSKey(key JWK) jwks.Key {
 }
 
 // validateAPIKey validates an API key from the request.
-func (c *Connector) validateAPIKey(r *http.Request) (*AuthContext, error) {
-	cfg := c.authConfig.APIKey
+func (a *Authenticator) validateAPIKey(r *http.Request) (*AuthContext, error) {
+	cfg := a.config.APIKey
 	if cfg == nil {
 		return nil, fmt.Errorf("API key configuration not set")
 	}
@@ -547,7 +596,7 @@ func (c *Connector) validateAPIKey(r *http.Request) (*AuthContext, error) {
 	if cfg.ValidateFunc != nil {
 		valid, userID, metadata, err := cfg.ValidateFunc(r.Context(), apiKey)
 		if err != nil {
-			c.logger.Error("API key validation error", "error", err)
+			a.logger.Error("API key validation error", "error", err)
 			return nil, fmt.Errorf("API key validation failed")
 		}
 		if !valid {
@@ -650,8 +699,8 @@ func CreateAPIKeyValidator(reader interface {
 }
 
 // validateBasic validates Basic auth credentials.
-func (c *Connector) validateBasic(r *http.Request, w http.ResponseWriter) (*AuthContext, error) {
-	cfg := c.authConfig.Basic
+func (a *Authenticator) validateBasic(r *http.Request, w http.ResponseWriter) (*AuthContext, error) {
+	cfg := a.config.Basic
 	if cfg == nil {
 		return nil, fmt.Errorf("Basic auth configuration not set")
 	}

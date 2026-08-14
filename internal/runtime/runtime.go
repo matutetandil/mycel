@@ -135,7 +135,8 @@ type Runtime struct {
 	sanitizer *sanitize.Pipeline
 
 	// Workflow engine for long-running processes with persistence
-	workflowEngine *workflow.Engine
+	workflowEngine    *workflow.Engine
+	workflowAPIServer *http.Server
 
 	// Scheduler for cron-based flow triggers
 	scheduler *scheduler.Scheduler
@@ -1471,6 +1472,12 @@ func (r *Runtime) startServers(ctx context.Context) error {
 		return fmt.Errorf("failed to start admin server: %w", err)
 	}
 
+	// And the workflow endpoints, on their own port, when the configuration
+	// asks for them. They are not on the admin server: see workflow_api.go.
+	if err := r.startWorkflowAPI(); err != nil {
+		return fmt.Errorf("failed to start workflow api: %w", err)
+	}
+
 	// Mark service as ready after all servers are started
 	r.health.SetReady(true)
 
@@ -1574,8 +1581,8 @@ func (r *Runtime) startAdminServer() error {
 		mux.Handle("/metrics", r.metrics.Handler())
 	}
 
-	// Register workflow management endpoints
-	r.registerWorkflowEndpoints(mux)
+	// The workflow endpoints are deliberately not here: they wake and cancel
+	// running workflows, and this port is the read-only one. See workflow_api.go.
 
 	// Register debug protocol (Mycel Studio IDE)
 	r.debugServer.RegisterHandlers(mux)
@@ -2130,7 +2137,10 @@ func (r *Runtime) shutdownSteps(ctx context.Context) error {
 		}
 	}
 
-	// Stop workflow engine
+	// Stop workflow engine and the listener in front of it
+	if err := r.stopWorkflowAPI(ctx); err != nil {
+		r.logger.Warn("error shutting down workflow api", "error", err)
+	}
 	if r.workflowEngine != nil {
 		r.workflowEngine.Stop()
 	}

@@ -87,7 +87,39 @@ mycel_connector_errors_total{service="orders-api",connector="postgres"} 0
 
 ## Workflow Endpoints
 
-Available when a saga with `delay` or `await` steps is running and `workflow` block is configured in the service.
+These wake and cancel running workflows, so they are **not** on the admin
+server and they are **not** on by default. They are served on a port of their
+own, only when the `workflow` block asks for them, and only behind
+authentication:
+
+```hcl
+service {
+  workflow {
+    storage = "db"
+
+    api {
+      port = 9091                 # default 9091; the admin port is refused
+
+      auth {                      # required
+        type = "api_key"
+        keys = [env("WORKFLOW_API_KEY")]
+      }
+    }
+  }
+}
+```
+
+`auth` is the same block a connector takes — `jwt`, `api_key` or `basic` — and
+is checked by the same code. `mycel validate` refuses an `api` block with no
+`auth`, an `auth` with no keys or users to check against, and a port equal to
+the admin port.
+
+Every request below therefore carries credentials:
+
+```bash
+curl -H "X-API-Key: $WORKFLOW_API_KEY" http://localhost:9091/workflows/wf-abc123
+```
+
 
 ### `GET /workflows/{id}`
 
@@ -175,6 +207,11 @@ See the [Auth Guide](../guides/auth.md) for complete documentation.
 ## Admin Server
 
 Services without a REST connector (e.g., queue workers, CDC pipelines) automatically start a lightweight admin server on port 9090. This exposes health and metrics for Kubernetes probes and monitoring.
+
+It is read-only and unauthenticated by design, and it binds to every interface —
+so treat it as reachable by anything on the network the process is on, and keep
+it off any published Service or port mapping. Nothing that changes state is
+served there: the workflow endpoints have their own port for that reason.
 
 Customize the port:
 

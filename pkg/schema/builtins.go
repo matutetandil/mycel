@@ -714,6 +714,21 @@ func ServiceSchema() Block {
 			}},
 			{Type: "workflow", Doc: "Workflow engine configuration", Attrs: []Attr{
 				{Name: "storage", Doc: "Workflow persistence connector", Type: TypeString, Ref: RefConnector},
+				{Name: "table", Doc: "Table holding workflow instances", Type: TypeString},
+				{Name: "auto_create", Doc: "Create the table on startup", Type: TypeBool},
+			}, Children: []Block{
+				{Type: "api", Doc: "HTTP interface to running workflows, on its own port and never on the admin server", Attrs: []Attr{
+					{Name: "port", Doc: "Port to listen on (default 9091); may not be the admin port", Type: TypeNumber},
+					{Name: "host", Doc: "Address to bind to (default every interface)", Type: TypeString},
+				}, Children: []Block{
+					{Type: "auth", Doc: "How callers are checked. Required: these endpoints wake and cancel workflows", Open: true, Attrs: []Attr{
+						{Name: "type", Doc: "jwt, api_key or basic", Type: TypeString, Required: true, Values: []string{"jwt", "api_key", "basic"}},
+						{Name: "header", Doc: "Header carrying the key (api_key)", Type: TypeString},
+						{Name: "keys", Doc: "Accepted API keys", Type: TypeList},
+						{Name: "secret", Doc: "Secret tokens are signed with (jwt)", Type: TypeString},
+						{Name: "jwks_url", Doc: "Where the signing keys are published (jwt)", Type: TypeString},
+					}},
+				}},
 			}},
 		},
 	}
