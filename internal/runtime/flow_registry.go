@@ -2225,11 +2225,14 @@ func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]inte
 		return nil, fmt.Errorf("step execution failed: %w", err)
 	}
 
-	// If no transform is configured, return step results directly
+	// If no transform is configured, return the result of the step written
+	// first. It used to walk the map of results and return whichever came out
+	// of it, so a flow with more than one step answered a different step's
+	// result on each request, with nothing in the configuration to explain why
+	// the same call returned a customer once and an order the next time.
 	if h.Config.Transform == nil || len(h.Config.Transform.Mappings) == 0 {
-		// Return the first step's result if available
-		if len(stepResults) > 0 {
-			for _, result := range stepResults {
+		for _, step := range h.Config.Steps {
+			if result, ok := stepResults[step.Name]; ok {
 				return result, nil
 			}
 		}
