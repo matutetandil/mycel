@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -1662,9 +1663,16 @@ func (r *Runtime) registerWorkflowEndpoints(mux *http.ServeMux) {
 		id := req.PathValue("id")
 		event := req.PathValue("event")
 
+		// A body that is not JSON is refused rather than dropped: decoded and
+		// discarded, a malformed payload woke the workflow with no data at all,
+		// which sent it down a branch reading fields that were never there —
+		// and the caller was told the signal had worked.
 		var data map[string]interface{}
 		if req.Body != nil {
-			json.NewDecoder(req.Body).Decode(&data)
+			if err := json.NewDecoder(req.Body).Decode(&data); err != nil && !errors.Is(err, io.EOF) {
+				http.Error(w, fmt.Sprintf("signal body is not JSON: %v", err), http.StatusBadRequest)
+				return
+			}
 		}
 
 		if err := r.workflowEngine.Signal(req.Context(), id, event, data); err != nil {
