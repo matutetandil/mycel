@@ -216,9 +216,10 @@ func (a *AuthInterceptor) validateJWTToken(tokenString string) (map[string]inter
 	if cfg.Issuer != "" {
 		parserOpts = append(parserOpts, jwt.WithIssuer(cfg.Issuer))
 	}
-	if len(cfg.Audience) > 0 {
-		parserOpts = append(parserOpts, jwt.WithAudience(cfg.Audience[0]))
-	}
+	// Audience is checked below rather than here: a list means any of them is
+	// acceptable — the REST connector reads it that way, and a service fronting
+	// two audiences during a migration needs it — while the parser option takes
+	// a single value, so every entry after the first did nothing.
 
 	// Parse token
 	parser := jwt.NewParser(parserOpts...)
@@ -271,7 +272,38 @@ func (a *AuthInterceptor) validateJWTToken(tokenString string) (map[string]inter
 		return nil, fmt.Errorf("invalid claims format")
 	}
 
+	if len(cfg.Audience) > 0 && !audienceAccepted(claims, cfg.Audience) {
+		return nil, fmt.Errorf("token audience is not one of: %s", strings.Join(cfg.Audience, ", "))
+	}
+
 	return claims, nil
+}
+
+// audienceAccepted reports whether the token was minted for any of the
+// audiences this service answers for. The claim is a string or a list of them.
+func audienceAccepted(claims jwt.MapClaims, accepted []string) bool {
+	var carried []string
+	switch aud := claims["aud"].(type) {
+	case string:
+		carried = []string{aud}
+	case []interface{}:
+		for _, entry := range aud {
+			if s, ok := entry.(string); ok {
+				carried = append(carried, s)
+			}
+		}
+	case []string:
+		carried = aud
+	}
+
+	for _, want := range accepted {
+		for _, got := range carried {
+			if got == want {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // getJWKSKey fetches the verification key from JWKS endpoint.
