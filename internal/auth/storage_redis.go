@@ -178,13 +178,39 @@ func (s *RedisSessionStore) DeleteByUserID(ctx context.Context, userID string) e
 	return nil
 }
 
-// CountByUserID returns the number of active sessions for a user
+// CountByUserID returns the number of active sessions for a user.
+//
+// The user's index holds an identifier for every session ever created for them
+// and Redis expires the sessions themselves, so counting the index counted
+// sessions that no longer exist. That number decides max_active: a user with
+// on_max_reached = "reject_new" was refused with "Maximum number of sessions
+// reached" once they had signed in that many times over the life of the
+// account, with nothing signed in at all. Sessions that are gone are dropped
+// from the index as they are found, which is what GetByUserID already does.
 func (s *RedisSessionStore) CountByUserID(ctx context.Context, userID string) (int, error) {
-	count, err := s.client.SCard(ctx, s.userSessionsKey(userID)).Result()
+	sessionIDs, err := s.client.SMembers(ctx, s.userSessionsKey(userID)).Result()
 	if err != nil {
 		return 0, fmt.Errorf("failed to count user sessions: %w", err)
 	}
-	return int(count), nil
+
+	live := 0
+	var stale []interface{}
+	for _, id := range sessionIDs {
+		exists, err := s.client.Exists(ctx, s.sessionKey(id)).Result()
+		if err != nil {
+			return 0, fmt.Errorf("failed to count user sessions: %w", err)
+		}
+		if exists > 0 {
+			live++
+			continue
+		}
+		stale = append(stale, id)
+	}
+	if len(stale) > 0 {
+		s.client.SRem(ctx, s.userSessionsKey(userID), stale...)
+	}
+
+	return live, nil
 }
 
 // RedisTokenStore implements TokenStore using Redis

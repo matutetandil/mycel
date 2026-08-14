@@ -366,11 +366,25 @@ func (s *MemorySessionStore) DeleteExpired(ctx context.Context) error {
 	return nil
 }
 
+// Count returns how many sessions a user has that are still live.
+//
+// The index holds every session created for them until the cleanup loop comes
+// round, and this number decides max_active — so counting the index refused a
+// user with on_max_reached = "reject_new" over sessions that had already run
+// out. The SQL stores have always counted with expires_at > now; this makes
+// the three agree.
 func (s *MemorySessionStore) Count(ctx context.Context, userID string) (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return len(s.byUser[userID]), nil
+	now := time.Now()
+	live := 0
+	for _, id := range s.byUser[userID] {
+		if session, ok := s.sessions[id]; ok && session.ExpiresAt.After(now) {
+			live++
+		}
+	}
+	return live, nil
 }
 
 func (s *MemorySessionStore) Touch(ctx context.Context, id string) error {

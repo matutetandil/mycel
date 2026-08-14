@@ -22,6 +22,24 @@ func newTestManager(t *testing.T) *Manager {
 			AccessLifetime:  "15m",
 			RefreshLifetime: "7d",
 		},
+		// Argon2id is deliberately expensive, which is right in a service and
+		// wrong in a test that signs in twenty-five times: the lockout test
+		// alone took forty seconds of hashing to prove something about
+		// counting. The parameters below are the cheapest the algorithm
+		// accepts; nothing here is about how hard a hash is to reverse.
+		Password: &PasswordConfig{
+			Algorithm: "argon2id", Memory: 8, Iterations: 1,
+			Parallelism: 1, SaltLength: 8, KeyLength: 16,
+		},
+		// A failed sign-in waits a second and a half so that a wrong password
+		// and an address with no account take the same time to answer. That is
+		// the right behaviour and the wrong price for a test signing in
+		// twenty-five times: the lockout test alone spent thirty-seven seconds
+		// waiting. The delay itself is covered on its own in
+		// failure_delay_test.go, with the wait configured there.
+		Security: &SecurityConfig{
+			BruteForce: &BruteForceConfig{FailDelay: "1ms"},
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
