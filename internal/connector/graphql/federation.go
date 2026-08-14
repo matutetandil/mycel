@@ -221,8 +221,14 @@ func (f *FederationSupport) CreateEntitiesField() *graphql.Field {
 
 				result, err := entity.Resolver(p.Context, repMap)
 				if err != nil {
-					results[i] = nil
-					continue
+					// A resolver that failed is not an entity that does not
+					// exist. Answering null for both told the gateway "no such
+					// product" when the truth was that the catalogue was
+					// unreachable, and that reaches somebody as missing data
+					// rather than as an outage. A resolver reporting no error
+					// and no entity still answers null, which is the right
+					// answer to "this key is not here".
+					return nil, fmt.Errorf("resolving %s %v: %w", typeName, keyOf(repMap, entity), err)
 				}
 
 				results[i] = result
@@ -231,6 +237,22 @@ func (f *FederationSupport) CreateEntitiesField() *graphql.Field {
 			return results, nil
 		},
 	}
+}
+
+// keyOf describes which entity was being resolved, for an error a gateway
+// operator has to act on.
+func keyOf(representation map[string]interface{}, entity *EntityDefinition) interface{} {
+	if entity != nil {
+		for _, key := range entity.Keys {
+			if value, ok := representation[key.Fields]; ok {
+				return value
+			}
+		}
+	}
+	if id, ok := representation["id"]; ok {
+		return id
+	}
+	return representation
 }
 
 // createEntityUnion creates the _Entity union type from registered entities.
