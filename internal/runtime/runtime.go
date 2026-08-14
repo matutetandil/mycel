@@ -2380,9 +2380,29 @@ func (r *Runtime) hotReloadLoad(ctx context.Context, configPath string) error {
 	return nil
 }
 
+// hotReloadValidate is the dry run the watcher makes before a reload touches
+// the running service. It used to do nothing at all — the files were parsed by
+// the load hook and that was the whole check — so a configuration that parses
+// and is then refused passed the dry run, logged "configuration validation
+// passed", and was turned away seconds later by the switch. It now makes
+// exactly the checks the switch makes, and nothing it does is visible to the
+// running service.
 func (r *Runtime) hotReloadValidate(ctx context.Context) error {
 	r.logger.Debug("hot reload: validating configuration")
-	// Configuration validation happens during load
+
+	p := parser.NewHCLParserWithRegistry(r.schemaRegistry)
+	newConfig, err := p.Parse(ctx, r.configDir)
+	if err != nil {
+		return fmt.Errorf("failed to parse configuration: %w", err)
+	}
+
+	if errs := ValidateFlowSchemas(newConfig, r.schemaRegistry); len(errs) > 0 {
+		return fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
+	}
+	if errs := ValidateConnectorSchemas(newConfig, r.schemaRegistry); len(errs) > 0 {
+		return fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
+	}
+
 	return nil
 }
 
