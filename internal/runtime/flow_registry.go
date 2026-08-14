@@ -71,7 +71,12 @@ func (r *FlowRegistry) InvokeFlow(ctx context.Context, flowName string, input ma
 	if !ok {
 		return nil, fmt.Errorf("flow %q not found", flowName)
 	}
-	return handler.HandleRequest(ctx, input)
+	// Refuse a configuration that closes a loop. Without this the call never
+	// returns: see flow_invocation.go.
+	if err := checkInvocationCycle(ctx, flowName); err != nil {
+		return nil, err
+	}
+	return handler.HandleRequest(withInvocation(ctx, flowName), input)
 }
 
 // List returns all registered flow names.
