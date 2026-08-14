@@ -339,215 +339,8 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 
 	// Parse nested blocks
 	for _, nestedBlock := range content.Blocks {
-		switch nestedBlock.Type {
-		case "pool":
-			pool, err := parsePoolBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("pool block error: %w", err)
-			}
-			config.Properties["pool"] = pool
-
-		case "cors":
-			cors, err := parseCorsBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("cors block error: %w", err)
-			}
-			config.Properties["cors"] = cors
-
-		case "auth":
-			auth, err := parseAuthBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("auth block error: %w", err)
-			}
-			config.Properties["auth"] = auth
-
-		case "retry":
-			retry, err := parseRetryBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("retry block error: %w", err)
-			}
-			config.Properties["retry"] = retry
-
-		case "headers":
-			headers, err := parseHeadersBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("headers block error: %w", err)
-			}
-			config.Properties["headers"] = headers
-
-		case "schema":
-			schema, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("schema block error: %w", err)
-			}
-			config.Properties["schema"] = schema
-
-		case "ssh":
-			ssh, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("ssh block error: %w", err)
-			}
-			config.Properties["ssh"] = ssh
-
-		case "tls":
-			tls, err := parseTLSBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("tls block error: %w", err)
-			}
-			config.Properties["tls"] = tls
-
-		case "env":
-			// exec reads Properties["env"] as a map of NAME to value, so the
-			// block is collected rather than given a fixed set of attributes.
-			env, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("env block error: %w", err)
-			}
-			config.Properties["env"] = env
-
-		case "replicas":
-			// One block per replica. The SQL factories read this as a list of
-			// maps, so repeated blocks are collected into one.
-			replica, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("replicas block error: %w", err)
-			}
-			existing, _ := config.Properties["replicas"].([]interface{})
-			config.Properties["replicas"] = append(existing, replica)
-
-		case "queue":
-			queue, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("queue block error: %w", err)
-			}
-			config.Properties["queue"] = queue
-
-		case "exchange":
-			exchange, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("exchange block error: %w", err)
-			}
-			config.Properties["exchange"] = exchange
-
-		case "publisher":
-			pub, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("publisher block error: %w", err)
-			}
-			config.Properties["publisher"] = pub
-
-		case "consumer":
-			consumer, err := parseConsumerBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("consumer block error: %w", err)
-			}
-			config.Properties["consumer"] = consumer
-
-		case "producer":
-			producer, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("producer block error: %w", err)
-			}
-			config.Properties["producer"] = producer
-
-		case "federation":
-			federation, err := parseFederationBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("federation block error: %w", err)
-			}
-			config.Properties["federation"] = federation
-
-		case "subscriptions":
-			subscriptions, err := parseSubscriptionsBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("subscriptions block error: %w", err)
-			}
-			config.Properties["subscriptions"] = subscriptions
-
-		case "profile":
-			if len(nestedBlock.Labels) < 1 {
-				return nil, fmt.Errorf("profile block requires a name label")
-			}
-			profileDef, err := parseProfileBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("profile %s error: %w", nestedBlock.Labels[0], err)
-			}
-
-			// Initialize profiles map if needed
-			profiles, ok := config.Properties["_profiles"].(*profile.Config)
-			if !ok {
-				profiles = &profile.Config{
-					Profiles: make(map[string]*profile.ProfileDef),
-				}
-				config.Properties["_profiles"] = profiles
-			}
-			profiles.Profiles[profileDef.Name] = profileDef
-
-		// Redis Cluster block
-		case "cluster":
-			cluster, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("cluster block error: %w", err)
-			}
-			config.Properties["cluster"] = cluster
-
-		// Redis Sentinel block
-		case "sentinel":
-			sentinel, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("sentinel block error: %w", err)
-			}
-			config.Properties["sentinel"] = sentinel
-
-		// gRPC keep-alive block
-		case "keep_alive":
-			keepAlive, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("keep_alive block error: %w", err)
-			}
-			config.Properties["keep_alive"] = keepAlive
-
-		// gRPC load balancing block
-		case "load_balancing":
-			loadBalancing, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("load_balancing block error: %w", err)
-			}
-			config.Properties["load_balancing"] = loadBalancing
-
-		// Kafka SASL block
-		case "sasl":
-			sasl, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("sasl block error: %w", err)
-			}
-			config.Properties["sasl"] = sasl
-
-		// Kafka Schema Registry block
-		case "schema_registry":
-			schemaRegistry, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("schema_registry block error: %w", err)
-			}
-			config.Properties["schema_registry"] = schemaRegistry
-
-		case "batch":
-			batch, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("batch block error: %w", err)
-			}
-			config.Properties["batch"] = batch
-
-		// Named operations
-		case "operation":
-			if len(nestedBlock.Labels) < 1 {
-				return nil, fmt.Errorf("operation block requires a name label")
-			}
-			operation, err := parseOperationBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("operation %s error: %w", nestedBlock.Labels[0], err)
-			}
-			config.Operations = append(config.Operations, operation)
+		if _, err := applyConnectorBlock(config, nestedBlock, ctx); err != nil {
+			return nil, err
 		}
 	}
 
@@ -586,65 +379,15 @@ func parseConnectorBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.Con
 func parseProfileBlock(block *hcl.Block, ctx *hcl.EvalContext) (*profile.ProfileDef, error) {
 	profileName := block.Labels[0]
 
-	// Profile uses the same schema as a regular connector plus transform
-	schema := &hcl.BodySchema{
-		Attributes: []hcl.AttributeSchema{
-			{Name: "type", Required: true},
-			{Name: "driver"},
-			{Name: "host"},
-			{Name: "port"},
-			{Name: "database"},
-			{Name: "user"},
-			{Name: "username"},
-			{Name: "password"},
-			{Name: "base_url"},
-			{Name: "timeout"},
-			{Name: "retry_count"},
-			{Name: "endpoint"},
-			{Name: "playground"},
-			{Name: "brokers"},
-			{Name: "uri"},
-			{Name: "url"},
-			{Name: "address"},
-			{Name: "bucket"},
-			{Name: "region"},
-			{Name: "access_key"},
-			{Name: "secret_key"},
-			{Name: "charset"},
-			{Name: "ssl_mode"},
-			{Name: "sslmode"},
-			// Cache attributes
-			{Name: "mode"},
-			{Name: "prefix"},
-			{Name: "max_items"},
-			{Name: "eviction"},
-			{Name: "default_ttl"},
-			// gRPC attributes
-			{Name: "proto_path"},
-			{Name: "proto_files"},
-			{Name: "reflection"},
-			{Name: "target"},
-			{Name: "insecure"},
-			// File attributes
-			{Name: "base_path"},
-			{Name: "format"},
-			{Name: "permissions"},
-			// S3 attributes
-			{Name: "use_path_style"},
-			// MongoDB attributes
-			{Name: "replica_set"},
-			{Name: "auth_source"},
-		},
-		Blocks: []hcl.BlockHeaderSchema{
-			{Type: "pool"},
-			{Type: "auth"},
-			{Type: "headers"},
-			{Type: "transform"},
-			{Type: "tls"},
-			{Type: "cluster"},
-			{Type: "sentinel"},
-		},
-	}
+	// A profile is a connector that is chosen at runtime, so it accepts what a
+	// connector accepts — plus a transform, which is what makes one profile
+	// stand in for another whose payload is shaped differently. It used to
+	// carry its own list of 40 attributes against the connector's 159, so a
+	// profile could not name a queue, a vhost, a path or a command and could
+	// not hold a consumer, retry or tls block; per-environment configuration is
+	// the reason profiles exist, which is where that gap was felt.
+	schema := connectorBodySchema()
+	schema.Blocks = append(schema.Blocks, hcl.BlockHeaderSchema{Type: "transform"})
 
 	content, diags := block.Body.Content(schema)
 	if diags.HasErrors() {
@@ -672,63 +415,35 @@ func parseProfileBlock(block *hcl.Block, ctx *hcl.EvalContext) (*profile.Profile
 		connConfig.Properties[name] = ctyValueToGo(val)
 	}
 
+	// A profile declares what it is. The connector schema leaves type optional
+	// — a connector made of profiles has none of its own — but a profile with
+	// no type is a profile that cannot be built, and it has to say so here
+	// rather than at startup.
+	if connConfig.Type == "" {
+		return nil, fmt.Errorf("profile %q requires a 'type' attribute", profileName)
+	}
+
 	profileDef := &profile.ProfileDef{
 		Name:            profileName,
 		ConnectorConfig: connConfig,
 		Transform:       make(map[string]string),
 	}
 
-	// Parse nested blocks
+	// Parse nested blocks with exactly the handling a connector gets.
 	for _, nestedBlock := range content.Blocks {
-		switch nestedBlock.Type {
-		case "pool":
-			pool, err := parsePoolBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("pool block error: %w", err)
-			}
-			connConfig.Properties["pool"] = pool
-
-		case "auth":
-			auth, err := parseAuthBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("auth block error: %w", err)
-			}
-			connConfig.Properties["auth"] = auth
-
-		case "headers":
-			headers, err := parseHeadersBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("headers block error: %w", err)
-			}
-			connConfig.Properties["headers"] = headers
-
-		case "transform":
+		if nestedBlock.Type == "transform" {
 			transform, err := parseProfileTransformBlock(nestedBlock, ctx)
 			if err != nil {
 				return nil, fmt.Errorf("transform block error: %w", err)
 			}
 			profileDef.Transform = transform
-
-		case "tls":
-			tls, err := parseTLSBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("tls block error: %w", err)
-			}
-			connConfig.Properties["tls"] = tls
-
-		case "cluster":
-			cluster, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("cluster block error: %w", err)
-			}
-			connConfig.Properties["cluster"] = cluster
-
-		case "sentinel":
-			sentinel, err := parseGenericBlock(nestedBlock, ctx)
-			if err != nil {
-				return nil, fmt.Errorf("sentinel block error: %w", err)
-			}
-			connConfig.Properties["sentinel"] = sentinel
+			continue
+		}
+		if nestedBlock.Type == "profile" {
+			return nil, fmt.Errorf("profile %q cannot contain another profile", profileName)
+		}
+		if _, err := applyConnectorBlock(connConfig, nestedBlock, ctx); err != nil {
+			return nil, err
 		}
 	}
 
@@ -1407,4 +1122,232 @@ func parseParamBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.ParamDe
 	}
 
 	return param, nil
+}
+
+// applyConnectorBlock reads one nested block of a connector into its config.
+//
+// A profile is a connector — the same settings, chosen at runtime — so it is
+// parsed by this rather than by a second list beside it. The two used to be
+// separate, and the profile list had 40 attributes against the connector's 159:
+// a profile could not name a queue, a vhost, a path or a command, and could not
+// carry a consumer, retry or tls block at all. Per-environment configuration is
+// exactly what profiles are for, so that gap was in the way of the recommended
+// way to do it.
+//
+// Returns false for a block type it does not know, so a caller can handle its
+// own (a profile has a transform; a connector has profiles).
+func applyConnectorBlock(config *connector.Config, nestedBlock *hcl.Block, ctx *hcl.EvalContext) (bool, error) {
+	switch nestedBlock.Type {
+	case "pool":
+		pool, err := parsePoolBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("pool block error: %w", err)
+		}
+		config.Properties["pool"] = pool
+
+	case "cors":
+		cors, err := parseCorsBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("cors block error: %w", err)
+		}
+		config.Properties["cors"] = cors
+
+	case "auth":
+		auth, err := parseAuthBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("auth block error: %w", err)
+		}
+		config.Properties["auth"] = auth
+
+	case "retry":
+		retry, err := parseRetryBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("retry block error: %w", err)
+		}
+		config.Properties["retry"] = retry
+
+	case "headers":
+		headers, err := parseHeadersBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("headers block error: %w", err)
+		}
+		config.Properties["headers"] = headers
+
+	case "schema":
+		schema, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("schema block error: %w", err)
+		}
+		config.Properties["schema"] = schema
+
+	case "ssh":
+		ssh, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("ssh block error: %w", err)
+		}
+		config.Properties["ssh"] = ssh
+
+	case "tls":
+		tls, err := parseTLSBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("tls block error: %w", err)
+		}
+		config.Properties["tls"] = tls
+
+	case "env":
+		// exec reads Properties["env"] as a map of NAME to value, so the
+		// block is collected rather than given a fixed set of attributes.
+		env, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("env block error: %w", err)
+		}
+		config.Properties["env"] = env
+
+	case "replicas":
+		// One block per replica. The SQL factories read this as a list of
+		// maps, so repeated blocks are collected into one.
+		replica, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("replicas block error: %w", err)
+		}
+		existing, _ := config.Properties["replicas"].([]interface{})
+		config.Properties["replicas"] = append(existing, replica)
+
+	case "queue":
+		queue, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("queue block error: %w", err)
+		}
+		config.Properties["queue"] = queue
+
+	case "exchange":
+		exchange, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("exchange block error: %w", err)
+		}
+		config.Properties["exchange"] = exchange
+
+	case "publisher":
+		pub, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("publisher block error: %w", err)
+		}
+		config.Properties["publisher"] = pub
+
+	case "consumer":
+		consumer, err := parseConsumerBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("consumer block error: %w", err)
+		}
+		config.Properties["consumer"] = consumer
+
+	case "producer":
+		producer, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("producer block error: %w", err)
+		}
+		config.Properties["producer"] = producer
+
+	case "federation":
+		federation, err := parseFederationBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("federation block error: %w", err)
+		}
+		config.Properties["federation"] = federation
+
+	case "subscriptions":
+		subscriptions, err := parseSubscriptionsBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("subscriptions block error: %w", err)
+		}
+		config.Properties["subscriptions"] = subscriptions
+
+	case "profile":
+		if len(nestedBlock.Labels) < 1 {
+			return false, fmt.Errorf("profile block requires a name label")
+		}
+		profileDef, err := parseProfileBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("profile %s error: %w", nestedBlock.Labels[0], err)
+		}
+
+		// Initialize profiles map if needed
+		profiles, ok := config.Properties["_profiles"].(*profile.Config)
+		if !ok {
+			profiles = &profile.Config{
+				Profiles: make(map[string]*profile.ProfileDef),
+			}
+			config.Properties["_profiles"] = profiles
+		}
+		profiles.Profiles[profileDef.Name] = profileDef
+
+	// Redis Cluster block
+	case "cluster":
+		cluster, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("cluster block error: %w", err)
+		}
+		config.Properties["cluster"] = cluster
+
+	// Redis Sentinel block
+	case "sentinel":
+		sentinel, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("sentinel block error: %w", err)
+		}
+		config.Properties["sentinel"] = sentinel
+
+	// gRPC keep-alive block
+	case "keep_alive":
+		keepAlive, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("keep_alive block error: %w", err)
+		}
+		config.Properties["keep_alive"] = keepAlive
+
+	// gRPC load balancing block
+	case "load_balancing":
+		loadBalancing, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("load_balancing block error: %w", err)
+		}
+		config.Properties["load_balancing"] = loadBalancing
+
+	// Kafka SASL block
+	case "sasl":
+		sasl, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("sasl block error: %w", err)
+		}
+		config.Properties["sasl"] = sasl
+
+	// Kafka Schema Registry block
+	case "schema_registry":
+		schemaRegistry, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("schema_registry block error: %w", err)
+		}
+		config.Properties["schema_registry"] = schemaRegistry
+
+	case "batch":
+		batch, err := parseGenericBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("batch block error: %w", err)
+		}
+		config.Properties["batch"] = batch
+
+	// Named operations
+	case "operation":
+		if len(nestedBlock.Labels) < 1 {
+			return false, fmt.Errorf("operation block requires a name label")
+		}
+		operation, err := parseOperationBlock(nestedBlock, ctx)
+		if err != nil {
+			return false, fmt.Errorf("operation %s error: %w", nestedBlock.Labels[0], err)
+		}
+		config.Operations = append(config.Operations, operation)
+	default:
+		return false, nil
+	}
+	return true, nil
 }
