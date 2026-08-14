@@ -257,6 +257,11 @@ func New(opts Options) (*Runtime, error) {
 		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
 
+	// And each connector's settings against the words that connector accepts.
+	if errs := ValidateConnectorSchemas(config, schemaReg); len(errs) > 0 {
+		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
+	}
+
 	// Attributes that parse but do nothing. Not fatal — they are inert, and
 	// failing here would break configs that work today — but the whole point
 	// is that nobody can tell they are inert by reading the file.
@@ -2403,6 +2408,9 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 	// The same check startup makes, so a reload cannot install a configuration
 	// that would have been refused on the way in.
 	if errs := ValidateFlowSchemas(newConfig, r.schemaRegistry); len(errs) > 0 {
+		return fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
+	}
+	if errs := ValidateConnectorSchemas(newConfig, r.schemaRegistry); len(errs) > 0 {
 		return fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
 

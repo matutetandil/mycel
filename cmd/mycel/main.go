@@ -569,6 +569,18 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed: %d flow error(s)", len(errs))
 	}
 
+	// And each connector's settings against the words that connector accepts,
+	// so a misspelt auth type is caught here rather than by whoever wonders
+	// why every request comes back unauthorised.
+	if errs := runtime.ValidateConnectorSchemas(config, schemaReg); len(errs) > 0 {
+		fmt.Printf("\n✗ Configuration is invalid:\n\n")
+		for _, e := range errs {
+			fmt.Printf("    - %s\n", e)
+		}
+		fmt.Println()
+		return fmt.Errorf("validation failed: %d connector error(s)", len(errs))
+	}
+
 	// Aspects are checked with the same registry startup uses, so a config
 	// cannot pass validate and then refuse to start.
 	if err := runtime.ValidateAspects(config); err != nil {

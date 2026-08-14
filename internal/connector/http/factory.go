@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
@@ -83,7 +84,10 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 	// Parse auth config (optional)
 	var auth *AuthConfig
 	if authCfg, ok := cfg.Properties["auth"].(map[string]interface{}); ok {
-		auth = parseAuthConfig(authCfg)
+		var err error
+		if auth, err = parseAuthConfig(authCfg); err != nil {
+			return nil, fmt.Errorf("http connector %q: %w", cfg.Name, err)
+		}
 	}
 
 	// Parse TLS config (optional). Writing the block is the opt-in, so it is
@@ -109,14 +113,19 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 }
 
 // parseAuthConfig parses authentication configuration from HCL.
-func parseAuthConfig(cfg map[string]interface{}) *AuthConfig {
+//
+// A type the client cannot honour is refused rather than quietly becoming no
+// authentication: a connector built that way sends every request without
+// credentials, and the 401s that come back look like somebody else's problem.
+func parseAuthConfig(cfg map[string]interface{}) (*AuthConfig, error) {
 	auth := &AuthConfig{
 		Type: AuthTypeNone,
 	}
 
-	// Get auth type
-	if t, ok := cfg["type"].(string); ok {
-		switch t {
+	// Get auth type. Compared without regard to case, because the word is also
+	// the name of an HTTP scheme and gets written the way headers spell it.
+	if t, ok := cfg["type"].(string); ok && t != "" {
+		switch strings.ToLower(t) {
 		case "bearer":
 			auth.Type = AuthTypeBearer
 		case "oauth2":
@@ -127,6 +136,9 @@ func parseAuthConfig(cfg map[string]interface{}) *AuthConfig {
 			auth.Type = AuthTypeAPIKey
 		case "basic":
 			auth.Type = AuthTypeBasic
+		default:
+			return nil, fmt.Errorf(
+				"auth type %q is not one of: bearer, oauth2, client_credentials, api_key, basic", t)
 		}
 	}
 
@@ -184,7 +196,7 @@ func parseAuthConfig(cfg map[string]interface{}) *AuthConfig {
 		auth.Password = password
 	}
 
-	return auth
+	return auth, nil
 }
 
 // parseTLSConfig parses TLS configuration from HCL.

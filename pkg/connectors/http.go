@@ -23,7 +23,7 @@ func (HTTPSchema) ConnectorSchema() schema.Block {
 					Values: []string{"constant", "linear", "exponential"}},
 			}},
 			{Type: "auth", Doc: "Authentication", Open: true, Attrs: []schema.Attr{
-				{Name: "type", Doc: "Auth type", Type: schema.TypeString, Values: []string{"bearer", "api_key", "basic", "oauth2"}},
+				{Name: "type", Doc: "Auth type", Type: schema.TypeString, Values: []string{"bearer", "api_key", "basic", "oauth2", "client_credentials"}},
 				{Name: "token", Doc: "Bearer token", Type: schema.TypeString},
 				{Name: "username", Doc: "Basic auth username", Type: schema.TypeString},
 				{Name: "password", Doc: "Basic auth password", Type: schema.TypeString},
