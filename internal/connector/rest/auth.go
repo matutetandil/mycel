@@ -200,15 +200,22 @@ func (c *Connector) SetAuthConfig(cfg *AuthConfig) {
 }
 
 // authMiddleware checks a request the way this connector was configured to.
+//
+// No locking here: Start already holds c.mu when it wraps the handler, and the
+// mutex is not reentrant — taking it again deadlocked the whole startup, with
+// every connector after this one in the map never starting and the admin
+// server never coming up. The authenticator is set by SetAuthConfig before
+// Start and not written afterwards, so there is nothing to guard.
 func (c *Connector) authMiddleware(next http.Handler) http.Handler {
-	c.mu.Lock()
-	authenticator := c.authenticator
-	c.mu.Unlock()
-
-	if authenticator == nil {
-		return next
+	if c.authenticator == nil {
+		if c.authConfig == nil {
+			return next
+		}
+		// A connector whose config was set without going through
+		// SetAuthConfig still gets checked.
+		c.authenticator = NewAuthenticator(c.authConfig, c.logger)
 	}
-	return authenticator.Middleware(next)
+	return c.authenticator.Middleware(next)
 }
 
 // authMiddleware validates incoming requests based on auth configuration.

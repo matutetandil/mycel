@@ -3,6 +3,8 @@ package rest
 import (
 	"context"
 	"encoding/base64"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -487,4 +489,34 @@ type mockAPIKeyRecord struct {
 
 type mockAPIKeyDB struct {
 	keys map[string]mockAPIKeyRecord
+}
+
+func TestAConnectorWithAuthActuallyStarts(t *testing.T) {
+	// Start holds the connector's mutex while it wraps the handler, and the
+	// middleware took the same mutex to read the authenticator — a mutex that
+	// is not reentrant. Starting a REST connector with an auth block therefore
+	// deadlocked on itself: every connector after it in the map never started,
+	// the admin server never came up, and the service sat there serving
+	// whatever had already been brought up, marked unhealthy.
+	//
+	// Nothing here started a connector with auth configured, so the integration
+	// suite found it instead — after ten minutes of a process going nowhere.
+	conn := New("api", 0, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	conn.SetAuthConfig(&AuthConfig{
+		Type:   "api_key",
+		APIKey: &APIKeyAuthConfig{Header: "X-API-Key", Keys: []string{"k-1"}},
+	})
+
+	started := make(chan error, 1)
+	go func() { started <- conn.Start(context.Background()) }()
+
+	select {
+	case err := <-started:
+		if err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start never returned: the connector deadlocked on its own mutex")
+	}
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 }

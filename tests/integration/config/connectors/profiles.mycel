@@ -7,7 +7,10 @@
 # are exactly the settings that differ between environments, which is what
 # profiles are for.
 connector "profiled_store" {
-  select  = env("STORE_PROFILE", "local")
+  # A CEL expression, written as one: the value is evaluated per execution, so
+  # env("X", "local") would be resolved by HCL first and leave the bare word
+  # `local` to compile as CEL — an undeclared reference, every time.
+  select  = "env('STORE_PROFILE', 'local')"
   default = "local"
 
   profile "local" {
