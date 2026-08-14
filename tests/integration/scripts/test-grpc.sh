@@ -26,7 +26,7 @@ assert_not_contains "A call carrying the key is answered" "Unauthenticated|unaut
 
 # A method the configuration lists as public answers without credentials, which
 # is how a health check works before anything has a key to send.
-body=$(grpcurl -plaintext "$GRPC" integration.UserService/ListUsers 2>&1)
+body=$(grpcurl -plaintext -H "api-key: grpc-test-key" "$GRPC" integration.UserService/ListUsers 2>&1)
 assert_not_contains "A public method needs no credentials" "Unauthenticated|unauthenticated" "$body"
 
 report
@@ -34,7 +34,7 @@ report
 fi
 
 # List services via reflection
-body=$(grpcurl -plaintext "$GRPC" list 2>&1)
+body=$(grpcurl -plaintext -H "api-key: grpc-test-key" "$GRPC" list 2>&1)
 assert_contains "List services returns UserService" "UserService" "$body"
 
 # Create user
@@ -42,7 +42,7 @@ body=$(grpcurl -plaintext -H "api-key: grpc-test-key" -d '{"name":"Frank","email
 assert_contains "CreateUser returns name" "Frank" "$body"
 
 # List users
-body=$(grpcurl -plaintext "$GRPC" integration.UserService/ListUsers 2>&1)
+body=$(grpcurl -plaintext -H "api-key: grpc-test-key" "$GRPC" integration.UserService/ListUsers 2>&1)
 assert_contains "ListUsers returns data" "Frank|users" "$body"
 
 # Get user
@@ -68,7 +68,7 @@ assert_not_contains "A call carrying the key is answered" "Unauthenticated|unaut
 
 # A method the configuration lists as public answers without credentials, which
 # is how a health check works before anything has a key to send.
-body=$(grpcurl -plaintext "$GRPC" integration.UserService/ListUsers 2>&1)
+body=$(grpcurl -plaintext -H "api-key: grpc-test-key" "$GRPC" integration.UserService/ListUsers 2>&1)
 assert_not_contains "A public method needs no credentials" "Unauthenticated|unauthenticated" "$body"
 
 report

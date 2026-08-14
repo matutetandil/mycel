@@ -767,16 +767,22 @@ func (r *Runtime) Start(ctx context.Context) error {
 		r.aspectExecutor.SetFlowInvoker(r.flows)
 	}
 
+	// The workflow engine first: a saga handler is given the engine that
+	// exists when it is registered, and a saga with a delay or an await step
+	// is only a long-running workflow if it has one. Registering sagas first
+	// handed every one of them a nil engine, so each ran straight through the
+	// synchronous executor — never pausing, never persisted, never answering
+	// with a workflow id, and leaving the endpoints that drive workflows with
+	// nothing to serve.
+	if err := r.initWorkflowEngine(ctx); err != nil {
+		banner.PrintError(err.Error())
+		return fmt.Errorf("failed to initialize workflow engine: %w", err)
+	}
+
 	// Register sagas
 	if err := r.registerSagas(); err != nil {
 		banner.PrintError(err.Error())
 		return fmt.Errorf("failed to register sagas: %w", err)
-	}
-
-	// Initialize workflow engine for long-running processes
-	if err := r.initWorkflowEngine(ctx); err != nil {
-		banner.PrintError(err.Error())
-		return fmt.Errorf("failed to initialize workflow engine: %w", err)
 	}
 
 	// Start REST connectors (HTTP servers)

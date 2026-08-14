@@ -6,7 +6,7 @@
 # every request with "unknown auth type" while the file looked correct.
 connector "authed_api" {
   type = "rest"
-  port = 3001
+  port = 3003
 
   auth {
     type   = "API_KEY"

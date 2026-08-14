@@ -1,5 +1,10 @@
 # A message the flow does not want, requeued a bounded number of times.
 #
+# Every expression here goes through input.body: a message from a queue arrives
+# wrapped in an envelope — body, headers, properties, routing_key, exchange —
+# so the fields somebody published are one level down. The docs show both forms
+# and only this one works for an MQ source.
+#
 # The filter rejects everything that is not marked wanted, and the policy is to
 # put it back. What stops that being a loop is the identifier: the consumer
 # counts redeliveries per message and acknowledges once the count is reached.
@@ -10,10 +15,10 @@ flow "requeue_bounded" {
     connector = "rabbit_requeue_sub"
 
     filter {
-      condition   = "input.wanted == true"
+      condition   = "input.body.wanted == true"
       on_reject   = "requeue"
       max_requeue = 2
-      id_field    = "input.reference"
+      id_field    = "input.body.reference"
     }
   }
 
@@ -23,7 +28,7 @@ flow "requeue_bounded" {
   }
 
   transform {
-    title  = "input.reference"
+    title  = "input.body.reference"
     status = "\"wanted\""
   }
 }

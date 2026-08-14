@@ -18,7 +18,7 @@ services:
       - "${PORT_SOAP:-8081}:8081"     # SOAP
       - "${PORT_GRPC:-50051}:50051"   # gRPC
       - "${PORT_ADMIN:-9090}:9090"    # Admin (health/metrics)
-      - "${PORT_AUTH:-3001}:3001"     # REST behind auth
+      - "${PORT_AUTH:-3003}:3003"     # REST behind auth
       - "${PORT_WORKFLOW:-9091}:9091" # Workflow api (its own port, authenticated)
     volumes:
       - ./config:/etc/mycel
@@ -32,6 +32,10 @@ services:
       MYCEL_ENV: development
       GOCOVERDIR: ${GOCOVERDIR:-}
       MYCEL_LOG_LEVEL: debug
+      # Off unless asked for: MYCEL_PAYLOAD_SHOW=true bash run.sh logs the raw
+      # payload every source hands to a flow, which is the only way to see the
+      # shape a message actually arrives in.
+      MYCEL_PAYLOAD_SHOW: "${MYCEL_PAYLOAD_SHOW:-}"
       MYCEL_LOG_FORMAT: text
       # PostgreSQL
       PG_HOST: postgres

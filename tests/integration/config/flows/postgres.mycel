@@ -57,3 +57,15 @@ flow "pg_delete_user" {
     target    = "users"
   }
 }
+
+# Reading items back, which is how a test checks what another flow wrote.
+flow "pg_list_items" {
+  from {
+    connector = "api"
+    operation = "GET /pg/items"
+  }
+  to {
+    connector = "postgres"
+    target    = "items"
+  }
+}

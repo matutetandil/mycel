@@ -5,7 +5,8 @@ flow "plugin_function" {
     operation = "POST /test/function"
   }
 
-  transform {
+  # A flow with no destination answers from response, not transform.
+  response {
     original = "input.name"
     shouted  = "shout(input.name)"
   }

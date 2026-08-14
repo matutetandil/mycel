@@ -28,6 +28,20 @@ func InertFlowAttrs(config *parser.Configuration) []string {
 			continue
 		}
 
+		// A transform with nowhere to send its output. A flow with no
+		// destination answers its caller directly, and what it answers with is
+		// the response block — the transform is read by nothing, so the caller
+		// gets the raw request back, headers and all, while the file says the
+		// fields were reshaped.
+		if f.Transform != nil && len(f.Transform.Mappings) > 0 &&
+			f.To == nil && len(f.MultiTo) == 0 && len(f.Steps) == 0 {
+			warnings = append(warnings, fmt.Sprintf(
+				"flow %q: `transform` is ignored — a flow with no `to`, `step` or several "+
+					"destinations answers its caller with the request as it arrived. Shape "+
+					"what the caller receives in `response {}`",
+				f.Name))
+		}
+
 		// `params` on a `to` block is never read. ToConfig.GetParams() exists
 		// but has no call site: a write takes its payload from the transform
 		// output (or the raw input when there is no transform). The attribute

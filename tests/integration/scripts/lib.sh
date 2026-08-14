@@ -9,7 +9,7 @@ SOAP="http://localhost:${PORT_SOAP:-8081}"
 GRPC="localhost:${PORT_GRPC:-50051}"
 ADMIN="http://localhost:${PORT_ADMIN:-9090}"
 MOCK="http://localhost:${PORT_MOCK:-8888}"
-AUTHED="http://localhost:${PORT_AUTH:-3001}"
+AUTHED="http://localhost:${PORT_AUTH:-3003}"
 WORKFLOW="http://localhost:${PORT_WORKFLOW:-9091}"
 
 assert_status() {
