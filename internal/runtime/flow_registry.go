@@ -1330,8 +1330,34 @@ func (h *FlowHandler) resultToConnectorResult(result interface{}) *connector.Res
 		}
 		return &connector.Result{Rows: []map[string]interface{}{v}}
 	default:
+		// Anything else — a saga's outcome, a state transition, whatever a
+		// connector chose to answer with. This used to return an empty result,
+		// which the response builder then rendered as {"affected":0,"id":null}:
+		// a service with any aspect configured answered a state transition with
+		// nothing at all, because that is the path a flow takes once aspects
+		// are in play. Carrying the value through as a row keeps the answer.
+		if row, ok := structToRow(result); ok {
+			return &connector.Result{Rows: []map[string]interface{}{row}}
+		}
 		return &connector.Result{}
 	}
+}
+
+// structToRow renders a value the way it would be answered over the wire, so
+// that passing through the aspect executor does not lose it.
+func structToRow(value interface{}) (map[string]interface{}, bool) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, false
+	}
+	var row map[string]interface{}
+	if err := json.Unmarshal(encoded, &row); err != nil {
+		return nil, false
+	}
+	if len(row) == 0 {
+		return nil, false
+	}
+	return row, true
 }
 
 // executeFlowCore executes the core flow logic without aspects, wrapping it

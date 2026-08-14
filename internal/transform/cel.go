@@ -4,6 +4,8 @@ package transform
 import (
 	"context"
 	"fmt"
+	"os"
+
 	"github.com/matutetandil/mycel/v2/internal/identity"
 	"reflect"
 	"strings"
@@ -111,6 +113,44 @@ func baseCELOptions() []cel.EnvOption {
 				cel.StringType,
 				cel.FunctionBinding(func(args ...ref.Val) ref.Val {
 					return types.String(uuid.New().String())
+				}),
+			),
+		),
+
+		// env reads an environment variable, with an optional value for when
+		// it is not set.
+		//
+		// A connector profile is chosen with select = "env('STORE_PROFILE')",
+		// which is how the documentation shows it and the whole reason
+		// profiles exist — and it did not compile, so every evaluation failed
+		// and the connector quietly fell back to its default. The same
+		// expression already works in HCL; this is the runtime half of it,
+		// for the places where the value is not known until the expression is
+		// evaluated.
+		cel.Function("env",
+			cel.Overload("env_lookup",
+				[]*cel.Type{cel.StringType},
+				cel.StringType,
+				cel.UnaryBinding(func(name ref.Val) ref.Val {
+					s, ok := name.(types.String)
+					if !ok {
+						return types.NewErr("env expects the name of a variable")
+					}
+					return types.String(os.Getenv(string(s)))
+				}),
+			),
+			cel.Overload("env_lookup_default",
+				[]*cel.Type{cel.StringType, cel.StringType},
+				cel.StringType,
+				cel.BinaryBinding(func(name, fallback ref.Val) ref.Val {
+					s, ok := name.(types.String)
+					if !ok {
+						return types.NewErr("env expects the name of a variable")
+					}
+					if value := os.Getenv(string(s)); value != "" {
+						return types.String(value)
+					}
+					return fallback
 				}),
 			),
 		),

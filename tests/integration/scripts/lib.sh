@@ -10,7 +10,7 @@ GRPC="localhost:${PORT_GRPC:-50051}"
 ADMIN="http://localhost:${PORT_ADMIN:-9090}"
 MOCK="http://localhost:${PORT_MOCK:-8888}"
 AUTHED="http://localhost:${PORT_AUTH:-3003}"
-WORKFLOW="http://localhost:${PORT_WORKFLOW:-9091}"
+WORKFLOW="http://localhost:${PORT_WORKFLOW:-9101}"
 
 assert_status() {
   local name="$1" expected="$2" actual="$3"

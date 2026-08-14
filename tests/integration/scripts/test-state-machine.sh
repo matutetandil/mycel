@@ -13,7 +13,14 @@ echo "=== State machines ==="
 # --- A transition the machine allows ----------------------------------------
 
 body=$(http_body POST "$BASE/orders/order-pending/status" '{"event":"pay"}')
-assert_contains "An allowed event is accepted" "paid" "$body"
+if echo "$body" | grep -q "paid"; then
+  echo "  ✓ An allowed event is accepted"
+  ((PASS++))
+else
+  echo "  ✗ An allowed event is accepted"
+  echo "    answer: $body"
+  ((FAIL++))
+fi
 
 # And it reached the database, which is the point: the next request has to see
 # the state this one left behind.
@@ -54,7 +61,14 @@ fi
 
 # With one, it goes through.
 body=$(http_body POST "$BASE/orders/order-paid/status" '{"event":"ship","tracking_number":"NZ-9911"}')
-assert_contains "A transition whose guard passes goes through" "shipped" "$body"
+if echo "$body" | grep -q "shipped"; then
+  echo "  ✓ A transition whose guard passes goes through"
+  ((PASS++))
+else
+  echo "  ✗ A transition whose guard passes goes through"
+  echo "    answer: $body"
+  ((FAIL++))
+fi
 
 # --- A final state ----------------------------------------------------------
 
