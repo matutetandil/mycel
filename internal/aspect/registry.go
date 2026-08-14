@@ -1,6 +1,7 @@
 package aspect
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -44,7 +45,14 @@ func (r *Registry) Register(aspect *Config) error {
 func (r *Registry) RegisterAll(aspects []*Config) error {
 	for _, aspect := range aspects {
 		if err := r.Register(aspect); err != nil {
-			return err
+			// Named, because a configuration has several and the message
+			// underneath — "aspect must have at least one action type" —
+			// leaves the reader to work out which one it is about.
+			name := aspect.Name
+			if name == "" {
+				name = "<unnamed>"
+			}
+			return fmt.Errorf("aspect %q: %w", name, err)
 		}
 	}
 	return nil
