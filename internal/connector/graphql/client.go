@@ -292,15 +292,20 @@ func (c *ClientConnector) getOAuth2Token() (string, error) {
 
 // requestOAuth2Token requests a new OAuth2 token.
 func (c *ClientConnector) requestOAuth2Token() (string, time.Time, error) {
-	data := fmt.Sprintf("grant_type=client_credentials&client_id=%s&client_secret=%s",
-		c.config.Auth.ClientID, c.config.Auth.ClientSecret)
-
+	// Encoded rather than concatenated: a client secret is a random string,
+	// and the ones containing & or + used to end the field early — so the
+	// authorisation server saw a truncated secret, or another parameter
+	// entirely, and answered with something that named neither.
+	form := url.Values{}
+	form.Set("grant_type", "client_credentials")
+	form.Set("client_id", c.config.Auth.ClientID)
+	form.Set("client_secret", c.config.Auth.ClientSecret)
 	if len(c.config.Auth.Scopes) > 0 {
-		data += "&scope=" + strings.Join(c.config.Auth.Scopes, " ")
+		form.Set("scope", strings.Join(c.config.Auth.Scopes, " "))
 	}
 
 	req, err := http.NewRequest(http.MethodPost, c.config.Auth.TokenURL,
-		strings.NewReader(data))
+		strings.NewReader(form.Encode()))
 	if err != nil {
 		return "", time.Time{}, err
 	}
