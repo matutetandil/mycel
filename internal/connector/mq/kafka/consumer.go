@@ -120,6 +120,24 @@ func (c *Connector) startConsumer(ctx context.Context) error {
 func (c *Connector) consumeLoop(ctx context.Context, workerID int) {
 	defer c.wg.Done()
 
+	// The reader is taken once, for the life of the loop.
+	//
+	// Close cancels this context, waits a bounded time for the workers, and
+	// then releases the reader — so a worker still in flight when that bound
+	// runs out would read c.reader as nil and dereference it. That is a
+	// segmentation fault on the way out: a service consuming from Kafka
+	// crashed on every shutdown instead of exiting, which in Kubernetes is a
+	// crash report on every rolling update, and locally it was losing the
+	// coverage counters a -cover binary writes as it exits.
+	c.mu.Lock()
+	reader := c.reader
+	c.mu.Unlock()
+
+	if reader == nil {
+		c.logger.Debug("consumer worker has no reader, stopping", "worker_id", workerID)
+		return
+	}
+
 	c.logger.Debug("consumer worker started", "worker_id", workerID)
 
 	for {
@@ -129,7 +147,7 @@ func (c *Connector) consumeLoop(ctx context.Context, workerID int) {
 			return
 		default:
 			// Read message with context
-			msg, err := c.reader.ReadMessage(ctx)
+			msg, err := reader.ReadMessage(ctx)
 			if err != nil {
 				if ctx.Err() != nil {
 					return
