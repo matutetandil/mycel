@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	goruntime "runtime"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -1948,39 +1949,41 @@ func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
 		}
 	}
 
-	// Convert map to slice
+	// Sorted, because these are published in a schema: built by ranging over a
+	// map the order changed on every start, so two replicas of the same service
+	// printed different schemas and an exported schema file differed run to run.
+	names := make([]string, 0, len(args))
+	for name := range args {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
 	result := make([]*ArgDef, 0, len(args))
-	for _, arg := range args {
-		result = append(result, arg)
+	for _, name := range names {
+		result = append(result, args[name])
 	}
 
 	return result
 }
 
-// extractInputArgs extracts input.* references from a param value.
+// extractInputArgs collects the fields an expression reads off the input, so
+// each becomes an argument the GraphQL field publishes.
+//
+// It used to look only at values that began with "input.", which meant a step
+// doing anything at all with the field — lower(input.email), input.first + " " +
+// input.last, input.limit ?? 25 — published no argument, and a client sending
+// one was told it did not exist. Every occurrence is taken now, wherever in the
+// expression it appears.
 func extractInputArgs(value interface{}, args map[string]*ArgDef) {
 	switch v := value.(type) {
 	case string:
-		// Look for patterns like "input.id", "input.name", etc.
-		// Simple extraction for direct references
-		if len(v) > 6 && v[:6] == "input." {
-			// Extract the field name (handle "input.id", not "input.nested.field")
-			rest := v[6:]
-			// Find end of identifier (before any operator or method call)
-			endIdx := len(rest)
-			for i, ch := range rest {
-				if ch == '.' || ch == ' ' || ch == '!' || ch == '=' || ch == '+' || ch == '-' || ch == '*' || ch == '/' || ch == '(' || ch == ')' || ch == '[' || ch == ']' || ch == '?' || ch == ':' {
-					endIdx = i
-					break
-				}
-			}
-			fieldName := rest[:endIdx]
-			if fieldName != "" && args[fieldName] == nil {
-				args[fieldName] = &ArgDef{
-					Name:        fieldName,
+		for _, field := range inputFieldsIn(v) {
+			if args[field] == nil {
+				args[field] = &ArgDef{
+					Name:        field,
 					Type:        "string", // Default to string, could be improved with type inference
 					Required:    false,    // Don't make required by default
-					Description: fmt.Sprintf("Argument %s (inferred from flow)", fieldName),
+					Description: fmt.Sprintf("Argument %s (inferred from flow)", field),
 				}
 			}
 		}
@@ -1988,7 +1991,52 @@ func extractInputArgs(value interface{}, args map[string]*ArgDef) {
 		for _, subVal := range v {
 			extractInputArgs(subVal, args)
 		}
+	case []interface{}:
+		for _, item := range v {
+			extractInputArgs(item, args)
+		}
 	}
+}
+
+// inputFieldsIn returns the first identifier of every input.<field> reference
+// in an expression. input.address.city yields "address": the caller passes the
+// argument, not the path below it.
+func inputFieldsIn(expr string) []string {
+	const prefix = "input."
+
+	var fields []string
+	seen := make(map[string]bool)
+	for i := 0; i+len(prefix) <= len(expr); {
+		next := strings.Index(expr[i:], prefix)
+		if next < 0 {
+			break
+		}
+		start := i + next
+		// "myinput.id" is not a reference to the input.
+		if start > 0 && isIdentifierByte(expr[start-1]) {
+			i = start + len(prefix)
+			continue
+		}
+
+		rest := expr[start+len(prefix):]
+		end := 0
+		for end < len(rest) && isIdentifierByte(rest[end]) {
+			end++
+		}
+		if field := rest[:end]; field != "" && !seen[field] {
+			seen[field] = true
+			fields = append(fields, field)
+		}
+		i = start + len(prefix) + end
+	}
+	return fields
+}
+
+func isIdentifierByte(b byte) bool {
+	return b == '_' ||
+		(b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9')
 }
 
 // isScalarReturnType checks if a return type name is a GraphQL scalar type.
