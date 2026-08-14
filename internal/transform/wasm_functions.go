@@ -1,8 +1,6 @@
 package transform
 
 import (
-	"fmt"
-
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -16,30 +14,17 @@ type WASMFunction struct {
 }
 
 // createWASMFunctionOption creates a CEL function option for a WASM function.
-// WASM functions are variadic (accept any number of dynamic arguments).
+//
+// One overload per arity, up to five. There used to be a variadic overload
+// taking list(dyn) as well, and dyn matches a list — so it collided with the
+// single-argument overload and CEL refused to build the environment at all.
+// Every plugin-provided function therefore broke the expression language for
+// the whole flow, whether or not anything called it: "overload signature
+// collision in function <name>". A call with more than five arguments is now
+// refused when the expression is compiled, which is a message about that call
+// rather than about everything.
 func createWASMFunctionOption(fn WASMFunction) cel.EnvOption {
 	return cel.Function(fn.Name,
-		cel.Overload(fn.Name+"_variadic",
-			[]*cel.Type{cel.ListType(cel.DynType)}, // variadic as list
-			cel.DynType,
-			cel.UnaryBinding(func(args ref.Val) ref.Val {
-				// Convert CEL list to Go slice
-				goArgs, err := celListToSlice(args)
-				if err != nil {
-					return types.NewErr("failed to convert args: %v", err)
-				}
-
-				// Call WASM function
-				result, err := fn.Function.Call(goArgs...)
-				if err != nil {
-					return types.NewErr("WASM function %s error: %v", fn.Name, err)
-				}
-
-				// Convert result back to CEL
-				return types.DefaultTypeAdapter.NativeToValue(result)
-			}),
-		),
-		// Also support direct calls with 0-5 arguments for convenience
 		cel.Overload(fn.Name+"_0",
 			[]*cel.Type{},
 			cel.DynType,
@@ -122,31 +107,6 @@ func createWASMFunctionOption(fn WASMFunction) cel.EnvOption {
 			}),
 		),
 	)
-}
-
-// celListToSlice converts a CEL list to a Go slice.
-func celListToSlice(val ref.Val) ([]interface{}, error) {
-	list, ok := val.(interface {
-		Size() ref.Val
-		Get(ref.Val) ref.Val
-	})
-	if !ok {
-		return nil, fmt.Errorf("expected list, got %T", val)
-	}
-
-	sizeVal := list.Size()
-	size, ok := sizeVal.(types.Int)
-	if !ok {
-		return nil, fmt.Errorf("expected int size, got %T", sizeVal)
-	}
-
-	result := make([]interface{}, int64(size))
-	for i := int64(0); i < int64(size); i++ {
-		item := list.Get(types.Int(i))
-		result[i] = celToGo(item)
-	}
-
-	return result, nil
 }
 
 // celToGo converts a CEL value to a Go value.
