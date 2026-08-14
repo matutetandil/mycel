@@ -135,20 +135,14 @@ func TestUnloadModule(t *testing.T) {
 }
 
 // findTestWASM looks for a test WASM file in known locations.
+// findTestWASM used to look for testdata/test.wasm, which is not in the
+// repository — so every test that needed a real module skipped instead of
+// running, and this package sat at 16% while looking tested. The module is
+// built by the tests themselves now.
 func findTestWASM() string {
-	// Check for test fixtures
-	paths := []string{
-		"testdata/test.wasm",
-		"../testdata/test.wasm",
-		"../../testdata/test.wasm",
+	path := filepath.Join(os.TempDir(), "mycel-wasm-fixture.wasm")
+	if err := os.WriteFile(path, fixtureWASM(), 0o644); err != nil {
+		return ""
 	}
-
-	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
-			abs, _ := filepath.Abs(p)
-			return abs
-		}
-	}
-
-	return ""
+	return path
 }

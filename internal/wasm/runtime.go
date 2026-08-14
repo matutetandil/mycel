@@ -29,6 +29,20 @@ type Module struct {
 	compiled wazero.CompiledModule
 	instance api.Module
 	runtime  *Runtime
+
+	// calls serialises everything that touches the instance.
+	//
+	// A module is loaded once and shared, and flows run concurrently, so two
+	// messages could be inside the same plugin at the same time — writing
+	// their input over each other in the one linear memory the module has, and
+	// reading back a result built from the other message's bytes. WebAssembly
+	// without threads assumes a single caller: a plugin's allocator is a plain
+	// global, so this cannot be left to the plugin to get right.
+	//
+	// The cost is that a plugin runs one message at a time. That is the
+	// intended shape for now — one instance per invocation type — and a wrong
+	// answer is worse than a queued one.
+	calls sync.Mutex
 }
 
 // NewRuntime creates a new WASM runtime.
@@ -133,6 +147,9 @@ func (r *Runtime) Close() error {
 
 // CallFunction calls a function in the module with JSON input/output.
 func (m *Module) CallFunction(name string, input interface{}) (interface{}, error) {
+	m.calls.Lock()
+	defer m.calls.Unlock()
+
 	// Get the function
 	fn := m.instance.ExportedFunction(name)
 	if fn == nil {
@@ -200,6 +217,9 @@ func (m *Module) CallFunction(name string, input interface{}) (interface{}, erro
 // CallValidate calls a validate function that returns a status code.
 // Returns nil if valid (status 0), or an error if invalid.
 func (m *Module) CallValidate(fnName string, value interface{}) error {
+	m.calls.Lock()
+	defer m.calls.Unlock()
+
 	// Get the function
 	fn := m.instance.ExportedFunction(fnName)
 	if fn == nil {
