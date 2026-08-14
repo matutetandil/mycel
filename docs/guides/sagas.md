@@ -160,6 +160,10 @@ flow "update_order_status" {
     id      = "input.id"
     event   = "input.event"   # e.g., "pay", "ship", "cancel"
     data    = "input.data"    # Additional data for guards and actions
+
+    # Optional: where the entity lives. Defaults to the flow's destination
+    # below; without either, every connector is tried in turn.
+    connector = "db"
   }
 
   to {

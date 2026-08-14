@@ -2,6 +2,7 @@ package statemachine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -358,5 +359,84 @@ func TestEngine_ActionFailure(t *testing.T) {
 	// State should NOT have been updated (action failed before write)
 	if len(db.writes) != 0 {
 		t.Errorf("expected 0 writes (action failed), got %d", len(db.writes))
+	}
+}
+
+// Which connector holds the entity.
+//
+// Without a name the engine tries every connector in turn and uses the first
+// that does not fail, and the order is whatever map iteration gives. In a
+// service with a database and a message queue the queue accepted the write
+// happily: the new state was published to a topic and the row it was meant for
+// went untouched, with the transition reporting success.
+
+func TestTheEntityIsReadAndWrittenWhereTheFlowSaysItIs(t *testing.T) {
+	orders := &mockConnector{name: "orders_db", rows: []map[string]interface{}{{"status": "pending"}}}
+	queue := &mockConnector{name: "events_queue"}
+
+	engine := NewEngine(&mockRegistry{connectors: map[string]connector.Connector{
+		"orders_db":    orders,
+		"events_queue": queue,
+	}})
+	engine.Register(newTestMachine())
+
+	result, err := engine.TransitionOn(context.Background(), "orders_db",
+		"order_status", "orders", "order-1", "pay", map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("TransitionOn: %v", err)
+	}
+	if result.CurrentState != "paid" {
+		t.Errorf("state = %q", result.CurrentState)
+	}
+
+	if len(orders.writes) != 1 {
+		t.Errorf("%d writes to the database holding the entity, want one", len(orders.writes))
+	}
+	if len(queue.writes) != 0 {
+		t.Errorf("the new state was written to %q, which does not hold the entity", queue.name)
+	}
+}
+
+func TestAConnectorThatDoesNotHoldTheEntityIsNotFallenBackOn(t *testing.T) {
+	// If the named connector cannot take the write, that is a failure worth
+	// reporting — not a reason to write the state somewhere else.
+	orders := &mockConnector{
+		name:     "orders_db",
+		rows:     []map[string]interface{}{{"status": "pending"}},
+		writeErr: errors.New("connection refused"),
+	}
+	queue := &mockConnector{name: "events_queue"}
+
+	engine := NewEngine(&mockRegistry{connectors: map[string]connector.Connector{
+		"orders_db":    orders,
+		"events_queue": queue,
+	}})
+	engine.Register(newTestMachine())
+
+	_, err := engine.TransitionOn(context.Background(), "orders_db",
+		"order_status", "orders", "order-1", "pay", map[string]interface{}{})
+	if err == nil {
+		t.Fatal("the transition reported success although the state was not written")
+	}
+	if len(queue.writes) != 0 {
+		t.Errorf("the state was written to %q instead", queue.name)
+	}
+}
+
+func TestWithNoConnectorNamedEveryOneIsStillTried(t *testing.T) {
+	// The older form, which flows written before the attribute existed rely on.
+	orders := &mockConnector{name: "orders_db", rows: []map[string]interface{}{{"status": "pending"}}}
+
+	engine := NewEngine(&mockRegistry{connectors: map[string]connector.Connector{
+		"orders_db": orders,
+	}})
+	engine.Register(newTestMachine())
+
+	if _, err := engine.Transition(context.Background(),
+		"order_status", "orders", "order-1", "pay", map[string]interface{}{}); err != nil {
+		t.Fatalf("Transition: %v", err)
+	}
+	if len(orders.writes) != 1 {
+		t.Errorf("%d writes, want one", len(orders.writes))
 	}
 }

@@ -979,13 +979,20 @@ batch {
 
 ```hcl
 state_transition {
-  machine = "order_status"      # state_machine block name
-  entity  = "orders"            # Database table
-  id      = "input.id"
-  event   = "input.event"
-  data    = "input.data"
+  machine   = "order_status"    # state_machine block name
+  entity    = "orders"          # Database table
+  id        = "input.id"
+  event     = "input.event"
+  data      = "input.data"
+  connector = "orders_db"       # Where the entity lives (default: the flow's to)
 }
 ```
+
+`connector` names the connector holding the entity. When it is absent the
+flow's own destination is used. With neither, the engine tries every connector
+in turn and uses the first that accepts the read and the write — which in a
+service with a message queue in it can publish the new state to a topic while
+the row it was meant for goes untouched.
 
 ---
 

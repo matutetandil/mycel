@@ -13,6 +13,9 @@ flow "update_order_status" {
     id      = "input.id"
     event   = "input.event"
     data    = "input.data"
+
+    # Where the entity lives. Left out, the flow's destination below is used.
+    connector = "orders_db"
   }
 
   to {

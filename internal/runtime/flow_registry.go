@@ -3697,7 +3697,17 @@ func (h *FlowHandler) executeStateTransition(ctx context.Context, input map[stri
 		data = input
 	}
 
-	return h.StateMachineEngine.Transition(ctx, st.Machine, st.Entity, idStr, eventStr, data)
+	// Where the entity lives. The block can name it; otherwise the flow's own
+	// destination is used, which is where the row is read from and written to
+	// anyway. With neither, the engine falls back to trying every connector —
+	// which is how a state ended up published to a message queue that accepted
+	// the write while the row it was meant for went untouched.
+	connectorName := st.Connector
+	if connectorName == "" && h.Config.To != nil {
+		connectorName = h.Config.To.Connector
+	}
+
+	return h.StateMachineEngine.TransitionOn(ctx, connectorName, st.Machine, st.Entity, idStr, eventStr, data)
 }
 
 // ===== Cache Helper Methods =====

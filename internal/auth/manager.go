@@ -104,8 +104,15 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 		logger: slog.Default(),
 	}
 
-	// Apply options
+	// Apply options. An option that is nil is skipped rather than crashing the
+	// process: the runtime assembles this list from whatever storage the
+	// configuration names, and one branch returning nothing would otherwise
+	// take the whole service down at startup with a segmentation fault instead
+	// of a message.
 	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
 		opt(m)
 	}
 

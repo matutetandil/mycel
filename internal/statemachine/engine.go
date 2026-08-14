@@ -43,13 +43,24 @@ func (e *Engine) Register(config *Config) {
 
 // Transition executes a state transition for an entity.
 func (e *Engine) Transition(ctx context.Context, machineName, entity, entityID, event string, data map[string]interface{}) (*TransitionResult, error) {
+	return e.TransitionOn(ctx, "", machineName, entity, entityID, event, data)
+}
+
+// TransitionOn executes a transition against a named connector.
+//
+// The name is where the entity lives. Without one the engine tries every
+// connector in turn and takes the first that does not fail, which in a service
+// with more than one is decided by map iteration order: a state has been
+// written to a message queue that happily accepted it, while the row it was
+// meant for went untouched.
+func (e *Engine) TransitionOn(ctx context.Context, connectorName, machineName, entity, entityID, event string, data map[string]interface{}) (*TransitionResult, error) {
 	machine, ok := e.machines[machineName]
 	if !ok {
 		return nil, fmt.Errorf("state machine %q not found", machineName)
 	}
 
 	// Read current state from entity table
-	currentState, err := e.readCurrentState(ctx, entity, entityID, machine.Initial)
+	currentState, err := e.readCurrentState(ctx, connectorName, entity, entityID, machine.Initial)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read current state: %w", err)
 	}
@@ -99,7 +110,7 @@ func (e *Engine) Transition(ctx context.Context, machineName, entity, entityID, 
 	}
 
 	// Persist new state
-	if err := e.writeNewState(ctx, entity, entityID, transition.TransitionTo); err != nil {
+	if err := e.writeNewState(ctx, connectorName, entity, entityID, transition.TransitionTo); err != nil {
 		return nil, fmt.Errorf("failed to persist new state: %w", err)
 	}
 
@@ -115,14 +126,14 @@ func (e *Engine) Transition(ctx context.Context, machineName, entity, entityID, 
 
 // readCurrentState reads the current state of an entity from the database.
 // Falls back to the initial state if entity is not found or has no status.
-func (e *Engine) readCurrentState(ctx context.Context, entity, entityID, initial string) (string, error) {
+func (e *Engine) readCurrentState(ctx context.Context, connectorName, entity, entityID, initial string) (string, error) {
 	// Find a connector that holds this entity (by convention, the entity name is the table)
 	// We iterate connectors looking for a reader that can serve this entity.
 	// In practice, the flow's "to" connector is used.
 	// For simplicity, we try all connectors that support reading.
 
 	// Try to find the entity in any registered reader connector
-	for _, name := range e.listConnectors() {
+	for _, name := range e.candidates(connectorName) {
 		conn, err := e.connectors.Get(name)
 		if err != nil {
 			continue
@@ -156,8 +167,8 @@ func (e *Engine) readCurrentState(ctx context.Context, entity, entityID, initial
 }
 
 // writeNewState persists the new state to the entity's status column.
-func (e *Engine) writeNewState(ctx context.Context, entity, entityID, newState string) error {
-	for _, name := range e.listConnectors() {
+func (e *Engine) writeNewState(ctx context.Context, connectorName, entity, entityID, newState string) error {
+	for _, name := range e.candidates(connectorName) {
 		conn, err := e.connectors.Get(name)
 		if err != nil {
 			continue
@@ -256,6 +267,15 @@ func (e *Engine) resolveMap(ctx context.Context, m map[string]interface{}, data 
 }
 
 // listConnectors returns all connector names from the registry.
+// candidates returns where to look for an entity: the connector the flow names,
+// or every one there is when it names none.
+func (e *Engine) candidates(connectorName string) []string {
+	if connectorName != "" {
+		return []string{connectorName}
+	}
+	return e.listConnectors()
+}
+
 func (e *Engine) listConnectors() []string {
 	if lister, ok := e.connectors.(interface{ List() []string }); ok {
 		return lister.List()

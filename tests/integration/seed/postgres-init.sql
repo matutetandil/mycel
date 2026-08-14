@@ -139,3 +139,18 @@ CREATE TABLE auth_audit_log (
     reason     TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Entities driven by a state machine. The engine reads the current state from
+-- the status column and writes the new one back, so an integration run is the
+-- only place the read-guard-act-write cycle happens against a real database.
+CREATE TABLE machine_orders (
+    id TEXT PRIMARY KEY,
+    status TEXT,
+    tracking_number TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+INSERT INTO machine_orders (id, status) VALUES
+    ('order-pending', 'pending'),
+    ('order-paid', 'paid'),
+    ('order-delivered', 'delivered');

@@ -156,6 +156,7 @@ else
     scripts/test-auth.sh
     scripts/test-auth-storage.sh
     scripts/test-workflow.sh
+    scripts/test-state-machine.sh
     scripts/test-requeue.sh
     scripts/test-functions.sh
     scripts/test-profiles.sh

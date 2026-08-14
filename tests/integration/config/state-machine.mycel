@@ -1,0 +1,49 @@
+# An entity whose lifecycle is a state machine rather than a column somebody
+# updates by hand.
+#
+# The engine reads the current state from the entity's status column, refuses
+# an event the current state does not allow, evaluates the guard, and writes
+# the new state back. All of that is a round trip through a real database, so
+# nothing but a run like this exercises it.
+
+state_machine "order_status" {
+  initial = "pending"
+
+  state "pending" {
+    on "pay" {
+      transition_to = "paid"
+    }
+    on "cancel" {
+      transition_to = "cancelled"
+    }
+  }
+
+  state "paid" {
+    # A transition somebody has to earn: no tracking number, no shipment.
+    on "ship" {
+      transition_to = "shipped"
+      guard         = "input.tracking_number != ''"
+    }
+    on "refund" {
+      transition_to = "refunded"
+    }
+  }
+
+  state "shipped" {
+    on "deliver" {
+      transition_to = "delivered"
+    }
+  }
+
+  state "delivered" {
+    final = true
+  }
+
+  state "cancelled" {
+    final = true
+  }
+
+  state "refunded" {
+    final = true
+  }
+}

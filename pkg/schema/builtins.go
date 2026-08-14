@@ -471,6 +471,7 @@ func StateTransitionSchema() Block {
 			{Name: "id", Doc: "CEL expression for entity ID", Type: TypeString, Required: true},
 			{Name: "event", Doc: "CEL expression for event name", Type: TypeString, Required: true},
 			{Name: "data", Doc: "CEL expression for transition data", Type: TypeString},
+			{Name: "connector", Doc: "Connector holding the entity (defaults to the flow's destination)", Type: TypeString, Ref: RefConnector},
 		},
 	}
 }
