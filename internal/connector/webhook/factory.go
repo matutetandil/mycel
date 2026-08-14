@@ -65,9 +65,9 @@ func (f *Factory) createInbound(name string, config map[string]interface{}) (con
 	if proxies := getStringSlice(config, "trusted_proxies"); len(proxies) > 0 {
 		cfg.TrustedProxies = proxies
 	}
-	if requireHTTPS, ok := config["require_https"].(bool); ok {
-		cfg.RequireHTTPS = requireHTTPS
-	}
+	// Written as a word when it comes from env(), and this one decides whether
+	// a webhook is accepted over plaintext.
+	cfg.RequireHTTPS = connector.BoolFromProps(config, "require_https", cfg.RequireHTTPS)
 
 	return NewInboundConnector(name, cfg), nil
 }
@@ -90,9 +90,7 @@ func (f *Factory) createOutbound(name string, config map[string]interface{}) (co
 	if algo := getString(config, "signature_algorithm", ""); algo != "" {
 		cfg.SignatureAlgorithm = algo
 	}
-	if includeTs, ok := config["include_timestamp"].(bool); ok {
-		cfg.IncludeTimestamp = includeTs
-	}
+	cfg.IncludeTimestamp = connector.BoolFromProps(config, "include_timestamp", cfg.IncludeTimestamp)
 	if timeout := getString(config, "timeout", ""); timeout != "" {
 		if d, err := time.ParseDuration(timeout); err == nil {
 			cfg.Timeout = d

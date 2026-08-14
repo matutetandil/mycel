@@ -64,11 +64,9 @@ func getString(props map[string]interface{}, key, defaultVal string) string {
 	return defaultVal
 }
 
+// getBool reads a switch that may have been written as a word: env() hands back
+// strings, so a spelt-out "false" has to mean false rather than falling through
+// to the default.
 func getBool(props map[string]interface{}, key string, defaultVal bool) bool {
-	if v, ok := props[key]; ok {
-		if b, ok := v.(bool); ok {
-			return b
-		}
-	}
-	return defaultVal
+	return connector.BoolFromProps(props, key, defaultVal)
 }

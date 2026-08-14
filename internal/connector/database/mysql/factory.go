@@ -98,7 +98,7 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 	}
 
 	// Check use_replicas setting (default: true if replicas are configured)
-	if useReplicas, ok := cfg.Properties["use_replicas"].(bool); ok {
+	if useReplicas, ok := connector.BoolFromPropsStrict(cfg.Properties, "use_replicas"); ok {
 		conn.SetUseReplicas(useReplicas)
 	}
 

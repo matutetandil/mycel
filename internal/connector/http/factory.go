@@ -95,7 +95,7 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 	// driven from the environment without deleting the certificates.
 	var tlsCfg *TLSConfig
 	if tlsMap, ok := cfg.Properties["tls"].(map[string]interface{}); ok {
-		if enabled, set := tlsMap["enabled"].(bool); !set || enabled {
+		if enabled, set := connector.BoolFromPropsStrict(tlsMap, "enabled"); !set || enabled {
 			tlsCfg = parseTLSConfig(tlsMap)
 		}
 	}
@@ -215,7 +215,7 @@ func parseTLSConfig(cfg map[string]interface{}) *TLSConfig {
 	if clientKey, ok := cfg["key"].(string); ok {
 		tls.ClientKey = clientKey
 	}
-	if insecure, ok := cfg["insecure_skip_verify"].(bool); ok {
+	if insecure, ok := connector.BoolFromPropsStrict(cfg, "insecure_skip_verify"); ok {
 		tls.InsecureSkipVerify = insecure
 	}
 

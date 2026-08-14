@@ -49,7 +49,7 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 		// A seed-list host resolved through SRV carries no port: the records
 		// supply them, and mongodb+srv:// rejects one.
 		scheme, hostPart := "mongodb://", fmt.Sprintf("%s:%d", host, port)
-		if useSRV, _ := cfg.Properties["srv"].(bool); useSRV {
+		if connector.BoolFromProps(cfg.Properties, "srv", false) {
 			scheme, hostPart = "mongodb+srv://", host
 		}
 
@@ -116,7 +116,7 @@ func appendMongoOptions(uri string, props map[string]interface{}) string {
 	if v, ok := props["read_concern"].(string); ok && v != "" {
 		opts.Set("readConcernLevel", v)
 	}
-	if v, ok := props["direct"].(bool); ok && v {
+	if connector.BoolFromProps(props, "direct", false) {
 		opts.Set("directConnection", "true")
 	}
 
