@@ -43,3 +43,8 @@ plugin "test-plugin" {
 plugin "inventory-store" {
   source = "./plugins/inventory-store"
 }
+
+# A sanitiser that runs before any flow does.
+plugin "pii-sanitizer" {
+  source = "./plugins/pii-sanitizer"
+}

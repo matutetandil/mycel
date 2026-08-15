@@ -164,6 +164,7 @@ else
     scripts/test-profiles.sh
     scripts/test-plugin.sh
     scripts/test-plugin-connector.sh
+    scripts/test-sanitizer.sh
     scripts/test-new-features.sh
     scripts/test-fanout.sh
     scripts/test-dedupe.sh
