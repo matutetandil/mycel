@@ -352,6 +352,8 @@ if command -v go > /dev/null 2>&1; then
     ./internal/connector/mq/rabbitmq/ 'Integration|ResumesAfterConnectionDrop'
   run_go_tests "auth stores against postgres and mysql" \
     ./internal/auth/ 'AccountsInPostgres|AccountsInMySQL|SessionsInMySQL|RevokedTokensInMySQL'
+  run_go_tests "postgres read replicas" \
+    ./internal/connector/database/postgres/ 'ReadGoesToThe|ReplicaThatCannotBeReached'
 fi
 
 # Step 5: Summary
