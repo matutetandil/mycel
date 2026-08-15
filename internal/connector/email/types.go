@@ -281,6 +281,13 @@ func emailFromData(target string, payload interface{}) (*Email, error) {
 		email.To = []Recipient{{Email: target}}
 	}
 
+	// Nobody to send it to. No provider can deliver this, so it is refused
+	// here rather than a call later with the provider's own wording — which
+	// names its API and not the flow that has the empty field.
+	if len(email.To) == 0 && len(email.CC) == 0 && len(email.BCC) == 0 {
+		return nil, fmt.Errorf("the message has no recipient: give the flow's to block a target, or put a to field in the payload")
+	}
+
 	return email, nil
 }
 
