@@ -364,6 +364,10 @@ if command -v go > /dev/null 2>&1; then
     ./internal/connector/database/mongodb/ 'SeveralDocuments|UpdateChanges|ReplacingADocument|DeletingTakes|OperationNobody|AggregatingAnswers'
   run_go_tests "s3 objects and signed links" \
     ./internal/connector/s3/ 'ObjectComesBack|AskingWhetherAnObject|CopyingLeavesBoth|DeletingAnObject|SignedLink|OperationNobody|ListingAPrefix'
+  # Logical replication is a mode of the server, not something a library can
+  # stand up, so the whole CDC path below the decoding only runs here.
+  run_go_tests "cdc against postgres logical replication" \
+    ./internal/connector/cdc/ 'ChangesToARealTable|StreamPicksUpWhereItLeftOff'
 fi
 
 # Step 5: Summary

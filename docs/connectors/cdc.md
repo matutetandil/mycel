@@ -49,6 +49,35 @@ Operations use `TRIGGER:TABLE` format. Source only — CDC does not support writ
 
 The flow handler receives: `input.trigger`, `input.table`, `input.schema`, `input.new` (new row for INSERT/UPDATE), `input.old` (old row for UPDATE/DELETE), and `input.timestamp`.
 
+`input.old` carries only the key columns unless the table is set to
+`ALTER TABLE <name> REPLICA IDENTITY FULL`. Without it, a flow comparing what a
+row was against what it now is sees only the id.
+
+## Delivery
+
+The replication slot is what makes this different from polling: PostgreSQL
+keeps the WAL a slot has not confirmed, so changes written while Mycel is down
+are still there when it reconnects, and streaming resumes from the slot rather
+than from the present.
+
+That resumption is **at-least-once**. How far a consumer has got is reported to
+the server periodically, so a change already handled but not yet confirmed when
+the connection dropped is delivered again. A flow that must not act twice on the
+same change says so with a [`dedupe` block](../core-concepts/flows.md) keyed on
+something stable in the row.
+
+The other side of a slot is that it costs disk. PostgreSQL cannot recycle WAL a
+slot still needs, so a slot belonging to a service that is never coming back
+grows the database's disk until it is dropped:
+
+```sql
+SELECT slot_name, active, pg_size_pretty(
+  pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) AS retained
+FROM pg_replication_slots;
+
+SELECT pg_drop_replication_slot('mycel_slot');
+```
+
 ## Example
 
 ```hcl
