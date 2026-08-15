@@ -160,18 +160,20 @@ mfa {
 
   # WebAuthn Configuration
   webauthn {
-    rp_id           = "myapp.com"
-    rp_name         = "My Application"
-    rp_origins      = ["https://myapp.com"]
-    attestation     = "none"  # "none", "indirect", "direct"
+    rp_id             = "myapp.com"
+    rp_name           = "My Application"
+    rp_display_name   = "My Application"      # Shown in the browser prompt
+    rp_origins        = ["https://myapp.com"]
+    attestation       = "none"  # "none", "indirect", "direct"
     user_verification = "preferred"
+    timeout           = 60000   # Milliseconds a ceremony is given
   }
 
   # Recovery codes
-  recovery_codes {
-    enabled = true
-    count   = 10
-    length  = 8
+  recovery {
+    enabled     = true
+    code_count  = 10
+    code_length = 8
   }
 }
 ```

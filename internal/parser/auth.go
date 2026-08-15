@@ -396,8 +396,11 @@ func (p *HCLParser) parseWebAuthnBlock(block *hcl.Block) (*auth.WebAuthnConfig, 
 	content, diags := block.Body.Content(&hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "rp_name"},
+			{Name: "rp_display_name"},
 			{Name: "rp_id"},
 			{Name: "origins"},
+			{Name: "rp_origins"},
+			{Name: "timeout"},
 			{Name: "authenticator_attachment"},
 			{Name: "user_verification"},
 			{Name: "resident_key"},
@@ -503,6 +506,42 @@ func (p *HCLParser) parseWebAuthnBlock(block *hcl.Block) (*auth.WebAuthnConfig, 
 				_, v := iter.Element()
 				config.AllowedAAGUIDs = append(config.AllowedAAGUIDs, stringOrEmpty(v))
 			}
+		}
+	}
+
+	// Three settings the type has always carried and the parser never
+	// accepted, so writing any of them failed the document outright:
+	//
+	//   rp_display_name — what the browser shows in the prompt
+	//   rp_origins      — the alias the service prefers over origins
+	//   timeout         — how long a ceremony is given, in milliseconds
+	if attr, exists := content.Attributes["rp_display_name"]; exists {
+		val, diags := attr.Expr.Value(p.evalCtx)
+		if !diags.HasErrors() {
+			s, err := stringValue("rp_display_name", val)
+			if err != nil {
+				return nil, err
+			}
+			config.RPDisplayName = s
+		}
+	}
+
+	if attr, exists := content.Attributes["rp_origins"]; exists {
+		val, diags := attr.Expr.Value(p.evalCtx)
+		if !diags.HasErrors() && val.CanIterateElements() {
+			iter := val.ElementIterator()
+			for iter.Next() {
+				_, v := iter.Element()
+				config.RPOrigins = append(config.RPOrigins, stringOrEmpty(v))
+			}
+		}
+	}
+
+	if attr, exists := content.Attributes["timeout"]; exists {
+		val, diags := attr.Expr.Value(p.evalCtx)
+		if !diags.HasErrors() {
+			n, _ := coerceInt(val)
+			config.Timeout = n
 		}
 	}
 
