@@ -243,7 +243,18 @@ func (p *PostgresListener) processWALMessage(walData []byte) (*Event, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse WAL: %w", err)
 	}
+	return p.eventFor(logicalMsg)
+}
 
+// eventFor turns one logical replication message into the change a flow reads,
+// or nothing when the message is not a change — a transaction opening or
+// committing wraps every row, and a flow that ran for those would fire twice
+// per change.
+//
+// Separate from parsing the bytes so that what a flow receives can be checked
+// without a database: this is where an insert becomes input.trigger and a row
+// becomes input.new.
+func (p *PostgresListener) eventFor(logicalMsg pglogrepl.Message) (*Event, error) {
 	switch m := logicalMsg.(type) {
 	case *pglogrepl.RelationMessage:
 		p.handleRelation(m)
