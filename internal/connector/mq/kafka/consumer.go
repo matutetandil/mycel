@@ -399,6 +399,14 @@ func (c *Connector) ensureWriter() (*kafka.Writer, error) {
 	c.writer = &kafka.Writer{
 		Addr:     kafka.TCP(c.config.Brokers...),
 		Balancer: &kafka.LeastBytes{},
+
+		// Wait for the replicas. This writer is the one a consumer builds to
+		// republish — to the dead-letter topic, or back onto its own for a
+		// bounded retry — and it had no setting at all, which is fire and
+		// forget: the offset for the original message commits, so a republish
+		// the broker drops leaves the message in neither place. The
+		// dead-letter topic exists so that nothing is lost.
+		RequiredAcks: kafka.RequireAll,
 	}
 
 	// Configure Transport for TLS/SASL if needed
