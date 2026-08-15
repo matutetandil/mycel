@@ -307,6 +307,35 @@ else
   TOTAL_TIME=$(( $(date +%s) - START_TIME ))
 fi
 
+# Step 4b: Go tests that need a broker
+#
+# Two test files in internal/connector/mq/rabbitmq skip themselves unless a
+# RabbitMQ is reachable — they cover reconnecting after a dropped connection and
+# the strict queue declare, which are exactly the things a unit test cannot
+# reach. Nothing ever ran them: not CI, and not a developer unless they happened
+# to have a broker up. The stack is right here, so they run here.
+if command -v go > /dev/null 2>&1; then
+  echo "--------------------------------------"
+  echo "=== Broker-dependent Go tests ==="
+  broker_url="amqp://guest:guest@localhost:${PORT_RABBIT}/"
+  if broker_out=$(cd ../.. && MYCEL_TEST_RABBITMQ_URL="$broker_url" \
+      go test ./internal/connector/mq/rabbitmq/ -run 'Integration|ResumesAfterConnectionDrop' -count=1 2>&1); then
+    if echo "$broker_out" | grep -q "no RabbitMQ broker reachable"; then
+      echo "  ✗ the broker-dependent tests skipped themselves"
+      TOTAL_FAIL=$((TOTAL_FAIL + 1))
+      FAILED_SUITES+=("rabbitmq-go-tests")
+    else
+      echo "  ✓ reconnect and strict declare ran against the broker"
+      TOTAL_PASS=$((TOTAL_PASS + 1))
+    fi
+  else
+    echo "$broker_out"
+    echo "  ✗ reconnect and strict declare"
+    TOTAL_FAIL=$((TOTAL_FAIL + 1))
+    FAILED_SUITES+=("rabbitmq-go-tests")
+  fi
+fi
+
 # Step 5: Summary
 echo ""
 echo "======================================"
