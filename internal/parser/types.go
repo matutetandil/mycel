@@ -200,13 +200,23 @@ func parseFieldDefinition(name string, attr *hcl.Attribute, ctx *hcl.EvalContext
 		// Could recursively parse nested fields here
 
 	default:
-		// Try to evaluate as a regular value
+		// Anything else: a type written as a quoted word, or something that is
+		// not a type at all.
 		val, diags := attr.Expr.Value(ctx)
-		if !diags.HasErrors() {
+		switch {
+		case diags.HasErrors():
+			return nil, fmt.Errorf("field %q: %s", name, diags.Error())
+		case val.Type() == cty.String:
 			field.Type = val.AsString()
-		} else {
-			// Fall back to extracting the expression as text
-			field.Type = extractTypeFromExpression(attr.Expr)
+		default:
+			// A number or a boolean where a type belongs — `age = 18` rather
+			// than `age = number` — used to panic the process on "not a
+			// string", taking down `mycel validate` and, in a hot reload,
+			// the running service. It is a plausible typo: it reads like a
+			// default value, which is what a type block does not hold.
+			return nil, fmt.Errorf(
+				"field %q: %s is not a type — write one of string, number, bool, list or object, or a type you declared",
+				name, val.Type().FriendlyName())
 		}
 	}
 
