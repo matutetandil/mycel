@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -12,8 +13,9 @@ import (
 
 // WebAuthnService handles WebAuthn/Passkeys operations
 type WebAuthnService struct {
-	config   *WebAuthnConfig
-	webauthn *webauthn.WebAuthn
+	config    *WebAuthnConfig
+	webauthn  *webauthn.WebAuthn
+	configErr error
 }
 
 // NewWebAuthnService creates a new WebAuthn service
@@ -64,12 +66,32 @@ func NewWebAuthnService(config *WebAuthnConfig) *WebAuthnService {
 				},
 			},
 		})
-		if err == nil {
+		if err != nil {
+			// Kept, and said out loud. Swallowing it left a service that
+			// started without a word and then refused every passkey with
+			// "webauthn is not configured" — which is true and names none of
+			// the settings that would fix it. Forgetting origins is the
+			// ordinary way to get here.
+			svc.configErr = fmt.Errorf("webauthn is configured for %q but cannot be used: %w", config.RPID, err)
+			slog.Error("webauthn configuration is not usable",
+				"rp_id", config.RPID,
+				"origins", origins,
+				"error", err,
+				"hint", "origins must list the addresses the browser is on, e.g. https://app.example.com")
+		} else {
 			svc.webauthn = wa
 		}
 	}
 
 	return svc
+}
+
+// ConfigError is what stopped this service being usable, if anything did.
+func (s *WebAuthnService) ConfigError() error {
+	if s == nil {
+		return nil
+	}
+	return s.configErr
 }
 
 // IsConfigured returns true if WebAuthn is properly configured

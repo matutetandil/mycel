@@ -55,9 +55,16 @@ type endpointLimiter struct {
 // perKeyLimiter tracks limiters per key (IP, user, etc.)
 type perKeyLimiter struct {
 	limiters map[string]*rate.Limiter
-	rate     rate.Limit
-	burst    int
-	mu       sync.RWMutex
+
+	// lastSeen is when each key was last used, so keys nobody is using can be
+	// let go of. Without it the map grows by one entry per address that ever
+	// reached the endpoint and never shrinks — and the keys are whatever the
+	// caller sent, on a sign-in endpoint facing the internet.
+	lastSeen map[string]time.Time
+
+	rate  rate.Limit
+	burst int
+	mu    sync.RWMutex
 }
 
 // NewRateLimiter creates a new rate limiter
@@ -252,6 +259,7 @@ func (rl *PerKeyRateLimiter) getLimiter(endpoint, key string) *rate.Limiter {
 		r, burst := rl.getRateForEndpoint(endpoint)
 		pkl = &perKeyLimiter{
 			limiters: make(map[string]*rate.Limiter),
+			lastSeen: make(map[string]time.Time),
 			rate:     r,
 			burst:    burst,
 		}
@@ -266,6 +274,10 @@ func (rl *PerKeyRateLimiter) getLimiter(endpoint, key string) *rate.Limiter {
 		limiter = rate.NewLimiter(pkl.rate, pkl.burst)
 		pkl.limiters[key] = limiter
 	}
+	if pkl.lastSeen == nil {
+		pkl.lastSeen = make(map[string]time.Time)
+	}
+	pkl.lastSeen[key] = time.Now()
 
 	return limiter
 }
@@ -352,11 +364,69 @@ func (rl *PerKeyRateLimiter) getRateForEndpoint(endpoint string) (rate.Limit, in
 	return rate.Limit(float64(r) / windowDuration.Seconds()), burst
 }
 
-// Cleanup removes old limiters that haven't been used recently
+// Cleanup lets go of the keys nobody has used for a while.
+//
+// This did nothing at all, with a note saying a production system would track
+// last access. The consequence is not subtle on an endpoint facing the
+// internet: one entry per address that ever tried to sign in, kept for the
+// life of the process, keyed by whatever the caller sent.
+//
+// A key is kept while it could still be limiting anything — a limiter refills
+// at its own rate, so once enough time has passed for a full burst to come
+// back, dropping it and building a fresh one are the same thing.
 func (rl *PerKeyRateLimiter) Cleanup() {
-	// In a production system, you'd track last access time
-	// and periodically clean up old entries
-	// For now, this is a placeholder
+	rl.mu.RLock()
+	endpoints := make([]*perKeyLimiter, 0, len(rl.limiters))
+	for _, pkl := range rl.limiters {
+		endpoints = append(endpoints, pkl)
+	}
+	rl.mu.RUnlock()
+
+	now := time.Now()
+	for _, pkl := range endpoints {
+		pkl.mu.Lock()
+		idle := pkl.idleAfter()
+		for key, seen := range pkl.lastSeen {
+			if now.Sub(seen) > idle {
+				delete(pkl.limiters, key)
+				delete(pkl.lastSeen, key)
+			}
+		}
+		pkl.mu.Unlock()
+	}
+}
+
+// idleAfter is how long a key has to go unused before letting go of it changes
+// nothing: the time its limiter needs to refill a full burst.
+func (pkl *perKeyLimiter) idleAfter() time.Duration {
+	const floor = time.Minute
+	if pkl.rate <= 0 {
+		return floor
+	}
+	refill := time.Duration(float64(pkl.burst) / float64(pkl.rate) * float64(time.Second))
+	if refill < floor {
+		return floor
+	}
+	return refill
+}
+
+// StartCleanup sweeps unused keys until the context is cancelled.
+func (rl *PerKeyRateLimiter) StartCleanup(ctx context.Context, every time.Duration) {
+	if every <= 0 {
+		every = 5 * time.Minute
+	}
+	go func() {
+		ticker := time.NewTicker(every)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				rl.Cleanup()
+			}
+		}
+	}()
 }
 
 // RateLimitMiddleware creates HTTP middleware for rate limiting

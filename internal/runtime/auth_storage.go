@@ -217,6 +217,14 @@ func (r *Runtime) initAuth(ctx context.Context) error {
 		return fmt.Errorf("failed to start auth cleanup: %w", err)
 	}
 
+	// Per-caller rate limiting keeps one bucket per address that reached each
+	// endpoint. Nothing was letting go of them, so a sign-in endpoint facing
+	// the internet accumulated an entry per caller for the life of the
+	// process, keyed by whatever the caller sent.
+	if limiter := manager.RateLimiter(); limiter != nil {
+		limiter.StartCleanup(ctx, 0)
+	}
+
 	if sso := manager.SSO(); sso != nil {
 		// A provider redirects a browser back to an absolute address it has on
 		// record. Starting without one produces a relative redirect_uri that
