@@ -176,20 +176,25 @@ func renderConnector(name, connType, driver string, blk schema.Block) string {
 	}
 
 	// A rule of the form "say it one way or the other" is answered with the
-	// first way, so the generated file parses; the comment below lists the
-	// alternative.
-	for _, name := range blk.RequiredOneOf {
+	// first way, so the generated file is complete; the alternatives are named
+	// in the comment above it. Writing them all out would produce a file that
+	// says the same thing twice.
+	written := map[string]bool{}
+	for _, group := range blk.RequiredOneOf {
 		for _, a := range blk.Attrs {
-			if a.Name != name {
+			if len(group) == 0 || a.Name != group[0] || written[a.Name] {
 				continue
 			}
+			written[a.Name] = true
 			b.WriteString("\n")
 			if a.Doc != "" {
 				fmt.Fprintf(&b, "  // %s\n", a.Doc)
 			}
-			fmt.Fprintf(&b, "  %s = %s\n", a.Name, requiredOneOfPlaceholder(a))
+			if len(group) > 1 {
+				fmt.Fprintf(&b, "  // Or instead: %s\n", strings.Join(group[1:], ", "))
+			}
+			fmt.Fprintf(&b, "  %s = %s\n", a.Name, requiredOneOfPlaceholder(a, blk))
 		}
-		break
 	}
 
 	// A block the connector cannot parse without is written out with it. A
@@ -217,7 +222,7 @@ func renderConnector(name, connType, driver string, blk schema.Block) string {
 	if len(optional) > 0 {
 		b.WriteString("\n  // Optional:\n")
 		for _, a := range optional {
-			if len(blk.RequiredOneOf) > 0 && a.Name == blk.RequiredOneOf[0] {
+			if written[a.Name] {
 				continue // already written above
 			}
 			line := "  //   " + a.Name
@@ -799,11 +804,17 @@ func requireDriver(connType, driver string, blk schema.Block) error {
 	return nil
 }
 
-// requiredOneOfPlaceholder names the block the generator just wrote, when the
-// attribute is the one that selects it.
-func requiredOneOfPlaceholder(a schema.Attr) string {
-	if a.Ref == schema.RefNone && a.Type == schema.TypeString {
-		return "\"primary\""
+// requiredOneOfPlaceholder fills in the first of a set of alternatives.
+//
+// When the alternatives select one of the blocks the generator has just
+// written — a profiled connector picking which profile to use — the answer is
+// that block's name. Otherwise it is an ordinary placeholder, the same as any
+// other attribute somebody has to fill in.
+func requiredOneOfPlaceholder(a schema.Attr, blk schema.Block) string {
+	for _, child := range blk.Children {
+		if child.Labels > 0 && a.Type == schema.TypeString {
+			return "\"primary\""
+		}
 	}
 	return placeholderFor(a)
 }

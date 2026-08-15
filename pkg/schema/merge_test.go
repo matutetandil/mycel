@@ -114,3 +114,32 @@ func attrNamed(t *testing.T, block Block, name string) Attr {
 	t.Fatalf("%s is not in the merged schema", name)
 	return Attr{}
 }
+
+func TestARuleWithMoreThanOneAnswerSurvivesTheMerge(t *testing.T) {
+	// "Say it one way or the other" belongs to the connector, not to
+	// connectors in general, so the base has none — and a merge that drops
+	// the overlay's leaves the merged schema describing a rule nobody has to
+	// answer. That is how it went unnoticed: the rule was declared, read
+	// through the registry, and gone by the time anything looked.
+	base := Block{Type: "connector", Attrs: []Attr{{Name: "type"}}}
+	overlay := Block{
+		RequiredOneOf: [][]string{{"url", "database"}, {"url", "user"}},
+		Attrs:         []Attr{{Name: "url"}, {Name: "database"}, {Name: "user"}},
+	}
+
+	merged := Merge(base, overlay)
+
+	if len(merged.RequiredOneOf) != 2 {
+		t.Fatalf("groups = %v, want both", merged.RequiredOneOf)
+	}
+	if merged.RequiredOneOf[0][0] != "url" || merged.RequiredOneOf[0][1] != "database" {
+		t.Errorf("first group = %v", merged.RequiredOneOf[0])
+	}
+
+	// And a block that takes attributes nobody declared has to keep saying so:
+	// the overlay is the one that knows.
+	open := Merge(Block{Type: "transform"}, Block{Open: true})
+	if !open.Open {
+		t.Error("a block that accepts anything came back closed")
+	}
+}

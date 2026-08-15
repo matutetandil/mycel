@@ -7,13 +7,17 @@ type PostgresSchema struct{}
 
 func (PostgresSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
+		// The URL is taken apart before anything is checked, so a name and a
+		// user written inside one end up in the same place as the discrete
+		// attributes. Either way of saying it is complete; neither is.
+		RequiredOneOf: [][]string{{"url", "database"}, {"url", "user"}},
 		Attrs: []schema.Attr{
 			{Name: "driver", Doc: "Database driver — which implementation runs behind this connector", Type: schema.TypeString, Required: true, Values: []string{"postgres", "mysql", "sqlite", "mongodb"}},
 			{Name: "url", Doc: "Whole connection URL, e.g. postgres://user:pass@host:5432/db. Discrete fields below are preferred; anything set explicitly wins over the URL.", Type: schema.TypeString},
 			{Name: "host", Doc: "Database server host", Type: schema.TypeString},
 			{Name: "port", Doc: "Database server port", Type: schema.TypeNumber},
-			{Name: "database", Doc: "Database name", Type: schema.TypeString, Required: true},
-			{Name: "user", Doc: "Username", Type: schema.TypeString},
+			{Name: "database", Doc: "Database name — or give a url that contains one", Type: schema.TypeString},
+			{Name: "user", Doc: "Username — or give a url that contains one", Type: schema.TypeString},
 			{Name: "password", Doc: "Password", Type: schema.TypeString},
 			{Name: "sslmode", Doc: "SSL mode (disable, require, verify-ca, verify-full)", Type: schema.TypeString},
 			{Name: "use_replicas", Doc: "Enable read replicas", Type: schema.TypeBool},
@@ -38,13 +42,17 @@ type MySQLSchema struct{}
 
 func (MySQLSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
+		// The URL is taken apart before anything is checked, so a name and a
+		// user written inside one end up in the same place as the discrete
+		// attributes. Either way of saying it is complete; neither is.
+		RequiredOneOf: [][]string{{"url", "database"}, {"url", "user"}},
 		Attrs: []schema.Attr{
 			{Name: "driver", Doc: "Database driver — which implementation runs behind this connector", Type: schema.TypeString, Required: true, Values: []string{"postgres", "mysql", "sqlite", "mongodb"}},
 			{Name: "url", Doc: "Whole connection URL, e.g. postgres://user:pass@host:5432/db. Discrete fields below are preferred; anything set explicitly wins over the URL.", Type: schema.TypeString},
 			{Name: "host", Doc: "Database server host", Type: schema.TypeString},
 			{Name: "port", Doc: "Database server port", Type: schema.TypeNumber},
-			{Name: "database", Doc: "Database name", Type: schema.TypeString, Required: true},
-			{Name: "user", Doc: "Username", Type: schema.TypeString},
+			{Name: "database", Doc: "Database name — or give a url that contains one", Type: schema.TypeString},
+			{Name: "user", Doc: "Username — or give a url that contains one", Type: schema.TypeString},
 			{Name: "password", Doc: "Password", Type: schema.TypeString},
 			{Name: "charset", Doc: "Character set", Type: schema.TypeString},
 			{Name: "use_replicas", Doc: "Enable read replicas", Type: schema.TypeBool},
@@ -66,7 +74,7 @@ func (SQLiteSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "driver", Doc: "Database driver — which implementation runs behind this connector", Type: schema.TypeString, Required: true, Values: []string{"postgres", "mysql", "sqlite", "mongodb"}},
-			{Name: "database", Doc: "Database file path", Type: schema.TypeString, Required: true},
+			{Name: "database", Doc: "Database file path", Type: schema.TypeString, Default: "./data/mycel.db"},
 		},
 	}
 }

@@ -87,15 +87,20 @@ type Block struct {
 	// and from/to/step (connector-specific params).
 	Open bool
 
-	// RequiredOneOf lists attributes of which at least one must be present.
+	// RequiredOneOf lists groups of attributes; at least one attribute from
+	// each group must be present.
 	//
 	// Some rules are not "this attribute is required" but "say it one way or
-	// the other": a profiled connector names the profile to use with `select`
-	// or with `default`, and neither on its own is required. Marking both
-	// Required would describe a rule that does not exist and make the
-	// generator write a file nobody wants; marking neither leaves the rule
-	// invisible to everything except the parser, which is where it was.
-	RequiredOneOf []string
+	// the other". A profiled connector names the profile to use with `select`
+	// or with `default`. A Postgres connector needs a database name, which is
+	// written either as `database` or inside `url` — the URL is taken apart
+	// before anything is checked, so both end up in the same place.
+	//
+	// Marking every alternative Required describes a rule that does not exist
+	// and makes the generator write a file nobody wants; marking none of them
+	// leaves the rule invisible to everything except the connector, which
+	// reports it at start-up rather than at `mycel validate`.
+	RequiredOneOf [][]string
 
 	// Attrs lists the known attributes for this block.
 	Attrs []Attr
@@ -166,6 +171,20 @@ func Merge(base, overlay Block) Block {
 		if !existingChildren[c.Type] {
 			merged.Children = append(merged.Children, c)
 		}
+	}
+
+	// Carry the overlay's "say it one way or the other" rules. These belong to
+	// the connector rather than to connectors in general, so the base has none
+	// and dropping them here made the merged schema describe a rule nobody
+	// had to answer.
+	if len(overlay.RequiredOneOf) > 0 {
+		merged.RequiredOneOf = append(append([][]string(nil), merged.RequiredOneOf...), overlay.RequiredOneOf...)
+	}
+
+	// A block that takes attributes nobody declared says so, and the overlay
+	// is the one that knows.
+	if overlay.Open {
+		merged.Open = true
 	}
 
 	// Inherit doc from overlay if base is empty

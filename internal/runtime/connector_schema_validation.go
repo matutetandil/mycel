@@ -47,6 +47,8 @@ func ValidateConnectorSchemas(config *parser.Configuration, reg *schema.Registry
 			errs = append(errs, err)
 		}
 
+		errs = append(errs, checkRequiredOneOf(c, &block)...)
+
 		for _, problem := range checkValues(&block, c.Properties, "") {
 			errs = append(errs, fmt.Errorf(
 				"connector %q (%s): %s = %q is not one of: %s",
@@ -169,4 +171,57 @@ func checkDriver(c *connector.Config, block *schema.Block) error {
 	}
 	return fmt.Errorf("connector %q (%s): needs a driver — one of %s",
 		c.Name, c.Type, strings.Join(attr.Values, ", "))
+}
+
+// checkRequiredOneOf reports a connector that answers a rule in none of the
+// ways it can be answered.
+//
+// Some settings are not required so much as required *somehow*: a Postgres
+// connector needs a database name, written either as `database` or inside a
+// `url` that carries one — the URL is taken apart before anything is checked,
+// so the two end up in the same place. Marking every alternative Required
+// would refuse the URL form, which is what every managed platform hands over;
+// marking none of them left `connector "db" { type = "database" driver =
+// "postgres" }` validating clean and failing at start-up with "postgres
+// connector requires database name".
+func checkRequiredOneOf(c *connector.Config, block *schema.Block) []error {
+	var errs []error
+	for _, group := range block.RequiredOneOf {
+		if len(group) == 0 || satisfiesAny(c.Properties, group) {
+			continue
+		}
+		errs = append(errs, fmt.Errorf("connector %q (%s): needs %s",
+			c.Name, c.Type, eitherList(group)))
+	}
+	return errs
+}
+
+// satisfiesAny reports whether any of the named attributes was written.
+//
+// Written, not filled in: `url = env("DATABASE_URL")` with the variable unset
+// reads as empty here, and it is not the same failure. The author answered the
+// question; the environment did not. That case already has a better answer
+// than anything this could say — the start-up error names the variable and the
+// connector that wanted it — and refusing it here would replace "missing
+// environment variable DATABASE_URL, required by connector db" with "needs url
+// or database", about a connector that has a url.
+func satisfiesAny(props map[string]interface{}, names []string) bool {
+	for _, name := range names {
+		if _, present := props[name]; present {
+			return true
+		}
+	}
+	return false
+}
+
+// eitherList renders `"a" or "b"`, `"a", "b" or "c"`.
+func eitherList(names []string) string {
+	quoted := make([]string, len(names))
+	for i, name := range names {
+		quoted[i] = fmt.Sprintf("%q", name)
+	}
+	if len(quoted) == 1 {
+		return quoted[0]
+	}
+	return strings.Join(quoted[:len(quoted)-1], ", ") + " or " + quoted[len(quoted)-1]
 }

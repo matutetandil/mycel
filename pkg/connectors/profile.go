@@ -22,7 +22,7 @@ type ProfileSchema struct{}
 func (ProfileSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Doc:           "One connector name that resolves to a different backend per environment or per message",
-		RequiredOneOf: []string{"default", "select"},
+		RequiredOneOf: [][]string{{"default", "select"}},
 		Attrs: []schema.Attr{
 			{Name: "select", Doc: "CEL expression naming the profile to use, e.g. env('PRICE_SOURCE')", Type: schema.TypeString},
 			{Name: "default", Doc: "Profile used when select names none — one of select or default is required", Type: schema.TypeString},
