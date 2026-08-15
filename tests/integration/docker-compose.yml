@@ -254,6 +254,10 @@ services:
   # ==========================================================================
   minio:
     image: minio/minio
+    # Published for the Go tests of the S3 operations a flow reaches through a
+    # step rather than a write — copy, move, presign and the rest.
+    ports:
+      - "${PORT_MINIO:-39000}:9000"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
