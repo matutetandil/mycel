@@ -22,7 +22,6 @@ func (MQTTSchema) ConnectorSchema() schema.Block {
 		},
 		Children: []schema.Block{
 			{Type: "tls", Doc: "TLS/SSL settings", Attrs: []schema.Attr{
-				{Name: "enabled", Doc: "Enable TLS", Type: schema.TypeBool},
 				{Name: "enabled", Doc: "Enable TLS (default true when the block is present)", Type: schema.TypeBool},
 				{Name: "cert", Doc: "Certificate file this connector presents: its own when it is a server, the client certificate for mutual TLS", Type: schema.TypeString},
 				{Name: "key", Doc: "Private key for cert", Type: schema.TypeString},
