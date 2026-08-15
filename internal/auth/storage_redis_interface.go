@@ -44,8 +44,11 @@ func (s *RedisSessionStore) DeleteExpired(ctx context.Context) error {
 
 // Touch records that a session was used, which is what an idle timeout reads.
 //
-// The TTL is extended along with it: a session that is being used should not
-// expire out from under the person using it.
+// The key's expiry is rewritten from the session's own ExpiresAt rather than
+// pushed further out. That is deliberate: ExpiresAt is the longest a session
+// may live, and extending the key past it would keep a session alive beyond
+// its own expiry. Idleness is judged from LastActiveAt, which is what this
+// updates.
 func (s *RedisSessionStore) Touch(ctx context.Context, id string) error {
 	session, err := s.Get(ctx, id)
 	if err != nil {
