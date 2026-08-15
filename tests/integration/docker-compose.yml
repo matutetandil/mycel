@@ -112,6 +112,12 @@ services:
   # ==========================================================================
   postgres:
     image: postgres:16-alpine
+    # Published so the Go tests for the SQL auth stores can reach it. Those
+    # stores speak Postgres and MySQL, not something a unit test can stand up,
+    # so this is the only place they run at all. The default is away from 5432
+    # so a developer's own database is not in the way.
+    ports:
+      - "${PORT_PG:-55432}:5432"
     environment:
       POSTGRES_USER: mycel
       POSTGRES_PASSWORD: mycel
@@ -131,6 +137,10 @@ services:
 
   mysql:
     image: mysql:8
+    # Published for the same reason as postgres above: the MySQL auth stores
+    # only run here.
+    ports:
+      - "${PORT_MYSQL:-33306}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: mycel_test

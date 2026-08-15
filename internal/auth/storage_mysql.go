@@ -41,16 +41,38 @@ func (s *MySQLUserStore) getTableName() string {
 
 // getFields returns the configured field mappings
 func (s *MySQLUserStore) getFields() *UserFieldsConfig {
-	if s.config != nil && s.config.Fields != nil {
-		return s.config.Fields
+	fields := defaultUserFields()
+	if s.config == nil || s.config.Fields == nil {
+		return fields
 	}
-	return &UserFieldsConfig{
-		ID:           "id",
-		Email:        "email",
-		PasswordHash: "password_hash",
-		CreatedAt:    "created_at",
-		UpdatedAt:    "updated_at",
+
+	// Each name that was written wins; the rest keep the usual one.
+	//
+	// The block used to be taken whole, so naming one column emptied the
+	// others — and the ordinary reason to write this block at all is to turn
+	// roles on, which produced INSERT INTO users (, , , , , roles). A syntax
+	// error on the first registration, from a configuration that reads
+	// exactly like the documentation.
+	written := s.config.Fields
+	if written.ID != "" {
+		fields.ID = written.ID
 	}
+	if written.Email != "" {
+		fields.Email = written.Email
+	}
+	if written.PasswordHash != "" {
+		fields.PasswordHash = written.PasswordHash
+	}
+	if written.CreatedAt != "" {
+		fields.CreatedAt = written.CreatedAt
+	}
+	if written.UpdatedAt != "" {
+		fields.UpdatedAt = written.UpdatedAt
+	}
+	// Roles has no default: naming the column is what turns them on.
+	fields.Roles = written.Roles
+
+	return fields
 }
 
 // Create creates a new user

@@ -78,6 +78,8 @@ PORT_DEFS=(
   PORT_RABBIT:5672
   PORT_AUTH:3003
   PORT_WORKFLOW:9101
+  PORT_PG:55432
+  PORT_MYSQL:33306
 )
 
 echo "Checking ports..."
@@ -307,33 +309,48 @@ else
   TOTAL_TIME=$(( $(date +%s) - START_TIME ))
 fi
 
-# Step 4b: Go tests that need a broker
+# Step 4b: Go tests that need infrastructure
 #
-# Two test files in internal/connector/mq/rabbitmq skip themselves unless a
-# RabbitMQ is reachable — they cover reconnecting after a dropped connection and
-# the strict queue declare, which are exactly the things a unit test cannot
-# reach. Nothing ever ran them: not CI, and not a developer unless they happened
-# to have a broker up. The stack is right here, so they run here.
+# Some test files skip themselves unless a broker or a database is reachable —
+# reconnecting after a dropped connection, the strict queue declare, and the
+# SQL auth stores, which speak Postgres and MySQL rather than anything a unit
+# test can stand up. Nothing ever ran them: not CI, and not a developer unless
+# they happened to have the infrastructure up. The stack is right here, so they
+# run here, and skipping counts as a failure — a test that never runs is not a
+# test.
 if command -v go > /dev/null 2>&1; then
   echo "--------------------------------------"
-  echo "=== Broker-dependent Go tests ==="
-  broker_url="amqp://guest:guest@localhost:${PORT_RABBIT}/"
-  if broker_out=$(cd ../.. && MYCEL_TEST_RABBITMQ_URL="$broker_url" \
-      go test ./internal/connector/mq/rabbitmq/ -run 'Integration|ResumesAfterConnectionDrop' -count=1 2>&1); then
-    if echo "$broker_out" | grep -q "no RabbitMQ broker reachable"; then
-      echo "  ✗ the broker-dependent tests skipped themselves"
-      TOTAL_FAIL=$((TOTAL_FAIL + 1))
-      FAILED_SUITES+=("rabbitmq-go-tests")
+  echo "=== Go tests that need infrastructure ==="
+
+  run_go_tests() {
+    local label="$1" pkg="$2" pattern="$3"
+    local out
+    if out=$(cd ../.. && \
+        MYCEL_TEST_RABBITMQ_URL="amqp://guest:guest@localhost:${PORT_RABBIT}/" \
+        MYCEL_TEST_POSTGRES_DSN="postgres://mycel:mycel@127.0.0.1:${PORT_PG}/mycel_test?sslmode=disable" \
+        MYCEL_TEST_MYSQL_DSN="mycel:mycel@tcp(127.0.0.1:${PORT_MYSQL})/mycel_test?parseTime=true" \
+        go test "$pkg" -run "$pattern" -count=1 -v 2>&1); then
+      if echo "$out" | grep -q -- "--- SKIP"; then
+        echo "  ✗ $label skipped itself"
+        echo "$out" | grep -A 1 -- "--- SKIP" | head -6
+        TOTAL_FAIL=$((TOTAL_FAIL + 1))
+        FAILED_SUITES+=("$label")
+      else
+        echo "  ✓ $label"
+        TOTAL_PASS=$((TOTAL_PASS + 1))
+      fi
     else
-      echo "  ✓ reconnect and strict declare ran against the broker"
-      TOTAL_PASS=$((TOTAL_PASS + 1))
+      echo "$out" | tail -20
+      echo "  ✗ $label"
+      TOTAL_FAIL=$((TOTAL_FAIL + 1))
+      FAILED_SUITES+=("$label")
     fi
-  else
-    echo "$broker_out"
-    echo "  ✗ reconnect and strict declare"
-    TOTAL_FAIL=$((TOTAL_FAIL + 1))
-    FAILED_SUITES+=("rabbitmq-go-tests")
-  fi
+  }
+
+  run_go_tests "rabbitmq reconnect and strict declare" \
+    ./internal/connector/mq/rabbitmq/ 'Integration|ResumesAfterConnectionDrop'
+  run_go_tests "auth stores against postgres and mysql" \
+    ./internal/auth/ 'AccountsInPostgres|AccountsInMySQL|SessionsInMySQL|RevokedTokensInMySQL'
 fi
 
 # Step 5: Summary

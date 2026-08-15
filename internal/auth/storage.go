@@ -589,3 +589,18 @@ func (s *MemoryBruteForceStore) SetDelay(ctx context.Context, key string, delay 
 	entry.delay = delay
 	return nil
 }
+
+// defaultUserFields is the column names a users table is assumed to have when
+// the configuration does not say otherwise.
+//
+// Roles is deliberately absent: naming that column is what turns roles on for a
+// SQL-backed store, so a users table somebody else owns keeps working.
+func defaultUserFields() *UserFieldsConfig {
+	return &UserFieldsConfig{
+		ID:           "id",
+		Email:        "email",
+		PasswordHash: "password_hash",
+		CreatedAt:    "created_at",
+		UpdatedAt:    "updated_at",
+	}
+}
