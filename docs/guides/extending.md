@@ -91,7 +91,38 @@ See [WASM Documentation](../advanced/wasm.md) for complete interface spec and la
 
 ## Mocks
 
-Mocks provide test data without connecting to real services. Place JSON files in `mocks/` following the naming convention, then enable with CLI flags.
+Mocks provide test data without connecting to real services. Place JSON files in `mocks/` following the naming convention, then enable with CLI flags or the `mocks` block.
+
+### The mocks block
+
+```hcl
+mocks {
+  enabled = true       # Off unless this says otherwise
+  path    = "./mocks"  # Where the recorded answers live
+
+  # Per connector, keyed by connector name
+  connectors {
+    db = {
+      latency = "50ms"   # Answer this slowly
+    }
+
+    payments = {
+      latency   = "1s"
+      fail_rate = 30      # Refuse this percentage of calls
+    }
+
+    search = {
+      enabled = false     # Leave this one talking to the real service
+    }
+  }
+}
+```
+
+`latency` and `fail_rate` are the reason to mock a connector rather than point
+it at a test double: they are how a flow's timeout, retry and error handling get
+exercised without arranging for a real dependency to be slow or refusing.
+`enabled = false` on one connector leaves it real while the rest answer from
+recorded data, which is how you isolate the part you are working on.
 
 ### Directory Structure
 

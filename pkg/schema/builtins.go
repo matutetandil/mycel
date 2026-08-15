@@ -990,7 +990,25 @@ func SecuritySchema() Block {
 func MocksSchema() Block {
 	return Block{
 		Type: "mocks",
-		Doc:  "Mock data for testing",
+		Doc:  "Answer from recorded data instead of the real service",
+		Attrs: []Attr{
+			{Name: "enabled", Doc: "Answer from mocks rather than the real connectors", Type: TypeBool},
+			{Name: "path", Doc: "Directory holding the recorded answers (default: ./mocks)", Type: TypeString},
+		},
+		Children: []Block{MockConnectorsSchema()},
+	}
+}
+
+// MockConnectorsSchema describes the per-connector settings inside mocks.
+//
+// Its attributes are connector names, so the block stays open — but what each
+// one takes is not open at all, and was described nowhere: latency and
+// fail_rate are the reason to mock a connector rather than point it at a test
+// double, and neither appears in the documentation or in any schema.
+func MockConnectorsSchema() Block {
+	return Block{
+		Type: "connectors",
+		Doc:  "Per-connector mock settings, keyed by connector name: db = { latency = \"50ms\" }",
 		Open: true,
 	}
 }
