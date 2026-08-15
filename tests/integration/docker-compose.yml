@@ -156,6 +156,10 @@ services:
 
   mongodb:
     image: mongo:7
+    # Published for the Go tests of the driver's write operations, which the
+    # flows here do not all reach.
+    ports:
+      - "${PORT_MONGO:-37017}:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: mongo
       MONGO_INITDB_ROOT_PASSWORD: mycel

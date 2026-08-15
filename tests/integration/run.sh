@@ -80,6 +80,7 @@ PORT_DEFS=(
   PORT_WORKFLOW:9101
   PORT_PG:55432
   PORT_MYSQL:33306
+  PORT_MONGO:37017
 )
 
 echo "Checking ports..."
@@ -330,6 +331,7 @@ if command -v go > /dev/null 2>&1; then
         MYCEL_TEST_RABBITMQ_URL="amqp://guest:guest@localhost:${PORT_RABBIT}/" \
         MYCEL_TEST_POSTGRES_DSN="postgres://mycel:mycel@127.0.0.1:${PORT_PG}/mycel_test?sslmode=disable" \
         MYCEL_TEST_MYSQL_DSN="mycel:mycel@tcp(127.0.0.1:${PORT_MYSQL})/mycel_test?parseTime=true" \
+        MYCEL_TEST_MONGO_URI="mongodb://mongo:mycel@127.0.0.1:${PORT_MONGO}/mycel_test?authSource=admin" \
         go test "$pkg" -run "$pattern" -count=1 -v 2>&1); then
       if echo "$out" | grep -q -- "--- SKIP"; then
         echo "  ✗ $label skipped itself"
@@ -354,6 +356,10 @@ if command -v go > /dev/null 2>&1; then
     ./internal/auth/ 'AccountsInPostgres|AccountsInMySQL|SessionsInMySQL|RevokedTokensInMySQL'
   run_go_tests "postgres read replicas" \
     ./internal/connector/database/postgres/ 'ReadGoesToThe|ReplicaThatCannotBeReached'
+  run_go_tests "mysql read replicas" \
+    ./internal/connector/database/mysql/ 'ReadGoesToThe|ReplicaThatCannotBeReached'
+  run_go_tests "mongodb write operations" \
+    ./internal/connector/database/mongodb/ 'SeveralDocuments|UpdateChanges|ReplacingADocument|DeletingTakes|OperationNobody|AggregatingAnswers'
 fi
 
 # Step 5: Summary
