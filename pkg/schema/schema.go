@@ -87,6 +87,16 @@ type Block struct {
 	// and from/to/step (connector-specific params).
 	Open bool
 
+	// RequiredOneOf lists attributes of which at least one must be present.
+	//
+	// Some rules are not "this attribute is required" but "say it one way or
+	// the other": a profiled connector names the profile to use with `select`
+	// or with `default`, and neither on its own is required. Marking both
+	// Required would describe a rule that does not exist and make the
+	// generator write a file nobody wants; marking neither leaves the rule
+	// invisible to everything except the parser, which is where it was.
+	RequiredOneOf []string
+
 	// Attrs lists the known attributes for this block.
 	Attrs []Attr
 
@@ -122,15 +132,29 @@ type ConnectorSchemaProvider interface {
 func Merge(base, overlay Block) Block {
 	merged := base
 
-	// Merge attrs (overlay wins on name collision)
-	existing := make(map[string]bool)
-	for _, a := range merged.Attrs {
-		existing[a.Name] = true
+	// Merge attrs. The overlay wins on a name collision: the base describes
+	// what every connector has, the overlay what this one makes of it, and the
+	// specific description is the true one.
+	//
+	// It used to be the other way round — the base was kept and the overlay's
+	// version dropped — while the comment said what it says now. Nothing looked
+	// merged-in wrong, it simply went missing: every driver list a connector
+	// declared (memory or redis for cache, twilio or sns for sms, four for
+	// database) was discarded in favour of the base's bare "driver" with no
+	// values and nothing required. So the check that exists to catch a misspelt
+	// word never saw a driver at all, and `driver = "postgress"` validated.
+	merged.Attrs = append([]Attr(nil), merged.Attrs...)
+	position := make(map[string]int, len(merged.Attrs))
+	for i, a := range merged.Attrs {
+		position[a.Name] = i
 	}
 	for _, a := range overlay.Attrs {
-		if !existing[a.Name] {
-			merged.Attrs = append(merged.Attrs, a)
+		if i, clash := position[a.Name]; clash {
+			merged.Attrs[i] = a
+			continue
 		}
+		position[a.Name] = len(merged.Attrs)
+		merged.Attrs = append(merged.Attrs, a)
 	}
 
 	// Merge children (overlay wins on type collision)

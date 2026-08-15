@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/matutetandil/mycel/v2/internal/connector"
 	"github.com/matutetandil/mycel/v2/internal/parser"
 	"github.com/matutetandil/mycel/v2/pkg/schema"
 )
@@ -41,6 +42,11 @@ func ValidateConnectorSchemas(config *parser.Configuration, reg *schema.Registry
 		}
 
 		block := reg.ConnectorSchema(c.Type, c.Driver)
+
+		if err := checkDriver(c, &block); err != nil {
+			errs = append(errs, err)
+		}
+
 		for _, problem := range checkValues(&block, c.Properties, "") {
 			errs = append(errs, fmt.Errorf(
 				"connector %q (%s): %s = %q is not one of: %s",
@@ -128,4 +134,39 @@ func walkSchemaBlocks(block *schema.Block, prefix string, visit func(path string
 	for i := range block.Children {
 		walkSchemaBlocks(&block.Children[i], prefix+"."+block.Children[i].Type, visit)
 	}
+}
+
+// checkDriver reports a connector that does not say which implementation runs
+// behind it.
+//
+// A `database` or `mq` connector is not one thing: the type says what kind of
+// system it is, and the driver says which one. Nothing checked that a driver
+// was given, so `connector "db" { type = "database" }` parsed, validated, was
+// listed by `mycel validate` as a database connector, and then failed at
+// start-up with `no factory found for connector type=database driver=`. Worse,
+// `mycel add connector db --type database` generated exactly that file, so the
+// command that exists to produce a correct starting point produced one that
+// could not run.
+//
+// Only the driver is enforced here, not every attribute a schema marks
+// Required. Several of those are alternatives rather than obligations — a
+// Postgres connector needs a database name *or* a URL that contains one — and
+// refusing the second form would break configurations that work today. The
+// driver has no such alternative: without it there is nothing to build.
+func checkDriver(c *connector.Config, block *schema.Block) error {
+	var attr *schema.Attr
+	for i := range block.Attrs {
+		if block.Attrs[i].Name == "driver" && block.Attrs[i].Required {
+			attr = &block.Attrs[i]
+			break
+		}
+	}
+	if attr == nil {
+		return nil
+	}
+	if strings.TrimSpace(c.Driver) != "" {
+		return nil
+	}
+	return fmt.Errorf("connector %q (%s): needs a driver — one of %s",
+		c.Name, c.Type, strings.Join(attr.Values, ", "))
 }

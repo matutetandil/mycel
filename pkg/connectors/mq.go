@@ -22,6 +22,7 @@ type RabbitMQSchema struct{}
 func (RabbitMQSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "driver", Doc: "Broker driver — which implementation runs behind this connector", Type: schema.TypeString, Required: true, Values: []string{"rabbitmq", "kafka", "redis"}},
 			{Name: "url", Doc: "AMQP connection URL", Type: schema.TypeString},
 			{Name: "host", Doc: "Broker hostname", Type: schema.TypeString},
 			{Name: "port", Doc: "Broker port", Type: schema.TypeNumber},
@@ -95,6 +96,7 @@ type KafkaSchema struct{}
 func (KafkaSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "driver", Doc: "Broker driver — which implementation runs behind this connector", Type: schema.TypeString, Required: true, Values: []string{"rabbitmq", "kafka", "redis"}},
 			{Name: "brokers", Doc: "Kafka broker addresses", Type: schema.TypeList},
 			{Name: "client_id", Doc: "Client identifier", Type: schema.TypeString},
 		},
@@ -136,6 +138,7 @@ type RedisPubSubSchema struct{}
 func (RedisPubSubSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "driver", Doc: "Broker driver — which implementation runs behind this connector", Type: schema.TypeString, Required: true, Values: []string{"rabbitmq", "kafka", "redis"}},
 			{Name: "host", Doc: "Redis host", Type: schema.TypeString},
 			{Name: "port", Doc: "Redis port", Type: schema.TypeNumber},
 			{Name: "password", Doc: "Redis password", Type: schema.TypeString},

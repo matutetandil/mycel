@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/matutetandil/mycel/v2/pkg/connectors"
@@ -63,19 +64,31 @@ func TestConnectorSchemasMatchTheParser(t *testing.T) {
 			}
 
 			blk := provider.ConnectorSchema()
+			body := scaffold[connType]
 			for _, a := range blk.Attrs {
-				check(a.Name, fmt.Sprintf("connector \"c\" {\n  type = %q\n  %s = %s\n}\n",
-					connType, a.Name, sampleValue(a)))
+				// The scaffold may already set the attribute under test; HCL
+				// refuses the same argument twice, so drop it in that case.
+				check(a.Name, fmt.Sprintf("connector \"c\" {\n  type = %q\n%s  %s = %s\n}\n",
+					connType, without(body, a.Name), a.Name, sampleValue(a)))
 			}
 			for _, child := range blk.Children {
+				// A block the schema says is named must be written with its
+				// name, or the parser rejects the shape rather than the
+				// attribute being tested.
+				header := child.Type
+				if child.Labels > 0 {
+					header = child.Type + " \"one\""
+				}
+				inner := childScaffold[connType+"."+child.Type]
 				for _, a := range child.Attrs {
 					check(child.Type+"."+a.Name,
-						fmt.Sprintf("connector \"c\" {\n  type = %q\n  %s {\n    %s = %s\n  }\n}\n",
-							connType, child.Type, a.Name, sampleValue(a)))
+						fmt.Sprintf("connector \"c\" {\n  type = %q\n%s  %s {\n%s    %s = %s\n  }\n}\n",
+							connType, body, header, without(inner, a.Name), a.Name, sampleValue(a)))
 				}
 				if len(child.Attrs) == 0 {
 					check(child.Type+" (block)",
-						fmt.Sprintf("connector \"c\" {\n  type = %q\n  %s {\n  }\n}\n", connType, child.Type))
+						fmt.Sprintf("connector \"c\" {\n  type = %q\n%s  %s {\n%s  }\n}\n",
+							connType, body, header, inner))
 				}
 			}
 
@@ -88,6 +101,36 @@ func TestConnectorSchemasMatchTheParser(t *testing.T) {
 			}
 		})
 	}
+}
+
+// scaffold is what a connector of a given type needs before any attribute can
+// be tested at all — rules the parser enforces about the block as a whole
+// rather than about one attribute. A profiled connector must name a profile to
+// select, or parsing stops before it looks at anything else.
+//
+// Deliberately as small as possible: anything added here is a rule this test
+// stops checking, so it holds only what the parser refuses the block without.
+var scaffold = map[string]string{
+	"profiled": "  default = \"one\"\n",
+}
+
+// childScaffold is the same for a named block inside a connector: a profile is
+// a whole connector configuration, so it must say what type it is.
+var childScaffold = map[string]string{
+	"profiled.profile": "    type = \"http\"\n",
+}
+
+// without drops the scaffold line that sets name, so an attribute under test
+// is not written twice.
+func without(scaffoldLines, name string) string {
+	var kept []string
+	for _, line := range strings.Split(scaffoldLines, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), name+" ") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
 }
 
 // acceptedAliases are attributes the parser takes on purpose that no schema
@@ -111,6 +154,7 @@ var registeredPairs = [][2]string{
 	{"file", ""}, {"s3", ""}, {"ftp", ""}, {"exec", ""}, {"cache", ""},
 	{"elasticsearch", ""}, {"cdc", ""}, {"pdf", ""}, {"mqtt", ""}, {"oauth", ""},
 	{"email", ""}, {"slack", ""}, {"discord", ""}, {"sms", ""}, {"push", ""}, {"webhook", ""},
+	{"profiled", ""},
 }
 
 // TestTheParserAcceptsNothingUndescribed is the other direction.

@@ -40,6 +40,22 @@ func (r *Registry) RegisterFactory(factory Factory) {
 	r.factories = append(r.factories, factory)
 }
 
+// Supports reports whether any registered factory can build this type and
+// driver. It answers the question Create answers, without building anything —
+// which is what lets the connector inventory be checked against the schema
+// registry and the parser's list of built-in types.
+func (r *Registry) Supports(connectorType, driver string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, factory := range r.factories {
+		if factory.Supports(connectorType, driver) {
+			return true
+		}
+	}
+	return false
+}
+
 // Create creates a connector using the appropriate factory.
 func (r *Registry) Create(ctx context.Context, config *Config) (Connector, error) {
 	r.mu.RLock()

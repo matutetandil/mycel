@@ -8,6 +8,7 @@ type PostgresSchema struct{}
 func (PostgresSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "driver", Doc: "Database driver — which implementation runs behind this connector", Type: schema.TypeString, Required: true, Values: []string{"postgres", "mysql", "sqlite", "mongodb"}},
 			{Name: "url", Doc: "Whole connection URL, e.g. postgres://user:pass@host:5432/db. Discrete fields below are preferred; anything set explicitly wins over the URL.", Type: schema.TypeString},
 			{Name: "host", Doc: "Database server host", Type: schema.TypeString},
 			{Name: "port", Doc: "Database server port", Type: schema.TypeNumber},
@@ -38,6 +39,7 @@ type MySQLSchema struct{}
 func (MySQLSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "driver", Doc: "Database driver — which implementation runs behind this connector", Type: schema.TypeString, Required: true, Values: []string{"postgres", "mysql", "sqlite", "mongodb"}},
 			{Name: "url", Doc: "Whole connection URL, e.g. postgres://user:pass@host:5432/db. Discrete fields below are preferred; anything set explicitly wins over the URL.", Type: schema.TypeString},
 			{Name: "host", Doc: "Database server host", Type: schema.TypeString},
 			{Name: "port", Doc: "Database server port", Type: schema.TypeNumber},
@@ -63,6 +65,7 @@ type SQLiteSchema struct{}
 func (SQLiteSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "driver", Doc: "Database driver — which implementation runs behind this connector", Type: schema.TypeString, Required: true, Values: []string{"postgres", "mysql", "sqlite", "mongodb"}},
 			{Name: "database", Doc: "Database file path", Type: schema.TypeString, Required: true},
 		},
 	}
@@ -77,6 +80,7 @@ type MongoDBSchema struct{}
 func (MongoDBSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "driver", Doc: "Database driver — which implementation runs behind this connector", Type: schema.TypeString, Required: true, Values: []string{"postgres", "mysql", "sqlite", "mongodb"}},
 			{Name: "uri", Doc: "MongoDB connection URI. Given whole, it is used as written and the options below are ignored", Type: schema.TypeString},
 			{Name: "srv", Doc: "Resolve the host through a DNS SRV seed list (mongodb+srv://)", Type: schema.TypeBool},
 			{Name: "auth_source", Doc: "Database to authenticate against", Type: schema.TypeString},

@@ -52,6 +52,7 @@ func RegisterAll(reg *schema.Registry) {
 	reg.Register("oauth", "", OAuthSchema{})
 	reg.Register("cdc", "", CDCSchema{})
 	reg.Register("mqtt", "", MQTTSchema{})
+	reg.Register("profiled", "", ProfileSchema{})
 
 	// Notification connectors
 	reg.Register("email", "", EmailSchema{})
