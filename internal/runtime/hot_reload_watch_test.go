@@ -33,14 +33,17 @@ func TestEditingAFileReachesTheRunningService(t *testing.T) {
 	// The watcher debounces, so this waits rather than sleeping a fixed time.
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if handler, ok := r.flows.Get("list_items"); ok &&
+		// Through the accessor rather than the field: a reload replaces the
+		// whole registry, and reading the field races with that — which is
+		// the very thing this test makes happen.
+		if handler, ok := r.GetFlow("list_items"); ok &&
 			handler.Config.From.GetOperation() == "GET /things" {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	handler, _ := r.flows.Get("list_items")
+	handler, _ := r.GetFlow("list_items")
 	t.Errorf("the edit never reached the service; the flow still answers %q",
 		handler.Config.From.GetOperation())
 }

@@ -942,18 +942,31 @@ func (r *Runtime) InitForTrace(ctx context.Context) error {
 }
 
 // GetFlow retrieves a flow handler by name from the flow registry.
+//
+// The read lock is for the registry itself rather than for what is in it: a
+// hot reload replaces the whole thing, under r.mu, while the debugger and the
+// trace command are reading flows by name. The lock existed and only the
+// writer honoured it.
 func (r *Runtime) GetFlow(name string) (*FlowHandler, bool) {
-	return r.flows.Get(name)
+	return r.flowRegistry().Get(name)
 }
 
 // ListFlows returns all registered flow names.
 func (r *Runtime) ListFlows() []string {
-	return r.flows.List()
+	return r.flowRegistry().List()
+}
+
+// flowRegistry returns the registry currently in use, safely against a reload
+// swapping it.
+func (r *Runtime) flowRegistry() *FlowRegistry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.flows
 }
 
 // GetFlowConfig returns a flow config by name (debug.RuntimeInspector).
 func (r *Runtime) GetFlowConfig(name string) (*flow.Config, bool) {
-	handler, ok := r.flows.Get(name)
+	handler, ok := r.flowRegistry().Get(name)
 	if !ok {
 		return nil, false
 	}
@@ -996,8 +1009,9 @@ func (r *Runtime) ListTransforms() []*transform.Config {
 // GetCELTransformer returns a CEL transformer for expression evaluation (debug.RuntimeInspector).
 func (r *Runtime) GetCELTransformer() *transform.CELTransformer {
 	// Return the first flow handler's transformer, or create a new one
-	for _, name := range r.flows.List() {
-		if handler, ok := r.flows.Get(name); ok && handler.Transformer != nil {
+	flows := r.flowRegistry()
+	for _, name := range flows.List() {
+		if handler, ok := flows.Get(name); ok && handler.Transformer != nil {
 			return handler.Transformer
 		}
 	}

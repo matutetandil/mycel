@@ -78,10 +78,10 @@ func TestAReloadInstallsTheNewConfiguration(t *testing.T) {
 		t.Fatalf("hotReloadSwitch: %v", err)
 	}
 
-	if _, ok := r.flows.Get("list_products"); !ok {
+	if _, ok := r.GetFlow("list_products"); !ok {
 		t.Error("the flow the new configuration declares is not registered")
 	}
-	if _, ok := r.flows.Get("list_items"); ok {
+	if _, ok := r.GetFlow("list_items"); ok {
 		t.Error("the flow the old configuration declared is still registered")
 	}
 }
@@ -156,11 +156,11 @@ connector "db" {
 			}
 
 			// The point of the test: still serving what it was serving.
-			if _, ok := r.flows.Get("list_items"); !ok {
+			if _, ok := r.GetFlow("list_items"); !ok {
 				t.Error("the service stopped serving the flow it had, so a typo took it down")
 			}
-			if len(r.flows.List()) != 1 {
-				t.Errorf("%d flows registered, want the one that was working", len(r.flows.List()))
+			if len(r.ListFlows()) != 1 {
+				t.Errorf("%d flows registered, want the one that was working", len(r.ListFlows()))
 			}
 
 			// And the connectors it was serving through are still open, or the
@@ -189,7 +189,7 @@ func TestAFailedReloadCanBeFollowedByAWorkingOne(t *testing.T) {
 	if err := r.hotReloadSwitch(context.Background()); err != nil {
 		t.Fatalf("a working configuration was refused after a failed reload: %v", err)
 	}
-	if _, ok := r.flows.Get("list_orders"); !ok {
+	if _, ok := r.GetFlow("list_orders"); !ok {
 		t.Error("the corrected configuration was not installed")
 	}
 }
@@ -202,7 +202,7 @@ func TestReloadingTheSameConfigurationIsHarmless(t *testing.T) {
 		if err := r.hotReloadSwitch(context.Background()); err != nil {
 			t.Fatalf("reload %d: %v", i+1, err)
 		}
-		if _, ok := r.flows.Get("list_items"); !ok {
+		if _, ok := r.GetFlow("list_items"); !ok {
 			t.Fatalf("the flow was lost on reload %d", i+1)
 		}
 	}
@@ -224,7 +224,7 @@ connector "archive" {
 	if _, err := r.connectors.Get("archive"); err != nil {
 		t.Errorf("the connector the new configuration adds is not registered: %v", err)
 	}
-	if _, ok := r.flows.Get("list_items"); !ok {
+	if _, ok := r.GetFlow("list_items"); !ok {
 		t.Error("the existing flow was lost while adding a connector")
 	}
 }

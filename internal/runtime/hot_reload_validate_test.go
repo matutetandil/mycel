@@ -33,9 +33,9 @@ func TestTheDryRunRefusesWhatTheSwitchWouldRefuse(t *testing.T) {
 			}
 
 			// And having said no, it left the running service alone.
-			if len(r.flows.List()) != 1 {
+			if len(r.ListFlows()) != 1 {
 				t.Errorf("the running service has %d flows after a failed dry run",
-					len(r.flows.List()))
+					len(r.ListFlows()))
 			}
 		})
 	}
@@ -50,7 +50,7 @@ func TestTheDryRunPassesAConfigurationThatWouldBeInstalled(t *testing.T) {
 	}
 
 	// The dry run is a dry run: nothing changed until the switch.
-	if _, running := r.flows.Get("list_items"); !running {
+	if _, running := r.GetFlow("list_items"); !running {
 		t.Error("the dry run replaced the running configuration")
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -66,7 +67,8 @@ func TestARunThatHappenedAndOneThatFailed(t *testing.T) {
 	defer scheduler.Stop()
 
 	ran := make(chan struct{}, 4)
-	shouldFail := false
+	// Read by the scheduler's own goroutine while the test writes it.
+	var shouldFail atomic.Bool
 
 	if err := scheduler.Schedule(&ScheduleConfig{
 		FlowName: "nightly_import",
@@ -74,7 +76,7 @@ func TestARunThatHappenedAndOneThatFailed(t *testing.T) {
 		When: "@every 100ms",
 		Handler: func(ctx context.Context) error {
 			ran <- struct{}{}
-			if shouldFail {
+			if shouldFail.Load() {
 				return errors.New("the supplier's API is down")
 			}
 			return nil
@@ -86,7 +88,7 @@ func TestARunThatHappenedAndOneThatFailed(t *testing.T) {
 	scheduler.Start()
 
 	waitForRun(t, ran)
-	shouldFail = true
+	shouldFail.Store(true)
 	waitForRun(t, ran)
 	// Give the recorder a moment after the handler returns.
 	time.Sleep(200 * time.Millisecond)

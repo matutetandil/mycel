@@ -22,6 +22,18 @@ import (
 // happens when Redis is the thing that goes down, which is the case that
 // decides whether a rate limiter can take a service offline.
 
+// atStartOfWindow waits until a fresh second begins.
+//
+// The distributed limiter counts inside a one-second window keyed off the
+// clock, so a burst that straddles a boundary is counted as two — the third
+// request of three lands in a new window and is allowed. Locally the calls
+// take microseconds and it never happens; on a loaded machine it does, which
+// is a flaky test rather than a finding.
+func atStartOfWindow() {
+	now := time.Now()
+	time.Sleep(time.Until(now.Truncate(time.Second).Add(time.Second)) + 5*time.Millisecond)
+}
+
 func redisStore(t *testing.T, prefix string) (*RedisStore, *miniredis.Miniredis) {
 	t.Helper()
 	server := miniredis.RunT(t)
@@ -41,6 +53,7 @@ func TestALimitSharedBetweenProcesses(t *testing.T) {
 	first.SetRedisStore(store)
 	second.SetRedisStore(store)
 
+	atStartOfWindow()
 	allowed := 0
 	for i := 0; i < 6; i++ {
 		limiter := first
@@ -67,6 +80,7 @@ func TestWhatIsLeftIsReported(t *testing.T) {
 	store, _ := redisStore(t, "")
 	ctx := context.Background()
 
+	atStartOfWindow()
 	for i, want := range []int{2, 1, 0, 0} {
 		allowed, remaining, err := store.Allow(ctx, "caller", 3, time.Second)
 		if err != nil {
@@ -86,6 +100,7 @@ func TestTheWindowMovesOn(t *testing.T) {
 	store, server := redisStore(t, "")
 	ctx := context.Background()
 
+	atStartOfWindow()
 	for i := 0; i < 2; i++ {
 		if allowed, _, _ := store.Allow(ctx, "caller", 2, time.Second); !allowed {
 			t.Fatalf("request %d was refused inside the limit", i+1)
@@ -197,6 +212,7 @@ func TestTheLimitUsedWhenOnlyARateIsConfigured(t *testing.T) {
 	defer limiter.Close()
 	limiter.SetRedisStore(store)
 
+	atStartOfWindow()
 	if !limiter.Allow("203.0.113.10") {
 		t.Fatal("the first request was refused with a rate of two per second")
 	}
