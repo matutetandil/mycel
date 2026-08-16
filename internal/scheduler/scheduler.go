@@ -3,11 +3,14 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
+
+	"github.com/matutetandil/mycel/v2/internal/metrics"
 )
 
 // TriggerType represents the type of flow trigger.
@@ -121,10 +124,21 @@ func (s *Scheduler) Schedule(cfg *ScheduleConfig) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
+		// A scheduled flow has nobody watching it — no caller waiting for an
+		// answer, no message to nack — so how it went is only ever visible
+		// here. The failure used to be written to stdout with fmt.Printf,
+		// unstructured, so it did not reach a log pipeline that reads JSON,
+		// and nothing counted the runs at all: mycel_schedule_executed_total
+		// was declared, exposed and never incremented.
+		status := "success"
 		if err := cfg.Handler(ctx); err != nil {
-			// Log error (could be improved with proper logging)
-			fmt.Printf("scheduled flow %q execution error: %v\n", cfg.FlowName, err)
+			status = "error"
+			slog.Error("scheduled flow failed",
+				"flow", cfg.FlowName,
+				"schedule", cfg.When,
+				"error", err)
 		}
+		metrics.Default().RecordScheduleExecution(cfg.FlowName, status)
 	}
 
 	var entryID cron.EntryID
@@ -142,6 +156,7 @@ func (s *Scheduler) Schedule(cfg *ScheduleConfig) error {
 	}
 
 	s.entries[cfg.FlowName] = entryID
+	metrics.Default().SetScheduledFlows(len(s.entries))
 	return nil
 }
 
@@ -153,6 +168,7 @@ func (s *Scheduler) Unschedule(flowName string) {
 	if entryID, exists := s.entries[flowName]; exists {
 		s.cron.Remove(entryID)
 		delete(s.entries, flowName)
+		metrics.Default().SetScheduledFlows(len(s.entries))
 	}
 }
 

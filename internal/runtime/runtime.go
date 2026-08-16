@@ -811,6 +811,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 			case <-ticker.C:
 				r.metrics.SetGoRoutines(goruntime.NumGoroutine())
 				r.metrics.SetUptime(time.Since(startTime).Seconds())
+				r.reportCacheSizes()
 			case <-metricsCtx.Done():
 				return
 			}
@@ -828,6 +829,33 @@ func (r *Runtime) Start(ctx context.Context) error {
 
 	// Wait for shutdown signal
 	return r.waitForShutdown(ctx)
+}
+
+// reportCacheSizes records how much each cache is holding.
+//
+// mycel_cache_size is in the documented list of metrics and nothing ever set
+// it, so it was absent from /metrics for as long as it has existed. It is
+// reported from the periodic sweep rather than per operation: the number is
+// only interesting as a trend, and counting on every read would put work on
+// the hot path to answer a question nobody asks that often.
+//
+// Only caches that can answer cheaply are asked. A cache holding its entries
+// in memory knows the count; one backed by Redis would have to ask the server,
+// and a shared Redis is not somewhere to send a periodic DBSIZE from every
+// service that happens to use it.
+func (r *Runtime) reportCacheSizes() {
+	if r.metrics == nil || r.connectors == nil {
+		return
+	}
+	for _, name := range r.connectors.Names() {
+		conn, err := r.connectors.Get(name)
+		if err != nil {
+			continue
+		}
+		if counted, ok := conn.(interface{ Len() int }); ok {
+			r.metrics.SetCacheSize(name, int64(counted.Len()))
+		}
+	}
 }
 
 // getConnectorType returns the type of a connector by name (e.g., "mq", "rest", "soap").
