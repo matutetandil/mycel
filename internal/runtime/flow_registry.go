@@ -1581,7 +1581,19 @@ func (h *FlowHandler) evaluateSyncKey(ctx context.Context, keyExpr string, input
 		return ""
 	}
 
-	if !looksLikeCEL(keyExpr) || h.Transformer == nil {
+	if !looksLikeCEL(keyExpr) {
+		return keyExpr
+	}
+
+	// The key is evaluated before the flow body runs, so on a flow with no
+	// filter, accept gate or dedupe there is nothing that has created a
+	// transformer yet. Giving up here returned the expression itself as the
+	// key — the same key for every message — so a lock meant to be held per
+	// order became one lock held by everything, and a coordinate key never
+	// matched the signal it was waiting for.
+	if err := h.ensureTransformer(); err != nil {
+		slog.Warn("sync key CEL evaluation not possible, using literal expression as key",
+			"expression", keyExpr, "error", err)
 		return keyExpr
 	}
 
@@ -1723,7 +1735,9 @@ func (h *FlowHandler) evaluateSignalWhen(ctx context.Context, when string, input
 	if when == "" {
 		return true
 	}
-	if h.Transformer == nil {
+	if err := h.ensureTransformer(); err != nil {
+		slog.Warn("coordinate.signal.when cannot be evaluated, signal will not be emitted",
+			"expression", when, "error", err)
 		return false
 	}
 	val, err := h.Transformer.EvaluateExpressionWithOutput(ctx, input, output, when)
@@ -1748,7 +1762,12 @@ func (h *FlowHandler) evaluateSignalWhen(ctx context.Context, when string, input
 // skips writing a corrupted key. Empty / failed evaluations are flagged
 // at WARN so the operator notices.
 func (h *FlowHandler) evaluateSignalKey(ctx context.Context, expr string, input, output map[string]interface{}) (string, bool) {
-	if expr == "" || h.Transformer == nil {
+	if expr == "" {
+		return "", false
+	}
+	if err := h.ensureTransformer(); err != nil {
+		slog.Warn("coordinate.signal.emit cannot be evaluated, nothing will be signalled",
+			"expression", expr, "error", err)
 		return "", false
 	}
 
@@ -1789,7 +1808,13 @@ func looksLikeCEL(expr string) bool {
 // without a stored value pass through and any existing stored value blocks
 // them (the safe default).
 func (h *FlowHandler) evaluateSyncSequence(ctx context.Context, expr string, input map[string]interface{}) int64 {
-	if expr == "" || h.Transformer == nil {
+	if expr == "" {
+		return 0
+	}
+	// Same as the key above: this runs before anything else has needed a
+	// transformer, and answering 0 makes every message look like it carries
+	// no sequence at all.
+	if err := h.ensureTransformer(); err != nil {
 		return 0
 	}
 	result, err := h.Transformer.EvaluateExpression(ctx, input, nil, expr)
