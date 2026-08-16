@@ -228,6 +228,19 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			}
 		}
 
+		// A public path is exempt from all of it, headers included.
+		//
+		// The required headers used to be checked first, so a path listed as
+		// public — the documented example is /health — was still refused with
+		// 400 unless the caller sent them. A load balancer's health probe
+		// sends no headers of its own, so the instance read as unhealthy and
+		// was taken out of rotation, which is a long way from a header list
+		// in an auth block.
+		if a.isPublicPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Check required headers
 		if len(a.config.RequiredHeaders) > 0 {
 			for _, header := range a.config.RequiredHeaders {
@@ -238,12 +251,6 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 					return
 				}
 			}
-		}
-
-		// Check if path is public
-		if a.isPublicPath(r.URL.Path) {
-			next.ServeHTTP(w, r)
-			return
 		}
 
 		// Skip auth if no auth type configured

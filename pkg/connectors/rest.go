@@ -19,7 +19,9 @@ func (RESTSchema) ConnectorSchema() schema.Block {
 			}},
 			{Type: "auth", Doc: "Authentication", Open: true, Attrs: []schema.Attr{
 				{Name: "type", Doc: "Auth type (jwt, api_key, basic)", Type: schema.TypeString, Values: []string{"jwt", "api_key", "basic"}},
-				{Name: "public", Doc: "Public (unauthenticated) paths", Type: schema.TypeList},
+				{Name: "public", Doc: "Paths served without any check at all, e.g. /health", Type: schema.TypeList},
+				{Name: "required_headers", Doc: "Headers every request must carry, public paths excepted", Type: schema.TypeList},
+				{Name: "response_headers", Doc: "Headers added to every response, refusals included", Type: schema.TypeMap},
 			}},
 		},
 	}
