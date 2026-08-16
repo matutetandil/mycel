@@ -144,13 +144,33 @@ func (c *SMTPConnector) Send(ctx context.Context, email *Email) (*SendResult, er
 	}
 
 	var recipientResults []RecipientResult
+	var accepted int
 	for _, rcpt := range recipients {
 		err := conn.client.Rcpt(rcpt)
+		if err == nil {
+			accepted++
+		}
 		recipientResults = append(recipientResults, RecipientResult{
 			Email:   rcpt,
 			Success: err == nil,
 			Error:   errorString(err),
 		})
+	}
+
+	// An address the server refused — misspelt, no longer there, blocked — is
+	// recorded per recipient, and the send carries on for the rest. All of
+	// them refused is a different thing: there is nobody left to send to, and
+	// carrying on to DATA relied on the server objecting. Some do, some
+	// accept the message and drop it, and the flow was told it had been sent
+	// either way.
+	if accepted == 0 {
+		conn.client.Reset()
+		return &SendResult{
+			Success:    false,
+			Provider:   "smtp",
+			Error:      "no recipient was accepted: " + refusals(recipientResults),
+			Recipients: recipientResults,
+		}, fmt.Errorf("no recipient was accepted")
 	}
 
 	// Send data
@@ -424,4 +444,15 @@ func errorString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// refusals renders what the server said about each address it turned down.
+func refusals(results []RecipientResult) string {
+	var said []string
+	for _, r := range results {
+		if !r.Success {
+			said = append(said, r.Email+" ("+r.Error+")")
+		}
+	}
+	return strings.Join(said, ", ")
 }
