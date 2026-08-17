@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -105,8 +106,25 @@ func (c *Connector) Connect(ctx context.Context) error {
 		return fmt.Errorf("exec connector requires a command")
 	}
 
-	if c.config.Driver == "ssh" && c.config.SSH == nil {
-		return fmt.Errorf("exec connector with ssh driver requires ssh configuration")
+	if c.config.Driver == "ssh" {
+		if c.config.SSH == nil {
+			return fmt.Errorf("exec connector with ssh driver requires ssh configuration")
+		}
+
+		// A password cannot be used. This runs ssh with BatchMode, which
+		// exists so nothing stops to prompt, and ssh has no way to be handed
+		// a password on the command line. Accepting the setting and ignoring
+		// it left a connector that was configured to authenticate and could
+		// not, failing later with ssh's own words about a closed connection.
+		if c.config.SSH.Password != "" && c.config.SSH.KeyFile == "" {
+			return fmt.Errorf("exec connector %s: the ssh driver authenticates with a key — "+
+				"set ssh.key_file; ssh.password cannot be used without a terminal to type it into", c.name)
+		}
+
+		if c.config.SSH.KnownHosts == "" {
+			slog.Warn("ssh host key checking is off: set ssh.known_hosts to verify the host",
+				"connector", c.name, "host", c.config.SSH.Host)
+		}
 	}
 
 	return nil
@@ -302,9 +320,29 @@ func shellQuote(s string) string {
 
 // buildSSHCommand creates an SSH command.
 func (c *Connector) buildSSHCommand(ctx context.Context, args []string) *exec.Cmd {
-	sshArgs := []string{
-		"-o", "BatchMode=yes",
-		"-o", "StrictHostKeyChecking=no",
+	// BatchMode keeps ssh from stopping to ask anything: there is nobody at a
+	// terminal to answer.
+	sshArgs := []string{"-o", "BatchMode=yes"}
+
+	// Whether the host is checked against known hosts.
+	//
+	// StrictHostKeyChecking=no used to be hardcoded here while `known_hosts`
+	// was read from the configuration and never used — so the one setting
+	// whose purpose is to stop somebody standing in the middle of this
+	// connection was accepted, stored, and overridden by the line beside it.
+	// Anything on the network between here and the host could answer as the
+	// host, and what runs on it is whatever the flow was going to run.
+	//
+	// Naming a file turns checking on and points ssh at it. Naming none
+	// leaves the previous behaviour, because turning it on for everybody
+	// would stop every deployment that has no such file — but it is said out
+	// loud at start-up rather than assumed.
+	if c.config.SSH.KnownHosts != "" {
+		sshArgs = append(sshArgs,
+			"-o", "StrictHostKeyChecking=yes",
+			"-o", "UserKnownHostsFile="+c.config.SSH.KnownHosts)
+	} else {
+		sshArgs = append(sshArgs, "-o", "StrictHostKeyChecking=no")
 	}
 
 	if c.config.SSH.KeyFile != "" {
