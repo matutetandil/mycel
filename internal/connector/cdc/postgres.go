@@ -132,26 +132,76 @@ func (p *PostgresListener) ensurePublication(ctx context.Context) error {
 	return nil
 }
 
-// ensureReplicationSlot creates the slot if it doesn't exist and returns the start LSN.
+// ensureReplicationSlot creates the slot if it doesn't exist and returns the
+// position to start streaming from.
+//
+// A slot that is already there is the normal case: it is what every reconnect
+// finds, and the whole reason a slot is used rather than polling is that
+// PostgreSQL keeps the WAL written while nobody was listening. Where to resume
+// is recorded in the slot itself, so an existing slot is asked, not the server.
+//
+// This used to fall back to IdentifySystem, which answers with the server's
+// current write position — past everything written during the gap. So every
+// reconnect silently skipped the changes it existed to deliver: a consumer that
+// dropped for a minute came back and carried on from the present, and nothing
+// said the minute was gone. Asking the slot is also what makes an unrelated
+// failure to create one — no permission, wrong plugin — an error rather than a
+// stream that starts at the head and looks fine.
 func (p *PostgresListener) ensureReplicationSlot(ctx context.Context) (pglogrepl.LSN, error) {
-	// Try to create the slot
+	lsn, found, err := p.slotPosition(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("read replication slot: %w", err)
+	}
+	if found {
+		return lsn, nil
+	}
+
 	res, err := pglogrepl.CreateReplicationSlot(ctx, p.conn, p.config.SlotName, "pgoutput",
 		pglogrepl.CreateReplicationSlotOptions{Temporary: false},
 	)
 	if err != nil {
-		// Slot may already exist - get the confirmed flush LSN
-		sysID, err2 := pglogrepl.IdentifySystem(ctx, p.conn)
-		if err2 != nil {
-			return 0, fmt.Errorf("identify system: %w (original: %v)", err2, err)
-		}
-		return sysID.XLogPos, nil
+		return 0, fmt.Errorf("create replication slot %s: %w", p.config.SlotName, err)
 	}
 
-	lsn, err := pglogrepl.ParseLSN(res.ConsistentPoint)
+	created, err := pglogrepl.ParseLSN(res.ConsistentPoint)
 	if err != nil {
 		return 0, fmt.Errorf("parse LSN: %w", err)
 	}
-	return lsn, nil
+	return created, nil
+}
+
+// slotPosition returns where an existing slot left off.
+//
+// confirmed_flush_lsn is how far the last consumer said it had processed;
+// restart_lsn is the oldest WAL the slot still holds, and is what a slot that
+// has never been streamed from has. A slot with neither is one just created by
+// somebody else, and a zero start tells the server to use the slot's own point.
+func (p *PostgresListener) slotPosition(ctx context.Context) (pglogrepl.LSN, bool, error) {
+	sql := fmt.Sprintf(
+		"SELECT coalesce(confirmed_flush_lsn::text, restart_lsn::text, '') FROM pg_replication_slots WHERE slot_name = '%s'",
+		p.config.SlotName,
+	)
+	results, err := p.conn.Exec(ctx, sql).ReadAll()
+	if err != nil {
+		return 0, false, err
+	}
+	for _, result := range results {
+		for _, row := range result.Rows {
+			if len(row) == 0 {
+				continue
+			}
+			text := string(row[0])
+			if text == "" {
+				return 0, true, nil
+			}
+			lsn, err := pglogrepl.ParseLSN(text)
+			if err != nil {
+				return 0, false, fmt.Errorf("parse slot LSN %q: %w", text, err)
+			}
+			return lsn, true, nil
+		}
+	}
+	return 0, false, nil
 }
 
 // streamLoop is the main replication message loop.
@@ -243,7 +293,18 @@ func (p *PostgresListener) processWALMessage(walData []byte) (*Event, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse WAL: %w", err)
 	}
+	return p.eventFor(logicalMsg)
+}
 
+// eventFor turns one logical replication message into the change a flow reads,
+// or nothing when the message is not a change — a transaction opening or
+// committing wraps every row, and a flow that ran for those would fire twice
+// per change.
+//
+// Separate from parsing the bytes so that what a flow receives can be checked
+// without a database: this is where an insert becomes input.trigger and a row
+// becomes input.new.
+func (p *PostgresListener) eventFor(logicalMsg pglogrepl.Message) (*Event, error) {
 	switch m := logicalMsg.(type) {
 	case *pglogrepl.RelationMessage:
 		p.handleRelation(m)

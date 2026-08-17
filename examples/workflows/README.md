@@ -87,7 +87,7 @@ Response:
 The workflow is now paused at the delay step. Check its status:
 
 ```bash
-curl http://localhost:3000/workflows/wf_abc123
+curl -H "X-API-Key: demo-key" http://localhost:9091/workflows/wf_abc123
 ```
 
 Response:
@@ -107,7 +107,8 @@ Response:
 After the delay step completes, the workflow pauses at `await_payment`. Send the signal:
 
 ```bash
-curl -X POST http://localhost:3000/workflows/wf_abc123/signal/payment_confirmed \
+curl -X POST http://localhost:9091/workflows/wf_abc123/signal/payment_confirmed \
+  -H "X-API-Key: demo-key" \
   -H "Content-Type: application/json" \
   -d '{"transaction_id": "txn_456"}'
 ```
@@ -126,7 +127,7 @@ Response:
 If you need to abort a workflow at any point:
 
 ```bash
-curl -X POST http://localhost:3000/workflows/wf_abc123/cancel
+curl -X POST -H "X-API-Key: demo-key" http://localhost:9091/workflows/wf_abc123/cancel
 ```
 
 Response:

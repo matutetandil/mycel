@@ -208,6 +208,15 @@ type StateTransitionConfig struct {
 
 	// Data is a CEL expression that resolves to additional transition data.
 	Data string
+
+	// Connector holds the entity whose state this is.
+	//
+	// Without it the engine tried every connector in turn and used the first
+	// that did not fail, which in a service with more than one is decided by
+	// map iteration order — a state has been written to a message queue that
+	// happily accepted it. When this is empty the flow's own destination is
+	// used, which is what the entity is read from and written to anyway.
+	Connector string
 }
 
 // StepConfig defines an intermediate connector call within a flow.

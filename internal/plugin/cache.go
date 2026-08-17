@@ -105,34 +105,74 @@ func (c *CacheManager) Remove(source string, version Version) error {
 	return os.RemoveAll(dir)
 }
 
-// RemoveByName removes all cached versions of a plugin by searching for the source.
+// RemoveByName removes every cached version of a plugin.
+//
+// A cached plugin lives at <host>/<org>/<name>@<version>, so finding one means
+// walking the tree rather than the directory below the cache: this looked one
+// level down, which is the host, and compared the name against "github.com/acme".
+// Nothing ever matched for a git-hosted plugin — and the count it returned was
+// of host directories walked, not plugins removed, so `mycel plugin remove`
+// reported success and deleted nothing. Every version stayed on disk for ever
+// while whoever ran it believed it was gone.
+//
+// The name matches the whole source or its last element, so both of these work:
+//
+//	mycel plugin remove storefront
+//	mycel plugin remove github.com/acme/storefront
+//
+// Matching on a substring would make "store" take "storefront" with it.
 func (c *CacheManager) RemoveByName(source string) error {
 	cacheDir := c.Dir()
 	if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
 		return nil
 	}
 
-	entries, err := os.ReadDir(cacheDir)
+	var toRemove []string
+	err := filepath.WalkDir(cacheDir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() || path == cacheDir {
+			return nil
+		}
+		if !strings.Contains(entry.Name(), "@") {
+			return nil
+		}
+
+		relPath, relErr := filepath.Rel(cacheDir, path)
+		if relErr != nil {
+			return nil
+		}
+		cachedSource, _ := parsePluginDirName(filepath.ToSlash(relPath))
+		if cachedSource == source || lastElement(cachedSource) == source {
+			toRemove = append(toRemove, path)
+		}
+		// Nothing worth descending into: a version directory holds the plugin.
+		return filepath.SkipDir
+	})
 	if err != nil {
 		return err
 	}
 
-	removed := 0
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		// Walk into host directories (github.com/, gitlab.com/, etc.)
-		hostDir := filepath.Join(cacheDir, entry.Name())
-		if err := removeMatchingPlugins(hostDir, source); err == nil {
-			removed++
-		}
-	}
-
-	if removed == 0 {
+	if len(toRemove) == 0 {
 		return fmt.Errorf("no cached versions found for %s", source)
 	}
+
+	for _, path := range toRemove {
+		if err := os.RemoveAll(path); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// lastElement is the plugin's own name, without the host and organisation it
+// is published under.
+func lastElement(source string) string {
+	if idx := strings.LastIndex(source, "/"); idx >= 0 {
+		return source[idx+1:]
+	}
+	return source
 }
 
 // Clean removes the entire mycel_plugins/ directory.
@@ -166,23 +206,6 @@ func parsePluginDirName(name string) (source, version string) {
 		return name, ""
 	}
 	return name[:idx], name[idx+1:]
-}
-
-func removeMatchingPlugins(hostDir string, source string) error {
-	entries, err := os.ReadDir(hostDir)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		fullPath := filepath.Join(hostDir, entry.Name())
-		relPath, _ := filepath.Rel(filepath.Dir(hostDir), fullPath)
-		src, _ := parsePluginDirName(relPath)
-		if strings.Contains(src, source) || strings.HasSuffix(src, source) {
-			os.RemoveAll(fullPath)
-		}
-	}
-	return nil
 }
 
 // copyDir recursively copies a directory.

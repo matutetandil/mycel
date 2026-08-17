@@ -66,3 +66,17 @@ site/
 
 # Marketing / article drafts (not part of the codebase)
 /articles/
+
+# Local monitoring stack (Prometheus + Grafana) — dev aid, not part of the runtime
+/monitoring/
+
+# Coverage counters dropped by the integration suite when built with -cover
+tests/integration/.coverage/
+tests/integration/.coverage-unit/
+tests/integration/.coverage-merged/
+tests/integration/coverage.out
+
+# Rust build output for the plugin examples. The compiled connector.wasm sits
+# beside its manifest and is committed; this is everything else cargo writes.
+examples/plugin/plugins/*/target/
+tests/integration/config/plugins/*/target/

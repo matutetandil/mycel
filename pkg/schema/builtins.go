@@ -471,6 +471,7 @@ func StateTransitionSchema() Block {
 			{Name: "id", Doc: "CEL expression for entity ID", Type: TypeString, Required: true},
 			{Name: "event", Doc: "CEL expression for event name", Type: TypeString, Required: true},
 			{Name: "data", Doc: "CEL expression for transition data", Type: TypeString},
+			{Name: "connector", Doc: "Connector holding the entity (defaults to the flow's destination)", Type: TypeString, Ref: RefConnector},
 		},
 	}
 }
@@ -485,7 +486,92 @@ func BaseConnectorSchema() Block {
 		Attrs: []Attr{
 			{Name: "type", Doc: "Connector type", Type: TypeString, Required: true, Values: connectorTypes()},
 			{Name: "driver", Doc: "Driver for the connector type", Type: TypeString},
+			// Profiles: one connector that resolves to different backends.
+			{Name: "select", Doc: "CEL expression naming the profile to use", Type: TypeString},
+			{Name: "default", Doc: "Profile used when select names none", Type: TypeString},
+			{Name: "fallback", Doc: "Profiles to try, in order, when the selected one fails", Type: TypeList},
 		},
+		Children: []Block{
+			OperationSchema(),
+			{
+				Type:   "profile",
+				Doc:    "One backend this connector can resolve to. A profile declares what it is, so profiles of a connector may differ in type",
+				Labels: 1,
+				Open:   true,
+				Attrs: []Attr{
+					{Name: "type", Doc: "Connector type for this profile", Type: TypeString, Required: true, Values: connectorTypes()},
+					{Name: "driver", Doc: "Driver for this profile", Type: TypeString},
+				},
+			},
+		},
+	}
+}
+
+// OperationSchema describes a named operation.
+//
+// A connector declares what it can do once, and flows refer to it by name
+// instead of repeating the inline form. Which attributes apply depends on the
+// connector: method and path for REST, query or table for a database, service
+// and rpc for gRPC, and so on.
+func OperationSchema() Block {
+	return Block{
+		Type:   "operation",
+		Doc:    "Named operation a flow can refer to by name instead of its inline form",
+		Labels: 1,
+		Attrs: []Attr{
+			{Name: "description", Doc: "What the operation does", Type: TypeString},
+			{Name: "input", Doc: "Type validating the input", Type: TypeString, Ref: RefType},
+			{Name: "output", Doc: "Type validating the output", Type: TypeString, Ref: RefType},
+			{Name: "timeout", Doc: "Operation timeout", Type: TypeNumber},
+
+			{Name: "method", Doc: "HTTP method (rest, http)", Type: TypeString},
+			{Name: "path", Doc: "HTTP path, with :name for path parameters (rest, http)", Type: TypeString},
+
+			{Name: "query", Doc: "Raw SQL, with :name for parameters (database)", Type: TypeString},
+			{Name: "table", Doc: "Table the operation reads or writes (database)", Type: TypeString},
+
+			{Name: "operation_type", Doc: "Query, Mutation or Subscription (graphql)", Type: TypeString,
+				Values: []string{"Query", "Mutation", "Subscription"}},
+			{Name: "field", Doc: "Schema field (graphql)", Type: TypeString},
+
+			{Name: "service", Doc: "Service name (grpc)", Type: TypeString},
+			{Name: "rpc", Doc: "RPC name (grpc)", Type: TypeString},
+
+			{Name: "exchange", Doc: "Exchange to publish to (mq, rabbitmq)", Type: TypeString},
+			{Name: "routing_key", Doc: "Routing key (mq, rabbitmq)", Type: TypeString},
+			{Name: "queue", Doc: "Queue or topic (mq)", Type: TypeString},
+
+			{Name: "protocol", Doc: "Wire protocol (tcp)", Type: TypeString},
+			{Name: "action", Doc: "Action identifier (tcp)", Type: TypeString},
+
+			{Name: "path_pattern", Doc: "Path pattern (file, s3)", Type: TypeString},
+
+			{Name: "key_pattern", Doc: "Key pattern (cache)", Type: TypeString},
+			{Name: "ttl", Doc: "Time to live (cache)", Type: TypeString},
+
+			{Name: "command", Doc: "Command to run (exec)", Type: TypeString},
+			{Name: "args", Doc: "Command arguments (exec)", Type: TypeList},
+		},
+		Children: []Block{{
+			Type:   "param",
+			Doc:    "Parameter contract: defaults are filled in, and types and constraints are checked before the flow runs",
+			Labels: 1,
+			Attrs: []Attr{
+				{Name: "type", Doc: "Declared type; a value that can be converted to it is", Type: TypeString,
+					Values: []string{"string", "number", "boolean", "array", "object"}},
+				{Name: "required", Doc: "Reject the request when it is absent and there is no default", Type: TypeBool},
+				{Name: "default", Doc: "Value used when the parameter is not supplied"},
+				{Name: "description", Doc: "What the parameter means", Type: TypeString},
+				{Name: "in", Doc: "Where the parameter comes from (path, query, header, body)", Type: TypeString,
+					Values: []string{"path", "query", "header", "body"}},
+				{Name: "min", Doc: "Smallest allowed value (numbers)", Type: TypeNumber},
+				{Name: "max", Doc: "Largest allowed value (numbers)", Type: TypeNumber},
+				{Name: "min_length", Doc: "Shortest allowed value (strings)", Type: TypeNumber},
+				{Name: "max_length", Doc: "Longest allowed value (strings)", Type: TypeNumber},
+				{Name: "pattern", Doc: "Regular expression the value must match (strings)", Type: TypeString},
+				{Name: "enum", Doc: "The complete set of allowed values", Type: TypeList},
+			},
+		}},
 	}
 }
 
@@ -629,6 +715,21 @@ func ServiceSchema() Block {
 			}},
 			{Type: "workflow", Doc: "Workflow engine configuration", Attrs: []Attr{
 				{Name: "storage", Doc: "Workflow persistence connector", Type: TypeString, Ref: RefConnector},
+				{Name: "table", Doc: "Table holding workflow instances", Type: TypeString},
+				{Name: "auto_create", Doc: "Create the table on startup", Type: TypeBool},
+			}, Children: []Block{
+				{Type: "api", Doc: "HTTP interface to running workflows, on its own port and never on the admin server", Attrs: []Attr{
+					{Name: "port", Doc: "Port to listen on (default 9091); may not be the admin port", Type: TypeNumber},
+					{Name: "host", Doc: "Address to bind to (default every interface)", Type: TypeString},
+				}, Children: []Block{
+					{Type: "auth", Doc: "How callers are checked. Required: these endpoints wake and cancel workflows", Open: true, Attrs: []Attr{
+						{Name: "type", Doc: "jwt, api_key or basic", Type: TypeString, Required: true, Values: []string{"jwt", "api_key", "basic"}},
+						{Name: "header", Doc: "Header carrying the key (api_key)", Type: TypeString},
+						{Name: "keys", Doc: "Accepted API keys", Type: TypeList},
+						{Name: "secret", Doc: "Secret tokens are signed with (jwt)", Type: TypeString},
+						{Name: "jwks_url", Doc: "Where the signing keys are published (jwt)", Type: TypeString},
+					}},
+				}},
 			}},
 		},
 	}
@@ -819,7 +920,19 @@ func AuthSchema() Block {
 				{Name: "connector", Doc: "Connector to store into (database)", Type: TypeString, Ref: RefConnector},
 				{Name: "table", Doc: "Table name (database)", Type: TypeString},
 			}},
-			{Type: "users", Doc: "Where user records live"},
+			{Type: "users", Doc: "Where user records live", Attrs: []Attr{
+				{Name: "connector", Doc: "Connector holding the users table", Type: TypeString, Ref: RefConnector},
+				{Name: "table", Doc: "Table name; defaults to users", Type: TypeString},
+			}, Children: []Block{
+				{Type: "fields", Doc: "Column names, when the table already exists under other ones", Attrs: []Attr{
+					{Name: "id", Doc: "Identifier column; defaults to id", Type: TypeString},
+					{Name: "email", Doc: "Email column; defaults to email", Type: TypeString},
+					{Name: "password_hash", Doc: "Password hash column; defaults to password_hash", Type: TypeString},
+					{Name: "created_at", Doc: "Creation timestamp column; defaults to created_at", Type: TypeString},
+					{Name: "updated_at", Doc: "Update timestamp column; defaults to updated_at", Type: TypeString},
+					{Name: "roles", Doc: "Roles column. Naming one turns roles on for a database-backed store; without it roles are neither written nor read", Type: TypeString},
+				}},
+			}},
 			{Type: "jwt", Doc: "Token issuing and validation"},
 			{Type: "password", Doc: "Hashing and password policy"},
 			{Type: "mfa", Doc: "Multi-factor authentication; present means enabled"},
@@ -877,7 +990,25 @@ func SecuritySchema() Block {
 func MocksSchema() Block {
 	return Block{
 		Type: "mocks",
-		Doc:  "Mock data for testing",
+		Doc:  "Answer from recorded data instead of the real service",
+		Attrs: []Attr{
+			{Name: "enabled", Doc: "Answer from mocks rather than the real connectors", Type: TypeBool},
+			{Name: "path", Doc: "Directory holding the recorded answers (default: ./mocks)", Type: TypeString},
+		},
+		Children: []Block{MockConnectorsSchema()},
+	}
+}
+
+// MockConnectorsSchema describes the per-connector settings inside mocks.
+//
+// Its attributes are connector names, so the block stays open — but what each
+// one takes is not open at all, and was described nowhere: latency and
+// fail_rate are the reason to mock a connector rather than point it at a test
+// double, and neither appears in the documentation or in any schema.
+func MockConnectorsSchema() Block {
+	return Block{
+		Type: "connectors",
+		Doc:  "Per-connector mock settings, keyed by connector name: db = { latency = \"50ms\" }",
 		Open: true,
 	}
 }
@@ -914,6 +1045,16 @@ func EnvironmentSchema() Block {
 }
 
 // connectorTypes returns all known connector type values.
+// ConnectorTypeNames is every connector type this runtime ships.
+//
+// The parser reads it to decide how strictly a connector block is checked: a
+// type from this list is held to the attributes that exist, and one that is
+// not — a type a plugin brought — carries its own, declared in the plugin's
+// manifest rather than here.
+func ConnectorTypeNames() []string {
+	return connectorTypes()
+}
+
 func connectorTypes() []string {
 	return []string{
 		"rest", "http", "database", "mq", "graphql", "grpc", "file", "s3",

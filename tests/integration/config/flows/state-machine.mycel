@@ -1,0 +1,33 @@
+# Driving the machine over HTTP.
+flow "advance_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders/:id/status"
+  }
+
+  state_transition {
+    machine = "order_status"
+    entity  = "machine_orders"
+    id      = "input.id"
+    event   = "input.event"
+    data    = "input"
+
+    # Where the entity lives. Without this the engine tries every connector in
+    # turn and takes the first that does not fail — in a service with a queue
+    # in it, the state gets published to a topic while the row goes untouched.
+    connector = "postgres"
+  }
+}
+
+# Reading the row back, so a test sees what the database holds rather than what
+# the transition reported.
+flow "read_machine_orders" {
+  from {
+    connector = "api"
+    operation = "GET /machine-orders"
+  }
+  to {
+    connector = "postgres"
+    target    = "machine_orders"
+  }
+}

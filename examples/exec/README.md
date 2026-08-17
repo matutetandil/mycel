@@ -76,7 +76,7 @@ connector "remote_server" {
 |--------|------|---------|-------------|
 | `command` | string | required | The command to execute |
 | `args` | list | `[]` | Arguments to pass to the command |
-| `workdir` | string | `""` | Working directory for execution |
+| `working_dir` | string | `""` | Working directory for execution |
 | `timeout` | duration | `30s` | Maximum execution time |
 | `shell` | string | `""` | Shell wrapper (e.g., `bash -c`) |
 | `input_format` | string | `json` | How to pass input: `args`, `stdin`, `json` |

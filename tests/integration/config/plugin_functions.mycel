@@ -1,0 +1,12 @@
+# A plugin adding a function to the expression language.
+#
+# Registering one used to declare two overloads CEL considers the same shape —
+# a variadic taking list(dyn) and a single-argument one taking dyn, which
+# matches a list — so building the expression environment failed outright and
+# every transform in the flow went down with it, whether or not anything
+# referred to the plugin. Nothing in this suite used a functions block, so it
+# went unnoticed.
+functions "custom" {
+  wasm    = "/etc/mycel/plugins/test-plugin/functions.wasm"
+  exports = ["shout"]
+}

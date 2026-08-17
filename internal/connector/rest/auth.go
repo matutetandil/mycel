@@ -7,11 +7,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/matutetandil/mycel/v2/internal/identity"
+	"github.com/matutetandil/mycel/v2/internal/jwks"
 )
 
 // AuthConfig holds authentication configuration for the REST server.
@@ -153,28 +157,95 @@ func GetAuthContext(ctx context.Context) *AuthContext {
 	return nil
 }
 
+// Authenticator checks a request against an AuthConfig.
+//
+// This was six methods on the REST connector, which meant the only way to have
+// a request checked the way a rest connector checks one was to be a rest
+// connector. The workflow API needs exactly that — the same block, the same
+// words, the same validators — so it lives on its own here and the connector
+// delegates to it. Nothing about how a REST connector authenticates changed.
+type Authenticator struct {
+	config *AuthConfig
+	logger *slog.Logger
+	mu     sync.RWMutex
+}
+
+// NewAuthenticator returns something that can check requests against cfg.
+func NewAuthenticator(cfg *AuthConfig, logger *slog.Logger) *Authenticator {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Authenticator{config: cfg, logger: logger}
+}
+
+// Config returns what this checks against.
+func (a *Authenticator) Config() *AuthConfig { return a.config }
+
+func (a *Authenticator) writeJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if data != nil {
+		if err := json.NewEncoder(w).Encode(data); err != nil {
+			a.logger.Error("Failed to encode response", slog.Any("error", err))
+		}
+	}
+}
+
 // SetAuthConfig sets the authentication configuration for this connector.
 func (c *Connector) SetAuthConfig(cfg *AuthConfig) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.authConfig = cfg
+	c.authenticator = NewAuthenticator(cfg, c.logger)
+}
+
+// authMiddleware checks a request the way this connector was configured to.
+//
+// No locking here: Start already holds c.mu when it wraps the handler, and the
+// mutex is not reentrant — taking it again deadlocked the whole startup, with
+// every connector after this one in the map never starting and the admin
+// server never coming up. The authenticator is set by SetAuthConfig before
+// Start and not written afterwards, so there is nothing to guard.
+func (c *Connector) authMiddleware(next http.Handler) http.Handler {
+	if c.authenticator == nil {
+		if c.authConfig == nil {
+			return next
+		}
+		// A connector whose config was set without going through
+		// SetAuthConfig still gets checked.
+		c.authenticator = NewAuthenticator(c.authConfig, c.logger)
+	}
+	return c.authenticator.Middleware(next)
 }
 
 // authMiddleware validates incoming requests based on auth configuration.
-func (c *Connector) authMiddleware(next http.Handler) http.Handler {
+func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Add custom response headers
-		if c.authConfig.ResponseHeaders != nil {
-			for k, v := range c.authConfig.ResponseHeaders {
+		if a.config.ResponseHeaders != nil {
+			for k, v := range a.config.ResponseHeaders {
 				w.Header().Set(k, v)
 			}
 		}
 
+		// A public path is exempt from all of it, headers included.
+		//
+		// The required headers used to be checked first, so a path listed as
+		// public — the documented example is /health — was still refused with
+		// 400 unless the caller sent them. A load balancer's health probe
+		// sends no headers of its own, so the instance read as unhealthy and
+		// was taken out of rotation, which is a long way from a header list
+		// in an auth block.
+		if a.isPublicPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		// Check required headers
-		if len(c.authConfig.RequiredHeaders) > 0 {
-			for _, header := range c.authConfig.RequiredHeaders {
+		if len(a.config.RequiredHeaders) > 0 {
+			for _, header := range a.config.RequiredHeaders {
 				if r.Header.Get(header) == "" {
-					c.writeJSON(w, http.StatusBadRequest, map[string]string{
+					a.writeJSON(w, http.StatusBadRequest, map[string]string{
 						"error": fmt.Sprintf("missing required header: %s", header),
 					})
 					return
@@ -182,14 +253,8 @@ func (c *Connector) authMiddleware(next http.Handler) http.Handler {
 			}
 		}
 
-		// Check if path is public
-		if c.isPublicPath(r.URL.Path) {
-			next.ServeHTTP(w, r)
-			return
-		}
-
 		// Skip auth if no auth type configured
-		if c.authConfig.Type == "" {
+		if a.config.Type == "" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -198,52 +263,56 @@ func (c *Connector) authMiddleware(next http.Handler) http.Handler {
 		var authCtx *AuthContext
 		var err error
 
-		switch c.authConfig.Type {
+		switch a.config.Type {
 		case "jwt":
-			authCtx, err = c.validateJWT(r)
+			authCtx, err = a.validateJWT(r)
 		case "api_key":
-			authCtx, err = c.validateAPIKey(r)
+			authCtx, err = a.validateAPIKey(r)
 		case "basic":
-			authCtx, err = c.validateBasic(r, w)
+			authCtx, err = a.validateBasic(r, w)
 		default:
-			err = fmt.Errorf("unknown auth type: %s", c.authConfig.Type)
+			err = fmt.Errorf("unknown auth type: %s", a.config.Type)
 		}
 
 		if err != nil {
-			c.logger.Warn("authentication failed",
+			a.logger.Warn("authentication failed",
 				"path", r.URL.Path,
 				"method", r.Method,
 				"error", err.Error(),
 			)
 
 			status := http.StatusUnauthorized
-			if c.authConfig.Type == "basic" && c.authConfig.Basic != nil {
-				realm := c.authConfig.Basic.Realm
+			if a.config.Type == "basic" && a.config.Basic != nil {
+				realm := a.config.Basic.Realm
 				if realm == "" {
 					realm = "Restricted"
 				}
 				w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Basic realm="%s"`, realm))
 			}
 
-			c.writeJSON(w, status, map[string]string{
+			a.writeJSON(w, status, map[string]string{
 				"error": "unauthorized",
 			})
 			return
 		}
 
-		// Add auth context to request
+		// Add auth context to request, and publish the identity in the shape
+		// expressions read. The context above was written and never read by
+		// anything; without this, `auth.user_id` in a flow could not compile,
+		// let alone resolve.
 		ctx := context.WithValue(r.Context(), authContextKey, authCtx)
+		ctx = identity.With(ctx, authCtx.identity())
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
 // isPublicPath checks if the path is in the public paths list.
-func (c *Connector) isPublicPath(path string) bool {
-	if c.authConfig == nil || len(c.authConfig.Public) == 0 {
+func (a *Authenticator) isPublicPath(path string) bool {
+	if a.config == nil || len(a.config.Public) == 0 {
 		return false
 	}
 
-	for _, publicPath := range c.authConfig.Public {
+	for _, publicPath := range a.config.Public {
 		if publicPath == path {
 			return true
 		}
@@ -260,8 +329,8 @@ func (c *Connector) isPublicPath(path string) bool {
 }
 
 // validateJWT validates a JWT token from the request.
-func (c *Connector) validateJWT(r *http.Request) (*AuthContext, error) {
-	cfg := c.authConfig.JWT
+func (a *Authenticator) validateJWT(r *http.Request) (*AuthContext, error) {
+	cfg := a.config.JWT
 	if cfg == nil {
 		return nil, fmt.Errorf("JWT configuration not set")
 	}
@@ -321,7 +390,7 @@ func (c *Connector) validateJWT(r *http.Request) (*AuthContext, error) {
 			if cfg.JWKSURL == "" {
 				return nil, fmt.Errorf("JWKS URL not configured for %s algorithm", alg)
 			}
-			return c.getJWKSKey(token)
+			return a.getJWKSKey(token)
 
 		default:
 			return nil, fmt.Errorf("unsupported algorithm: %s", alg)
@@ -403,11 +472,25 @@ func getAudience(claims jwt.MapClaims) []string {
 	}
 }
 
-// getJWKSKey fetches the appropriate key from JWKS.
-func (c *Connector) getJWKSKey(token *jwt.Token) (interface{}, error) {
-	cfg := c.authConfig.JWT
+// getJWKSKey finds the key a token was signed with.
+//
+// The set is fetched once and kept, since it changes rarely and fetching it
+// per request would put an HTTP call in front of every authenticated one. But
+// issuers do rotate: a token arrives signed with a key that was published
+// after the set was cached, and its identifier is not in what we hold. Kept
+// for ever, that would refuse every request from the moment of a rotation
+// until somebody restarted the service. So an unknown identifier is a reason
+// to look again — once, and only then.
+func (a *Authenticator) getJWKSKey(token *jwt.Token) (interface{}, error) {
+	cfg := a.config.JWT
 
-	// Fetch JWKS if not cached
+	// The identifier first: a token that names no key cannot be matched
+	// against any set, so there is nothing to fetch for it.
+	kid, ok := token.Header["kid"].(string)
+	if !ok || kid == "" {
+		return nil, fmt.Errorf("the token names no signing key, so it cannot be checked against %s", cfg.JWKSURL)
+	}
+
 	if cfg.jwks == nil {
 		jwks, err := fetchJWKS(cfg.JWKSURL)
 		if err != nil {
@@ -416,19 +499,35 @@ func (c *Connector) getJWKSKey(token *jwt.Token) (interface{}, error) {
 		cfg.jwks = jwks
 	}
 
-	// Find key by kid
-	kid, ok := token.Header["kid"].(string)
-	if !ok {
-		return nil, fmt.Errorf("token missing kid header")
+	if key, found := findKey(cfg.jwks, kid); found {
+		return parseJWK(key)
 	}
 
-	for _, key := range cfg.jwks.Keys {
+	// Not in what we hold. The issuer may have rotated since.
+	refreshed, err := fetchJWKS(cfg.JWKSURL)
+	if err != nil {
+		return nil, fmt.Errorf("token names key %q, which is not in the set we hold, and it could not be fetched again: %w", kid, err)
+	}
+	cfg.jwks = refreshed
+
+	if key, found := findKey(refreshed, kid); found {
+		return parseJWK(key)
+	}
+
+	return nil, fmt.Errorf("no key named %q is published at %s", kid, cfg.JWKSURL)
+}
+
+// findKey looks up one key of a set by its identifier.
+func findKey(jwks *JWKS, kid string) (JWK, bool) {
+	if jwks == nil {
+		return JWK{}, false
+	}
+	for _, key := range jwks.Keys {
 		if key.Kid == kid {
-			return parseJWK(key)
+			return key, true
 		}
 	}
-
-	return nil, fmt.Errorf("key not found in JWKS: %s", kid)
+	return JWK{}, false
 }
 
 // fetchJWKS fetches a JWKS from a URL.
@@ -464,55 +563,28 @@ func parseJWK(key JWK) (interface{}, error) {
 	}
 }
 
-// parseRSAPublicKey parses an RSA public key from JWK.
+// parseRSAPublicKey and parseECPublicKey build keys through internal/jwks,
+// which both connectors share — the defect this replaces existed in each of
+// them separately, written the same wrong way twice.
 func parseRSAPublicKey(key JWK) (interface{}, error) {
-	// Decode n and e from base64url
-	nBytes, err := base64.RawURLEncoding.DecodeString(key.N)
-	if err != nil {
-		return nil, fmt.Errorf("invalid RSA n: %w", err)
-	}
-
-	eBytes, err := base64.RawURLEncoding.DecodeString(key.E)
-	if err != nil {
-		return nil, fmt.Errorf("invalid RSA e: %w", err)
-	}
-
-	// Convert e to int
-	var e int
-	for _, b := range eBytes {
-		e = e<<8 + int(b)
-	}
-
-	return &struct {
-		N []byte
-		E int
-	}{N: nBytes, E: e}, nil
+	return jwks.PublicKey(asJWKSKey(key))
 }
 
-// parseECPublicKey parses an EC public key from JWK.
 func parseECPublicKey(key JWK) (interface{}, error) {
-	// For EC keys, we need to use crypto/ecdsa
-	// This is a simplified implementation
-	xBytes, err := base64.RawURLEncoding.DecodeString(key.X)
-	if err != nil {
-		return nil, fmt.Errorf("invalid EC x: %w", err)
-	}
+	return jwks.PublicKey(asJWKSKey(key))
+}
 
-	yBytes, err := base64.RawURLEncoding.DecodeString(key.Y)
-	if err != nil {
-		return nil, fmt.Errorf("invalid EC y: %w", err)
+// asJWKSKey is this connector's JWK in the shared shape.
+func asJWKSKey(key JWK) jwks.Key {
+	return jwks.Key{
+		Kty: key.Kty, Kid: key.Kid, Use: key.Use, Alg: key.Alg,
+		N: key.N, E: key.E, X: key.X, Y: key.Y, Crv: key.Crv,
 	}
-
-	return &struct {
-		Curve string
-		X     []byte
-		Y     []byte
-	}{Curve: key.Crv, X: xBytes, Y: yBytes}, nil
 }
 
 // validateAPIKey validates an API key from the request.
-func (c *Connector) validateAPIKey(r *http.Request) (*AuthContext, error) {
-	cfg := c.authConfig.APIKey
+func (a *Authenticator) validateAPIKey(r *http.Request) (*AuthContext, error) {
+	cfg := a.config.APIKey
 	if cfg == nil {
 		return nil, fmt.Errorf("API key configuration not set")
 	}
@@ -538,7 +610,7 @@ func (c *Connector) validateAPIKey(r *http.Request) (*AuthContext, error) {
 	if cfg.ValidateFunc != nil {
 		valid, userID, metadata, err := cfg.ValidateFunc(r.Context(), apiKey)
 		if err != nil {
-			c.logger.Error("API key validation error", "error", err)
+			a.logger.Error("API key validation error", "error", err)
 			return nil, fmt.Errorf("API key validation failed")
 		}
 		if !valid {
@@ -641,8 +713,8 @@ func CreateAPIKeyValidator(reader interface {
 }
 
 // validateBasic validates Basic auth credentials.
-func (c *Connector) validateBasic(r *http.Request, w http.ResponseWriter) (*AuthContext, error) {
-	cfg := c.authConfig.Basic
+func (a *Authenticator) validateBasic(r *http.Request, w http.ResponseWriter) (*AuthContext, error) {
+	cfg := a.config.Basic
 	if cfg == nil {
 		return nil, fmt.Errorf("Basic auth configuration not set")
 	}
@@ -685,4 +757,55 @@ func (c *Connector) validateBasic(r *http.Request, w http.ResponseWriter) (*Auth
 		Authenticated: true,
 		Username:      username,
 	}, nil
+}
+
+// identity renders what was learned about the caller in the shape the rest of
+// the service reads it, so that a flow can say auth.user_id without knowing
+// which of the three credential types answered.
+func (a *AuthContext) identity() *identity.Identity {
+	if a == nil || !a.Authenticated {
+		return nil
+	}
+
+	id := &identity.Identity{
+		UserID: a.UserID,
+		Claims: a.Claims,
+	}
+	if id.UserID == "" {
+		// Basic auth has no subject beyond the name it authenticated.
+		id.UserID = a.Username
+	}
+	if a.Claims != nil {
+		if email, ok := a.Claims["email"].(string); ok {
+			id.Email = email
+		}
+		id.Roles = claimStrings(a.Claims, "roles")
+	}
+	return id
+}
+
+// claimStrings reads a claim that carries a list of strings, which arrives from
+// JSON as a list of anything.
+func claimStrings(claims map[string]interface{}, name string) []string {
+	raw, ok := claims[name]
+	if !ok {
+		return nil
+	}
+
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	case string:
+		// A single role is a common enough shape to accept.
+		return []string{v}
+	}
+	return nil
 }

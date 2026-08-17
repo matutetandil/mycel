@@ -8,6 +8,12 @@ type Config struct {
 	// Preset: strict, standard, relaxed, development
 	Preset string `hcl:"preset,optional"`
 
+	// BaseURL is the address this service is reached at from outside, such as
+	// https://app.example.com. Identity providers redirect a browser back to
+	// it after a sign-in, so it has to be the public address rather than the
+	// listening one, and it has to match what is registered with the provider.
+	BaseURL string `hcl:"base_url,optional"`
+
 	// Storage for tokens/sessions
 	Storage *StorageConfig `hcl:"storage,block"`
 
@@ -83,6 +89,11 @@ type FieldsConfig struct {
 	PasswordHash string `hcl:"password_hash,optional"`
 	CreatedAt    string `hcl:"created_at,optional"`
 	UpdatedAt    string `hcl:"updated_at,optional"`
+
+	// Roles names the column a user's roles are stored in. Naming one is what
+	// turns roles on for a SQL-backed store: without it the column is neither
+	// written nor read, so a users table that already exists keeps working.
+	Roles string `hcl:"roles,optional"`
 }
 
 // JWTConfig defines JWT token settings
@@ -253,7 +264,7 @@ type SecurityConfig struct {
 	DeviceBinding    *DeviceBindingConfig    `hcl:"device_binding,block"`
 	ReplayProtection *ReplayProtectionConfig `hcl:"replay_protection,block"`
 	IPRules          *IPRulesConfig          `hcl:"ip_rules,block"`
-	RateLimit        *AuthRateLimitConfig    `hcl:"rate_limit,block"`
+	RateLimit        *RateLimitConfig        `hcl:"rate_limit,block"`
 }
 
 // BruteForceConfig defines brute force protection
@@ -263,6 +274,11 @@ type BruteForceConfig struct {
 	Window      string `hcl:"window,optional"`
 	LockoutTime string `hcl:"lockout_time,optional"`
 	TrackBy     string `hcl:"track_by,optional"` // ip, user, ip+user
+
+	// FailDelay is how long a failed sign-in waits before answering, give or
+	// take a quarter. Set it to "0" to answer immediately, which is only
+	// sensible in a test.
+	FailDelay string `hcl:"fail_delay,optional"`
 
 	// Progressive delays
 	ProgressiveDelay *ProgressiveDelayConfig `hcl:"progressive_delay,block"`
@@ -314,13 +330,6 @@ type IPRulesConfig struct {
 }
 
 // AuthRateLimitConfig for endpoint-specific rate limits
-type AuthRateLimitConfig struct {
-	Login         string `hcl:"login,optional"`
-	Register      string `hcl:"register,optional"`
-	Refresh       string `hcl:"refresh,optional"`
-	PasswordReset string `hcl:"password_reset,optional"`
-}
-
 // SessionsConfig defines session management
 type SessionsConfig struct {
 	MaxActive        int      `hcl:"max_active,optional"`
@@ -359,6 +368,11 @@ type AppleConfig struct {
 type SSOConfig struct {
 	OIDC []*OIDCConfig `hcl:"oidc,block"`
 	SAML []*SAMLConfig `hcl:"saml,block"`
+
+	// Linking decides what happens when someone signs in through a provider
+	// with an address an account already uses. Absent, an identity with a
+	// verified address is attached to that account.
+	Linking *AccountLinkingConfig `hcl:"linking,block"`
 }
 
 // OIDCConfig for OpenID Connect

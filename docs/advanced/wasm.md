@@ -43,24 +43,60 @@ validate(ptr: i32, len: i32) -> i32
 - **Input**: JSON `{"value": <the_value>}` written to linear memory at `ptr`
 - **Returns**: `0` = valid, `1` = invalid
 
-### Function Exports
+### Returning an answer
+
+Anything that answers with JSON — a function, or any of a connector's exports —
+hands back **where it wrote the answer**, in one of two forms:
 
 ```
+my_function(ptr: i32, len: i32) -> i64                 # ptr << 32 | len
 my_function(ptr: i32, len: i32) -> (ptr: i32, len: i32)
 ```
 
+**Use the packed i64.** The two-result form is accepted, and no toolchain can
+produce it: Rust and TinyGo both lower a two-word return through the C ABI,
+which becomes a pointer argument rather than two results. Packing the pointer
+and the length into one i64 is what a plugin in any language can actually
+return.
+
+### Function Exports
+
+```
+my_function(ptr: i32, len: i32) -> i64
+```
+
 - **Input**: JSON `{"args": [arg1, arg2, ...]}` written to linear memory
-- **Returns**: pointer and length of output JSON `{"result": <value>}` or `{"error": "message"}`
+- **Returns**: where it wrote `{"result": <value>}` or `{"error": "message"}`
 
 ### Connector Plugin Exports
 
 ```
-init(ptr: i32, len: i32) -> (ptr: i32, len: i32)   # Required
-read(ptr: i32, len: i32) -> (ptr: i32, len: i32)    # Required
-write(ptr: i32, len: i32) -> (ptr: i32, len: i32)   # Required
-health() -> (ptr: i32, len: i32)                     # Optional
-close() -> (ptr: i32, len: i32)                      # Optional
+init(ptr: i32, len: i32) -> i64    # Required — receives the connector block's attributes
+read(ptr: i32, len: i32) -> i64    # Required
+write(ptr: i32, len: i32) -> i64   # Required
+call(ptr: i32, len: i32) -> i64    # Optional — reached by a step naming an operation
+health(ptr: i32, len: i32) -> i64  # Optional
+close(ptr: i32, len: i32) -> i64   # Optional
 ```
+
+What each answers with:
+
+| Export | Input | Answer |
+|---|---|---|
+| `init` | the connector block's attributes, as declared in the manifest's `config` | `{"ok": true}` or `{"error": "..."}` |
+| `read` | `{"target", "operation", "filters", "fields", ...}` | `{"rows": [...]}` (`data` is accepted too) |
+| `write` | `{"target", "operation", "payload", "filters"}` | `{"affected": n, "rows": [...]}` |
+| `call` | `{"operation", "params"}` | `{"data": {...}}` |
+
+An `{"error": "..."}` from any of them reaches the flow as a failure.
+
+A connector's own attributes are declared in its plugin manifest, and a
+connector block may carry them — Mycel does not check a plugin type's
+attributes against its own list, because the list it would check against is the
+plugin's.
+
+For one that is built, run and tested end to end, see
+[examples/plugin](https://github.com/matutetandil/mycel/tree/main/examples/plugin).
 
 ### Memory Flow
 
@@ -69,7 +105,7 @@ close() -> (ptr: i32, len: i32)                      # Optional
 2. Host writes JSON input to memory at ptr
 3. Host calls function(ptr, len)
 4. WASM reads input, processes, writes output to new allocation
-5. WASM returns (output_ptr, output_len)
+5. WASM returns where it wrote it — ptr << 32 | len
 6. Host reads output from memory
 7. Host calls free() to clean up
 ```

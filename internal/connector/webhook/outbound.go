@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -200,6 +201,18 @@ func (c *OutboundConnector) executeWithRetry(ctx context.Context, method, url st
 	if lastErr != nil {
 		return lastResponse, lastErr
 	}
+
+	// An answer that is not a success is still a failure, even though nothing
+	// went wrong at the transport: doRequest only errors when the request
+	// could not be made at all, so a receiver refusing every attempt used to
+	// come back with no error — and a flow writing to this connector read that
+	// as delivered. The message was acked, the notification never arrived, and
+	// nothing retried it.
+	if lastResponse != nil && !lastResponse.Success {
+		return lastResponse, fmt.Errorf("webhook was refused with status %d after %d attempt(s): %s",
+			lastResponse.StatusCode, lastResponse.Attempts, strings.TrimSpace(lastResponse.Body))
+	}
+
 	return lastResponse, nil
 }
 

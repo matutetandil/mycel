@@ -34,6 +34,20 @@ connector "ws" {
 | `send_to_room` | target | Send to clients in a specific room |
 | `send_to_user` | target | Send to a specific user |
 
+## Identifying a Connection
+
+A client says who it is when it opens the socket, in the query string — that is
+all a browser can send on an upgrade:
+
+```javascript
+new WebSocket("wss://example.test/ws?user_id=alice&tenant=acme")
+```
+
+`user_id` is what `send_to_user` matches on, and every other parameter is passed
+to the flow alongside the message, so a flow can tell a connection from one
+tenant apart from another. A connection that names no user receives broadcasts
+and room messages, and is never the target of `send_to_user`.
+
 ## Client Protocol
 
 Clients communicate using JSON messages:

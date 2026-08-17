@@ -6,227 +6,108 @@ import (
 	"time"
 )
 
-func TestCleanupService(t *testing.T) {
-	t.Run("start and stop", func(t *testing.T) {
-		manager, err := NewManager(&Config{
-			Preset: "development",
-			JWT: &JWTConfig{
-				Secret: "test-secret-key-for-testing-only",
-			},
-		})
-		if err != nil {
-			t.Fatalf("NewManager error: %v", err)
-		}
+// Nothing started this loop, and nothing else removes expired sessions or
+// tokens: every session and every token a service issued stayed where it was
+// written, for as long as the process ran.
 
-		svc := NewCleanupService(manager, 100*time.Millisecond)
-		ctx := context.Background()
-
-		// Start service
-		err = svc.Start(ctx)
-		if err != nil {
-			t.Fatalf("Start error: %v", err)
-		}
-
-		// Wait for at least one cleanup cycle
-		time.Sleep(250 * time.Millisecond)
-
-		// Stop service
-		err = svc.Stop()
-		if err != nil {
-			t.Fatalf("Stop error: %v", err)
-		}
+func cleanupManager(t *testing.T) *Manager {
+	t.Helper()
+	m, err := NewManager(&Config{
+		Preset: "development",
+		JWT:    &JWTConfig{Algorithm: "HS256", Secret: "a-secret-long-enough-to-be-plausible"},
+		Sessions: &SessionsConfig{
+			AbsoluteTimeout: "1h",
+			IdleTimeout:     "15m",
+		},
 	})
-
-	t.Run("double start is no-op", func(t *testing.T) {
-		manager, _ := NewManager(&Config{
-			Preset: "development",
-			JWT: &JWTConfig{
-				Secret: "test-secret-key-for-testing-only",
-			},
-		})
-
-		svc := NewCleanupService(manager, 100*time.Millisecond)
-		ctx := context.Background()
-
-		// Start twice
-		svc.Start(ctx)
-		err := svc.Start(ctx) // Should be no-op
-		if err != nil {
-			t.Fatalf("Second Start error: %v", err)
-		}
-
-		svc.Stop()
-	})
-
-	t.Run("double stop is no-op", func(t *testing.T) {
-		manager, _ := NewManager(&Config{
-			Preset: "development",
-			JWT: &JWTConfig{
-				Secret: "test-secret-key-for-testing-only",
-			},
-		})
-
-		svc := NewCleanupService(manager, 100*time.Millisecond)
-		ctx := context.Background()
-
-		svc.Start(ctx)
-		svc.Stop()
-
-		// Second stop should be no-op
-		err := svc.Stop()
-		if err != nil {
-			t.Fatalf("Second Stop error: %v", err)
-		}
-	})
-
-	t.Run("context cancellation stops service", func(t *testing.T) {
-		manager, _ := NewManager(&Config{
-			Preset: "development",
-			JWT: &JWTConfig{
-				Secret: "test-secret-key-for-testing-only",
-			},
-		})
-
-		svc := NewCleanupService(manager, 100*time.Millisecond)
-		ctx, cancel := context.WithCancel(context.Background())
-
-		svc.Start(ctx)
-		time.Sleep(50 * time.Millisecond)
-
-		// Cancel context
-		cancel()
-		time.Sleep(50 * time.Millisecond)
-
-		// Cleanup - this should be a no-op since already stopped
-		svc.Stop()
-	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	return m
 }
 
-func TestMemorySessionStoreWithIdle(t *testing.T) {
-	t.Run("delete idle sessions", func(t *testing.T) {
-		store := NewMemorySessionStoreWithIdle()
-		ctx := context.Background()
+func TestCleanupRemovesAnExpiredSession(t *testing.T) {
+	ctx := context.Background()
+	m := cleanupManager(t)
 
-		// Create sessions with different last active times
-		now := time.Now()
-
-		sessions := []*Session{
-			{
-				ID:           "session1",
-				UserID:       "user1",
-				CreatedAt:    now.Add(-2 * time.Hour),
-				LastActiveAt: now.Add(-1 * time.Hour), // Active 1 hour ago
-				ExpiresAt:    now.Add(1 * time.Hour),
-			},
-			{
-				ID:           "session2",
-				UserID:       "user1",
-				CreatedAt:    now.Add(-30 * time.Minute),
-				LastActiveAt: now.Add(-5 * time.Minute), // Active 5 minutes ago
-				ExpiresAt:    now.Add(1 * time.Hour),
-			},
-			{
-				ID:           "session3",
-				UserID:       "user2",
-				CreatedAt:    now.Add(-10 * time.Minute),
-				LastActiveAt: now, // Just active
-				ExpiresAt:    now.Add(1 * time.Hour),
-			},
+	live := &Session{
+		ID: "live", UserID: "u1",
+		CreatedAt: time.Now(), LastActiveAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	stale := &Session{
+		ID: "stale", UserID: "u1",
+		CreatedAt: time.Now().Add(-2 * time.Hour), LastActiveAt: time.Now().Add(-2 * time.Hour),
+		ExpiresAt: time.Now().Add(-time.Hour),
+	}
+	for _, s := range []*Session{live, stale} {
+		if err := m.sessionStore.Create(ctx, s); err != nil {
+			t.Fatalf("Create: %v", err)
 		}
+	}
 
-		for _, s := range sessions {
-			if err := store.Create(ctx, s); err != nil {
-				t.Fatalf("Create error: %v", err)
-			}
+	if err := m.Cleanup(ctx); err != nil {
+		t.Fatalf("Cleanup: %v", err)
+	}
+
+	if _, err := m.sessionStore.FindByID(ctx, "stale"); err == nil {
+		t.Error("an expired session survived the cleanup")
+	}
+	if _, err := m.sessionStore.FindByID(ctx, "live"); err != nil {
+		t.Errorf("a live session was removed: %v", err)
+	}
+}
+
+func TestTheCleanupServiceRunsAndStops(t *testing.T) {
+	ctx := context.Background()
+	m := cleanupManager(t)
+
+	// An interval short enough that the loop turns over during the test.
+	s := NewCleanupService(m, 20*time.Millisecond)
+
+	if err := s.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Starting twice must not launch a second loop or block.
+	if err := s.Start(ctx); err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+
+	stale := &Session{
+		ID: "stale", UserID: "u1",
+		CreatedAt: time.Now().Add(-2 * time.Hour), LastActiveAt: time.Now().Add(-2 * time.Hour),
+		ExpiresAt: time.Now().Add(-time.Hour),
+	}
+	if err := m.sessionStore.Create(ctx, stale); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := m.sessionStore.FindByID(ctx, "stale"); err != nil {
+			break // removed by the loop
 		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := m.sessionStore.FindByID(ctx, "stale"); err == nil {
+		t.Error("the loop ran without removing an expired session")
+	}
 
-		// Delete sessions idle for more than 30 minutes
-		threshold := now.Add(-30 * time.Minute)
-		deleted, err := store.DeleteIdle(ctx, threshold)
-		if err != nil {
-			t.Fatalf("DeleteIdle error: %v", err)
-		}
+	if err := s.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	// And stopping twice is not an error either, since shutdown may be reached
+	// from more than one path.
+	if err := s.Stop(); err != nil {
+		t.Errorf("second Stop: %v", err)
+	}
+}
 
-		if deleted != 1 {
-			t.Errorf("expected 1 deleted session, got %d", deleted)
-		}
-
-		// Verify session1 is gone
-		_, err = store.FindByID(ctx, "session1")
-		if err == nil {
-			t.Error("expected session1 to be deleted")
-		}
-
-		// Verify session2 and session3 still exist
-		_, err = store.FindByID(ctx, "session2")
-		if err != nil {
-			t.Errorf("session2 should still exist: %v", err)
-		}
-
-		_, err = store.FindByID(ctx, "session3")
-		if err != nil {
-			t.Errorf("session3 should still exist: %v", err)
-		}
-	})
-
-	t.Run("delete expired and idle", func(t *testing.T) {
-		store := NewMemorySessionStoreWithIdle()
-		ctx := context.Background()
-
-		now := time.Now()
-
-		sessions := []*Session{
-			{
-				ID:           "expired",
-				UserID:       "user1",
-				CreatedAt:    now.Add(-2 * time.Hour),
-				LastActiveAt: now.Add(-1 * time.Hour),
-				ExpiresAt:    now.Add(-30 * time.Minute), // Expired
-			},
-			{
-				ID:           "idle",
-				UserID:       "user1",
-				CreatedAt:    now.Add(-2 * time.Hour),
-				LastActiveAt: now.Add(-1 * time.Hour), // Idle > 30min
-				ExpiresAt:    now.Add(1 * time.Hour),  // Not expired
-			},
-			{
-				ID:           "active",
-				UserID:       "user2",
-				CreatedAt:    now.Add(-10 * time.Minute),
-				LastActiveAt: now,                    // Active
-				ExpiresAt:    now.Add(1 * time.Hour), // Not expired
-			},
-		}
-
-		for _, s := range sessions {
-			store.Create(ctx, s)
-		}
-
-		// Delete expired and idle (idle timeout = 30 minutes)
-		deleted, err := store.DeleteExpiredAndIdle(ctx, 30*time.Minute)
-		if err != nil {
-			t.Fatalf("DeleteExpiredAndIdle error: %v", err)
-		}
-
-		if deleted != 2 {
-			t.Errorf("expected 2 deleted sessions (expired + idle), got %d", deleted)
-		}
-
-		// Only "active" should remain
-		_, err = store.FindByID(ctx, "expired")
-		if err == nil {
-			t.Error("expected 'expired' to be deleted")
-		}
-
-		_, err = store.FindByID(ctx, "idle")
-		if err == nil {
-			t.Error("expected 'idle' to be deleted")
-		}
-
-		_, err = store.FindByID(ctx, "active")
-		if err != nil {
-			t.Errorf("'active' should still exist: %v", err)
-		}
-	})
+func TestTheDefaultIntervalIsNotZero(t *testing.T) {
+	// A zero interval would make time.NewTicker panic, taking the service down
+	// at startup rather than cleaning anything.
+	s := NewCleanupService(cleanupManager(t), 0)
+	if s.interval <= 0 {
+		t.Errorf("interval = %v", s.interval)
+	}
 }

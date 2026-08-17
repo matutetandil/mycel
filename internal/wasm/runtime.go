@@ -4,6 +4,7 @@ package wasm
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -24,11 +25,30 @@ type Runtime struct {
 
 // Module represents a loaded WASM module.
 type Module struct {
-	name     string
-	path     string
+	name string
+	path string
+
+	// fingerprint is the hash of the file this was compiled from, so a plugin
+	// upgraded in place is noticed rather than served from the cache.
+	fingerprint [32]byte
+
 	compiled wazero.CompiledModule
 	instance api.Module
 	runtime  *Runtime
+
+	// calls serialises everything that touches the instance.
+	//
+	// A module is loaded once and shared, and flows run concurrently, so two
+	// messages could be inside the same plugin at the same time — writing
+	// their input over each other in the one linear memory the module has, and
+	// reading back a result built from the other message's bytes. WebAssembly
+	// without threads assumes a single caller: a plugin's allocator is a plain
+	// global, so this cannot be left to the plugin to get right.
+	//
+	// The cost is that a plugin runs one message at a time. That is the
+	// intended shape for now — one instance per invocation type — and a wrong
+	// answer is worse than a queued one.
+	calls sync.Mutex
 }
 
 // NewRuntime creates a new WASM runtime.
@@ -51,19 +71,34 @@ func NewRuntime(ctx context.Context) (*Runtime, error) {
 }
 
 // LoadModule loads a WASM module from a file.
+//
+// A module already loaded under this name is reused, unless the file it was
+// compiled from has changed — a plugin upgraded in place, which is what
+// installing a new version does. Keyed by name alone, an upgrade never ran:
+// the new binary was on disk, the configuration was reloaded, and the module
+// compiled from the previous file kept answering with nothing to say it had.
 func (r *Runtime) LoadModule(name, path string) (*Module, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	// Check if already loaded
-	if m, ok := r.modules[name]; ok {
-		return m, nil
-	}
 
 	// Read WASM file
 	wasmBytes, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read WASM file: %w", err)
+	}
+	fingerprint := sha256.Sum256(wasmBytes)
+
+	// Check if already loaded from the same file
+	if m, ok := r.modules[name]; ok {
+		if m.path == path && m.fingerprint == fingerprint {
+			return m, nil
+		}
+		// Replaced: take the old one out before compiling its successor, so a
+		// failure here does not leave two modules answering to one name.
+		if err := m.instance.Close(r.ctx); err != nil {
+			return nil, fmt.Errorf("failed to close the previous version of module %s: %w", name, err)
+		}
+		delete(r.modules, name)
 	}
 
 	// Compile the module
@@ -79,11 +114,12 @@ func (r *Runtime) LoadModule(name, path string) (*Module, error) {
 	}
 
 	module := &Module{
-		name:     name,
-		path:     path,
-		compiled: compiled,
-		instance: instance,
-		runtime:  r,
+		fingerprint: fingerprint,
+		name:        name,
+		path:        path,
+		compiled:    compiled,
+		instance:    instance,
+		runtime:     r,
 	}
 
 	r.modules[name] = module
@@ -133,6 +169,9 @@ func (r *Runtime) Close() error {
 
 // CallFunction calls a function in the module with JSON input/output.
 func (m *Module) CallFunction(name string, input interface{}) (interface{}, error) {
+	m.calls.Lock()
+	defer m.calls.Unlock()
+
 	// Get the function
 	fn := m.instance.ExportedFunction(name)
 	if fn == nil {
@@ -163,17 +202,14 @@ func (m *Module) CallFunction(name string, input interface{}) (interface{}, erro
 		return nil, fmt.Errorf("function call failed: %w", err)
 	}
 
-	// Parse results - expecting (ptr, len) tuple
-	if len(results) < 2 {
-		// Single return value (e.g., status code)
+	resultPtr, resultLen, ok := answerLocation(fn, results)
+	if !ok {
+		// Something that is not an answer at all: a status code, or nothing.
 		if len(results) == 1 {
 			return results[0], nil
 		}
 		return nil, nil
 	}
-
-	resultPtr := uint32(results[0])
-	resultLen := uint32(results[1])
 
 	if resultLen == 0 {
 		return nil, nil
@@ -197,9 +233,45 @@ func (m *Module) CallFunction(name string, input interface{}) (interface{}, erro
 	return result, nil
 }
 
+// answerLocation works out where a module left its answer.
+//
+// The interface has always been documented as returning (ptr, len) — two
+// values — and no toolchain anyone is told to use can emit that: Rust and
+// TinyGo both lower a two-word return through the C ABI, which becomes a
+// pointer argument rather than two results. So the documented shape was one
+// nothing could produce, which is why no connector plugin had ever been built
+// against it.
+//
+// Both are accepted now:
+//
+//	read(ptr: i32, len: i32) -> (ptr: i32, len: i32)   two results
+//	read(ptr: i32, len: i32) -> i64                    one, packed ptr<<32|len
+//
+// The packed form is what a plugin written in any language can actually
+// return, and it is unambiguous: a single i64 result is an answer, a single
+// i32 is a status code.
+func answerLocation(fn api.Function, results []uint64) (ptr uint32, length uint32, ok bool) {
+	if len(results) >= 2 {
+		return uint32(results[0]), uint32(results[1]), true
+	}
+	if len(results) != 1 {
+		return 0, 0, false
+	}
+
+	types := fn.Definition().ResultTypes()
+	if len(types) != 1 || types[0] != api.ValueTypeI64 {
+		return 0, 0, false
+	}
+	packed := results[0]
+	return uint32(packed >> 32), uint32(packed), true
+}
+
 // CallValidate calls a validate function that returns a status code.
 // Returns nil if valid (status 0), or an error if invalid.
 func (m *Module) CallValidate(fnName string, value interface{}) error {
+	m.calls.Lock()
+	defer m.calls.Unlock()
+
 	// Get the function
 	fn := m.instance.ExportedFunction(fnName)
 	if fn == nil {

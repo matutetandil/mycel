@@ -94,3 +94,55 @@ func TestInertFlowAttrs_NilSafe(t *testing.T) {
 		t.Fatalf("expected no warnings, got: %v", warnings)
 	}
 }
+
+func TestATransformWithNowhereToSendItIsReported(t *testing.T) {
+	// A flow with no destination answers its caller directly, and what it
+	// answers with is the response block. A transform there is read by nothing:
+	// the caller gets the raw request back, headers and all, while the file
+	// says the fields were reshaped. Found by an integration test that asked
+	// for a field the transform built and got the request instead.
+	warnings := InertFlowAttrs(&parser.Configuration{
+		Flows: []*flow.Config{{
+			Name: "echo_it",
+			From: &flow.FromConfig{Connector: "api"},
+			Transform: &flow.TransformConfig{
+				Mappings: map[string]string{"greeting": "'hello ' + input.name"},
+			},
+		}},
+	})
+
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %v, want the one about the transform", warnings)
+	}
+	for _, want := range []string{"echo_it", "transform", "response"} {
+		if !strings.Contains(warnings[0], want) {
+			t.Errorf("warning = %q, want it to mention %q", warnings[0], want)
+		}
+	}
+}
+
+func TestATransformThatHasSomewhereToGoIsFine(t *testing.T) {
+	for name, cfg := range map[string]*flow.Config{
+		"with a destination": {
+			Name: "write", From: &flow.FromConfig{Connector: "api"},
+			To:        &flow.ToConfig{Connector: "db"},
+			Transform: &flow.TransformConfig{Mappings: map[string]string{"a": "input.a"}},
+		},
+		"with steps": {
+			Name: "gather", From: &flow.FromConfig{Connector: "api"},
+			Steps:     []*flow.StepConfig{{Name: "one", Connector: "db"}},
+			Transform: &flow.TransformConfig{Mappings: map[string]string{"a": "step.one.a"}},
+		},
+		"with several destinations": {
+			Name: "fan", From: &flow.FromConfig{Connector: "api"},
+			MultiTo:   []*flow.ToConfig{{Connector: "db"}},
+			Transform: &flow.TransformConfig{Mappings: map[string]string{"a": "input.a"}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if warnings := InertFlowAttrs(&parser.Configuration{Flows: []*flow.Config{cfg}}); len(warnings) != 0 {
+				t.Errorf("warnings = %v, want none", warnings)
+			}
+		})
+	}
+}

@@ -264,6 +264,16 @@ func (s *AccountLinkingService) createUserFromProvider(ctx context.Context, user
 	// PasswordHash is empty, user must use social login
 
 	if err := s.userStore.Create(ctx, user); err != nil {
+		// An account already holds this address and we got here anyway, which
+		// means it was not matched: either matching is off, or it matches on
+		// something else. Saying "user already exists" from this depth reads
+		// as a bug in the service; what happened is that two settings cannot
+		// both be honoured for this person.
+		if errors.Is(err, ErrUserAlreadyExists) {
+			return nil, fmt.Errorf(
+				"an account already uses %q and account_linking has match_by = %q, so this sign-in can neither join it nor make another: %w",
+				userInfo.Email, s.config.MatchBy, err)
+		}
 		return nil, err
 	}
 

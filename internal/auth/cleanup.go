@@ -122,6 +122,13 @@ func (s *CleanupService) cleanExpiredSessions(ctx context.Context) error {
 }
 
 // cleanIdleSessions removes sessions that have been idle too long
+// cleanIdleSessions removes sessions nobody has touched for longer than the
+// configured idle timeout.
+//
+// This used to parse the timeout and return, with a note saying DeleteExpired
+// would handle it. DeleteExpired removes sessions past their absolute expiry,
+// which is a different thing: an idle timeout is what ends a session left open
+// on an unattended screen, and a service configuring one got nothing.
 func (s *CleanupService) cleanIdleSessions(ctx context.Context) error {
 	cfg := s.manager.Config()
 	if cfg.Sessions == nil || cfg.Sessions.IdleTimeout == "" {
@@ -132,20 +139,27 @@ func (s *CleanupService) cleanIdleSessions(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
 	if idleTimeout == 0 {
 		return nil
 	}
 
-	// Get all sessions and check for idle ones
-	// Note: This is a simplified implementation
-	// A production system might use a more efficient approach
-	// like storing last_active_at in a sortable way
+	store, ok := s.manager.sessionStore.(SessionCleanupStore)
+	if !ok {
+		// Saying so once is better than a timeout that looks configured and
+		// never happens. The loop runs on a timer, so this is rate-limited by
+		// the interval rather than by a request.
+		s.logger.Warn("idle_timeout is configured and this session store cannot enforce it",
+			"idle_timeout", cfg.Sessions.IdleTimeout)
+		return nil
+	}
 
-	// For now, the session store's DeleteExpired handles this
-	// because we update LastActiveAt on each touch
-	// and can add idle timeout checking there
-
+	deleted, err := store.DeleteIdle(ctx, time.Now().Add(-idleTimeout))
+	if err != nil {
+		return err
+	}
+	if deleted > 0 {
+		s.logger.Info("idle sessions ended", "count", deleted, "idle_timeout", cfg.Sessions.IdleTimeout)
+	}
 	return nil
 }
 

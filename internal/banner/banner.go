@@ -36,6 +36,14 @@ const (
 var colorsEnabled = true
 
 func init() {
+	initColors()
+}
+
+// initColors decides whether output is coloured, from the terminal and the
+// environment. Separate from init so it can be exercised.
+func initColors() {
+	colorsEnabled = true
+
 	// Disable colors on Windows (unless using Windows Terminal)
 	if runtime.GOOS == "windows" {
 		// Check for Windows Terminal or other modern terminals

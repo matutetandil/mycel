@@ -8,17 +8,34 @@ services:
     build:
       context: ../..
       dockerfile: Dockerfile
+      args:
+        # Empty unless the run asks for coverage, in which case the binary is
+        # built with -cover and drops counters into GOCOVERDIR on shutdown.
+        COVERAGE: ${COVERAGE:-}
     ports:
       - "${PORT_REST:-3000}:3000"     # REST (tests access from host)
       - "${PORT_GQL:-4000}:4000"      # GraphQL
       - "${PORT_SOAP:-8081}:8081"     # SOAP
       - "${PORT_GRPC:-50051}:50051"   # gRPC
       - "${PORT_ADMIN:-9090}:9090"    # Admin (health/metrics)
+      - "${PORT_AUTH:-3003}:3003"     # REST behind auth
+      - "${PORT_WORKFLOW:-9101}:9091" # Workflow api (its own port, authenticated)
     volumes:
       - ./config:/etc/mycel
+      # Always mounted; the binary only writes here when built with -cover.
+      - ./.coverage:/covdata
+    # A -cover binary writes its counters as it exits, and the default ten
+    # seconds is not always enough for a service holding a dozen connectors to
+    # shut down cleanly. Being killed instead loses the whole measurement.
+    stop_grace_period: 90s
     environment:
       MYCEL_ENV: development
+      GOCOVERDIR: ${GOCOVERDIR:-}
       MYCEL_LOG_LEVEL: debug
+      # Off unless asked for: MYCEL_PAYLOAD_SHOW=true bash run.sh logs the raw
+      # payload every source hands to a flow, which is the only way to see the
+      # shape a message actually arrives in.
+      MYCEL_PAYLOAD_SHOW: "${MYCEL_PAYLOAD_SHOW:-}"
       MYCEL_LOG_FORMAT: text
       # PostgreSQL
       PG_HOST: postgres
@@ -95,6 +112,12 @@ services:
   # ==========================================================================
   postgres:
     image: postgres:16-alpine
+    # Published so the Go tests for the SQL auth stores can reach it. Those
+    # stores speak Postgres and MySQL, not something a unit test can stand up,
+    # so this is the only place they run at all. The default is away from 5432
+    # so a developer's own database is not in the way.
+    ports:
+      - "${PORT_PG:-55432}:5432"
     environment:
       POSTGRES_USER: mycel
       POSTGRES_PASSWORD: mycel
@@ -114,6 +137,10 @@ services:
 
   mysql:
     image: mysql:8
+    # Published for the same reason as postgres above: the MySQL auth stores
+    # only run here.
+    ports:
+      - "${PORT_MYSQL:-33306}:3306"
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: mycel_test
@@ -129,6 +156,10 @@ services:
 
   mongodb:
     image: mongo:7
+    # Published for the Go tests of the driver's write operations, which the
+    # flows here do not all reach.
+    ports:
+      - "${PORT_MONGO:-37017}:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: mongo
       MONGO_INITDB_ROOT_PASSWORD: mycel
@@ -194,18 +225,14 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
-    entrypoint: ["/opt/kafka/bin/kafka-topics.sh"]
+    entrypoint: ["/bin/sh", "-c"]
     command:
-      - --create
-      - --if-not-exists
-      - --bootstrap-server
-      - kafka:9092
-      - --topic
-      - test_topic
-      - --partitions
-      - "1"
-      - --replication-factor
-      - "1"
+      - |
+        for topic in test_topic dlq_topic dlq_topic.dlq; do
+          /opt/kafka/bin/kafka-topics.sh --create --if-not-exists \
+            --bootstrap-server kafka:9092 \
+            --topic "$$topic" --partitions 1 --replication-factor 1
+        done
 
   # ==========================================================================
   # Search (internal only)
@@ -227,6 +254,10 @@ services:
   # ==========================================================================
   minio:
     image: minio/minio
+    # Published for the Go tests of the S3 operations a flow reaches through a
+    # step rather than a write — copy, move, presign and the rest.
+    ports:
+      - "${PORT_MINIO:-39000}:9000"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin

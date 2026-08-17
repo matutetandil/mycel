@@ -1,0 +1,36 @@
+# The service's own accounts, kept in Postgres.
+#
+# The SQL user stores map onto a table somebody already has rather than creating
+# one, and they speak Postgres — so only a run against a real database covers
+# them at all. What a unit test can reach is the manager above them; everything
+# from the SQL down is here.
+auth {
+  preset = "development"
+
+  jwt {
+    secret           = "integration-jwt-secret-long-enough"
+    access_lifetime  = "15m"
+    refresh_lifetime = "7d"
+  }
+
+  storage {
+    driver    = "database"
+    connector = "postgres"
+  }
+
+  users {
+    connector = "postgres"
+    table     = "auth_users"
+  }
+
+  # Nothing read this block before 2.19.0, so a service with an audit block
+  # wrote no record of any sign-in or failure — and that is discovered during
+  # an investigation, which is the worst moment to find there is nothing to
+  # investigate with.
+  audit {
+    enabled   = true
+    connector = "postgres"
+    table     = "auth_audit_log"
+    events    = ["login", "failed_login", "register", "logout"]
+  }
+}

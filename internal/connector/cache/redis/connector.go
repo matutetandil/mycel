@@ -161,6 +161,18 @@ func (c *Connector) connectSentinel(ctx context.Context) error {
 		opts.DialTimeout = c.config.Pool.ConnectTimeout
 	}
 
+	// Spreading reads over the replicas needs the client that knows about all
+	// of them. The plain failover client talks to whichever server Sentinel
+	// says is master, and asking it to route by latency or at random does not
+	// return an error — it panics, inside the driver, while the service is
+	// starting. So `route_by_latency = true` in a sentinel block, which is a
+	// documented setting, took the process down with a stack trace instead of
+	// a line saying what was wrong.
+	if c.config.Sentinel.RouteByLatency || c.config.Sentinel.RouteRandomly {
+		c.client = redis.NewFailoverClusterClient(opts)
+		return nil
+	}
+
 	c.client = redis.NewFailoverClient(opts)
 	return nil
 }

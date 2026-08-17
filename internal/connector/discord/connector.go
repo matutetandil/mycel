@@ -330,44 +330,20 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	return c.WriteData(ctx, data)
 }
 
-// writeMessage sends a message via the legacy simple interface.
+// writeMessage sends what a flow wrote.
+//
+// The payload is read in one place — see payload.go — rather than here, which
+// is how this came to send only `content` and drop the card the flow had built.
 func (c *Connector) writeMessage(ctx context.Context, target string, data interface{}) (interface{}, error) {
-	// If data is already a Message, use it
-	if msg, ok := data.(*Message); ok {
-		if c.config.BotToken != "" && target != "" {
-			return c.sendViaAPI(ctx, msg, target)
-		}
-		return c.Send(ctx, msg)
-	}
-	if msg, ok := data.(Message); ok {
-		if c.config.BotToken != "" && target != "" {
-			return c.sendViaAPI(ctx, &msg, target)
-		}
-		return c.Send(ctx, &msg)
+	msg, err := discordFromData(data)
+	if err != nil {
+		return nil, err
 	}
 
-	// If data is a map, try to build a message
-	if m, ok := data.(map[string]interface{}); ok {
-		msg := &Message{}
-		if content, ok := m["content"].(string); ok {
-			msg.Content = content
-		}
-		if c.config.BotToken != "" && target != "" {
-			return c.sendViaAPI(ctx, msg, target)
-		}
-		return c.Send(ctx, msg)
+	if c.config.BotToken != "" && target != "" {
+		return c.sendViaAPI(ctx, msg, target)
 	}
-
-	// If data is a string, use it as content
-	if content, ok := data.(string); ok {
-		msg := &Message{Content: content}
-		if c.config.BotToken != "" && target != "" {
-			return c.sendViaAPI(ctx, msg, target)
-		}
-		return c.Send(ctx, msg)
-	}
-
-	return nil, fmt.Errorf("unsupported data type for Discord message")
+	return c.Send(ctx, msg)
 }
 
 // Health checks Discord connectivity

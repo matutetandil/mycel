@@ -1,0 +1,13 @@
+# Anything posted here has been through the plugin's sanitiser first: a card
+# number arrives masked, and a tax number never arrives at all.
+flow "sanitized_echo" {
+  from {
+    connector = "api"
+    operation = "POST /sanitized"
+  }
+
+  response {
+    card      = "input.card"
+    reference = "input.reference"
+  }
+}

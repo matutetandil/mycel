@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 )
@@ -56,10 +57,13 @@ func NewSSOService(config *Config, linkingStore LinkedAccountStore, userStore Us
 		states:          make(map[string]*ssoState),
 	}
 
-	// Initialize account linking
+	// Account linking, configured by the sso block. This used to be declared
+	// and left nil with a note saying to use the social config, so the block
+	// deciding how identities attach to accounts had nowhere to arrive and the
+	// defaults applied whatever anyone wrote.
 	var linkingConfig *AccountLinkingConfig
-	if config != nil && config.Social != nil {
-		// Use social config for now
+	if config != nil && config.SSO != nil {
+		linkingConfig = config.SSO.Linking
 	}
 	svc.linking = NewAccountLinkingService(linkingConfig, linkingStore, userStore)
 
@@ -74,50 +78,64 @@ func (s *SSOService) initializeProviders() {
 		return
 	}
 
-	// Get redirect base URL from config
-	redirectBase := s.getRedirectBaseURL()
+	// The address a provider sends the browser back to. It is derived from the
+	// configuration rather than written twice: the endpoints block already says
+	// where the callback lives, and a redirect_uri that disagrees with the
+	// mounted route fails at the provider with an error that names neither.
+	social := s.CallbackURL(false)
+	oidc := s.CallbackURL(true)
 
 	// Initialize social providers
 	if s.config.Social != nil {
 		if s.config.Social.Google != nil {
-			s.socialProviders[ProviderGoogle] = NewGoogleProvider(
-				s.config.Social.Google,
-				redirectBase+"/auth/callback/google",
-			)
+			s.socialProviders[ProviderGoogle] = NewGoogleProvider(s.config.Social.Google, social)
 		}
 		if s.config.Social.GitHub != nil {
-			s.socialProviders[ProviderGitHub] = NewGitHubProvider(
-				s.config.Social.GitHub,
-				redirectBase+"/auth/callback/github",
-			)
+			s.socialProviders[ProviderGitHub] = NewGitHubProvider(s.config.Social.GitHub, social)
 		}
 		if s.config.Social.Apple != nil {
-			s.socialProviders[ProviderApple] = NewAppleProvider(
-				s.config.Social.Apple,
-				redirectBase+"/auth/callback/apple",
-			)
+			s.socialProviders[ProviderApple] = NewAppleProvider(s.config.Social.Apple, social)
 		}
 	}
 
 	// Initialize OIDC providers
 	if s.config.SSO != nil && s.config.SSO.OIDC != nil {
 		for _, oidcConfig := range s.config.SSO.OIDC {
-			provider := NewOIDCProvider(
-				oidcConfig,
-				redirectBase+"/auth/callback/oidc/"+oidcConfig.Name,
-			)
-			s.oidcProviders[oidcConfig.Name] = provider
+			s.oidcProviders[oidcConfig.Name] = NewOIDCProvider(oidcConfig, oidc)
 		}
 	}
 }
 
-func (s *SSOService) getRedirectBaseURL() string {
-	// Try to get from endpoints config
-	if s.config.Endpoints != nil && s.config.Endpoints.Prefix != "" {
-		return s.config.Endpoints.Prefix
+// CallbackURL is the absolute address a provider returns a browser to.
+//
+// One path serves every provider of a family, because the provider is recovered
+// from the state the flow started with rather than from the path. Which family
+// it is decides only the default path, so that the two can be registered
+// separately with a provider if someone wants that.
+func (s *SSOService) CallbackURL(isOIDC bool) string {
+	prefix, path := "/auth", "/social/callback"
+	if isOIDC {
+		path = "/sso/callback"
 	}
-	// Default to relative paths
-	return ""
+
+	if s.config != nil && s.config.Endpoints != nil {
+		if s.config.Endpoints.Prefix != "" {
+			prefix = s.config.Endpoints.Prefix
+		}
+		endpoint := s.config.Endpoints.SocialCallback
+		if isOIDC {
+			endpoint = s.config.Endpoints.SSOCallback
+		}
+		if endpoint != nil && endpoint.Path != "" {
+			path = endpoint.Path
+		}
+	}
+
+	base := ""
+	if s.config != nil {
+		base = strings.TrimSuffix(s.config.BaseURL, "/")
+	}
+	return base + prefix + path
 }
 
 // InitializeOIDCProviders initializes OIDC providers by fetching discovery documents
@@ -269,6 +287,12 @@ type SSOResult struct {
 	Provider          string
 	UserInfo          *OAuth2UserInfo
 	Token             *OAuth2Token
+}
+
+// Linking returns the account linking service, which manages the identities
+// attached to an account after the sign-in that created them.
+func (s *SSOService) Linking() *AccountLinkingService {
+	return s.linking
 }
 
 // ConfirmLink confirms account linking when user approval is needed

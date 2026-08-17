@@ -8,8 +8,10 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -162,7 +164,7 @@ func (p *GitHubProvider) GetUserInfo(ctx context.Context, token *OAuth2Token) (*
 	}
 
 	return &OAuth2UserInfo{
-		ID:            fmt.Sprintf("%v", raw["id"]),
+		ID:            providerID(raw["id"]),
 		Email:         email,
 		EmailVerified: email != "", // GitHub only returns verified emails
 		Name:          getString(raw, "name"),
@@ -489,6 +491,38 @@ func (p *OIDCProvider) applyClaimMappings(raw map[string]interface{}) map[string
 	}
 
 	return result
+}
+
+// providerID renders the identifier a provider gave us as the text it will be
+// stored and looked up under.
+//
+// It exists because GitHub's is a JSON number while every other provider's is a
+// string, and a number decodes into a float64 — which %v renders in exponent
+// form once it is large enough. A GitHub account was recorded under
+// "1.2345678e+07" rather than "12345678": stable enough to log the same person
+// back in, and wrong for anything that compares it with the identifier GitHub
+// itself reports.
+func providerID(v interface{}) string {
+	switch id := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return id
+	case json.Number:
+		return id.String()
+	case float64:
+		// Whole numbers are identifiers, not measurements.
+		if id == math.Trunc(id) && math.Abs(id) < 1e18 {
+			return strconv.FormatInt(int64(id), 10)
+		}
+		return strconv.FormatFloat(id, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(id)
+	case int64:
+		return strconv.FormatInt(id, 10)
+	default:
+		return fmt.Sprintf("%v", id)
+	}
 }
 
 // Helper functions

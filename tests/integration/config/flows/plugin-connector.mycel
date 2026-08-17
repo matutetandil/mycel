@@ -1,0 +1,48 @@
+# Reading from a connector the runtime does not ship.
+flow "plugin_list_stock" {
+  from {
+    connector = "api"
+    operation = "GET /plugin/stock"
+  }
+  to {
+    connector = "stock"
+    target    = "levels"
+  }
+}
+
+# Writing to it.
+flow "plugin_adjust_stock" {
+  from {
+    connector = "api"
+    operation = "POST /plugin/stock"
+  }
+  to {
+    connector = "stock"
+    target    = "levels"
+  }
+}
+
+# And an operation that is neither: a step naming it, which reaches the
+# module's call(). The plugin refuses to reserve more than it holds.
+flow "plugin_reserve_stock" {
+  from {
+    connector = "api"
+    operation = "POST /plugin/stock/reserve"
+  }
+
+  step "reservation" {
+    connector = "stock"
+    operation = "reserve"
+
+    params = {
+      sku      = "input.sku"
+      quantity = "input.quantity"
+    }
+  }
+
+  transform {
+    sku       = "step.reservation.sku"
+    reserved  = "step.reservation.reserved"
+    remaining = "step.reservation.remaining"
+  }
+}

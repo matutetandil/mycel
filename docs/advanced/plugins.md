@@ -53,6 +53,11 @@ flow "sync_contacts" {
 | `">= 1.0, < 3.0"` | Explicit range |
 | `"1.2.3"` | Exact version |
 | `"latest"` | Latest release |
+| `"v2.0.0-rc.1"` | A pre-release, by name |
+
+A pre-release is never resolved by a constraint that does not name it: a
+plugin tagged `v2.0.0-rc.1` is not what `^2.0` or `latest` gets. Naming it
+exactly is the only way to run one.
 
 ## Plugin Management
 
@@ -85,6 +90,16 @@ provides {
   # New connector type
   connector "salesforce" {
     wasm = "connector.wasm"
+
+    # What the connector takes, so somebody configuring it knows which
+    # settings exist, which are required, and which must not be printed.
+    config {
+      instance_url  = string({ required = true, description = "Your Salesforce instance" })
+      client_id     = string({ required = true })
+      client_secret = string({ required = true, sensitive = true })
+      api_version   = string({ default = "v58.0" })
+      timeout       = "number"
+    }
   }
 
   # Custom validator

@@ -1,0 +1,13 @@
+# A transform calling the function the plugin brought.
+flow "plugin_function" {
+  from {
+    connector = "api"
+    operation = "POST /test/function"
+  }
+
+  # A flow with no destination answers from response, not transform.
+  response {
+    original = "input.name"
+    shouted  = "shout(input.name)"
+  }
+}

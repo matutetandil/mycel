@@ -649,7 +649,7 @@ func (b *SchemaBuilder) registerSubscriptionField(fieldName string, handler Hand
 		Description: fmt.Sprintf("Subscription for %s events", fieldName),
 		// Subscribe returns a channel fed by PubSub
 		Subscribe: func(p graphql.ResolveParams) (interface{}, error) {
-			ch := pubsub.Subscribe(topic)
+			ch := pubsub.SubscribeWithFilter(topic, b.subscriberFilter(topic, p.Context))
 
 			// Wrap in a context-aware goroutine to unsubscribe on cancel
 			out := make(chan interface{}, 10)

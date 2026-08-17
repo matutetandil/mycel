@@ -73,29 +73,32 @@ func CreateOptimizedResolverWithOptions(handler HandlerFunc, opts ResolverOption
 		input["__requested_fields"] = fields.ListFlat()
 		input["__requested_top_fields"] = fields.List()
 
-		// Call the flow handler with enriched context
-		result, err := handler(ctx, input)
-		// Fire deferred on_drop closure (no-op on success).
-		flow.FireDropAspect(ctx, result)
-		if err != nil {
-			return nil, err
-		}
+		thunk := startResolution(ctx, p, input, handler)
 
-		// Convert result to GraphQL-compatible format
-		converted := MapResultToGraphQL(result)
+		return func() (interface{}, error) {
+			result, err := thunk()
+			// Fire deferred on_drop closure (no-op on success).
+			flow.FireDropAspect(ctx, result)
+			if err != nil {
+				return nil, err
+			}
 
-		// Apply options
-		if opts.UnwrapSingleResult {
-			converted = unwrapSingleResult(converted)
-		} else if !isListType(p.Info.ReturnType) {
-			// Smart unwrap if not explicitly disabled
-			converted = unwrapSingleResult(converted)
-		}
+			// Convert result to GraphQL-compatible format
+			converted := MapResultToGraphQL(result)
 
-		// Prune result to only include requested fields
-		converted = pruner.Prune(converted, fields)
+			// Apply options
+			if opts.UnwrapSingleResult {
+				converted = unwrapSingleResult(converted)
+			} else if !isListType(p.Info.ReturnType) {
+				// Smart unwrap if not explicitly disabled
+				converted = unwrapSingleResult(converted)
+			}
 
-		return converted, nil
+			// Prune result to only include requested fields
+			converted = pruner.Prune(converted, fields)
+
+			return converted, nil
+		}, nil
 	}
 }
 
@@ -105,23 +108,31 @@ func CreateResolverWithOptions(handler HandlerFunc, opts ResolverOptions) graphq
 		// Build input from GraphQL arguments
 		input := MapArgsToInput(p)
 
-		// Call the flow handler
-		result, err := handler(p.Context, input)
-		// Fire deferred on_drop closure (no-op on success).
-		flow.FireDropAspect(p.Context, result)
-		if err != nil {
-			return nil, err
+		ctx := p.Context
+		if ctx == nil {
+			ctx = context.Background()
 		}
 
-		// Convert result to GraphQL-compatible format
-		converted := MapResultToGraphQL(result)
+		thunk := startResolution(ctx, p, input, handler)
 
-		// Apply options
-		if opts.UnwrapSingleResult {
-			converted = unwrapSingleResult(converted)
-		}
+		return func() (interface{}, error) {
+			result, err := thunk()
+			// Fire deferred on_drop closure (no-op on success).
+			flow.FireDropAspect(ctx, result)
+			if err != nil {
+				return nil, err
+			}
 
-		return converted, nil
+			// Convert result to GraphQL-compatible format
+			converted := MapResultToGraphQL(result)
+
+			// Apply options
+			if opts.UnwrapSingleResult {
+				converted = unwrapSingleResult(converted)
+			}
+
+			return converted, nil
+		}, nil
 	}
 }
 
@@ -147,26 +158,33 @@ func CreateSmartResolver(handler HandlerFunc) graphql.FieldResolveFn {
 		input["__requested_fields"] = fields.ListFlat()
 		input["__requested_top_fields"] = fields.List()
 
-		// Call the flow handler with enriched context
-		result, err := handler(ctx, input)
-		// Fire deferred on_drop closure (no-op on success).
-		flow.FireDropAspect(ctx, result)
-		if err != nil {
-			return nil, err
-		}
+		// Start the work and hand back a thunk. Every sibling registers before
+		// any of them is asked for its value, so the flows overlap instead of
+		// queueing, and two fields asking for the same thing share one run.
+		thunk := startResolution(ctx, p, input, handler)
 
-		// Convert result to GraphQL-compatible format
-		converted := MapResultToGraphQL(result)
+		// The value is completed later, so the shaping happens there too.
+		return func() (interface{}, error) {
+			result, err := thunk()
+			// Fire deferred on_drop closure (no-op on success).
+			flow.FireDropAspect(ctx, result)
+			if err != nil {
+				return nil, err
+			}
 
-		// Check if return type expects a single object (not a list)
-		if !isListType(p.Info.ReturnType) {
-			converted = unwrapSingleResult(converted)
-		}
+			// Convert result to GraphQL-compatible format
+			converted := MapResultToGraphQL(result)
 
-		// Prune result to only include requested fields (safety net)
-		converted = pruner.Prune(converted, fields)
+			// Check if return type expects a single object (not a list)
+			if !isListType(p.Info.ReturnType) {
+				converted = unwrapSingleResult(converted)
+			}
 
-		return converted, nil
+			// Prune result to only include requested fields (safety net)
+			converted = pruner.Prune(converted, fields)
+
+			return converted, nil
+		}, nil
 	}
 }
 
@@ -291,24 +309,49 @@ func MapResultToGraphQL(result interface{}) interface{} {
 	}
 }
 
-// convertKeysToCamelCase converts all snake_case keys in a map to camelCase.
+// convertKeysToCamelCase offers every snake_case key under its camelCase
+// spelling as well, which is what a GraphQL schema usually calls it.
+//
+// Both spellings, not one. Renaming the key outright meant a field declared
+// the way the database spells it — `created_at: String`, which is perfectly
+// legal GraphQL and what someone mirroring their columns writes — resolved to
+// null, because the only key left in the row was `createdAt`. Nothing failed;
+// the field was simply empty. A field reads the one key it is named with, so
+// carrying both costs nothing and answers either.
 func convertKeysToCamelCase(m map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{}, len(m))
-	for key, value := range m {
-		camelKey := snakeToCamel(key)
-		// Recursively convert nested maps
+
+	convert := func(value interface{}) interface{} {
 		if nestedMap, ok := value.(map[string]interface{}); ok {
-			result[camelKey] = convertKeysToCamelCase(nestedMap)
-		} else if nestedSlice, ok := value.([]map[string]interface{}); ok {
+			return convertKeysToCamelCase(nestedMap)
+		}
+		if nestedSlice, ok := value.([]map[string]interface{}); ok {
 			converted := make([]map[string]interface{}, len(nestedSlice))
 			for i, item := range nestedSlice {
 				converted[i] = convertKeysToCamelCase(item)
 			}
-			result[camelKey] = converted
-		} else {
-			result[camelKey] = value
+			return converted
 		}
+		return value
 	}
+
+	for key, value := range m {
+		result[key] = convert(value)
+	}
+
+	// The camelCase spellings go in afterwards so that a key the row already
+	// holds under that name is never overwritten by a converted one.
+	for key, value := range m {
+		camelKey := snakeToCamel(key)
+		if camelKey == key {
+			continue
+		}
+		if _, taken := m[camelKey]; taken {
+			continue
+		}
+		result[camelKey] = convert(value)
+	}
+
 	return result
 }
 

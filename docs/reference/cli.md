@@ -16,8 +16,8 @@ mycel start [flags]
 | `--env` | `development` | Environment name (overrides `MYCEL_ENV`) |
 | `--log-level` | `info` | Log level: `debug`, `info`, `warn`, `error` |
 | `--log-format` | `text` | Log format: `text` or `json` |
-| `--mock` | — | Enable mock for specific connector (repeatable) |
-| `--no-mock` | — | Disable mock for specific connector (repeatable) |
+| `--mock` | — | Mock these connectors, or `all` (repeatable, or comma-separated) |
+| `--no-mock` | — | Do not mock these connectors, or `all` (repeatable, or comma-separated) |
 
 **Examples:**
 
@@ -31,11 +31,17 @@ mycel start --config ./my-service
 # Start in production mode
 mycel start --env production --log-format json
 
-# Start with all connectors mocked
+# Start with these two connectors mocked (turns mocking on)
 mycel start --mock=db --mock=external_api
 
-# Start with all mocks except payment service
-mycel start --no-mock=stripe
+# The same, written as one flag
+mycel start --mock=db,external_api
+
+# Mock everything except the payment service
+mycel start --mock=all --no-mock=stripe
+
+# Turn off mocking a configuration file leaves on
+mycel start --no-mock=all
 ```
 
 ### `mycel validate`

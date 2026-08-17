@@ -48,11 +48,11 @@ connector "external_api" {
 | `base_url` | string | — | Base URL for all requests |
 | `timeout` | duration | `"30s"` | Request timeout |
 | `auth.type` | string | — | Auth method: `bearer`, `api_key`, `basic`, `oauth2` |
-| `retry.attempts` | int | `1` | Maximum retry attempts. The connector applies a fixed exponential backoff. |
+| `retry.attempts` | int | `1` | Maximum retry attempts. See [HTTP Client](../core-concepts/connectors.md#http-client) for `delay`, `max_delay` and `backoff`. |
 | `retry_count` | int | — | Shorthand for `retry { attempts = N }`. |
 | `tls.ca_cert` | string | — | Path to a custom CA certificate (PEM) used to verify the server. |
-| `tls.client_cert` | string | — | Path to client certificate (PEM) for mTLS. |
-| `tls.client_key` | string | — | Path to client private key (PEM) for mTLS. |
+| `tls.cert` | string | — | Path to client certificate (PEM) for mTLS. |
+| `tls.key` | string | — | Path to client private key (PEM) for mTLS. |
 | `tls.insecure_skip_verify` | bool | `false` | Disable TLS certificate verification. **Dev only — never use in production.** |
 
 ### TLS
@@ -74,9 +74,9 @@ For mutual TLS, add the client certificate pair:
 
 ```hcl
 tls {
-  ca_cert     = "/etc/ssl/ca.pem"
-  client_cert = "/etc/ssl/client.pem"
-  client_key  = "/etc/ssl/client.key"
+  ca_cert = "/etc/ssl/ca.pem"
+  cert    = "/etc/ssl/client.pem"
+  key     = "/etc/ssl/client.key"
 }
 ```
 
@@ -94,6 +94,8 @@ connector "magento" {
 ```
 
 When `insecure_skip_verify` is enabled, Mycel logs a single `WARN` at connector startup with the connector name and base URL — loud enough that an accidental production deploy is obvious in the logs.
+
+The block is the same on every connector that speaks TLS — see [TLS](../core-concepts/connectors.md#tls) for the full attribute list and for the older `client_cert` / `client_key` names, which are still accepted.
 
 ### Wrapping the request body — `envelope`
 

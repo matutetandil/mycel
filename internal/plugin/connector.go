@@ -121,6 +121,14 @@ func (c *WASMConnector) Close(ctx context.Context) error {
 		_, _ = c.callWASM("close", nil)
 	}
 
+	// And give the module back. The name it is loaded under belongs to this
+	// connector, so a reload that drops the connector should not leave its
+	// compiled module in the shared runtime for the life of the process.
+	if runtime, err := getWASMRuntime(); err == nil {
+		_ = runtime.UnloadModule("plugin_" + c.typeName + "_" + c.name)
+	}
+	c.module = nil
+
 	c.connected = false
 	return nil
 }
@@ -288,8 +296,17 @@ func (c *WASMConnector) parseResult(result interface{}) (*connector.Result, erro
 
 	connResult := &connector.Result{}
 
-	// Extract data (stored in Rows)
-	if data, ok := resultMap["data"]; ok {
+	// Extract data (stored in Rows).
+	//
+	// "rows" as well as "data": a plugin author writing a connector reaches
+	// for the word the runtime itself uses for what a read answers, and a
+	// module that answered with rows had them dropped on the floor — the
+	// read came back empty with nothing to say why.
+	data, ok := resultMap["data"]
+	if !ok {
+		data, ok = resultMap["rows"]
+	}
+	if ok {
 		switch d := data.(type) {
 		case []interface{}:
 			connResult.Rows = make([]map[string]interface{}, len(d))

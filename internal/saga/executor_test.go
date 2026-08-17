@@ -3,6 +3,7 @@ package saga
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
@@ -583,5 +584,118 @@ func TestExecutor_NoCompensateBlock(t *testing.T) {
 	// Only 1 write to db (the action), no compensate
 	if len(db.writes) != 1 {
 		t.Errorf("expected 1 write (no compensate block), got %d", len(db.writes))
+	}
+}
+
+// The two entry points the workflow engine uses. A saga that outlives the
+// request that started it does not run through Execute: the engine drives one
+// step at a time so it can persist what happened between them, and calls back
+// separately on completion, on failure, and to compensate. Nothing exercised
+// either, so the long-running path was covered only where it overlapped the
+// short one.
+
+func TestTheEngineRunsOneStepAtATime(t *testing.T) {
+	db := &mockConnector{name: "orders_db", failAt: -1}
+	exec := NewExecutor(&mockRegistry{connectors: map[string]connector.Connector{"orders_db": db}})
+
+	step := &StepConfig{
+		Name: "reserve",
+		Action: &ActionConfig{
+			Connector: "orders_db",
+			Operation: "INSERT",
+			Target:    "reservations",
+			Data:      map[string]interface{}{"order_id": "input.order_id"},
+		},
+	}
+
+	result, err := exec.ExecuteStep(context.Background(), step,
+		map[string]interface{}{"order_id": "order-1"}, map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("ExecuteStep: %v", err)
+	}
+	if result == nil {
+		t.Error("the step returned nothing, so a later step referring to it has nothing to read")
+	}
+	if len(db.writes) != 1 {
+		t.Fatalf("%d writes, want one", len(db.writes))
+	}
+	// The expression was resolved against the input rather than written
+	// through as text.
+	if got := db.writes[0].Payload["order_id"]; got != "order-1" {
+		t.Errorf("order_id = %v, want the value from the input", got)
+	}
+}
+
+func TestAStepWithNothingToDoIsNotAFailure(t *testing.T) {
+	// A step that only marks a place in the sequence — the engine still has to
+	// record it and move on.
+	exec := NewExecutor(&mockRegistry{connectors: map[string]connector.Connector{}})
+
+	result, err := exec.ExecuteStep(context.Background(), &StepConfig{Name: "noop"}, nil, nil)
+	if err != nil {
+		t.Fatalf("ExecuteStep: %v", err)
+	}
+	if result != nil {
+		t.Errorf("result = %v, want nothing", result)
+	}
+}
+
+func TestACallbackSeesWhatTheStepsProduced(t *testing.T) {
+	// on_complete and on_failure are how a saga tells somebody what happened,
+	// and they are worth nothing if they cannot name the order.
+	notify := &mockConnector{name: "notifications", failAt: -1}
+	exec := NewExecutor(&mockRegistry{connectors: map[string]connector.Connector{
+		"notifications": notify,
+	}})
+
+	_, err := exec.ExecuteAction(context.Background(), &ActionConfig{
+		Connector: "notifications",
+		Operation: "INSERT",
+		Target:    "outbox",
+		Data: map[string]interface{}{
+			"order_id": "input.order_id",
+			"charge":   "step.charge.charge_id",
+		},
+	}, map[string]interface{}{"order_id": "order-1"},
+		map[string]interface{}{"charge": map[string]interface{}{"charge_id": "ch_123"}})
+	if err != nil {
+		t.Fatalf("ExecuteAction: %v", err)
+	}
+
+	if len(notify.writes) != 1 {
+		t.Fatalf("%d writes, want one", len(notify.writes))
+	}
+	payload := notify.writes[0].Payload
+	if payload["order_id"] != "order-1" {
+		t.Errorf("order_id = %v", payload["order_id"])
+	}
+	// What an earlier step returned, which is the only way a compensation
+	// knows what to undo.
+	if payload["charge"] != "ch_123" {
+		t.Errorf("charge = %v, want what the charge step returned", payload["charge"])
+	}
+}
+
+func TestAnActionNamingAConnectorNobodyDeclaredIsReported(t *testing.T) {
+	exec := NewExecutor(&mockRegistry{connectors: map[string]connector.Connector{}})
+
+	_, err := exec.ExecuteAction(context.Background(), &ActionConfig{
+		Connector: "a_connector_nobody_declared", Operation: "INSERT", Target: "t",
+	}, nil, nil)
+	if err == nil {
+		t.Fatal("an action against a connector that does not exist reported success")
+	}
+	if !strings.Contains(err.Error(), "a_connector_nobody_declared") {
+		t.Errorf("error = %q, want it to name the connector", err)
+	}
+}
+
+func TestAnActionWithNoConnectorDoesNothing(t *testing.T) {
+	// A compensation left as a TODO must not fail the rollback around it.
+	exec := NewExecutor(&mockRegistry{connectors: map[string]connector.Connector{}})
+
+	result, err := exec.ExecuteAction(context.Background(), &ActionConfig{}, nil, nil)
+	if err != nil || result != nil {
+		t.Errorf("result = %v, err = %v, want nothing at all", result, err)
 	}
 }

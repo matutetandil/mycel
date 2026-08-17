@@ -36,22 +36,23 @@ connector "sensors" {
   client_id = "mycel-secure"
 
   tls {
-    enabled  = true
-    cert     = "/certs/client.crt"
-    key      = "/certs/client.key"
-    ca       = "/certs/ca.crt"
-    insecure = false
+    cert    = "/certs/client.crt"
+    key     = "/certs/client.key"
+    ca_cert = "/certs/ca.crt"
   }
 }
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `tls.enabled` | bool | `false` | Enable TLS |
+| `tls.enabled` | bool | `true` when the block is present | Enable TLS |
 | `tls.cert` | string | — | Client certificate file |
 | `tls.key` | string | — | Client private key file |
-| `tls.ca` | string | — | CA certificate file |
-| `tls.insecure` | bool | `false` | Skip server certificate verification |
+| `tls.ca_cert` | string | — | CA certificate file |
+| `tls.insecure_skip_verify` | bool | `false` | Skip server certificate verification. Development only |
+
+The block is the same on every connector that speaks TLS — see
+[TLS](../core-concepts/connectors.md#tls).
 
 ## Operations
 

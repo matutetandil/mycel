@@ -2,7 +2,9 @@ package rest
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
@@ -70,20 +72,43 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 
 	// Configure authentication if present
 	if authMap := cfg.GetMap("auth"); authMap != nil {
-		authConfig := parseAuthConfig(authMap)
+		authConfig, err := parseAuthConfig(authMap)
+		if err != nil {
+			return nil, fmt.Errorf("rest connector %q: %w", cfg.Name, err)
+		}
 		conn.SetAuthConfig(authConfig)
 	}
 
 	return conn, nil
 }
 
+// AuthConfigFromMap builds an AuthConfig from the map an auth block parses to.
+//
+// Exported because the workflow API is checked the same way a REST connector
+// is — the same block, the same words, the same validators — and the
+// alternative was a second vocabulary meaning the same thing.
+func AuthConfigFromMap(authMap map[string]interface{}) (*AuthConfig, error) {
+	return parseAuthConfig(authMap)
+}
+
 // parseAuthConfig parses auth configuration from HCL map.
-func parseAuthConfig(authMap map[string]interface{}) *AuthConfig {
+//
+// The type is read without regard to case — the word is also the name of a
+// scheme, so it gets written the way documentation spells it — and a type the
+// server cannot honour is refused here. Reading it strictly left the settings
+// underneath unparsed and turned away every request with "unknown auth type",
+// while the file looked correct.
+func parseAuthConfig(authMap map[string]interface{}) (*AuthConfig, error) {
 	cfg := &AuthConfig{}
 
 	// Get auth type
-	if t, ok := authMap["type"].(string); ok {
-		cfg.Type = t
+	if t, ok := authMap["type"].(string); ok && t != "" {
+		cfg.Type = strings.ToLower(t)
+		switch cfg.Type {
+		case "jwt", "api_key", "basic":
+		default:
+			return nil, fmt.Errorf("auth type %q is not one of: jwt, api_key, basic", t)
+		}
 	}
 
 	// Get public paths
@@ -129,7 +154,7 @@ func parseAuthConfig(authMap map[string]interface{}) *AuthConfig {
 		cfg.Basic = parseBasicConfig(authMap)
 	}
 
-	return cfg
+	return cfg, nil
 }
 
 // parseJWTConfig parses JWT authentication configuration.

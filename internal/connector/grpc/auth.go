@@ -6,7 +6,9 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"github.com/matutetandil/mycel/v2/internal/jwks"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -215,9 +217,10 @@ func (a *AuthInterceptor) validateJWTToken(tokenString string) (map[string]inter
 	if cfg.Issuer != "" {
 		parserOpts = append(parserOpts, jwt.WithIssuer(cfg.Issuer))
 	}
-	if len(cfg.Audience) > 0 {
-		parserOpts = append(parserOpts, jwt.WithAudience(cfg.Audience[0]))
-	}
+	// Audience is checked below rather than here: a list means any of them is
+	// acceptable — the REST connector reads it that way, and a service fronting
+	// two audiences during a migration needs it — while the parser option takes
+	// a single value, so every entry after the first did nothing.
 
 	// Parse token
 	parser := jwt.NewParser(parserOpts...)
@@ -270,7 +273,38 @@ func (a *AuthInterceptor) validateJWTToken(tokenString string) (map[string]inter
 		return nil, fmt.Errorf("invalid claims format")
 	}
 
+	if len(cfg.Audience) > 0 && !audienceAccepted(claims, cfg.Audience) {
+		return nil, fmt.Errorf("token audience is not one of: %s", strings.Join(cfg.Audience, ", "))
+	}
+
 	return claims, nil
+}
+
+// audienceAccepted reports whether the token was minted for any of the
+// audiences this service answers for. The claim is a string or a list of them.
+func audienceAccepted(claims jwt.MapClaims, accepted []string) bool {
+	var carried []string
+	switch aud := claims["aud"].(type) {
+	case string:
+		carried = []string{aud}
+	case []interface{}:
+		for _, entry := range aud {
+			if s, ok := entry.(string); ok {
+				carried = append(carried, s)
+			}
+		}
+	case []string:
+		carried = aud
+	}
+
+	for _, want := range accepted {
+		for _, got := range carried {
+			if got == want {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // getJWKSKey fetches the verification key from JWKS endpoint.
@@ -482,46 +516,12 @@ func (c *jwksCache) fetchJWKS(url string) error {
 
 // parseRSAPublicKey parses RSA public key from JWK parameters.
 func parseRSAPublicKey(n, e string) (interface{}, error) {
-	// Base64url decode N and E
-	nBytes, err := jwt.NewParser().DecodeSegment(n)
-	if err != nil {
-		return nil, err
-	}
-	eBytes, err := jwt.NewParser().DecodeSegment(e)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert E to int
-	var eInt int
-	for _, b := range eBytes {
-		eInt = eInt<<8 + int(b)
-	}
-
-	return &struct {
-		N []byte
-		E int
-	}{N: nBytes, E: eInt}, nil
+	return jwks.PublicKey(jwks.Key{Kty: "RSA", N: n, E: e})
 }
 
-// parseECPublicKey parses EC public key from JWK parameters.
+// parseECPublicKey builds an EC public key from JWK parameters.
 func parseECPublicKey(crv, x, y string) (interface{}, error) {
-	// For EC keys, we need to parse and create ecdsa.PublicKey
-	// This is a simplified implementation
-	xBytes, err := jwt.NewParser().DecodeSegment(x)
-	if err != nil {
-		return nil, err
-	}
-	yBytes, err := jwt.NewParser().DecodeSegment(y)
-	if err != nil {
-		return nil, err
-	}
-
-	return &struct {
-		Curve string
-		X     []byte
-		Y     []byte
-	}{Curve: crv, X: xBytes, Y: yBytes}, nil
+	return jwks.PublicKey(jwks.Key{Kty: "EC", Crv: crv, X: x, Y: y})
 }
 
 // BuildMTLSConfig builds TLS config for mTLS authentication.
@@ -554,9 +554,23 @@ func BuildMTLSConfig(tlsCfg *TLSConfig) (*tls.Config, error) {
 	return config, nil
 }
 
-// loadCACert loads CA certificate pool from file.
+// loadCACert loads the authority that client certificates are checked against.
+//
+// This used to return the system pool and ignore the file entirely, which is
+// worse than not implementing it: a server configured for mTLS against a
+// private authority started, reported nothing, and then refused every client
+// it was set up to accept — because the certificates were checked against the
+// public roots instead. An authority that cannot be loaded is refused here, at
+// startup, where the path can be fixed.
 func loadCACert(caFile string) (*x509.CertPool, error) {
-	// Note: Implementation would read the file and parse certificates
-	// For now, return system pool as placeholder
-	return x509.SystemCertPool()
+	pem, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA file %s: %w", caFile, err)
+	}
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("no certificate found in CA file %s", caFile)
+	}
+	return pool, nil
 }

@@ -76,14 +76,24 @@ func NewTokenManager(config *JWTConfig) (*TokenManager, error) {
 		tm.signingKey = privateKey
 		tm.verifyKey = publicKey
 
-	default:
-		// Default to HS256
+	case "":
+		// Nothing chosen is the ordinary case: sign with the shared secret.
 		if config.Secret == "" {
 			return nil, errors.New("secret is required")
 		}
 		config.Algorithm = "HS256"
 		tm.signingKey = []byte(config.Secret)
 		tm.verifyKey = []byte(config.Secret)
+
+	default:
+		// A word this cannot honour used to fall through to HS256. Somebody
+		// who wrote RS256 with a typo, and a secret beside it, then believed
+		// tokens could only be minted with a private key while in fact anyone
+		// holding the shared secret could mint them. An algorithm nobody
+		// implements is refused by name.
+		return nil, fmt.Errorf(
+			"jwt algorithm %q is not one of: HS256, HS384, HS512, RS256, RS384, RS512, ES256, ES384, ES512",
+			config.Algorithm)
 	}
 
 	return tm, nil

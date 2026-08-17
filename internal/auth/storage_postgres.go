@@ -41,16 +41,38 @@ func (s *PostgresUserStore) getTableName() string {
 
 // getFields returns the configured field mappings
 func (s *PostgresUserStore) getFields() *UserFieldsConfig {
-	if s.config != nil && s.config.Fields != nil {
-		return s.config.Fields
+	fields := defaultUserFields()
+	if s.config == nil || s.config.Fields == nil {
+		return fields
 	}
-	return &UserFieldsConfig{
-		ID:           "id",
-		Email:        "email",
-		PasswordHash: "password_hash",
-		CreatedAt:    "created_at",
-		UpdatedAt:    "updated_at",
+
+	// Each name that was written wins; the rest keep the usual one.
+	//
+	// The block used to be taken whole, so naming one column emptied the
+	// others — and the ordinary reason to write this block at all is to turn
+	// roles on, which produced INSERT INTO users (, , , , , roles). A syntax
+	// error on the first registration, from a configuration that reads
+	// exactly like the documentation.
+	written := s.config.Fields
+	if written.ID != "" {
+		fields.ID = written.ID
 	}
+	if written.Email != "" {
+		fields.Email = written.Email
+	}
+	if written.PasswordHash != "" {
+		fields.PasswordHash = written.PasswordHash
+	}
+	if written.CreatedAt != "" {
+		fields.CreatedAt = written.CreatedAt
+	}
+	if written.UpdatedAt != "" {
+		fields.UpdatedAt = written.UpdatedAt
+	}
+	// Roles has no default: naming the column is what turns them on.
+	fields.Roles = written.Roles
+
+	return fields
 }
 
 // Create creates a new user
@@ -58,22 +80,24 @@ func (s *PostgresUserStore) Create(ctx context.Context, user *User) error {
 	table := s.getTableName()
 	fields := s.getFields()
 
-	query := fmt.Sprintf(`
-		INSERT INTO %s (%s, %s, %s, %s, %s)
-		VALUES ($1, $2, $3, $4, $5)
-	`, table, fields.ID, fields.Email, fields.PasswordHash, fields.CreatedAt, fields.UpdatedAt)
-
 	now := time.Now()
 	user.CreatedAt = now
 	user.UpdatedAt = now
 
-	_, err := s.db.ExecContext(ctx, query,
-		user.ID,
-		user.Email,
-		user.PasswordHash,
-		user.CreatedAt,
-		user.UpdatedAt,
-	)
+	columns := fmt.Sprintf("%s, %s, %s, %s, %s",
+		fields.ID, fields.Email, fields.PasswordHash, fields.CreatedAt, fields.UpdatedAt)
+	placeholders := "$1, $2, $3, $4, $5"
+	args := []interface{}{user.ID, user.Email, user.PasswordHash, user.CreatedAt, user.UpdatedAt}
+
+	if column := rolesColumn(fields); column != "" {
+		columns += ", " + column
+		placeholders += ", $6"
+		args = append(args, encodeRoles(user.Roles))
+	}
+
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, columns, placeholders)
+
+	_, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		// Check for unique constraint violation
 		if isUniqueViolation(err) {
@@ -90,27 +114,20 @@ func (s *PostgresUserStore) GetByID(ctx context.Context, id string) (*User, erro
 	table := s.getTableName()
 	fields := s.getFields()
 
-	query := fmt.Sprintf(`
-		SELECT %s, %s, %s, %s, %s
-		FROM %s
-		WHERE %s = $1
-	`, fields.ID, fields.Email, fields.PasswordHash, fields.CreatedAt, fields.UpdatedAt,
-		table, fields.ID)
+	columns, rolesCol := userColumns(fields)
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = $1", columns, table, fields.ID)
 
 	user := &User{}
-	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&user.ID,
-		&user.Email,
-		&user.PasswordHash,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
+	targets, storedRoles := userScanTargets(user, rolesCol)
+
+	err := s.db.QueryRowContext(ctx, query, id).Scan(targets...)
 	if err == sql.ErrNoRows {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user by ID: %w", err)
 	}
+	applyStoredRoles(user, rolesCol, storedRoles)
 
 	return user, nil
 }
@@ -120,27 +137,20 @@ func (s *PostgresUserStore) GetByEmail(ctx context.Context, email string) (*User
 	table := s.getTableName()
 	fields := s.getFields()
 
-	query := fmt.Sprintf(`
-		SELECT %s, %s, %s, %s, %s
-		FROM %s
-		WHERE %s = $1
-	`, fields.ID, fields.Email, fields.PasswordHash, fields.CreatedAt, fields.UpdatedAt,
-		table, fields.Email)
+	columns, rolesCol := userColumns(fields)
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = $1", columns, table, fields.Email)
 
 	user := &User{}
-	err := s.db.QueryRowContext(ctx, query, email).Scan(
-		&user.ID,
-		&user.Email,
-		&user.PasswordHash,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
+	targets, storedRoles := userScanTargets(user, rolesCol)
+
+	err := s.db.QueryRowContext(ctx, query, email).Scan(targets...)
 	if err == sql.ErrNoRows {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user by email: %w", err)
 	}
+	applyStoredRoles(user, rolesCol, storedRoles)
 
 	return user, nil
 }
@@ -152,18 +162,20 @@ func (s *PostgresUserStore) Update(ctx context.Context, user *User) error {
 
 	user.UpdatedAt = time.Now()
 
-	query := fmt.Sprintf(`
-		UPDATE %s
-		SET %s = $1, %s = $2, %s = $3
-		WHERE %s = $4
-	`, table, fields.Email, fields.PasswordHash, fields.UpdatedAt, fields.ID)
+	assignments := fmt.Sprintf("%s = $1, %s = $2, %s = $3", fields.Email, fields.PasswordHash, fields.UpdatedAt)
+	args := []interface{}{user.Email, user.PasswordHash, user.UpdatedAt}
+	next := 4
 
-	result, err := s.db.ExecContext(ctx, query,
-		user.Email,
-		user.PasswordHash,
-		user.UpdatedAt,
-		user.ID,
-	)
+	if column := rolesColumn(fields); column != "" {
+		assignments += fmt.Sprintf(", %s = $%d", column, next)
+		args = append(args, encodeRoles(user.Roles))
+		next++
+	}
+
+	args = append(args, user.ID)
+	query := fmt.Sprintf("UPDATE %s SET %s WHERE %s = $%d", table, assignments, fields.ID, next)
+
+	result, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return ErrUserAlreadyExists

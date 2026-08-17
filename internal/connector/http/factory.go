@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
@@ -48,10 +49,25 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 	// Get retry count (optional, default 1). Accepts numeric and string values
 	// so retry_count = env("RETRY", "3") works.
 	retryCount := connector.IntFromProps(cfg.Properties, "retry_count", 1)
+	retryPolicy := DefaultRetryPolicy(retryCount)
 	// Nested retry block takes precedence over the shorthand.
 	if retry, ok := cfg.Properties["retry"].(map[string]interface{}); ok {
 		if attempts, ok := connector.IntFromPropsStrict(retry, "attempts"); ok {
 			retryCount = attempts
+			retryPolicy.Attempts = attempts
+		}
+		if d, ok := retry["delay"].(string); ok {
+			if parsed, err := time.ParseDuration(d); err == nil {
+				retryPolicy.Delay = parsed
+			}
+		}
+		if d, ok := retry["max_delay"].(string); ok {
+			if parsed, err := time.ParseDuration(d); err == nil {
+				retryPolicy.MaxDelay = parsed
+			}
+		}
+		if b, ok := retry["backoff"].(string); ok {
+			retryPolicy.Backoff = b
 		}
 	}
 
@@ -68,17 +84,25 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 	// Parse auth config (optional)
 	var auth *AuthConfig
 	if authCfg, ok := cfg.Properties["auth"].(map[string]interface{}); ok {
-		auth = parseAuthConfig(authCfg)
+		var err error
+		if auth, err = parseAuthConfig(authCfg); err != nil {
+			return nil, fmt.Errorf("http connector %q: %w", cfg.Name, err)
+		}
 	}
 
-	// Parse TLS config (optional)
+	// Parse TLS config (optional). Writing the block is the opt-in, so it is
+	// applied unless it says enabled = false — which is how the setting can be
+	// driven from the environment without deleting the certificates.
 	var tlsCfg *TLSConfig
 	if tlsMap, ok := cfg.Properties["tls"].(map[string]interface{}); ok {
-		tlsCfg = parseTLSConfig(tlsMap)
+		if enabled, set := connector.BoolFromPropsStrict(tlsMap, "enabled"); !set || enabled {
+			tlsCfg = parseTLSConfig(tlsMap)
+		}
 	}
 
 	// Create connector with TLS
-	conn := NewWithTLS(cfg.Name, baseURL, timeout, auth, tlsCfg, headers, retryCount)
+	conn := NewWithTLS(cfg.Name, baseURL, timeout, auth, tlsCfg, headers, retryCount).
+		WithRetryPolicy(retryPolicy)
 
 	// Set format if configured (default: json)
 	if format, ok := cfg.Properties["format"].(string); ok && format != "" {
@@ -89,14 +113,19 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 }
 
 // parseAuthConfig parses authentication configuration from HCL.
-func parseAuthConfig(cfg map[string]interface{}) *AuthConfig {
+//
+// A type the client cannot honour is refused rather than quietly becoming no
+// authentication: a connector built that way sends every request without
+// credentials, and the 401s that come back look like somebody else's problem.
+func parseAuthConfig(cfg map[string]interface{}) (*AuthConfig, error) {
 	auth := &AuthConfig{
 		Type: AuthTypeNone,
 	}
 
-	// Get auth type
-	if t, ok := cfg["type"].(string); ok {
-		switch t {
+	// Get auth type. Compared without regard to case, because the word is also
+	// the name of an HTTP scheme and gets written the way headers spell it.
+	if t, ok := cfg["type"].(string); ok && t != "" {
+		switch strings.ToLower(t) {
 		case "bearer":
 			auth.Type = AuthTypeBearer
 		case "oauth2":
@@ -107,6 +136,9 @@ func parseAuthConfig(cfg map[string]interface{}) *AuthConfig {
 			auth.Type = AuthTypeAPIKey
 		case "basic":
 			auth.Type = AuthTypeBasic
+		default:
+			return nil, fmt.Errorf(
+				"auth type %q is not one of: bearer, oauth2, client_credentials, api_key, basic", t)
 		}
 	}
 
@@ -164,23 +196,26 @@ func parseAuthConfig(cfg map[string]interface{}) *AuthConfig {
 		auth.Password = password
 	}
 
-	return auth
+	return auth, nil
 }
 
 // parseTLSConfig parses TLS configuration from HCL.
+//
+// The names are the canonical ones; the parser folds client_cert and
+// client_key, which this connector used to read directly, onto cert and key.
 func parseTLSConfig(cfg map[string]interface{}) *TLSConfig {
 	tls := &TLSConfig{}
 
 	if caCert, ok := cfg["ca_cert"].(string); ok {
 		tls.CACert = caCert
 	}
-	if clientCert, ok := cfg["client_cert"].(string); ok {
+	if clientCert, ok := cfg["cert"].(string); ok {
 		tls.ClientCert = clientCert
 	}
-	if clientKey, ok := cfg["client_key"].(string); ok {
+	if clientKey, ok := cfg["key"].(string); ok {
 		tls.ClientKey = clientKey
 	}
-	if insecure, ok := cfg["insecure_skip_verify"].(bool); ok {
+	if insecure, ok := connector.BoolFromPropsStrict(cfg, "insecure_skip_verify"); ok {
 		tls.InsecureSkipVerify = insecure
 	}
 

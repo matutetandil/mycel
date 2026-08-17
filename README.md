@@ -189,7 +189,7 @@ For when one `from → to` isn't enough: multiple steps, routing, reuse, long-ru
 | [Transactional Writes](examples/transactional-write) | Atomic, iterative, multi-statement DB writes: `to { transaction { } }` with `exec`/`each`, `LAST_INSERT_ID`/SELECT capture, all-or-nothing commit |
 | [Sagas](examples/saga) | Distributed transactions with automatic compensation, delay/await steps, workflow persistence ([docs](docs/guides/sagas.md)) |
 | [State Machines](examples/state-machine) | Entity lifecycle with guards, actions, final states ([docs](docs/guides/sagas.md#state-machines)) |
-| [Long-Running Workflows](examples/workflows) | Persistent workflows with delay timers, await/signal events, timeout enforcement, REST API ([docs](docs/guides/sagas.md#long-running-workflows)) |
+| [Long-Running Workflows](examples/workflows) | Persistent workflows with delay timers, await/signal events, timeout enforcement, an authenticated HTTP interface on its own port ([docs](docs/guides/sagas.md#long-running-workflows)) |
 | [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([docs](docs/guides/batch-processing.md)) |
 | [Scheduled Jobs](examples/scheduled) | Cron expressions and interval-based flow triggers |
 | [Aspects (AOP)](examples/aspects) | Cross-cutting concerns (audit, metrics, alerting) applied across flows by name pattern ([docs](docs/core-concepts/aspects.md)) |

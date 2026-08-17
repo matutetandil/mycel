@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -20,7 +21,11 @@ type Manager struct {
 	sessionStore    SessionStore
 	tokenStore      TokenStore
 	bruteForceStore BruteForceStore
+	bruteForce      *BruteForceService
+	sso             *SSOService
+	rateLimiter     *PerKeyRateLimiter
 	mfaStore        MFAStore
+	auditStore      AuditStore
 
 	// Components
 	tokenManager      *TokenManager
@@ -99,8 +104,15 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 		logger: slog.Default(),
 	}
 
-	// Apply options
+	// Apply options. An option that is nil is skipped rather than crashing the
+	// process: the runtime assembles this list from whatever storage the
+	// configuration names, and one branch returning nothing would otherwise
+	// take the whole service down at startup with a segmentation fault instead
+	// of a message.
 	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
 		opt(m)
 	}
 
@@ -109,13 +121,40 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 		m.userStore = NewMemoryUserStore()
 	}
 	if m.sessionStore == nil {
-		m.sessionStore = NewMemorySessionStore()
+		// The idle-capable one, so that sessions { idle_timeout } is enforced
+		// out of the box rather than only when a store is supplied by hand.
+		m.sessionStore = NewMemorySessionStoreWithIdle()
 	}
 	if m.tokenStore == nil {
 		m.tokenStore = NewMemoryTokenStore()
 	}
 	if m.bruteForceStore == nil {
 		m.bruteForceStore = NewMemoryBruteForceStore()
+	}
+
+	// Brute-force protection lives in one place. The manager used to carry its
+	// own copy of the counting and locking, which worked but knew nothing about
+	// progressive delays — so a progressive_delay block parsed, validated and
+	// did nothing.
+	if config.Security != nil {
+		m.bruteForce = NewBruteForceService(config.Security.BruteForce, m.bruteForceStore)
+	} else {
+		m.bruteForce = NewBruteForceService(nil, m.bruteForceStore)
+	}
+
+	// Rate limiting for the auth endpoints, which is a different question from
+	// the connector's own limit: this one counts per endpoint and per caller,
+	// so five login attempts a minute does not also cap the rest of the API.
+	// Brute force locks one account; this refuses a flood across many.
+	if config.Security != nil && config.Security.RateLimit != nil {
+		m.rateLimiter = NewPerKeyRateLimiter(config.Security.RateLimit)
+	}
+
+	// Single sign-on, when a provider is configured. Writing the block is the
+	// whole of the setup: the providers are built from it, and the endpoints
+	// that drive them are mounted from the same configuration.
+	if config.Social != nil || config.SSO != nil {
+		m.sso = NewSSOService(config, NewMemoryLinkedAccountStore(), m.userStore, m.logger)
 	}
 
 	// Initialize token manager
@@ -151,6 +190,18 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 }
 
 // Config returns the auth configuration
+// RateLimiter returns the auth endpoint rate limiter, or nil when none is
+// configured.
+func (m *Manager) RateLimiter() *PerKeyRateLimiter {
+	return m.rateLimiter
+}
+
+// SSO returns the single sign-on service, or nil when no provider is
+// configured.
+func (m *Manager) SSO() *SSOService {
+	return m.sso
+}
+
 func (m *Manager) Config() *Config {
 	return m.config
 }
@@ -207,6 +258,9 @@ func (m *Manager) Register(ctx context.Context, req *RegisterRequest) (*User, *T
 	}
 
 	m.logger.Info("user registered", "user_id", user.ID, "email", user.Email)
+	m.audit(ctx, &AuditEvent{
+		Event: AuditRegister, UserID: user.ID, Email: user.Email, Success: true,
+	})
 
 	return user, tokens, nil
 }
@@ -214,13 +268,28 @@ func (m *Manager) Register(ctx context.Context, req *RegisterRequest) (*User, *T
 // Login authenticates a user
 func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent string) (*User, *TokenPair, error) {
 	// Check brute force protection
-	if m.config.Security != nil && m.config.Security.BruteForce != nil && m.config.Security.BruteForce.Enabled {
+	if m.bruteForceEnabled() {
 		key := m.bruteForceKey(req.Email, ip)
-		locked, until, _ := m.bruteForceStore.IsLocked(ctx, key)
-		if locked {
-			return nil, nil, &AuthError{
+		allowed, delay, remaining, err := m.bruteForce.CheckAccess(ctx, key)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !allowed {
+			locked := &AuthError{
 				Code:    "account_locked",
-				Message: fmt.Sprintf("Account is locked until %s", until.Format(time.RFC3339)),
+				Message: fmt.Sprintf("Account is locked until %s", time.Now().Add(remaining).Format(time.RFC3339)),
+			}
+			m.auditFailure(ctx, AuditLogin, req.Email, ip, userAgent, locked)
+			return nil, nil, locked
+		}
+		// A progressive delay is the point of the feature: each failure makes
+		// the next attempt slower. The wait is abandoned if the caller goes
+		// away, so a disconnecting client does not hold a goroutine for it.
+		if delay > 0 {
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return nil, nil, ctx.Err()
 			}
 		}
 	}
@@ -228,7 +297,15 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 	// Find user
 	user, err := m.userStore.FindByEmail(ctx, req.Email)
 	if err != nil {
+		// The password is verified against a hash that matches nothing, so an
+		// address with no account costs what an address with one costs. Without
+		// it this path returns before any hashing and answers a hundred times
+		// faster, which is a way to find out which addresses have accounts
+		// without guessing a single password.
+		_, _ = m.passwordHasher.Verify(req.Password, decoyHash)
 		m.recordFailedLogin(ctx, req.Email, ip)
+		m.auditFailure(ctx, AuditLogin, req.Email, ip, userAgent, ErrInvalidCredentials)
+		m.delayFailure(ctx)
 		return nil, nil, ErrInvalidCredentials
 	}
 
@@ -236,6 +313,8 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 	valid, err := m.passwordHasher.Verify(req.Password, user.PasswordHash)
 	if err != nil || !valid {
 		m.recordFailedLogin(ctx, req.Email, ip)
+		m.auditFailure(ctx, AuditLogin, req.Email, ip, userAgent, ErrInvalidCredentials)
+		m.delayFailure(ctx)
 		return nil, nil, ErrInvalidCredentials
 	}
 
@@ -257,6 +336,7 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 			err = m.mfaService.ValidateRecoveryCode(ctx, user.ID, req.MFACode)
 			if err != nil {
 				m.recordFailedLogin(ctx, req.Email, ip)
+				m.auditFailure(ctx, AuditLogin, req.Email, ip, userAgent, ErrInvalidMFACode)
 				return nil, nil, ErrInvalidMFACode
 			}
 			m.logger.Warn("user logged in with recovery code", "user_id", user.ID)
@@ -264,17 +344,38 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 	}
 
 	// Reset brute force counter on successful login
-	if m.config.Security != nil && m.config.Security.BruteForce != nil && m.config.Security.BruteForce.Enabled {
-		key := m.bruteForceKey(req.Email, ip)
-		_ = m.bruteForceStore.Reset(ctx, key)
+	if m.bruteForceEnabled() {
+		_ = m.bruteForce.RecordSuccess(ctx, m.bruteForceKey(req.Email, ip))
 	}
 
+	tokens, err := m.EstablishSession(ctx, user, ip, userAgent)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	m.logger.Info("user logged in", "user_id", user.ID, "email", user.Email)
+	m.audit(ctx, &AuditEvent{
+		Event: AuditLogin, UserID: user.ID, Email: user.Email,
+		IP: ip, UserAgent: userAgent, Success: true,
+	})
+
+	return user, tokens, nil
+}
+
+// EstablishSession opens a session for a user who has already been
+// authenticated, and returns the tokens for it.
+//
+// It is the tail of Login, extracted because signing in through an identity
+// provider ends the same way: the session limit applies, a session is created,
+// tokens are issued against it and the last login is recorded. Repeating that
+// for SSO would mean two places where a session is born, and they would drift.
+func (m *Manager) EstablishSession(ctx context.Context, user *User, ip, userAgent string) (*TokenPair, error) {
 	// Check session limits
 	if m.config.Sessions != nil && m.config.Sessions.MaxActive > 0 {
 		count, _ := m.sessionStore.Count(ctx, user.ID)
 		if count >= m.config.Sessions.MaxActive {
 			if m.config.Sessions.OnMaxReached == "reject_new" {
-				return nil, nil, &AuthError{Code: "max_sessions", Message: "Maximum number of sessions reached"}
+				return nil, &AuthError{Code: "max_sessions", Message: "Maximum number of sessions reached"}
 			}
 			// revoke_oldest - delete oldest session
 			sessions, _ := m.sessionStore.FindByUserID(ctx, user.ID)
@@ -290,24 +391,19 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 		}
 	}
 
-	// Create session
 	session, err := m.createSession(ctx, user, ip, userAgent)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	// Generate tokens
 	tokens, err := m.tokenManager.GenerateTokenPair(user, session.ID, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	// Update last login
 	_ = m.userStore.UpdateLastLogin(ctx, user.ID, time.Now())
 
-	m.logger.Info("user logged in", "user_id", user.ID, "email", user.Email, "session_id", session.ID)
-
-	return user, tokens, nil
+	return tokens, nil
 }
 
 // Logout invalidates a session
@@ -317,6 +413,10 @@ func (m *Manager) Logout(ctx context.Context, sessionID string) error {
 	}
 
 	m.logger.Info("user logged out", "session_id", sessionID)
+	m.audit(ctx, &AuditEvent{
+		Event: AuditLogout, Success: true,
+		Metadata: `{"session_id":"` + sessionID + `"}`,
+	})
 	return nil
 }
 
@@ -327,6 +427,7 @@ func (m *Manager) LogoutAll(ctx context.Context, userID string) error {
 	}
 
 	m.logger.Info("all sessions revoked", "user_id", userID)
+	m.audit(ctx, &AuditEvent{Event: AuditLogout, UserID: userID, Success: true})
 	return nil
 }
 
@@ -470,7 +571,14 @@ func (m *Manager) ChangePassword(ctx context.Context, userID, currentPassword, n
 	// Verify current password
 	valid, err := m.passwordHasher.Verify(currentPassword, user.PasswordHash)
 	if err != nil || !valid {
-		return &AuthError{Code: "invalid_password", Message: "Current password is incorrect"}
+		refused := &AuthError{Code: "invalid_password", Message: "Current password is incorrect"}
+		// Somebody trying to change a password without knowing the current one
+		// is worth a record whether or not they are the account's owner.
+		m.audit(ctx, &AuditEvent{
+			Event: AuditPasswordChange, UserID: userID, Email: user.Email,
+			Success: false, ErrorReason: refused.Message,
+		})
+		return refused
 	}
 
 	// Validate new password
@@ -490,6 +598,9 @@ func (m *Manager) ChangePassword(ctx context.Context, userID, currentPassword, n
 	}
 
 	m.logger.Info("password changed", "user_id", userID)
+	m.audit(ctx, &AuditEvent{
+		Event: AuditPasswordChange, UserID: userID, Email: user.Email, Success: true,
+	})
 	return nil
 }
 
@@ -533,30 +644,25 @@ func (m *Manager) createSession(ctx context.Context, user *User, ip, userAgent s
 
 // recordFailedLogin records a failed login attempt
 func (m *Manager) recordFailedLogin(ctx context.Context, email, ip string) {
-	if m.config.Security == nil || m.config.Security.BruteForce == nil || !m.config.Security.BruteForce.Enabled {
+	if !m.bruteForceEnabled() {
 		return
 	}
 
-	bf := m.config.Security.BruteForce
 	key := m.bruteForceKey(email, ip)
-
-	window, _ := ParseDuration(bf.Window)
-	if window == 0 {
-		window = 15 * time.Minute
+	locked, err := m.bruteForce.RecordFailedAttempt(ctx, key)
+	if err != nil {
+		m.logger.Warn("failed to record login attempt", "email", email, "ip", ip, "error", err)
+		return
 	}
-
-	count, _ := m.bruteForceStore.Increment(ctx, key, window)
-
-	if count >= bf.MaxAttempts {
-		lockout, _ := ParseDuration(bf.LockoutTime)
-		if lockout == 0 {
-			lockout = 15 * time.Minute
-		}
-		_ = m.bruteForceStore.Lock(ctx, key, lockout)
-
-		m.logger.Warn("account locked due to failed attempts",
-			"email", email, "ip", ip, "attempts", count)
+	if locked {
+		m.logger.Warn("account locked due to failed attempts", "email", email, "ip", ip)
 	}
+}
+
+// bruteForceEnabled reports whether the configuration asked for protection.
+func (m *Manager) bruteForceEnabled() bool {
+	return m.bruteForce != nil && m.config.Security != nil &&
+		m.config.Security.BruteForce != nil && m.config.Security.BruteForce.Enabled
 }
 
 // bruteForceKey generates a key for brute force tracking
@@ -602,6 +708,12 @@ func (m *Manager) Cleanup(ctx context.Context) error {
 }
 
 // ==================== MFA Methods ====================
+
+// MFAEnabled reports whether this service can enrol and check a second factor
+// at all — which decides whether the endpoints for it are worth serving.
+func (m *Manager) MFAEnabled() bool {
+	return m.mfaService != nil
+}
 
 // GetMFAStatus returns the MFA status for a user
 func (m *Manager) GetMFAStatus(ctx context.Context, userID string) (*MFAStatus, error) {
@@ -769,12 +881,22 @@ func (m *Manager) FinishWebAuthnRegistration(ctx context.Context, userID, sessio
 	return nil
 }
 
-// GetWebAuthnCredentials returns all WebAuthn credentials for a user
+// GetWebAuthnCredentials returns the passkeys on an account.
+//
+// An account with none has an empty list, not an error. Asking what keys I
+// have before I have added any is the ordinary first visit to a settings page,
+// and answering "MFA is not enabled for this user" would show a failure where
+// the answer is simply "none yet".
 func (m *Manager) GetWebAuthnCredentials(ctx context.Context, userID string) ([]WebAuthnCredential, error) {
 	if m.mfaService == nil {
 		return nil, nil
 	}
-	return m.mfaService.GetWebAuthnCredentials(ctx, userID)
+
+	credentials, err := m.mfaService.GetWebAuthnCredentials(ctx, userID)
+	if errors.Is(err, ErrMFANotEnabled) {
+		return nil, nil
+	}
+	return credentials, err
 }
 
 // RemoveWebAuthnCredential removes a WebAuthn credential

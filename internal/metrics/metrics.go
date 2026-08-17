@@ -330,9 +330,14 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 		CoordinatePreflightHit: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "mycel_coordinate_preflight_hit_total",
-				Help: "Total number of preflight check hits (already exists)",
+				Help: "Preflight checks that found the condition already met and skipped the wait",
 			},
-			[]string{"connector"},
+			// Labelled by flow, which is what the one call site passes and
+			// what the documentation says. It used to be labelled connector,
+			// so a flow name was filed under the wrong name: a query grouped
+			// by flow found nothing at all, and one grouped by connector
+			// answered with flows.
+			[]string{"flow"},
 		),
 		CoordinateActiveWaits: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
@@ -649,9 +654,10 @@ func (r *Registry) RecordCoordinateWaitComplete(flow string, waitDuration time.D
 	}
 }
 
-// RecordCoordinatePreflightHit records a preflight check hit.
-func (r *Registry) RecordCoordinatePreflightHit(connector string) {
-	r.CoordinatePreflightHit.WithLabelValues(connector).Inc()
+// RecordCoordinatePreflightHit records a wait that was skipped because its
+// condition already held.
+func (r *Registry) RecordCoordinatePreflightHit(flow string) {
+	r.CoordinatePreflightHit.WithLabelValues(flow).Inc()
 }
 
 // SetScheduledFlows sets the current number of scheduled flows.

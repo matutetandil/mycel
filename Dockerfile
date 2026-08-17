@@ -15,8 +15,17 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build binary
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o mycel ./cmd/mycel
+# Build binary.
+#
+# COVERAGE is empty for every normal build, which leaves the command below
+# byte-identical to what it was. Setting it to -cover produces a binary that
+# writes coverage counters to GOCOVERDIR on graceful shutdown, which is how the
+# integration suite's real coverage gets measured — those packages talk to
+# RabbitMQ, Postgres and the rest, so `go test` alone reports them near zero
+# while the integration suite exercises them heavily.
+ARG COVERAGE=""
+RUN CGO_ENABLED=0 GOOS=linux go build ${COVERAGE:+-cover -coverpkg=./...} \
+    -ldflags="-s -w" -o mycel ./cmd/mycel
 
 # Final stage
 FROM alpine:3.22

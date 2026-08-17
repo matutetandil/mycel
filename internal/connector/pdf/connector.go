@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
 )
@@ -152,7 +153,10 @@ func (c *Connector) Write(_ context.Context, data *connector.Data) (*connector.R
 			outputDir = "."
 		}
 
-		outPath := filepath.Join(outputDir, filename)
+		outPath, err := resolveOutputPath(outputDir, filename)
+		if err != nil {
+			return nil, err
+		}
 
 		// Ensure directory exists
 		if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
@@ -177,6 +181,38 @@ func (c *Connector) Write(_ context.Context, data *connector.Data) (*connector.R
 	default:
 		return nil, fmt.Errorf("pdf: unknown operation %q (use 'generate' or 'save')", operation)
 	}
+}
+
+// resolveOutputPath places a generated document inside the configured output
+// directory, and nowhere else.
+//
+// The filename comes from the payload — an invoice number, an order
+// reference, whatever the flow computed — so it is data, and often data that
+// came in from outside. Joined straight onto the output directory, a filename
+// of "../../etc/cron.d/mycel" wrote there: a connector whose job is writing
+// files from data would write them anywhere the process could.
+//
+// Subdirectories are still allowed, because filing invoices under a customer
+// or a month is the ordinary use; what is refused is leaving the directory.
+func resolveOutputPath(outputDir, filename string) (string, error) {
+	// Treat the name as relative however it was written, so a leading slash
+	// is a path inside the output directory rather than the root of the disk.
+	cleaned := filepath.Clean("/" + filename)
+	resolved := filepath.Join(outputDir, cleaned)
+
+	base, err := filepath.Abs(outputDir)
+	if err != nil {
+		return "", fmt.Errorf("pdf: output directory %s: %w", outputDir, err)
+	}
+	full, err := filepath.Abs(resolved)
+	if err != nil {
+		return "", fmt.Errorf("pdf: output path %s: %w", resolved, err)
+	}
+
+	if full != base && !strings.HasPrefix(full, base+string(filepath.Separator)) {
+		return "", fmt.Errorf("pdf: filename %q would write outside the output directory", filename)
+	}
+	return full, nil
 }
 
 // GenerateBytes generates a PDF from a template string and data, returning raw bytes.

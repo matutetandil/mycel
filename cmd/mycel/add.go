@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -90,6 +91,16 @@ func runAddConnector(cmd *cobra.Command, args []string) error {
 			addType, addDriver)
 	}
 
+	// A type whose schema requires a driver is not one connector: the type says
+	// what kind of system it is and the driver says which one. Generated
+	// without it, the file parses, validates until 2.19.0, and fails to start
+	// with "no factory found" — so it is refused here, where the fix is one
+	// flag, rather than produced as a starting point that cannot run.
+	schemaBlock := reg.ConnectorSchema(addType, addDriver)
+	if err := requireDriver(addType, addDriver, schemaBlock); err != nil {
+		return err
+	}
+
 	if err := ensureNameIsFree(name, "connector"); err != nil {
 		return err
 	}
@@ -164,9 +175,56 @@ func renderConnector(name, connType, driver string, blk schema.Block) string {
 		}
 	}
 
+	// A rule of the form "say it one way or the other" is answered with the
+	// first way, so the generated file is complete; the alternatives are named
+	// in the comment above it. Writing them all out would produce a file that
+	// says the same thing twice.
+	written := map[string]bool{}
+	for _, group := range blk.RequiredOneOf {
+		for _, a := range blk.Attrs {
+			if len(group) == 0 || a.Name != group[0] || written[a.Name] {
+				continue
+			}
+			written[a.Name] = true
+			b.WriteString("\n")
+			if a.Doc != "" {
+				fmt.Fprintf(&b, "  // %s\n", a.Doc)
+			}
+			if len(group) > 1 {
+				fmt.Fprintf(&b, "  // Or instead: %s\n", strings.Join(group[1:], ", "))
+			}
+			fmt.Fprintf(&b, "  %s = %s\n", a.Name, requiredOneOfPlaceholder(a, blk))
+		}
+	}
+
+	// A block the connector cannot parse without is written out with it. A
+	// profiled connector is the case: it is nothing but its profiles, so a
+	// file with none is a file that fails to parse — generating it would put
+	// somebody back where `mycel add` exists to save them from.
+	for _, child := range blk.Children {
+		if child.Labels == 0 {
+			continue
+		}
+		b.WriteString("\n")
+		if child.Doc != "" {
+			fmt.Fprintf(&b, "  // %s\n", child.Doc)
+		}
+		fmt.Fprintf(&b, "  %s \"primary\" {\n", child.Type)
+		for _, a := range child.Attrs {
+			if !a.Required {
+				continue
+			}
+			fmt.Fprintf(&b, "    %s = %s\n", a.Name, placeholderFor(a))
+		}
+		b.WriteString("  }\n")
+	}
+
 	if len(optional) > 0 {
 		b.WriteString("\n  // Optional:\n")
 		for _, a := range optional {
+			if written[a.Name] {
+				continue // already written above
+			}
 			line := "  //   " + a.Name
 			if len(a.Values) > 0 {
 				line += " — one of: " + strings.Join(a.Values, ", ")
@@ -726,4 +784,37 @@ func renderType(name string, fields []typeField) string {
 
 	b.WriteString("}\n")
 	return b.String()
+}
+
+// requireDriver refuses a connector type that cannot be built without one.
+func requireDriver(connType, driver string, blk schema.Block) error {
+	for _, a := range blk.Attrs {
+		if a.Name != "driver" || !a.Required {
+			continue
+		}
+		if strings.TrimSpace(driver) == "" {
+			return fmt.Errorf("a %s connector needs --driver (one of: %s)",
+				connType, strings.Join(a.Values, ", "))
+		}
+		if len(a.Values) > 0 && !slices.Contains(a.Values, driver) {
+			return fmt.Errorf("%q is not a %s driver; expected one of: %s",
+				driver, connType, strings.Join(a.Values, ", "))
+		}
+	}
+	return nil
+}
+
+// requiredOneOfPlaceholder fills in the first of a set of alternatives.
+//
+// When the alternatives select one of the blocks the generator has just
+// written — a profiled connector picking which profile to use — the answer is
+// that block's name. Otherwise it is an ordinary placeholder, the same as any
+// other attribute somebody has to fill in.
+func requiredOneOfPlaceholder(a schema.Attr, blk schema.Block) string {
+	for _, child := range blk.Children {
+		if child.Labels > 0 && a.Type == schema.TypeString {
+			return "\"primary\""
+		}
+	}
+	return placeholderFor(a)
 }

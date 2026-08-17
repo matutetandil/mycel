@@ -250,25 +250,25 @@ func (c *Config) GetString(key string) string {
 }
 
 // GetInt retrieves an integer property from the config.
+//
+// A numeric string counts, because env() returns strings and `port =
+// env("PORT")` is how a port is given to a container. Refusing them made this
+// reader disagree with IntFromProps, which the runtime uses for the same
+// properties: five connector factories read their port here and got 0 for a
+// port that came from the environment, then fell back to their default — while
+// the startup banner, reading it the other way, announced the port that had
+// been configured. The service said 18777 and listened on 3000.
 func (c *Config) GetInt(key string) int {
-	switch v := c.Properties[key].(type) {
-	case int:
-		return v
-	case int64:
-		return int(v)
-	case float64:
-		return int(v)
-	default:
-		return 0
-	}
+	return IntFromProps(c.Properties, key, 0)
 }
 
 // GetBool retrieves a boolean property from the config.
+//
+// "true" counts for the same reason: a flag given by env() arrives as text,
+// and reading it as false turns a setting that was switched on into one that
+// is silently off.
 func (c *Config) GetBool(key string) bool {
-	if v, ok := c.Properties[key].(bool); ok {
-		return v
-	}
-	return false
+	return BoolFromProps(c.Properties, key, false)
 }
 
 // GetMap retrieves a map property from the config.

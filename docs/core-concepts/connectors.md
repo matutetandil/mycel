@@ -75,9 +75,10 @@ connector "external_api" {
   }
 
   retry {
-    count    = 3
-    interval = "1s"
-    backoff  = 2.0
+    attempts  = 3          # total tries, including the first
+    delay     = "1s"       # wait before the second try
+    backoff   = "exponential"  # constant | linear | exponential
+    max_delay = "30s"      # cap however far the wait grows
   }
 }
 ```
@@ -194,9 +195,10 @@ connector "gql" {
   playground = true
 
   subscriptions {
-    enabled   = true
-    transport = "websocket"
-    path      = "/graphql/ws"
+    enabled             = true
+    path                = "/graphql/ws"  # default /subscriptions
+    keep_alive_interval = "30s"          # ping period on an idle socket
+    connection_timeout  = "60s"          # drop a connection that stops answering
   }
 }
 
@@ -258,12 +260,17 @@ connector "storage" {
   region = env("AWS_REGION")
 
   # For MinIO or custom S3-compatible
-  endpoint          = env("S3_ENDPOINT")
-  access_key        = env("S3_ACCESS_KEY")
-  secret_key        = env("S3_SECRET_KEY")
-  force_path_style  = true
+  endpoint       = env("S3_ENDPOINT")
+  access_key     = env("S3_ACCESS_KEY")
+  secret_key     = env("S3_SECRET_KEY")
+  use_path_style = true
 }
 ```
+
+`use_path_style` addresses objects as `endpoint/bucket/key` instead of
+`bucket.endpoint/key`, which MinIO and most S3-compatible stores require. If you
+are arriving from the AWS SDK v1 or an older Terraform provider, this is the
+setting they call `force_path_style`.
 
 ## Named Operations
 
@@ -276,16 +283,90 @@ connector "db" {
   # ... connection details
 
   operation "find_active_users" {
-    query  = "SELECT * FROM users WHERE status = 'active' AND org_id = $1"
-    params = [{ name = "org_id", type = "string", required = true }]
+    query       = "SELECT * FROM users WHERE status = 'active' AND org_id = $1"
+    description = "Active users for one organisation"
+
+    param "org_id" {
+      type        = "string"
+      required    = true
+      description = "Organisation to filter by"
+    }
   }
 
-  operation "deactivate_user" {
-    query  = "UPDATE users SET status = 'inactive' WHERE id = $1"
-    params = [{ name = "id", type = "string", required = true }]
+  operation "list_recent" {
+    query = "SELECT * FROM users ORDER BY created_at DESC LIMIT $1"
+
+    param "limit" {
+      type    = "number"
+      default = 100
+    }
   }
 }
 ```
+
+Each parameter is its own `param` block, named by its label. The block is a
+contract, applied before the flow runs: defaults fill in what was not sent, and
+what was sent is converted to the declared type and checked against the
+constraints.
+
+| Attribute | Applies to | Description |
+|---|---|---|
+| `type` | any | `string`, `number`, `boolean`, `array` or `object`. A value that can be converted is — see below. |
+| `required` | any | Reject the request when the parameter is absent and no `default` covers it. |
+| `default` | any | Value used when the parameter is not supplied. A parameter with a default is never missing. |
+| `in` | any | Where the value comes from: `path`, `query`, `header` or `body`. |
+| `min`, `max` | numbers | Smallest and largest allowed value. |
+| `min_length`, `max_length` | strings | Shortest and longest allowed value. |
+| `pattern` | strings | Regular expression the value must match. |
+| `enum` | strings | The complete set of allowed values. |
+| `description` | any | Documentation, carried into the exported OpenAPI spec. |
+
+```hcl
+connector "api" {
+  type = "rest"
+  port = 8080
+
+  operation "search_users" {
+    method = "GET"
+    path   = "/users"
+
+    param "limit" {
+      type    = "number"
+      default = 100
+      min     = 1
+      max     = 500
+    }
+
+    param "sort" {
+      type    = "string"
+      enum    = ["name", "email", "created_at"]
+      default = "name"
+    }
+
+    param "tenant" {
+      type       = "string"
+      required   = true
+      min_length = 3
+    }
+  }
+}
+```
+
+`GET /users?limit=600` is answered with `400` and
+`invalid parameters: limit: value must be at most 500`, before the flow runs.
+Every problem in a request is reported at once, so a caller is not made to fix
+one per round trip.
+
+**The declared type converts.** Path and query parameters arrive as strings —
+always — so `type = "number"` would reject every request that uses it if it
+were enforced literally. `?limit=25` reaches the flow as the number `25`, and
+`?limit=abc` is a `400` naming the parameter. The same applies to `boolean`,
+which accepts `true` and `false` as written in a query string.
+
+!!! note "Parameters are checked on the source"
+    The contract belongs to the operation a flow reads from, since that is the
+    request being made. An operation used as a destination formats the write;
+    its parameters are supplied by the flow, not by a caller.
 
 Then in flows:
 
@@ -306,50 +387,126 @@ See the [named-operations example](https://github.com/matutetandil/mycel/tree/ma
 
 ## Connector Profiles
 
-Profiles allow a single connector to have multiple backends selected at runtime. Useful for multi-tenant systems, A/B testing, or read/write splitting.
+A profiled connector is one name that resolves to a different backend at
+runtime. Each profile declares **what it is** — its own `type` and `driver` —
+so the alternatives do not have to be the same kind of thing: one flow can read
+prices from an HTTP API for one tenant and from a database for another, without
+knowing which it got.
+
+Because the profile carries the type, a profiled connector has none at the root.
+
+```hcl
+connector "prices" {
+  select  = "env('PRICE_SOURCE')"   # CEL expression evaluated per execution
+  default = "magento"
+  fallback = ["erp", "legacy"]      # tried in order if the selected one fails
+
+  profile "magento" {
+    type     = "http"
+    driver   = "client"
+    base_url = env("MAGENTO_URL")
+
+    auth {
+      type  = "bearer"
+      token = env("MAGENTO_TOKEN")
+    }
+  }
+
+  profile "erp" {
+    type     = "database"
+    driver   = "sqlite"
+    database = "erp.db"
+  }
+}
+```
+
+The alternatives can equally be the same kind of backend — read replicas, a
+tenant per database — in which case every profile repeats the same `type` and
+`driver` and varies only the connection:
 
 ```hcl
 connector "db" {
-  type    = "database"
-  driver  = "postgres"
-  select  = "input.tenant_id"  # CEL expression to pick profile
+  select  = "input.tenant_id"
   default = "primary"
 
   profile "primary" {
+    type     = "database"
+    driver   = "postgres"
     host     = env("PRIMARY_HOST")
     database = "app"
-    user     = env("DB_USER")
-    password = env("DB_PASSWORD")
   }
 
   profile "analytics" {
+    type     = "database"
+    driver   = "postgres"
     host     = env("ANALYTICS_HOST")
     database = "app_analytics"
-    user     = env("DB_USER")
-    password = env("DB_PASSWORD")
   }
 }
 ```
 
-The `select` expression is evaluated at flow execution time. Profiles can also use `fallback` for failover:
-
-```hcl
-connector "cache" {
-  type     = "cache"
-  driver   = "redis"
-  fallback = ["primary", "secondary"]
-
-  profile "primary" {
-    url = env("REDIS_PRIMARY_URL")
-  }
-
-  profile "secondary" {
-    url = env("REDIS_SECONDARY_URL")
-  }
-}
-```
+`select` is evaluated at flow execution time and its result names the profile;
+`default` is used when it evaluates to nothing or names a profile that does not
+exist. `fallback` lists profiles to try, in order, when the selected one fails.
 
 See the [profiles example](https://github.com/matutetandil/mycel/tree/main/examples/profiles) for details.
+
+## TLS
+
+Connectors that speak TLS — `http`, `grpc`, `tcp`, `mq` and `mqtt` — configure it
+with the same block and the same attribute names.
+
+```hcl
+connector "payments" {
+  type     = "http"
+  base_url = "https://payments.internal"
+
+  tls {
+    ca_cert = "/certs/internal-ca.pem"   # verify the other side
+    cert    = "/certs/mycel.pem"         # prove who we are (mutual TLS)
+    key     = "/certs/mycel.key"
+  }
+}
+```
+
+| Attribute | Type | Description |
+|---|---|---|
+| `enabled` | bool | Defaults to `true` when the block is present. Set it to `false` to switch TLS off without deleting the certificate paths, which is what makes it drivable from the environment. |
+| `ca_cert` | string | CA certificate used to verify the other side. Needed for a private CA; the system trust store is used when it is absent. |
+| `cert` | string | The certificate this connector presents — its own when it is a server, the client certificate for mutual TLS. |
+| `key` | string | Private key for `cert`. |
+| `server_name` | string | Expected server name, overriding the address used to connect (SNI). `grpc` only. |
+| `insecure_skip_verify` | bool | Skip verification of the other side's certificate. Development only. |
+
+Writing the block is the opt-in, so `enabled = true` is never required. This is
+the same rule the [`mfa` block](../guides/auth.md) follows.
+
+`cert` and `key` are one setting seen from two sides: on a server they are the
+certificate it presents, on a client the pair it uses for mutual TLS. The
+connector already knows which it is, so the names do not repeat it.
+
+!!! warning "A connector that cannot load its certificates does not start"
+    If TLS is enabled and the certificate or CA cannot be read, startup fails
+    with the reason. It is never downgraded to an unencrypted connection.
+
+### Older attribute names
+
+Three connectors used to read different names for these settings. All of them
+are still accepted and mean exactly what they meant before, so existing
+configuration keeps working — but they are no longer offered as completions, and
+new configuration should use the names above.
+
+| Older name | Written by | Now |
+|---|---|---|
+| `client_cert` | `http` | `cert` |
+| `client_key` | `http` | `key` |
+| `cert_file` | `grpc` | `cert` |
+| `key_file` | `grpc` | `key` |
+| `ca_file` | `grpc` | `ca_cert` |
+| `skip_verify` | `grpc` | `insecure_skip_verify` |
+
+Writing both spellings of one setting in the same block is an error rather than
+a silent choice between them.
 
 ## Per-Connector Reference
 

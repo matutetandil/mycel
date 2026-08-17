@@ -797,8 +797,8 @@ connector "api" {
 
 connector "db" {
   type   = "database"
-  driver = "sqlite"
-  dsn    = "./users.db"
+  driver   = "sqlite"
+  database = "./users.db"
 }
 
 connector "mailer" {
@@ -881,7 +881,7 @@ connector "api" {
 connector "db" {
   type   = "database"
   driver = "postgres"
-  dsn    = env("DATABASE_URL")
+  url    = env("DATABASE_URL")
 }
 
 connector "rabbit" {
@@ -971,7 +971,7 @@ connector "api" {
 connector "db" {
   type   = "database"
   driver = "postgres"
-  dsn    = env("DATABASE_URL")
+  url    = env("DATABASE_URL")
 }
 
 connector "slack_alerts" {
@@ -1143,7 +1143,7 @@ connector "api" {
 connector "db" {
   type   = "database"
   driver = "postgres"
-  dsn    = env("DATABASE_URL")
+  url    = env("DATABASE_URL")
 }
 
 connector "search" {
@@ -1266,7 +1266,7 @@ connector "rabbit" {
 connector "db" {
   type   = "database"
   driver = "postgres"
-  dsn    = env("DATABASE_URL")
+  url    = env("DATABASE_URL")
 }
 ```
 
@@ -1328,7 +1328,7 @@ Run flows on a schedule. Clean up old data, generate reports, or ping health end
 connector "db" {
   type   = "database"
   driver = "postgres"
-  dsn    = env("DATABASE_URL")
+  url    = env("DATABASE_URL")
 }
 
 connector "slack_alerts" {
@@ -1413,7 +1413,7 @@ connector "api" {
 connector "db" {
   type   = "database"
   driver = "postgres"
-  dsn    = env("DATABASE_URL")
+  url    = env("DATABASE_URL")
 }
 
 connector "inventory_api" {
@@ -1631,7 +1631,7 @@ connector "api" {
 connector "db" {
   type   = "database"
   driver = "postgres"
-  dsn    = env("DATABASE_URL")
+  url    = env("DATABASE_URL")
 }
 ```
 
@@ -1758,7 +1758,7 @@ connector "shipping_api" {
 connector "db" {
   type   = "database"
   driver = "postgres"
-  dsn    = env("DATABASE_URL")
+  url    = env("DATABASE_URL")
 }
 ```
 
@@ -1879,7 +1879,7 @@ connector "api" {
 connector "db" {
   type   = "database"
   driver = "postgres"
-  dsn    = env("DATABASE_URL")
+  url    = env("DATABASE_URL")
 }
 
 connector "pdf" {
@@ -1983,8 +1983,8 @@ connector "api" {
 
 connector "db" {
   type   = "database"
-  driver = "sqlite"
-  dsn    = "./data.db"
+  driver   = "sqlite"
+  database = "./data.db"
 }
 ```
 
@@ -2096,7 +2096,7 @@ connector "api" {
 connector "db" {
   type   = "database"
   driver = "postgres"
-  dsn    = env("DATABASE_URL")
+  url    = env("DATABASE_URL")
 }
 
 connector "redis_cache" {
@@ -2151,7 +2151,7 @@ connector "api" {
 connector "db" {
   type   = "database"
   driver = "postgres"
-  dsn    = env("DATABASE_URL")
+  url    = env("DATABASE_URL")
 }
 
 connector "redis_cache" {
@@ -2277,7 +2277,7 @@ connector "api" {
 connector "db" {
   type   = "database"
   driver = "postgres"
-  dsn    = env("DATABASE_URL")
+  url    = env("DATABASE_URL")
 }
 ```
 

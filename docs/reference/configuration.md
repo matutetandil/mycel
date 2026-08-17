@@ -62,6 +62,15 @@ service {
     storage     = "db"              # Database connector name
     table       = "mycel_workflows" # Table name (default: mycel_workflows)
     auto_create = true              # Create table on startup
+
+    api {                           # optional; no api block means no endpoints
+      port = 9091                   # default 9091; may not be the admin port
+
+      auth {                        # required when api is written
+        type = "api_key"            # jwt, api_key or basic — a connector's auth block
+        keys = [env("WORKFLOW_API_KEY")]
+      }
+    }
   }
 }
 ```
@@ -134,9 +143,10 @@ connector "external" {
   }
 
   retry {
-    count    = 3
-    interval = "1s"
-    backoff  = 2.0
+    attempts  = 3          # total tries, including the first
+    delay     = "1s"       # wait before the second try
+    backoff   = "exponential"  # constant | linear | exponential
+    max_delay = "30s"      # cap however far the wait grows
   }
 }
 ```
@@ -238,8 +248,8 @@ connector "grpc_api" {
   max_send_mb = 4
 
   tls {
-    cert_file = "/certs/server.crt"
-    key_file  = "/certs/server.key"
+    cert = "/certs/server.crt"
+    key  = "/certs/server.key"
   }
 }
 
@@ -341,11 +351,9 @@ connector "sensors" {
   max_reconnect_interval = "5m"
 
   tls {
-    enabled  = true
-    cert     = "/certs/client.crt"
-    key      = "/certs/client.key"
-    ca       = "/certs/ca.crt"
-    insecure = false
+    cert    = "/certs/client.crt"
+    key     = "/certs/client.key"
+    ca_cert = "/certs/ca.crt"
   }
 }
 ```
@@ -444,7 +452,7 @@ connector "s3" {
   access_key        = env("AWS_ACCESS_KEY_ID")
   secret_key        = env("AWS_SECRET_ACCESS_KEY")
   endpoint          = env("S3_ENDPOINT")        # For MinIO/custom
-  force_path_style  = true                       # Required for MinIO
+  use_path_style    = true                       # Required for MinIO
 }
 ```
 
@@ -561,13 +569,15 @@ Flow `operation` values: `generate` (default — returns the PDF as binary) or
 
 ```hcl
 connector "db" {
-  type    = "database"
-  driver  = "postgres"
   select  = "input.tenant_id"   # CEL expression to pick profile
   default = "primary"
   fallback = ["primary", "replica"]
 
+  # A profiled connector has no type at the root: each profile declares its
+  # own, so the alternatives need not be the same kind of backend.
   profile "primary" {
+    type     = "database"
+    driver   = "postgres"
     host     = env("PRIMARY_HOST")
     database = "app"
     user     = env("DB_USER")
@@ -575,6 +585,8 @@ connector "db" {
   }
 
   profile "replica" {
+    type     = "database"
+    driver   = "postgres"
     host     = env("REPLICA_HOST")
     database = "app"
     user     = env("DB_USER")
@@ -637,7 +649,7 @@ from {
   filter {
     condition   = "input.amount > 0"
     on_reject   = "requeue"  # "ack", "reject", "requeue"
-    id_field    = "input.payment_id"
+    id_field    = "input.body.payment_id"
     max_requeue = 3
   }
 }
@@ -967,13 +979,20 @@ batch {
 
 ```hcl
 state_transition {
-  machine = "order_status"      # state_machine block name
-  entity  = "orders"            # Database table
-  id      = "input.id"
-  event   = "input.event"
-  data    = "input.data"
+  machine   = "order_status"    # state_machine block name
+  entity    = "orders"          # Database table
+  id        = "input.id"
+  event     = "input.event"
+  data      = "input.data"
+  connector = "orders_db"       # Where the entity lives (default: the flow's to)
 }
 ```
+
+`connector` names the connector holding the entity. When it is absent the
+flow's own destination is used. With neither, the engine tries every connector
+in turn and uses the first that accepts the read and the write — which in a
+service with a message queue in it can publish the new state to a topic while
+the row it was meant for goes untouched.
 
 ---
 
@@ -1263,28 +1282,40 @@ auth {
   preset = "standard"    # "strict", "standard", "relaxed", "development"
 
   jwt {
-    secret      = env("JWT_SECRET")
-    algorithm   = "HS256"
-    access_ttl  = "15m"
-    refresh_ttl = "7d"
+    secret           = env("JWT_SECRET")
+    algorithm        = "HS256"
+    access_lifetime  = "15m"
+    refresh_lifetime = "7d"
   }
 
   storage {
-    users    = "connector.db"
-    sessions = "connector.redis"
+    driver    = "database"   # memory | redis | database
+    connector = "db"
   }
 
   password {
-    hashing = "argon2id"
-    min_length = 8
-    require_uppercase = true
-    require_number    = true
+    algorithm      = "argon2id"
+    min_length     = 8
+    require_upper  = true
+    require_number = true
   }
 
-  brute_force {
-    max_attempts = 5
-    window       = "15m"
-    lockout      = "1h"
+  security {
+    brute_force {
+      enabled      = true
+      max_attempts = 5
+      window       = "15m"
+      lockout_time = "1h"
+      track_by     = "ip+user"   # ip | user | ip+user
+
+      # Each failure after the first makes the next attempt wait longer.
+      progressive_delay {
+        enabled    = true
+        initial    = "1s"
+        max        = "30s"
+        multiplier = 2
+      }
+    }
   }
 
   mfa {

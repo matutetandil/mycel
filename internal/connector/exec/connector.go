@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -222,9 +223,14 @@ func (c *Connector) execute(ctx context.Context, operation string, input interfa
 		cmd.Dir = c.config.WorkDir
 	}
 
-	// Set environment variables
+	// Set environment variables.
+	//
+	// They are added to the environment the service runs in rather than
+	// replacing it: declaring one variable should not take PATH, HOME and the
+	// rest away from the command. Go gives a later assignment precedence, so a
+	// declared variable still overrides an inherited one of the same name.
 	if len(c.config.Env) > 0 {
-		cmd.Env = make([]string, 0, len(c.config.Env))
+		cmd.Env = os.Environ()
 		for k, v := range c.config.Env {
 			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 		}

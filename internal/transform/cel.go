@@ -4,6 +4,9 @@ package transform
 import (
 	"context"
 	"fmt"
+	"os"
+
+	"github.com/matutetandil/mycel/v2/internal/identity"
 	"reflect"
 	"strings"
 	"sync"
@@ -69,6 +72,12 @@ func baseCELOptions() []cel.EnvOption {
 		// Context variable - for request context (headers, path params, etc.)
 		cel.Variable("ctx", cel.MapType(cel.StringType, cel.DynType)),
 
+		// auth is who the request belongs to, as the connector that
+		// authenticated it reported: authenticated, user_id, email, roles and
+		// claims. Documented since 2.7.0 and never declared, so every
+		// expression naming it failed to compile.
+		cel.Variable("auth", cel.MapType(cel.StringType, cel.DynType)),
+
 		// Enriched variable - for data fetched from external sources
 		cel.Variable("enriched", cel.MapType(cel.StringType, cel.DynType)),
 
@@ -104,6 +113,44 @@ func baseCELOptions() []cel.EnvOption {
 				cel.StringType,
 				cel.FunctionBinding(func(args ...ref.Val) ref.Val {
 					return types.String(uuid.New().String())
+				}),
+			),
+		),
+
+		// env reads an environment variable, with an optional value for when
+		// it is not set.
+		//
+		// A connector profile is chosen with select = "env('STORE_PROFILE')",
+		// which is how the documentation shows it and the whole reason
+		// profiles exist — and it did not compile, so every evaluation failed
+		// and the connector quietly fell back to its default. The same
+		// expression already works in HCL; this is the runtime half of it,
+		// for the places where the value is not known until the expression is
+		// evaluated.
+		cel.Function("env",
+			cel.Overload("env_lookup",
+				[]*cel.Type{cel.StringType},
+				cel.StringType,
+				cel.UnaryBinding(func(name ref.Val) ref.Val {
+					s, ok := name.(types.String)
+					if !ok {
+						return types.NewErr("env expects the name of a variable")
+					}
+					return types.String(os.Getenv(string(s)))
+				}),
+			),
+			cel.Overload("env_lookup_default",
+				[]*cel.Type{cel.StringType, cel.StringType},
+				cel.StringType,
+				cel.BinaryBinding(func(name, fallback ref.Val) ref.Val {
+					s, ok := name.(types.String)
+					if !ok {
+						return types.NewErr("env expects the name of a variable")
+					}
+					if value := os.Getenv(string(s)); value != "" {
+						return types.String(value)
+					}
+					return fallback
 				}),
 			),
 		),
@@ -793,38 +840,69 @@ func pickKeysMultiple(mapVal ref.Val, keys ...ref.Val) ref.Val {
 }
 
 // compare compares two ref.Val values and returns -1, 0, or 1.
+// compare orders two values for min_val, max_val and sort_by.
+//
+// A number has to compare with a number whichever way each of them happens to
+// be typed. JSON has one number type and CEL has three, so a single field
+// arrives as an integer from one record and a double from the next — a price
+// of 30 beside a price of 2.5 — and requiring both sides to be the same type
+// made every such pair compare equal. That is not an error anywhere: min_val
+// returns whichever element happened to come first, and sort_by leaves the
+// list in the order it was given, both of them silently.
 func compare(a, b ref.Val) int {
-	switch av := a.(type) {
-	case types.Int:
+	// Same-typed integers are compared as integers so that identifiers beyond
+	// the range a float can hold exactly still order correctly.
+	if av, ok := a.(types.Int); ok {
 		if bv, ok := b.(types.Int); ok {
-			if av < bv {
-				return -1
-			} else if av > bv {
-				return 1
-			}
-			return 0
-		}
-	case types.Double:
-		if bv, ok := b.(types.Double); ok {
-			if av < bv {
-				return -1
-			} else if av > bv {
-				return 1
-			}
-			return 0
-		}
-	case types.String:
-		if bv, ok := b.(types.String); ok {
-			as, bs := string(av), string(bv)
-			if as < bs {
-				return -1
-			} else if as > bs {
-				return 1
-			}
-			return 0
+			return compareOrdered(int64(av), int64(bv))
 		}
 	}
+	if av, ok := a.(types.Uint); ok {
+		if bv, ok := b.(types.Uint); ok {
+			return compareOrdered(uint64(av), uint64(bv))
+		}
+	}
+
+	if an, ok := asFloat(a); ok {
+		if bn, ok := asFloat(b); ok {
+			return compareOrdered(an, bn)
+		}
+	}
+
+	if av, ok := a.(types.String); ok {
+		if bv, ok := b.(types.String); ok {
+			return compareOrdered(string(av), string(bv))
+		}
+	}
+
+	// Anything else — a map against a number, a missing key — has no order to
+	// report, and saying so keeps the sort stable rather than arbitrary.
 	return 0
+}
+
+// asFloat reports a CEL number as a float, whichever of the three numeric
+// types it is.
+func asFloat(v ref.Val) (float64, bool) {
+	switch n := v.(type) {
+	case types.Int:
+		return float64(n), true
+	case types.Uint:
+		return float64(n), true
+	case types.Double:
+		return float64(n), true
+	}
+	return 0, false
+}
+
+func compareOrdered[T int64 | uint64 | float64 | string](a, b T) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	default:
+		return 0
+	}
 }
 
 // Compile compiles a CEL expression and caches the program.
@@ -875,6 +953,7 @@ func (t *CELTransformer) Evaluate(ctx context.Context, expr string, input map[st
 		"input":  input,
 		"output": make(map[string]interface{}),
 		"ctx":    make(map[string]interface{}),
+		"auth":   identity.Activation(ctx),
 	}
 
 	// Evaluate
@@ -916,6 +995,7 @@ func (t *CELTransformer) Transform(ctx context.Context, input map[string]interfa
 		"input":  input,
 		"output": output,
 		"ctx":    make(map[string]interface{}),
+		"auth":   identity.Activation(ctx),
 	}
 
 	hook := HookFromContext(ctx)
@@ -1019,6 +1099,7 @@ func (t *CELTransformer) EvaluateExpression(ctx context.Context, input map[strin
 		"output":   make(map[string]interface{}),
 		"ctx":      make(map[string]interface{}),
 		"enriched": enriched,
+		"auth":     identity.Activation(ctx),
 	}
 
 	// For aspect conditions, we need certain variables at the top level of activation.
@@ -1079,6 +1160,7 @@ func (t *CELTransformer) EvaluateExpressionWithOutput(ctx context.Context, input
 		"output":   output,
 		"ctx":      make(map[string]interface{}),
 		"enriched": make(map[string]interface{}),
+		"auth":     identity.Activation(ctx),
 	}
 
 	// Mirror EvaluateExpression's top-level bindings so post-success keys
@@ -1137,6 +1219,7 @@ func (t *CELTransformer) EvaluateExpressionWithSteps(ctx context.Context, input 
 		"ctx":      make(map[string]interface{}),
 		"enriched": make(map[string]interface{}),
 		"step":     steps,
+		"auth":     identity.Activation(ctx),
 	}
 
 	// For aspect conditions, we need certain variables at the top level of activation.
@@ -1191,6 +1274,60 @@ func (t *CELTransformer) TransformWithSteps(ctx context.Context, input map[strin
 	return t.TransformWithContext(ctx, input, enriched, steps, rules)
 }
 
+// TransformOnError applies rules where the failure itself is part of what is
+// being described: a dead-letter record, the body of an error response.
+//
+// `error` is a declared CEL variable and no Transform bound it, so the two
+// places that build something out of a failure passed it as part of the input
+// map and got neither — `input.id` read the wrapper rather than the message,
+// and `error.message` did not resolve at all. Both quietly fell back to their
+// defaults.
+func (t *CELTransformer) TransformOnError(ctx context.Context, input map[string]interface{}, failure error, rules []Rule) (map[string]interface{}, error) {
+	details := map[string]interface{}{"message": ""}
+	if failure != nil {
+		details = buildErrorDetails(failure)
+	}
+
+	output := make(map[string]interface{})
+	activation := map[string]interface{}{
+		"input":  input,
+		"output": output,
+		"ctx":    make(map[string]interface{}),
+		"auth":   identity.Activation(ctx),
+		"error":  details,
+	}
+
+	for _, rule := range rules {
+		prog, err := t.Compile(rule.Expression)
+		if err != nil {
+			return nil, fmt.Errorf("failed to compile expression for %q: %w", rule.Target, err)
+		}
+
+		value, _, err := prog.Eval(activation)
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate expression for %q: %w", rule.Target, err)
+		}
+
+		if err := setNestedValue(output, rule.Target, CELValueToNative(value)); err != nil {
+			return nil, fmt.Errorf("failed to set %q: %w", rule.Target, err)
+		}
+	}
+
+	return output, nil
+}
+
+// buildErrorDetails describes a failure in the shape an expression reads it.
+func buildErrorDetails(failure error) map[string]interface{} {
+	details := map[string]interface{}{
+		"message": failure.Error(),
+		"type":    fmt.Sprintf("%T", failure),
+	}
+	if statusCarrier, ok := failure.(interface{ StatusCode() int }); ok {
+		details["code"] = statusCarrier.StatusCode()
+	}
+	return details
+}
+
 // TransformResponse applies transformation rules for response blocks.
 // input = original request data, output = destination result (pre-filled).
 // In CEL expressions: input.* references request, output.* references destination result.
@@ -1201,6 +1338,7 @@ func (t *CELTransformer) TransformResponse(ctx context.Context, input map[string
 		"input":  input,
 		"output": output,
 		"ctx":    make(map[string]interface{}),
+		"auth":   identity.Activation(ctx),
 	}
 
 	hook := HookFromContext(ctx)
@@ -1262,6 +1400,7 @@ func (t *CELTransformer) TransformWithContext(ctx context.Context, input map[str
 		"ctx":      make(map[string]interface{}),
 		"enriched": enriched,
 		"step":     steps,
+		"auth":     identity.Activation(ctx),
 	}
 
 	hook := HookFromContext(ctx)
@@ -1330,6 +1469,7 @@ func (t *CELTransformer) EvaluateCondition(ctx context.Context, data map[string]
 		"_operation": "",
 		"_target":    "",
 		"_timestamp": int64(0),
+		"auth":       identity.Activation(ctx),
 	}
 
 	// Merge provided data into activation

@@ -3177,6 +3177,7 @@ func parseStateTransitionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.St
 			{Name: "id", Required: true},
 			{Name: "event", Required: true},
 			{Name: "data"},
+			{Name: "connector"},
 		},
 	}
 
@@ -3224,6 +3225,14 @@ func parseStateTransitionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.St
 		if !diags.HasErrors() {
 			st.Data = val.AsString()
 		}
+	}
+
+	if attr, ok := content.Attributes["connector"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("state_transition connector error: %s", diags.Error())
+		}
+		st.Connector = val.AsString()
 	}
 
 	return st, nil

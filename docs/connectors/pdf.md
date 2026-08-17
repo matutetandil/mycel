@@ -196,9 +196,13 @@ connector "api" {
 }
 
 connector "db" {
-  type   = "database"
-  driver = "postgres"
-  dsn    = env("DATABASE_URL")
+  type     = "database"
+  driver   = "postgres"
+  host     = env("DB_HOST")
+  port     = 5432
+  database = env("DB_NAME")
+  user     = env("DB_USER")
+  password = env("DB_PASSWORD")
 }
 
 connector "pdf" {

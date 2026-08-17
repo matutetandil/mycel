@@ -487,20 +487,34 @@ Profiles provide automatic failover between multiple backends for the same conne
 
 ```hcl
 connector "database" {
-  type   = "database"
-  driver = "postgres"
+  default  = "primary"
+  fallback = ["replica", "fallback"]
 
   profile "primary" {
-    dsn     = env("PRIMARY_DB_URL")
-    default = true
+    type     = "database"
+    driver   = "postgres"
+    host     = env("PRIMARY_DB_HOST")
+    database = "app"
+    user     = env("DB_USER")
+    password = env("DB_PASSWORD")
   }
 
   profile "replica" {
-    dsn = env("REPLICA_DB_URL")
+    type     = "database"
+    driver   = "postgres"
+    host     = env("REPLICA_DB_HOST")
+    database = "app"
+    user     = env("DB_USER")
+    password = env("DB_PASSWORD")
   }
 
   profile "fallback" {
-    dsn = env("FALLBACK_DB_URL")
+    type     = "database"
+    driver   = "postgres"
+    host     = env("FALLBACK_DB_HOST")
+    database = "app"
+    user     = env("DB_USER")
+    password = env("DB_PASSWORD")
   }
 }
 ```

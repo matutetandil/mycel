@@ -62,9 +62,12 @@ func (f *Factory) createInbound(name string, config map[string]interface{}) (con
 	if ips := getStringSlice(config, "allowed_ips"); len(ips) > 0 {
 		cfg.AllowedIPs = ips
 	}
-	if requireHTTPS, ok := config["require_https"].(bool); ok {
-		cfg.RequireHTTPS = requireHTTPS
+	if proxies := getStringSlice(config, "trusted_proxies"); len(proxies) > 0 {
+		cfg.TrustedProxies = proxies
 	}
+	// Written as a word when it comes from env(), and this one decides whether
+	// a webhook is accepted over plaintext.
+	cfg.RequireHTTPS = connector.BoolFromProps(config, "require_https", cfg.RequireHTTPS)
 
 	return NewInboundConnector(name, cfg), nil
 }
@@ -87,9 +90,7 @@ func (f *Factory) createOutbound(name string, config map[string]interface{}) (co
 	if algo := getString(config, "signature_algorithm", ""); algo != "" {
 		cfg.SignatureAlgorithm = algo
 	}
-	if includeTs, ok := config["include_timestamp"].(bool); ok {
-		cfg.IncludeTimestamp = includeTs
-	}
+	cfg.IncludeTimestamp = connector.BoolFromProps(config, "include_timestamp", cfg.IncludeTimestamp)
 	if timeout := getString(config, "timeout", ""); timeout != "" {
 		if d, err := time.ParseDuration(timeout); err == nil {
 			cfg.Timeout = d
@@ -106,12 +107,15 @@ func (f *Factory) createOutbound(name string, config map[string]interface{}) (co
 		}
 	}
 
-	// Retry configuration
+	// Retry configuration. The names are the canonical ones; the parser folds
+	// max_attempts and initial_delay, which this connector used to read
+	// directly, onto attempts and delay. Neither was accepted by the parser
+	// before that, so nothing ever reached these fields.
 	if retry, ok := config["retry"].(map[string]interface{}); ok {
-		if attempts := getInt(retry, "max_attempts", 0); attempts > 0 {
+		if attempts := getInt(retry, "attempts", 0); attempts > 0 {
 			cfg.Retry.MaxAttempts = attempts
 		}
-		if delay := getString(retry, "initial_delay", ""); delay != "" {
+		if delay := getString(retry, "delay", ""); delay != "" {
 			if d, err := time.ParseDuration(delay); err == nil {
 				cfg.Retry.InitialDelay = d
 			}
@@ -121,7 +125,9 @@ func (f *Factory) createOutbound(name string, config map[string]interface{}) (co
 				cfg.Retry.MaxDelay = d
 			}
 		}
-		if multiplier, ok := retry["multiplier"].(float64); ok {
+		// A whole number written in HCL arrives as an int, so multiplier = 2.0
+		// would have failed a float64 type assertion and been dropped.
+		if multiplier := getFloat(retry, "multiplier", 0); multiplier > 0 {
 			cfg.Retry.Multiplier = multiplier
 		}
 		if statuses := getIntSlice(retry, "retryable_statuses"); len(statuses) > 0 {
@@ -174,4 +180,20 @@ func getIntSlice(m map[string]interface{}, key string) []int {
 		return result
 	}
 	return nil
+}
+
+// getFloat reads a number that may have arrived as either an int or a float,
+// which is what HCL produces depending on whether the literal was whole.
+func getFloat(props map[string]interface{}, key string, defaultVal float64) float64 {
+	if v, ok := props[key]; ok {
+		switch n := v.(type) {
+		case float64:
+			return n
+		case int:
+			return float64(n)
+		case int64:
+			return float64(n)
+		}
+	}
+	return defaultVal
 }

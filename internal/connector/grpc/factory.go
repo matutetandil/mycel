@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
@@ -73,16 +74,30 @@ func (f *Factory) createServer(config *connector.Config) (connector.Connector, e
 
 	// Auth
 	if authCfg, ok := config.Properties["auth"].(map[string]interface{}); ok {
-		serverConfig.Auth = parseAuthConfig(authCfg)
+		auth, err := parseAuthConfig(authCfg)
+		if err != nil {
+			return nil, fmt.Errorf("grpc connector %q: %w", config.Name, err)
+		}
+		serverConfig.Auth = auth
 	}
 
 	return NewServerConnector(config.Name, serverConfig, f.logger), nil
 }
 
 // parseAuthConfig parses authentication configuration.
-func parseAuthConfig(props map[string]interface{}) *AuthConfig {
+//
+// The type is read without regard to case and a type the server cannot honour
+// is refused: read strictly, the settings underneath went unparsed and every
+// call was turned away with "unknown auth type" while the file looked correct.
+func parseAuthConfig(props map[string]interface{}) (*AuthConfig, error) {
 	cfg := &AuthConfig{
-		Type: getString(props, "type", ""),
+		Type: strings.ToLower(getString(props, "type", "")),
+	}
+	switch cfg.Type {
+	case "", "none", "jwt", "api_key", "mtls":
+	default:
+		return nil, fmt.Errorf("auth type %q is not one of: jwt, api_key, mtls",
+			getString(props, "type", ""))
 	}
 
 	// Parse public methods
@@ -104,7 +119,7 @@ func parseAuthConfig(props map[string]interface{}) *AuthConfig {
 		cfg.APIKey = parseAPIKeyConfig(props)
 	}
 
-	return cfg
+	return cfg, nil
 }
 
 // parseJWTAuthConfig parses JWT authentication configuration.
@@ -273,14 +288,18 @@ func parseClientAuthConfig(props map[string]interface{}) *ClientAuthConfig {
 }
 
 // parseTLSConfig parses TLS configuration from properties.
+// The names are the canonical ones; the parser folds cert_file, key_file,
+// ca_file and skip_verify, which this connector used to read directly, onto
+// cert, key, ca_cert and insecure_skip_verify. None of the six were accepted by
+// the parser before that, so nothing ever reached these fields.
 func parseTLSConfig(props map[string]interface{}) *TLSConfig {
 	return &TLSConfig{
 		Enabled:    getBool(props, "enabled", true),
-		CertFile:   getString(props, "cert_file", ""),
-		KeyFile:    getString(props, "key_file", ""),
-		CAFile:     getString(props, "ca_file", ""),
+		CertFile:   getString(props, "cert", ""),
+		KeyFile:    getString(props, "key", ""),
+		CAFile:     getString(props, "ca_cert", ""),
 		ServerName: getString(props, "server_name", ""),
-		SkipVerify: getBool(props, "skip_verify", false),
+		SkipVerify: getBool(props, "insecure_skip_verify", false),
 	}
 }
 
@@ -299,13 +318,12 @@ func getInt(props map[string]interface{}, key string, defaultVal int) int {
 	return connector.IntFromProps(props, key, defaultVal)
 }
 
+// getBool reads a switch that may have been written as a word, because env()
+// hands back strings: reflection = env("GRPC_REFLECTION", "false") arrives
+// spelt out. Reading only native booleans silently kept the default — which
+// left reflection publishing the whole schema, and clients on plaintext.
 func getBool(props map[string]interface{}, key string, defaultVal bool) bool {
-	if v, ok := props[key]; ok {
-		if b, ok := v.(bool); ok {
-			return b
-		}
-	}
-	return defaultVal
+	return connector.BoolFromProps(props, key, defaultVal)
 }
 
 func getDuration(props map[string]interface{}, key string, defaultVal time.Duration) time.Duration {

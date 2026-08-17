@@ -206,9 +206,13 @@ func (h *FlowHandler) computeDedupeFingerprint(ctx context.Context, input map[st
 	return Fingerprint(projection)
 }
 
-// ensureTransformer initializes the CEL transformer lazily. Most handler
-// paths call applyTransforms first which already does this, but a defensive
-// check here keeps dedupe from depending on call order.
+// ensureTransformer initializes the CEL transformer lazily.
+//
+// Whether one exists yet depends on what the flow has done so far, and the
+// stages that run before the transform — the sync keys most of all — cannot
+// depend on that order. A lock or a coordinate key is evaluated before the
+// flow body runs, so on a flow with no filter, accept gate or dedupe there
+// was nothing to have created one.
 func (h *FlowHandler) ensureTransformer() error {
 	if h.Transformer != nil {
 		return nil
@@ -216,7 +220,7 @@ func (h *FlowHandler) ensureTransformer() error {
 	celOptions := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
 	tr, err := transform.NewCELTransformerWithOptions(celOptions...)
 	if err != nil {
-		return fmt.Errorf("failed to create CEL transformer for dedupe: %w", err)
+		return fmt.Errorf("failed to create CEL transformer: %w", err)
 	}
 	h.Transformer = tr
 	return nil

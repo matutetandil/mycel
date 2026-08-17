@@ -40,6 +40,22 @@ func (r *Registry) RegisterFactory(factory Factory) {
 	r.factories = append(r.factories, factory)
 }
 
+// Supports reports whether any registered factory can build this type and
+// driver. It answers the question Create answers, without building anything —
+// which is what lets the connector inventory be checked against the schema
+// registry and the parser's list of built-in types.
+func (r *Registry) Supports(connectorType, driver string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, factory := range r.factories {
+		if factory.Supports(connectorType, driver) {
+			return true
+		}
+	}
+	return false
+}
+
 // Create creates a connector using the appropriate factory.
 func (r *Registry) Create(ctx context.Context, config *Config) (Connector, error) {
 	r.mu.RLock()
@@ -130,16 +146,34 @@ func (r *Registry) ConnectAll(ctx context.Context) error {
 }
 
 // CloseAll closes all registered connectors.
+// CloseAll closes every registered connector.
+//
+// Connectors are closed concurrently because they are independent and one of
+// them being slow is normal — a queue consumer draining, a database returning
+// its connections. Closing them in sequence made the shutdown cost the sum of
+// every connector's worst case, which for a service holding a dozen of them is
+// how a shutdown ends up outliving its grace period.
 func (r *Registry) CloseAll(ctx context.Context) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var lastErr error
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		lastErr error
+	)
 	for name, conn := range r.connectors {
-		if err := conn.Close(ctx); err != nil {
-			lastErr = fmt.Errorf("failed to close %s: %w", name, err)
-		}
+		wg.Add(1)
+		go func(name string, conn Connector) {
+			defer wg.Done()
+			if err := conn.Close(ctx); err != nil {
+				mu.Lock()
+				lastErr = fmt.Errorf("failed to close %s: %w", name, err)
+				mu.Unlock()
+			}
+		}(name, conn)
 	}
+	wg.Wait()
 	return lastErr
 }
 

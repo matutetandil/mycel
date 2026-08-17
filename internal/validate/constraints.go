@@ -1,9 +1,11 @@
 package validate
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // Built-in constraints for type validation.
@@ -30,19 +32,22 @@ func (c *FormatConstraint) Validate(value interface{}) error {
 			return fmt.Errorf("invalid URL format")
 		}
 	case "uuid":
-		// Simple UUID format check
-		if len(s) != 36 {
+		// Checked as a UUID rather than as a string of the right length: any
+		// thirty-six characters used to pass, so a truncated identifier or a
+		// line of text went through as one.
+		if !uuidPattern.MatchString(s) {
 			return fmt.Errorf("invalid UUID format")
 		}
 	case "date":
-		// Basic date format check (YYYY-MM-DD)
-		if len(s) != 10 || s[4] != '-' || s[7] != '-' {
+		// Parsed rather than counted. Counting the dashes accepted
+		// 9999-99-99 and 0000-00-00, which reach a database as a date it
+		// refuses — much further from the field that was wrong.
+		if _, err := time.Parse("2006-01-02", s); err != nil {
 			return fmt.Errorf("invalid date format (expected YYYY-MM-DD)")
 		}
 	case "datetime":
-		// Basic datetime format check
-		if !strings.Contains(s, "T") {
-			return fmt.Errorf("invalid datetime format")
+		if _, err := time.Parse(time.RFC3339, s); err != nil {
+			return fmt.Errorf("invalid datetime format (expected RFC 3339, e.g. 2026-08-15T09:30:00Z)")
 		}
 	}
 	return nil
@@ -55,7 +60,10 @@ type MinConstraint struct {
 
 func (c *MinConstraint) Name() string { return "min" }
 func (c *MinConstraint) Validate(value interface{}) error {
-	n := toFloat64(value)
+	n, ok := asNumber(value)
+	if !ok {
+		return nil // whether it is a number at all is the type check's business
+	}
 	if n < c.Min {
 		return fmt.Errorf("value must be at least %v", c.Min)
 	}
@@ -69,7 +77,10 @@ type MaxConstraint struct {
 
 func (c *MaxConstraint) Name() string { return "max" }
 func (c *MaxConstraint) Validate(value interface{}) error {
-	n := toFloat64(value)
+	n, ok := asNumber(value)
+	if !ok {
+		return nil
+	}
 	if n > c.Max {
 		return fmt.Errorf("value must be at most %v", c.Max)
 	}
@@ -174,17 +185,51 @@ func (c *CustomValidatorConstraint) Validate(value interface{}) error {
 
 // Helper functions
 
-func toFloat64(v interface{}) float64 {
+// uuidPattern is the canonical 8-4-4-4-12 hexadecimal form.
+var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// asNumber reads a number of any width, and says whether it was one.
+//
+// The type check admits every integer and float width Go has, and this used to
+// know four of them — everything else came back as zero. So a quantity of 50
+// arriving as an int32, which is what a Postgres int4 column produces, failed
+// `min = 1` with "value must be at least 1", and a quantity of 5000 passed
+// `max = 100` because it too was read as zero. The two widths that happen to
+// be missing are the ones database drivers use.
+//
+// Returning whether it converted also means a value that is not a number is
+// left to the type check, the way the string constraints already leave a
+// non-string alone, instead of being compared as zero.
+func asNumber(v interface{}) (float64, bool) {
 	switch val := v.(type) {
 	case int:
-		return float64(val)
+		return float64(val), true
+	case int8:
+		return float64(val), true
+	case int16:
+		return float64(val), true
+	case int32:
+		return float64(val), true
 	case int64:
-		return float64(val)
-	case float64:
-		return val
+		return float64(val), true
+	case uint:
+		return float64(val), true
+	case uint8:
+		return float64(val), true
+	case uint16:
+		return float64(val), true
+	case uint32:
+		return float64(val), true
+	case uint64:
+		return float64(val), true
 	case float32:
-		return float64(val)
+		return float64(val), true
+	case float64:
+		return val, true
+	case json.Number:
+		n, err := val.Float64()
+		return n, err == nil
 	default:
-		return 0
+		return 0, false
 	}
 }

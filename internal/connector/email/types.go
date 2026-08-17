@@ -234,39 +234,38 @@ func emailFromData(target string, payload interface{}) (*Email, error) {
 	case Email:
 		return &p, nil
 	case map[string]interface{}:
-		if to, ok := p["to"].(string); ok {
-			email.To = []Recipient{{Email: to}}
-		}
-		if to, ok := p["to"].([]interface{}); ok {
-			for _, t := range to {
-				if s, ok := t.(string); ok {
-					email.To = append(email.To, Recipient{Email: s})
-				}
-			}
-		}
-		if subject, ok := p["subject"].(string); ok {
-			email.Subject = subject
-		}
-		if text, ok := p["text"].(string); ok {
-			email.TextBody = text
-		}
-		if text, ok := p["text_body"].(string); ok {
-			email.TextBody = text
-		}
-		if html, ok := p["html_body"].(string); ok {
-			email.HTMLBody = html
-		}
-		if from, ok := p["from"].(string); ok {
-			email.From = from
-		}
-		if tmpl, ok := p["template"].(string); ok {
-			email.Template = tmpl
-		}
-		if tmplID, ok := p["template_id"].(string); ok {
-			email.TemplateID = tmplID
-		}
+		email.To = recipientsOf(p["to"])
+		email.CC = recipientsOf(p["cc"])
+		email.BCC = recipientsOf(p["bcc"])
+
+		email.From = stringOf(p["from"])
+		email.FromName = stringOf(p["from_name"])
+		email.ReplyTo = stringOf(p["reply_to"])
+		email.ReplyToName = stringOf(p["reply_to_name"])
+
+		email.Subject = stringOf(p["subject"])
+
+		// Both spellings of each body. Only html_body was read while text had
+		// two, so somebody writing the obvious pair sent a message with no
+		// HTML in it.
+		email.TextBody = firstOf(p, "text_body", "text")
+		email.HTMLBody = firstOf(p, "html_body", "html")
+
+		email.Template = stringOf(p["template"])
+		email.TemplateID = stringOf(p["template_id"])
 		if tmplData, ok := p["template_data"].(map[string]interface{}); ok {
 			email.TemplateData = tmplData
+		}
+
+		email.Attachments = attachmentsOf(p["attachments"])
+		email.Headers = headersOf(p["headers"])
+		email.Tags = stringsOf(p["tags"])
+
+		if track, ok := p["track_opens"].(bool); ok {
+			email.TrackOpens = track
+		}
+		if track, ok := p["track_clicks"].(bool); ok {
+			email.TrackClicks = track
 		}
 	case string:
 		email.TextBody = p
@@ -274,7 +273,7 @@ func emailFromData(target string, payload interface{}) (*Email, error) {
 			email.To = []Recipient{{Email: target}}
 		}
 	default:
-		return nil, fmt.Errorf("unsupported data type for email message")
+		return nil, fmt.Errorf("an email is a record or a line of text, and %T is neither", payload)
 	}
 
 	// Use target as recipient if not set
@@ -282,7 +281,168 @@ func emailFromData(target string, payload interface{}) (*Email, error) {
 		email.To = []Recipient{{Email: target}}
 	}
 
+	// Nobody to send it to. No provider can deliver this, so it is refused
+	// here rather than a call later with the provider's own wording — which
+	// names its API and not the flow that has the empty field.
+	if len(email.To) == 0 && len(email.CC) == 0 && len(email.BCC) == 0 {
+		return nil, fmt.Errorf("the message has no recipient: give the flow's to block a target, or put a to field in the payload")
+	}
+
 	return email, nil
+}
+
+// recipientsOf reads an address list, however a flow wrote it: one address, a
+// list of them, or records carrying a name beside each.
+func recipientsOf(value interface{}) []Recipient {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case string:
+		if v == "" {
+			return nil
+		}
+		return []Recipient{{Email: v}}
+	case Recipient:
+		return []Recipient{v}
+	case []Recipient:
+		return v
+	case map[string]interface{}:
+		if address := stringOf(v["email"]); address != "" {
+			return []Recipient{{Email: address, Name: stringOf(v["name"])}}
+		}
+	case []interface{}:
+		var out []Recipient
+		for _, item := range v {
+			out = append(out, recipientsOf(item)...)
+		}
+		return out
+	case []string:
+		out := make([]Recipient, 0, len(v))
+		for _, address := range v {
+			if address != "" {
+				out = append(out, Recipient{Email: address})
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// attachmentsOf reads what a flow attached — bytes it carried, or an address
+// for the provider to fetch.
+//
+// Nothing read these before, so a flow that generated an invoice and attached
+// it sent the email without it: the one thing the message existed to deliver.
+func attachmentsOf(value interface{}) []Attachment {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case []Attachment:
+		return v
+	case Attachment:
+		return []Attachment{v}
+	case map[string]interface{}:
+		if a, ok := attachmentOf(v); ok {
+			return []Attachment{a}
+		}
+	case []interface{}:
+		var out []Attachment
+		for _, item := range v {
+			switch entry := item.(type) {
+			case Attachment:
+				out = append(out, entry)
+			case map[string]interface{}:
+				if a, ok := attachmentOf(entry); ok {
+					out = append(out, a)
+				}
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func attachmentOf(m map[string]interface{}) (Attachment, bool) {
+	a := Attachment{
+		Filename:    stringOf(m["filename"]),
+		ContentType: stringOf(m["content_type"]),
+		ContentID:   stringOf(m["content_id"]),
+		URL:         stringOf(m["url"]),
+	}
+
+	switch content := m["content"].(type) {
+	case []byte:
+		a.Content = content
+	case string:
+		a.Content = []byte(content)
+	}
+
+	// Something to send, and something to call it.
+	if len(a.Content) == 0 && a.URL == "" {
+		return Attachment{}, false
+	}
+	if a.Filename == "" {
+		a.Filename = "attachment"
+	}
+	return a, true
+}
+
+// headersOf reads custom headers, which is how a service threads its own
+// identifiers through a provider.
+func headersOf(value interface{}) map[string]string {
+	switch v := value.(type) {
+	case map[string]string:
+		return v
+	case map[string]interface{}:
+		if len(v) == 0 {
+			return nil
+		}
+		out := make(map[string]string, len(v))
+		for name, item := range v {
+			out[name] = stringOf(item)
+		}
+		return out
+	}
+	return nil
+}
+
+func stringsOf(value interface{}) []string {
+	switch v := value.(type) {
+	case []string:
+		return v
+	case []interface{}:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s := stringOf(item); s != "" {
+				out = append(out, s)
+			}
+		}
+		if len(out) == 0 {
+			return nil
+		}
+		return out
+	}
+	return nil
+}
+
+// firstOf returns the first of several spellings that carries a value.
+func firstOf(m map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if s := stringOf(m[key]); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func stringOf(value interface{}) string {
+	if s, ok := value.(string); ok {
+		return s
+	}
+	if value == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", value)
 }
 
 // DefaultSMTPConfig returns sensible SMTP defaults

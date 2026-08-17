@@ -367,29 +367,14 @@ func (c *Connector) writeMessage(ctx context.Context, target string, data interf
 		return c.Send(ctx, &msg)
 	}
 
-	// If data is a map, try to build a message
-	if m, ok := data.(map[string]interface{}); ok {
-		msg := &Message{
-			Channel: target,
-		}
-		if text, ok := m["text"].(string); ok {
-			msg.Text = text
-		}
-		if channel, ok := m["channel"].(string); ok {
-			msg.Channel = channel
-		}
-		return c.Send(ctx, msg)
+	// Everything else is read in one place — see payload.go — rather than
+	// here, which is how this came to post only the text and drop the blocks
+	// the flow had built.
+	msg, err := slackFromData(target, data)
+	if err != nil {
+		return nil, err
 	}
-
-	// If data is a string, use it as text
-	if text, ok := data.(string); ok {
-		return c.Send(ctx, &Message{
-			Channel: target,
-			Text:    text,
-		})
-	}
-
-	return nil, fmt.Errorf("unsupported data type for Slack message")
+	return c.Send(ctx, msg)
 }
 
 // Health checks Slack connectivity

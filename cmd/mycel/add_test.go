@@ -25,7 +25,14 @@ func TestRenderConnector_FromSchema(t *testing.T) {
 		`connector "orders_db" {`,
 		`type   = "database"`,
 		`driver = "postgres"`,
-		"database =",   // required by postgres, so it must be emitted
+		// A Postgres connector needs a database name and a user, and both can
+		// be written as attributes or inside a url — the url is taken apart
+		// before anything is checked. One form is emitted and the other named,
+		// rather than the file saying the same thing twice. This used to
+		// assert "database =", back when the schema claimed that attribute was
+		// required and a url-only connector was described as incomplete.
+		"url =",
+		"// Or instead: database",
 		"// Optional:", // the rest listed, not guessed at
 	} {
 		if !strings.Contains(got, want) {

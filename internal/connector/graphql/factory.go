@@ -48,13 +48,14 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 // createServer creates a GraphQL server connector.
 func (f *Factory) createServer(cfg *connector.Config) (*ServerConnector, error) {
 	// Environment-aware playground default: enabled in dev/staging, disabled in production
-	playgroundDefault := envdefaults.ForEnvironment(cfg.Environment).Playground
+	defaults := envdefaults.ForEnvironment(cfg.Environment)
 
 	config := &ServerConfig{
-		Port:       getInt(cfg.Properties, "port", 4000),
-		Host:       getString(cfg.Properties, "host", "0.0.0.0"),
-		Endpoint:   getString(cfg.Properties, "endpoint", "/graphql"),
-		Playground: getBool(cfg.Properties, "playground", playgroundDefault),
+		Port:          getInt(cfg.Properties, "port", 4000),
+		Host:          getString(cfg.Properties, "host", "0.0.0.0"),
+		Endpoint:      getString(cfg.Properties, "endpoint", "/graphql"),
+		Playground:    getBool(cfg.Properties, "playground", defaults.Playground),
+		Introspection: getBool(cfg.Properties, "introspection", defaults.Introspection),
 	}
 
 	// Parse playground path
@@ -169,13 +170,11 @@ func getInt(props map[string]interface{}, key string, defaultVal int) int {
 	return connector.IntFromProps(props, key, defaultVal)
 }
 
+// getBool reads a switch that may have been written as a word: env() hands back
+// strings, so a spelt-out "false" has to mean false rather than falling through
+// to the default.
 func getBool(props map[string]interface{}, key string, defaultVal bool) bool {
-	if v, ok := props[key]; ok {
-		if b, ok := v.(bool); ok {
-			return b
-		}
-	}
-	return defaultVal
+	return connector.BoolFromProps(props, key, defaultVal)
 }
 
 func getDuration(props map[string]interface{}, key string, defaultVal time.Duration) time.Duration {

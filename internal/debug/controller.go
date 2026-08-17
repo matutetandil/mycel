@@ -238,24 +238,37 @@ func (h *StudioTransformHook) hasRuleBreakpoint(index int) bool {
 }
 
 // evaluateRuleConditions checks conditional breakpoints for a rule.
+//
+// The condition used to be ignored: every path returned true, with a note
+// saying conditional would be treated as unconditional "if we can't evaluate"
+// — while the code that evaluates one sits above, used by stage-level
+// breakpoints. So a breakpoint asking to stop on rule 12 only when
+// `input.email != ""`, which is the example in the protocol documentation,
+// stopped on rule 12 every time. In a transform of forty rules that is the
+// difference between one pause and forty.
 func (h *StudioTransformHook) evaluateRuleConditions(index int, activation map[string]interface{}) bool {
 	specs := h.session.GetBreakpoints(h.flowName)
 	for _, spec := range specs {
 		if spec.Stage != h.stage {
 			continue
 		}
-		if spec.RuleIndex != index && !h.thread.IsStepInto() {
+		if spec.RuleIndex != index {
 			continue
 		}
 		if spec.Condition == "" {
 			return true
 		}
-		// For now, treat conditional as unconditional if we can't evaluate
-		return true
+		result, err := evaluateCELCondition(spec.Condition, activation)
+		if err != nil {
+			// Pause anyway: a condition that cannot be evaluated is a
+			// question somebody asked and did not get an answer to, and
+			// stopping is the recoverable half of being wrong. Same choice
+			// as the stage-level path above.
+			return true
+		}
+		return result
 	}
-	// If stepInto mode, always break
-	if h.thread.IsStepInto() {
-		return true
-	}
-	return true
+	// Nothing matched this rule, so the only reason to be here is stepping
+	// through them one at a time.
+	return h.thread.IsStepInto()
 }

@@ -7,5 +7,17 @@ service {
   # storage references the connector used to persist workflow state.
   workflow {
     storage = "postgres"
+
+    # The HTTP interface to running workflows. Without this block there are no
+    # workflow endpoints at all — they wake and cancel workflows, so they are
+    # never served unasked and never without authentication.
+    api {
+      port = 9091
+
+      auth {
+        type = "api_key"
+        keys = [env("WORKFLOW_API_KEY", "demo-key")]
+      }
+    }
   }
 }

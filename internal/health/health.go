@@ -289,7 +289,24 @@ func checkerType(c Checker) string {
 
 // RegisterHandlers registers health check handlers on an HTTP mux.
 func (m *Manager) RegisterHandlers(mux *http.ServeMux) {
-	mux.HandleFunc("/health", m.HealthHandler())
-	mux.HandleFunc("/health/live", m.LiveHandler())
-	mux.HandleFunc("/health/ready", m.ReadyHandler())
+	m.RegisterHandlersUnless(mux, func(string) bool { return false })
+}
+
+// RegisterHandlersUnless registers the health handlers, skipping any path the
+// caller reports as already taken.
+//
+// Registering a pattern twice on an http.ServeMux panics, so a service with a
+// flow serving /health used to crash during startup rather than start with the
+// flow in charge.
+func (m *Manager) RegisterHandlersUnless(mux *http.ServeMux, taken func(path string) bool) {
+	for path, handler := range map[string]http.HandlerFunc{
+		"/health":       m.HealthHandler(),
+		"/health/live":  m.LiveHandler(),
+		"/health/ready": m.ReadyHandler(),
+	} {
+		if taken(path) {
+			continue
+		}
+		mux.HandleFunc(path, handler)
+	}
 }

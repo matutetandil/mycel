@@ -13,11 +13,31 @@ type Version struct {
 	Minor    int
 	Patch    int
 	Original string // original string before parsing (e.g., "v1.2.3")
+
+	// PreRelease is what follows the patch on a tag like v2.0.0-rc.1.
+	//
+	// It used to be dropped, which made a release candidate indistinguishable
+	// from the release: a plugin author pushing v2.0.0-rc.1 shipped it to
+	// everyone whose constraint allowed 2.0.0, and once the real v2.0.0
+	// existed the two compared equal, so which one a service ran came down to
+	// the order the tags happened to arrive in.
+	PreRelease string
 }
 
-// String returns the version as "vMAJOR.MINOR.PATCH".
+// String returns the version as "vMAJOR.MINOR.PATCH", with the pre-release if
+// the tag carried one — a log claiming v2.0.0 for a release candidate is worse
+// than no log.
 func (v Version) String() string {
+	if v.PreRelease != "" {
+		return fmt.Sprintf("v%d.%d.%d-%s", v.Major, v.Minor, v.Patch, v.PreRelease)
+	}
 	return fmt.Sprintf("v%d.%d.%d", v.Major, v.Minor, v.Patch)
+}
+
+// IsPreRelease reports whether this is a version published for trying out
+// rather than for running.
+func (v Version) IsPreRelease() bool {
+	return v.PreRelease != ""
 }
 
 // IsZero returns true if the version has not been set.
@@ -84,8 +104,12 @@ func ParseVersion(s string) (Version, error) {
 	}
 
 	if len(parts) >= 3 && parts[2] != "" {
-		// Strip pre-release/build metadata for simplicity
-		patchStr := strings.SplitN(parts[2], "-", 2)[0]
+		// The patch is what precedes the pre-release and the build metadata.
+		// The pre-release is kept rather than dropped: see Version.PreRelease.
+		patchStr, rest, hasPreRelease := strings.Cut(parts[2], "-")
+		if hasPreRelease {
+			v.PreRelease = strings.SplitN(rest, "+", 2)[0]
+		}
 		patchStr = strings.SplitN(patchStr, "+", 2)[0]
 		v.Patch, err = strconv.Atoi(patchStr)
 		if err != nil {
@@ -183,6 +207,17 @@ func ParseConstraint(s string) (ConstraintSet, error) {
 }
 
 // Match returns true if the version satisfies all constraints.
+// NamesPreRelease reports whether the constraint asked for this exact
+// pre-release by name, which is the only way to run one: version = "v2.0.0-rc.1".
+func (cs ConstraintSet) NamesPreRelease(v Version) bool {
+	for _, c := range cs {
+		if c.Op == "=" && c.Version.PreRelease == v.PreRelease && c.Version.PreRelease != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (cs ConstraintSet) Match(v Version) bool {
 	// Empty constraint set matches everything
 	if len(cs) == 0 {
@@ -218,10 +253,20 @@ func (c Constraint) match(v Version) bool {
 
 // BestMatch returns the highest version from the list that satisfies
 // the constraint set. Returns false if no version matches.
+// BestMatch returns the highest version the constraint allows.
+//
+// A pre-release is never chosen for a constraint that does not name it. Every
+// package manager works this way, and the alternative is a release candidate
+// reaching everybody who asked for the version it is a candidate for.
 func BestMatch(versions []Version, cs ConstraintSet) (Version, bool) {
 	// Sort descending (highest first)
-	sorted := make([]Version, len(versions))
-	copy(sorted, versions)
+	sorted := make([]Version, 0, len(versions))
+	for _, v := range versions {
+		if v.IsPreRelease() && !cs.NamesPreRelease(v) {
+			continue
+		}
+		sorted = append(sorted, v)
+	}
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].Compare(sorted[j]) > 0
 	})

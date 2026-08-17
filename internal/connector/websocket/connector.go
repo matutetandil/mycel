@@ -209,14 +209,15 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 		}
 		c.sendToRoom(room, payload)
 	case "send_to_user":
-		userID := ""
-		if data.Filters != nil {
-			if uid, ok := data.Filters["user_id"].(string); ok {
-				userID = uid
-			}
+		// The documentation says the payload or the filters may carry it, and
+		// only the filters were read — so the form the documentation shows,
+		// with the id in the payload, sent to nobody.
+		userID := userIDFrom(data.Filters)
+		if userID == "" {
+			userID = userIDFrom(payload)
 		}
 		if userID == "" {
-			return nil, fmt.Errorf("send_to_user requires user_id in filters")
+			return nil, fmt.Errorf("send_to_user needs a user_id, in the payload or in filters")
 		}
 		c.sendToUser(userID, payload)
 	default:
@@ -225,6 +226,22 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	}
 
 	return &connector.Result{Affected: 1}, nil
+}
+
+// userIDFrom reads a user id out of a map, however the number was typed: an
+// identifier from a database is as likely to be a number as a word.
+func userIDFrom(values map[string]interface{}) string {
+	if values == nil {
+		return ""
+	}
+	switch id := values["user_id"].(type) {
+	case nil:
+		return ""
+	case string:
+		return id
+	default:
+		return fmt.Sprintf("%v", id)
+	}
 }
 
 // handleWebSocket upgrades HTTP to WebSocket and starts the client read pump.
@@ -239,6 +256,23 @@ func (c *Connector) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		conn:   conn,
 		rooms:  make(map[string]bool),
 		params: make(map[string]interface{}),
+		// Who this connection belongs to, taken from the address it was
+		// opened with — `/ws?user_id=alice`, which is all a browser can send
+		// on an upgrade.
+		//
+		// Nothing used to set this at all: the field was declared, read by
+		// send_to_user and by the input a flow receives, and never written.
+		// So `operation = "send_to_user"` matched no client, delivered to
+		// nobody, and answered that it had written one row.
+		userID: r.URL.Query().Get("user_id"),
+	}
+
+	// Everything else on the address is kept as well, so a flow can tell a
+	// connection from a tenant apart from one from a device.
+	for key, values := range r.URL.Query() {
+		if len(values) > 0 {
+			client.params[key] = values[0]
+		}
 	}
 
 	c.mu.Lock()
@@ -249,10 +283,14 @@ func (c *Connector) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Notify connect handler
 	if handler, ok := c.getHandler("connect"); ok {
-		handler(r.Context(), map[string]interface{}{
+		input := map[string]interface{}{
 			"event":       "connect",
 			"remote_addr": r.RemoteAddr,
-		})
+		}
+		for key, value := range client.params {
+			input[key] = value
+		}
+		handler(r.Context(), input)
 	}
 
 	go c.readPump(client)

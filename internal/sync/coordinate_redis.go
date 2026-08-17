@@ -12,8 +12,18 @@ import (
 // RedisCoordinator implements Coordinator interface using Redis.
 // Uses a single Pub/Sub subscription hub for efficient waiting.
 type RedisCoordinator struct {
-	client *redis.Client
-	prefix string
+	// ownsClient is true only when this instance dialled Redis itself.
+	//
+	// The FromClient constructors are handed a client the sync manager shares
+	// between every primitive configured on the same address, so closing it
+	// here would take the locks and the sequence guard down with it — while
+	// the service carried on running and every later call answered "redis:
+	// client is closed". The manager works around that today by reaching for
+	// stop() instead of Close(); anyone else calling the obvious method got
+	// the trap.
+	ownsClient bool
+	client     *redis.Client
+	prefix     string
 
 	mu      sync.RWMutex
 	waiters map[string][]chan struct{} // signal -> waiting channels
@@ -62,10 +72,11 @@ func NewRedisCoordinator(cfg *RedisCoordinatorConfig) (*RedisCoordinator, error)
 	}
 
 	c := &RedisCoordinator{
-		client:  client,
-		prefix:  prefix,
-		waiters: make(map[string][]chan struct{}),
-		done:    make(chan struct{}),
+		client:     client,
+		prefix:     prefix,
+		waiters:    make(map[string][]chan struct{}),
+		done:       make(chan struct{}),
+		ownsClient: true,
 	}
 
 	// Subscribe to all signals using pattern
@@ -260,6 +271,9 @@ func (c *RedisCoordinator) stop() {
 // coordinators the manager calls stop() and closes the shared client itself.
 func (c *RedisCoordinator) Close() error {
 	c.stop()
+	if !c.ownsClient {
+		return nil
+	}
 	return c.client.Close()
 }
 

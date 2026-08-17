@@ -9,9 +9,42 @@ service {
     burst               = 200
     key_extractor       = "ip"
   }
+
+  # Long-running workflows, and the HTTP interface to them.
+  #
+  # The api block is what makes those endpoints exist at all: without it there
+  # are none. They are not on the admin port — that one carries health and
+  # metrics, is read-only and unauthenticated — and they are never served
+  # without something to check callers against.
+  workflow {
+    storage = "postgres"
+
+    api {
+      port = 9091
+
+      auth {
+        type = "api_key"
+        keys = ["workflow-test-key"]
+      }
+    }
+  }
 }
 
 # Test plugin — local plugin with a WASM validator
 plugin "test-plugin" {
   source = "./plugins/test-plugin"
+}
+
+# A connector type the runtime does not ship, compiled from Rust.
+#
+# Everything about it — the type name, the attributes its connector block
+# takes, what a read answers with, and the rule that refuses a reservation
+# larger than the stock — lives in the module, not here.
+plugin "inventory-store" {
+  source = "./plugins/inventory-store"
+}
+
+# A sanitiser that runs before any flow does.
+plugin "pii-sanitizer" {
+  source = "./plugins/pii-sanitizer"
 }

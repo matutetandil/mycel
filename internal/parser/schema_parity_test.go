@@ -150,7 +150,10 @@ func sampleValue(a schema.Attr) string {
 	}
 	switch a.Type {
 	case schema.TypeNumber:
-		return "1"
+		// Distinct per attribute, because some numbers may not be equal to
+		// each other: a workflow api on the admin port is refused, and every
+		// number being 1 turned that rule into a failure of this test.
+		return fmt.Sprintf("%d", 1+len(a.Name))
 	case schema.TypeBool:
 		return "true"
 	case schema.TypeList:
@@ -235,4 +238,18 @@ func parseString(t *testing.T, hcl string) (*Configuration, error) {
 		t.Fatalf("write: %v", err)
 	}
 	return NewHCLParser().ParseFile(context.Background(), path)
+}
+
+// tryParseFiles parses a directory of files through the real loader, which is
+// where Merge runs. Parsing a single file bypasses it entirely, so a field
+// dropped by the merge looks fine to every single-file test.
+func tryParseFiles(t *testing.T, files map[string]string) (*Configuration, error) {
+	t.Helper()
+	dir := t.TempDir()
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	return NewHCLParser().Parse(context.Background(), dir)
 }

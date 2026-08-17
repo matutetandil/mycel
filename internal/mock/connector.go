@@ -54,8 +54,15 @@ func (c *Connector) Type() string {
 
 // Read implements connector.Reader.
 func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector.Result, error) {
-	// Try to find mock
-	result, err := c.findMock(ctx, query.Target, nil)
+	// Try to find mock.
+	//
+	// The query is what a recording's condition is written against — a read
+	// answering differently for input.id == 1 than for anything else is the
+	// whole reason conditional responses exist. Nothing was passed here, so
+	// every condition saw an empty input and only a default response could
+	// ever match: conditional recordings worked on the write side and silently
+	// did nothing on the read side.
+	result, err := c.findMock(ctx, query.Target, readInput(query))
 	if err != nil {
 		return nil, err
 	}
@@ -88,6 +95,19 @@ func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector
 	}
 
 	return nil, fmt.Errorf("connector %s does not support read operations", c.name)
+}
+
+// readInput is what a recording's condition is evaluated against for a read:
+// the filters the caller asked with, and the params beside them.
+func readInput(query connector.Query) map[string]interface{} {
+	input := make(map[string]interface{}, len(query.Filters)+len(query.Params))
+	for name, value := range query.Params {
+		input[name] = value
+	}
+	for name, value := range query.Filters {
+		input[name] = value
+	}
+	return input
 }
 
 // Write implements connector.Writer.

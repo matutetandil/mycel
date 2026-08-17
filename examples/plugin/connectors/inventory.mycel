@@ -1,0 +1,11 @@
+// The connector the plugin provides.
+//
+// inventory_store is not a type the runtime knows: it arrives with the plugin,
+// and from here on a flow names it exactly like postgres or rabbitmq. warehouse
+// is declared in the plugin's own manifest, which is where the required
+// attributes of a plugin connector are described.
+connector "stock" {
+  type = "inventory_store"
+
+  warehouse = "auckland"
+}

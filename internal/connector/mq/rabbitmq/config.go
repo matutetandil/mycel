@@ -2,7 +2,9 @@ package rabbitmq
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"os"
 	"time"
 )
 
@@ -263,6 +265,26 @@ func (c *TLSConfig) BuildTLSConfig() (*tls.Config, error) {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: c.InsecureSkipVerify,
 		MinVersion:         tls.VersionTLS12,
+	}
+
+	// The authority the broker's certificate is checked against.
+	//
+	// ca_cert was read from the configuration, documented with an example, and
+	// then ignored here — so a broker presenting a certificate from a private
+	// authority failed verification however the file was set, and the way out
+	// people find is insecure_skip_verify, which turns the check off
+	// altogether. A file that cannot be read is refused at startup rather than
+	// silently leaving the system roots in charge.
+	if c.CAFile != "" {
+		pemBytes, err := os.ReadFile(c.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA file %s: %w", c.CAFile, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pemBytes) {
+			return nil, fmt.Errorf("no certificate found in CA file %s", c.CAFile)
+		}
+		tlsConfig.RootCAs = pool
 	}
 
 	// Load client certificate if provided

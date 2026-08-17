@@ -224,8 +224,11 @@ type ParsedDirectiveDef struct {
 
 // ParseSDLComplete parses a complete GraphQL SDL using the graphql-go AST parser.
 func ParseSDLComplete(sdl string) (*ParsedSchema, error) {
+	// A federation v2 subgraph declares its version with a schema extension the
+	// AST parser cannot represent. See sdl_schema_extension.go.
+	cleaned, repeatable := stripSchemaExtensions(sdl)
 	src := source.NewSource(&source.Source{
-		Body: []byte(sdl),
+		Body: []byte(cleaned),
 		Name: "schema",
 	})
 
@@ -299,7 +302,11 @@ func ParseSDLComplete(sdl string) (*ParsedSchema, error) {
 			schema.Scalars = append(schema.Scalars, d.Name.Value)
 
 		case *ast.DirectiveDefinition:
-			schema.Directives[d.Name.Value] = parseDirectiveDefinition(d)
+			parsed := parseDirectiveDefinition(d)
+			// The keyword was removed before parsing, so it is restored here
+			// rather than lost.
+			parsed.IsRepeatable = repeatable[d.Name.Value]
+			schema.Directives[d.Name.Value] = parsed
 
 		case *ast.SchemaDefinition:
 			// Schema definition - extract operation types if needed
@@ -331,7 +338,35 @@ func ParseSDLComplete(sdl string) (*ParsedSchema, error) {
 		}
 	}
 
+	resolveRootTypes(schema)
+
 	return schema, nil
+}
+
+// resolveRootTypes attaches the types a schema block names as its roots.
+//
+// A schema block may call its roots something other than Query and Mutation:
+//
+//	schema { query: RootQuery }
+//	type RootQuery { ... }
+//
+// The block is read before or after the type depending on where it was written,
+// and either way it leaves behind a root with the right name and no fields,
+// while the fields sit under the type's own name. A service built from that
+// exposes nothing — a schema file that looks complete and answers no query.
+func resolveRootTypes(schema *ParsedSchema) {
+	for _, root := range []**ParsedType{&schema.Query, &schema.Mutation, &schema.Subscription} {
+		named := *root
+		if named == nil || len(named.Fields) > 0 {
+			continue
+		}
+		if declared, ok := schema.Types[named.Name]; ok {
+			*root = declared
+			// A root type is not also an ordinary type, which is how a literal
+			// `type Query` is already treated.
+			delete(schema.Types, named.Name)
+		}
+	}
 }
 
 // parseObjectDefinition parses an object type definition.

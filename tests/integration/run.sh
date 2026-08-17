@@ -76,6 +76,12 @@ PORT_DEFS=(
   PORT_COSMO:5000
   PORT_MOCK:8888
   PORT_RABBIT:5672
+  PORT_AUTH:3003
+  PORT_WORKFLOW:9101
+  PORT_PG:55432
+  PORT_MYSQL:33306
+  PORT_MONGO:37017
+  PORT_MINIO:39000
 )
 
 echo "Checking ports..."
@@ -151,7 +157,16 @@ else
     scripts/test-federation.sh
     scripts/test-aspects.sh
     scripts/test-security.sh
+    scripts/test-auth.sh
+    scripts/test-auth-storage.sh
+    scripts/test-workflow.sh
+    scripts/test-state-machine.sh
+    scripts/test-requeue.sh
+    scripts/test-functions.sh
+    scripts/test-profiles.sh
     scripts/test-plugin.sh
+    scripts/test-plugin-connector.sh
+    scripts/test-sanitizer.sh
     scripts/test-new-features.sh
     scripts/test-fanout.sh
     scripts/test-dedupe.sh
@@ -295,6 +310,64 @@ else
   done
 
   TOTAL_TIME=$(( $(date +%s) - START_TIME ))
+fi
+
+# Step 4b: Go tests that need infrastructure
+#
+# Some test files skip themselves unless a broker or a database is reachable —
+# reconnecting after a dropped connection, the strict queue declare, and the
+# SQL auth stores, which speak Postgres and MySQL rather than anything a unit
+# test can stand up. Nothing ever ran them: not CI, and not a developer unless
+# they happened to have the infrastructure up. The stack is right here, so they
+# run here, and skipping counts as a failure — a test that never runs is not a
+# test.
+if command -v go > /dev/null 2>&1; then
+  echo "--------------------------------------"
+  echo "=== Go tests that need infrastructure ==="
+
+  run_go_tests() {
+    local label="$1" pkg="$2" pattern="$3"
+    local out
+    if out=$(cd ../.. && \
+        MYCEL_TEST_RABBITMQ_URL="amqp://guest:guest@localhost:${PORT_RABBIT}/" \
+        MYCEL_TEST_POSTGRES_DSN="postgres://mycel:mycel@127.0.0.1:${PORT_PG}/mycel_test?sslmode=disable" \
+        MYCEL_TEST_MYSQL_DSN="mycel:mycel@tcp(127.0.0.1:${PORT_MYSQL})/mycel_test?parseTime=true" \
+        MYCEL_TEST_MONGO_URI="mongodb://mongo:mycel@127.0.0.1:${PORT_MONGO}/mycel_test?authSource=admin" \
+        MYCEL_TEST_S3_ENDPOINT="http://127.0.0.1:${PORT_MINIO}" \
+        go test "$pkg" -run "$pattern" -count=1 -v 2>&1); then
+      if echo "$out" | grep -q -- "--- SKIP"; then
+        echo "  ✗ $label skipped itself"
+        echo "$out" | grep -A 1 -- "--- SKIP" | head -6
+        TOTAL_FAIL=$((TOTAL_FAIL + 1))
+        FAILED_SUITES+=("$label")
+      else
+        echo "  ✓ $label"
+        TOTAL_PASS=$((TOTAL_PASS + 1))
+      fi
+    else
+      echo "$out" | tail -20
+      echo "  ✗ $label"
+      TOTAL_FAIL=$((TOTAL_FAIL + 1))
+      FAILED_SUITES+=("$label")
+    fi
+  }
+
+  run_go_tests "rabbitmq reconnect and strict declare" \
+    ./internal/connector/mq/rabbitmq/ 'Integration|ResumesAfterConnectionDrop'
+  run_go_tests "auth stores against postgres and mysql" \
+    ./internal/auth/ 'AccountsInPostgres|AccountsInMySQL|SessionsInMySQL|RevokedTokensInMySQL'
+  run_go_tests "postgres read replicas" \
+    ./internal/connector/database/postgres/ 'ReadGoesToThe|ReplicaThatCannotBeReached'
+  run_go_tests "mysql read replicas" \
+    ./internal/connector/database/mysql/ 'ReadGoesToThe|ReplicaThatCannotBeReached'
+  run_go_tests "mongodb write operations" \
+    ./internal/connector/database/mongodb/ 'SeveralDocuments|UpdateChanges|ReplacingADocument|DeletingTakes|OperationNobody|AggregatingAnswers'
+  run_go_tests "s3 objects and signed links" \
+    ./internal/connector/s3/ 'ObjectComesBack|AskingWhetherAnObject|CopyingLeavesBoth|DeletingAnObject|SignedLink|OperationNobody|ListingAPrefix'
+  # Logical replication is a mode of the server, not something a library can
+  # stand up, so the whole CDC path below the decoding only runs here.
+  run_go_tests "cdc against postgres logical replication" \
+    ./internal/connector/cdc/ 'ChangesToARealTable|StreamPicksUpWhereItLeftOff'
 fi
 
 # Step 5: Summary

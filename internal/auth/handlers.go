@@ -42,11 +42,27 @@ func DefaultEndpointsConfig() *EndpointsConfig {
 		MFAVerify:      &EndpointConfig{Path: "/mfa/verify", Method: "POST", Enabled: true},
 		MFADisable:     &EndpointConfig{Path: "/mfa/disable", Method: "POST", Enabled: true},
 		MFARecovery:    &EndpointConfig{Path: "/mfa/recovery", Method: "POST", Enabled: true},
+		// The single sign-on callbacks. They were missing here as well as from
+		// the routing, so even a configuration that named them had nowhere to
+		// send a provider.
+		SocialCallback: &EndpointConfig{Path: "/social/callback", Method: "GET", Enabled: true},
+		SSOCallback:    &EndpointConfig{Path: "/sso/callback", Method: "GET", Enabled: true},
 	}
 }
 
-// RegisterRoutes registers all auth routes on the given mux
-func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+// Mux is whatever the routes are mounted on. *http.ServeMux satisfies it, and
+// so does an adapter over a connector that owns its own router.
+type Mux interface {
+	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
+}
+
+// RegisterRoutes mounts the endpoints the configuration asks for.
+//
+// Nothing called this until 2.19.0. The manager and the handler were both
+// built at startup, the log said "auth system initialized", and every endpoint
+// the auth block promises — login, register, refresh, me, the session and MFA
+// routes — answered 404, because the routes were never attached to a server.
+func (h *Handler) RegisterRoutes(mux Mux) {
 	prefix := h.config.Prefix
 	if prefix == "" {
 		prefix = "/auth"
@@ -55,43 +71,133 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Register enabled endpoints
 	if h.config.Register != nil && h.config.Register.Enabled {
 		path := prefix + getPath(h.config.Register, "/register")
-		mux.HandleFunc(path, h.handleRegister)
+		mux.HandleFunc(path, h.limited("register", h.handleRegister))
 	}
 
 	if h.config.Login != nil && h.config.Login.Enabled {
 		path := prefix + getPath(h.config.Login, "/login")
-		mux.HandleFunc(path, h.handleLogin)
+		mux.HandleFunc(path, h.limited("login", h.handleLogin))
 	}
 
 	if h.config.Logout != nil && h.config.Logout.Enabled {
 		path := prefix + getPath(h.config.Logout, "/logout")
-		mux.HandleFunc(path, h.handleLogout)
+		mux.HandleFunc(path, h.limited("logout", h.handleLogout))
 	}
 
 	if h.config.Refresh != nil && h.config.Refresh.Enabled {
 		path := prefix + getPath(h.config.Refresh, "/refresh")
-		mux.HandleFunc(path, h.handleRefresh)
+		mux.HandleFunc(path, h.limited("refresh", h.handleRefresh))
 	}
 
 	if h.config.Me != nil && h.config.Me.Enabled {
 		path := prefix + getPath(h.config.Me, "/me")
-		mux.HandleFunc(path, h.handleMe)
+		mux.HandleFunc(path, h.limited("sessions", h.handleMe))
 	}
 
 	if h.config.PasswordChange != nil && h.config.PasswordChange.Enabled {
 		path := prefix + getPath(h.config.PasswordChange, "/change-password")
-		mux.HandleFunc(path, h.handleChangePassword)
+		mux.HandleFunc(path, h.limited("change_password", h.handleChangePassword))
 	}
 
 	if h.config.SessionsList != nil && h.config.SessionsList.Enabled {
 		path := prefix + getPath(h.config.SessionsList, "/sessions")
-		mux.HandleFunc(path, h.handleSessions)
+		mux.HandleFunc(path, h.limited("sessions", h.handleSessions))
 	}
 
 	// Sessions revoke needs special handling for path param
 	if h.config.SessionsRevoke != nil && h.config.SessionsRevoke.Enabled {
 		path := prefix + "/sessions/"
-		mux.HandleFunc(path, h.handleSessionRevoke)
+		mux.HandleFunc(path, h.limited("sessions", h.handleSessionRevoke))
+	}
+
+	h.registerMFARoutes(mux, prefix)
+	h.registerWebAuthnRoutes(mux, prefix)
+	h.registerSSORoutes(mux, prefix)
+}
+
+// registerMFARoutes mounts the four routes a second factor is set up and used
+// through.
+//
+// They exist only when a second factor does: paths that answer for a service
+// that cannot enrol anybody would be worse than none, since they invite a
+// client to build the flow.
+func (h *Handler) registerMFARoutes(mux Mux, prefix string) {
+	if !h.manager.MFAEnabled() {
+		return
+	}
+
+	if path := endpointPath(h.config.MFASetup, "/mfa/setup"); path != "" {
+		mux.HandleFunc(prefix+path, h.limited("mfa_setup", h.handleMFASetup))
+	}
+	if path := endpointPath(h.config.MFAVerify, "/mfa/verify"); path != "" {
+		mux.HandleFunc(prefix+path, h.limited("mfa_verify", h.handleMFAVerify))
+	}
+	if path := endpointPath(h.config.MFADisable, "/mfa/disable"); path != "" {
+		mux.HandleFunc(prefix+path, h.limited("mfa_disable", h.handleMFADisable))
+	}
+	if path := endpointPath(h.config.MFARecovery, "/mfa/recovery"); path != "" {
+		mux.HandleFunc(prefix+path, h.limited("mfa_recovery", h.handleMFARecovery))
+	}
+}
+
+// endpointPath returns the path an endpoint is served on, or "" when it is
+// turned off. An endpoint nobody configured takes the default, since leaving
+// the block out is not a decision to remove it.
+func endpointPath(cfg *EndpointConfig, fallback string) string {
+	if cfg == nil {
+		return fallback
+	}
+	if !cfg.Enabled {
+		return ""
+	}
+	if cfg.Path != "" {
+		return cfg.Path
+	}
+	return fallback
+}
+
+// registerWebAuthnRoutes mounts the four calls a passkey ceremony needs, plus
+// the list of keys on an account.
+//
+// Only when the service can actually run one: paths that answer for a service
+// with no relying party configured invite a browser to start a ceremony that
+// cannot finish.
+func (h *Handler) registerWebAuthnRoutes(mux Mux, prefix string) {
+	if !h.manager.WebAuthnEnabled() {
+		return
+	}
+
+	mux.HandleFunc(prefix+"/webauthn/register/begin", h.limited("webauthn_register", h.handleWebAuthnRegisterBegin))
+	mux.HandleFunc(prefix+"/webauthn/register/finish", h.limited("webauthn_register", h.handleWebAuthnRegisterFinish))
+	mux.HandleFunc(prefix+"/webauthn/login/begin", h.limited("login", h.handleWebAuthnLoginBegin))
+	mux.HandleFunc(prefix+"/webauthn/login/finish", h.limited("login", h.handleWebAuthnLoginFinish))
+	mux.HandleFunc(prefix+"/webauthn/credentials", h.handleWebAuthnCredentials)
+}
+
+// registerSSORoutes mounts the two routes each sign-on family needs: one that
+// sends the browser to the provider, one the provider returns to.
+//
+// The begin route carries the provider in the path, so one route serves every
+// provider the configuration declares. The literal callback path is registered
+// as well, and takes precedence over the wildcard by Go's own routing rules.
+func (h *Handler) registerSSORoutes(mux Mux, prefix string) {
+	// The identities attached to an account, once a sign-in has attached them.
+	// These exist whenever sign-on does, since an account that can gain an
+	// identity should be able to show and lose one.
+	if h.config.SocialCallback != nil && h.config.SocialCallback.Enabled ||
+		h.config.SSOCallback != nil && h.config.SSOCallback.Enabled {
+		mux.HandleFunc(prefix+"/linked-accounts", h.handleLinkedAccounts)
+		mux.HandleFunc(prefix+"/unlink/{provider}", h.handleUnlink)
+	}
+
+	if h.config.SocialCallback != nil && h.config.SocialCallback.Enabled {
+		mux.HandleFunc(prefix+getPath(h.config.SocialCallback, "/social/callback"), h.handleSSOCallback)
+		mux.HandleFunc(prefix+"/social/{provider}", h.handleSSOBegin)
+	}
+
+	if h.config.SSOCallback != nil && h.config.SSOCallback.Enabled {
+		mux.HandleFunc(prefix+getPath(h.config.SSOCallback, "/sso/callback"), h.handleSSOCallback)
+		mux.HandleFunc(prefix+"/sso/{provider}", h.handleSSOBegin)
 	}
 }
 

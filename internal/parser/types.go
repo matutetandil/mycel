@@ -200,13 +200,23 @@ func parseFieldDefinition(name string, attr *hcl.Attribute, ctx *hcl.EvalContext
 		// Could recursively parse nested fields here
 
 	default:
-		// Try to evaluate as a regular value
+		// Anything else: a type written as a quoted word, or something that is
+		// not a type at all.
 		val, diags := attr.Expr.Value(ctx)
-		if !diags.HasErrors() {
+		switch {
+		case diags.HasErrors():
+			return nil, fmt.Errorf("field %q: %s", name, diags.Error())
+		case val.Type() == cty.String:
 			field.Type = val.AsString()
-		} else {
-			// Fall back to extracting the expression as text
-			field.Type = extractTypeFromExpression(attr.Expr)
+		default:
+			// A number or a boolean where a type belongs — `age = 18` rather
+			// than `age = number` — used to panic the process on "not a
+			// string", taking down `mycel validate` and, in a hot reload,
+			// the running service. It is a plausible typo: it reads like a
+			// default value, which is what a type block does not hold.
+			return nil, fmt.Errorf(
+				"field %q: %s is not a type — write one of string, number, bool, list or object, or a type you declared",
+				name, val.Type().FriendlyName())
 		}
 	}
 
@@ -253,14 +263,37 @@ func parseConstraintsAndDirectives(field *validate.FieldSchema, args []hclsyntax
 
 				// Otherwise treat as validation constraint
 				constraint := createConstraint(key, value)
-				if constraint != nil {
-					field.Constraints = append(field.Constraints, constraint)
+				if constraint == nil {
+					// A constraint that produces nothing is a rule somebody
+					// wrote and the service does not apply. Since the whole
+					// point of the field is to refuse what does not fit, a
+					// name with a typo in it — max_lenght — would leave the
+					// field accepting everything, with the configuration
+					// saying otherwise and validate reporting it as fine.
+					return fmt.Errorf("field %q: %s", field.Name, describeConstraint(key, value))
 				}
+				field.Constraints = append(field.Constraints, constraint)
 			}
 		}
 	}
 
 	return nil
+}
+
+// constraintNames are the rules a field can carry, in the order they are worth
+// reading.
+var constraintNames = []string{"format", "min", "max", "min_length", "max_length", "pattern", "enum"}
+
+// describeConstraint explains why a constraint produced nothing: either the
+// name is not one, or the value is not the kind that name takes.
+func describeConstraint(key string, value interface{}) string {
+	for _, known := range constraintNames {
+		if known == key {
+			return fmt.Sprintf("constraint %q was given %v, which is not the kind of value it takes", key, value)
+		}
+	}
+	return fmt.Sprintf("there is no constraint called %q; the ones there are: %s",
+		key, strings.Join(constraintNames, ", "))
 }
 
 // parseFieldDirective parses a federation directive for a field.

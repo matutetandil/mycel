@@ -156,13 +156,13 @@ func (f *Factory) parseClusterConfig(cluster map[string]interface{}) *types.Clus
 	}
 
 	// Get routing options
-	if routeByLatency, ok := cluster["route_by_latency"].(bool); ok {
+	if routeByLatency, ok := connector.BoolFromPropsStrict(cluster, "route_by_latency"); ok {
 		config.RouteByLatency = routeByLatency
 	}
-	if routeRandomly, ok := cluster["route_randomly"].(bool); ok {
+	if routeRandomly, ok := connector.BoolFromPropsStrict(cluster, "route_randomly"); ok {
 		config.RouteRandomly = routeRandomly
 	}
-	if readOnly, ok := cluster["read_only"].(bool); ok {
+	if readOnly, ok := connector.BoolFromPropsStrict(cluster, "read_only"); ok {
 		config.ReadOnly = readOnly
 	}
 
@@ -204,13 +204,13 @@ func (f *Factory) parseSentinelConfig(sentinel map[string]interface{}) *types.Se
 	}
 
 	// Get routing options
-	if routeByLatency, ok := sentinel["route_by_latency"].(bool); ok {
+	if routeByLatency, ok := connector.BoolFromPropsStrict(sentinel, "route_by_latency"); ok {
 		config.RouteByLatency = routeByLatency
 	}
-	if routeRandomly, ok := sentinel["route_randomly"].(bool); ok {
+	if routeRandomly, ok := connector.BoolFromPropsStrict(sentinel, "route_randomly"); ok {
 		config.RouteRandomly = routeRandomly
 	}
-	if replicaOnly, ok := sentinel["replica_only"].(bool); ok {
+	if replicaOnly, ok := connector.BoolFromPropsStrict(sentinel, "replica_only"); ok {
 		config.ReplicaOnly = replicaOnly
 	}
 

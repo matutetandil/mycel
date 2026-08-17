@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	goruntime "runtime"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -118,6 +120,7 @@ type Runtime struct {
 	// Auth manager for authentication system
 	authManager *auth.Manager
 	authHandler *auth.Handler
+	authCleanup *auth.CleanupService
 
 	// Sync manager for distributed locks, semaphores, and coordination
 	syncManager *msync.Manager
@@ -132,7 +135,8 @@ type Runtime struct {
 	sanitizer *sanitize.Pipeline
 
 	// Workflow engine for long-running processes with persistence
-	workflowEngine *workflow.Engine
+	workflowEngine    *workflow.Engine
+	workflowAPIServer *http.Server
 
 	// Scheduler for cron-based flow triggers
 	scheduler *scheduler.Scheduler
@@ -253,6 +257,11 @@ func New(opts Options) (*Runtime, error) {
 	// so a missing required parameter fails here instead of surfacing later
 	// as a confusing runtime error.
 	if errs := ValidateFlowSchemas(config, schemaReg); len(errs) > 0 {
+		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
+	}
+
+	// And each connector's settings against the words that connector accepts.
+	if errs := ValidateConnectorSchemas(config, schemaReg); len(errs) > 0 {
 		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
 
@@ -435,21 +444,11 @@ func New(opts Options) (*Runtime, error) {
 		}
 	}
 
-	// Create auth manager if auth config is present
+	// The auth manager is built in Start, once the connectors exist: its
+	// storage may name one of them, and there is nothing to resolve against
+	// here.
 	var authMgr *auth.Manager
 	var authHdl *auth.Handler
-	if config.Auth != nil {
-		var err error
-		authMgr, err = auth.NewManager(config.Auth,
-			auth.WithLogger(opts.Logger),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create auth manager: %w", err)
-		}
-		authHdl = auth.NewHandler(authMgr)
-		opts.Logger.Info("auth system initialized",
-			"preset", config.Auth.Preset)
-	}
 
 	// Create scheduler for cron-based flows
 	sched := scheduler.New()
@@ -746,27 +745,44 @@ func (r *Runtime) Start(ctx context.Context) error {
 		r.stateMachineEngine.Register(sm)
 	}
 
+	// Build the auth system now that the connectors it may store into exist.
+	if err := r.initAuth(ctx); err != nil {
+		banner.PrintError(err.Error())
+		return fmt.Errorf("failed to initialize auth: %w", err)
+	}
+
 	// Register flows
 	if err := r.registerFlows(); err != nil {
 		banner.PrintError(err.Error())
 		return fmt.Errorf("failed to register flows: %w", err)
 	}
 
+	// Mount the auth endpoints and the inbound webhooks, after flows so that a
+	// flow claiming one of those paths keeps it.
+	r.mountAuthEndpoints()
+	r.mountInboundWebhooks()
+
 	// Wire flow invoker into aspect executor (allows aspects to invoke flows)
 	if r.aspectExecutor != nil {
 		r.aspectExecutor.SetFlowInvoker(r.flows)
+	}
+
+	// The workflow engine first: a saga handler is given the engine that
+	// exists when it is registered, and a saga with a delay or an await step
+	// is only a long-running workflow if it has one. Registering sagas first
+	// handed every one of them a nil engine, so each ran straight through the
+	// synchronous executor — never pausing, never persisted, never answering
+	// with a workflow id, and leaving the endpoints that drive workflows with
+	// nothing to serve.
+	if err := r.initWorkflowEngine(ctx); err != nil {
+		banner.PrintError(err.Error())
+		return fmt.Errorf("failed to initialize workflow engine: %w", err)
 	}
 
 	// Register sagas
 	if err := r.registerSagas(); err != nil {
 		banner.PrintError(err.Error())
 		return fmt.Errorf("failed to register sagas: %w", err)
-	}
-
-	// Initialize workflow engine for long-running processes
-	if err := r.initWorkflowEngine(ctx); err != nil {
-		banner.PrintError(err.Error())
-		return fmt.Errorf("failed to initialize workflow engine: %w", err)
 	}
 
 	// Start REST connectors (HTTP servers)
@@ -795,6 +811,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 			case <-ticker.C:
 				r.metrics.SetGoRoutines(goruntime.NumGoroutine())
 				r.metrics.SetUptime(time.Since(startTime).Seconds())
+				r.reportCacheSizes()
 			case <-metricsCtx.Done():
 				return
 			}
@@ -812,6 +829,33 @@ func (r *Runtime) Start(ctx context.Context) error {
 
 	// Wait for shutdown signal
 	return r.waitForShutdown(ctx)
+}
+
+// reportCacheSizes records how much each cache is holding.
+//
+// mycel_cache_size is in the documented list of metrics and nothing ever set
+// it, so it was absent from /metrics for as long as it has existed. It is
+// reported from the periodic sweep rather than per operation: the number is
+// only interesting as a trend, and counting on every read would put work on
+// the hot path to answer a question nobody asks that often.
+//
+// Only caches that can answer cheaply are asked. A cache holding its entries
+// in memory knows the count; one backed by Redis would have to ask the server,
+// and a shared Redis is not somewhere to send a periodic DBSIZE from every
+// service that happens to use it.
+func (r *Runtime) reportCacheSizes() {
+	if r.metrics == nil || r.connectors == nil {
+		return
+	}
+	for _, name := range r.connectors.Names() {
+		conn, err := r.connectors.Get(name)
+		if err != nil {
+			continue
+		}
+		if counted, ok := conn.(interface{ Len() int }); ok {
+			r.metrics.SetCacheSize(name, int64(counted.Len()))
+		}
+	}
 }
 
 // getConnectorType returns the type of a connector by name (e.g., "mq", "rest", "soap").
@@ -898,18 +942,31 @@ func (r *Runtime) InitForTrace(ctx context.Context) error {
 }
 
 // GetFlow retrieves a flow handler by name from the flow registry.
+//
+// The read lock is for the registry itself rather than for what is in it: a
+// hot reload replaces the whole thing, under r.mu, while the debugger and the
+// trace command are reading flows by name. The lock existed and only the
+// writer honoured it.
 func (r *Runtime) GetFlow(name string) (*FlowHandler, bool) {
-	return r.flows.Get(name)
+	return r.flowRegistry().Get(name)
 }
 
 // ListFlows returns all registered flow names.
 func (r *Runtime) ListFlows() []string {
-	return r.flows.List()
+	return r.flowRegistry().List()
+}
+
+// flowRegistry returns the registry currently in use, safely against a reload
+// swapping it.
+func (r *Runtime) flowRegistry() *FlowRegistry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.flows
 }
 
 // GetFlowConfig returns a flow config by name (debug.RuntimeInspector).
 func (r *Runtime) GetFlowConfig(name string) (*flow.Config, bool) {
-	handler, ok := r.flows.Get(name)
+	handler, ok := r.flowRegistry().Get(name)
 	if !ok {
 		return nil, false
 	}
@@ -952,8 +1009,9 @@ func (r *Runtime) ListTransforms() []*transform.Config {
 // GetCELTransformer returns a CEL transformer for expression evaluation (debug.RuntimeInspector).
 func (r *Runtime) GetCELTransformer() *transform.CELTransformer {
 	// Return the first flow handler's transformer, or create a new one
-	for _, name := range r.flows.List() {
-		if handler, ok := r.flows.Get(name); ok && handler.Transformer != nil {
+	flows := r.flowRegistry()
+	for _, name := range flows.List() {
+		if handler, ok := flows.Get(name); ok && handler.Transformer != nil {
 			return handler.Transformer
 		}
 	}
@@ -1213,6 +1271,12 @@ func (r *Runtime) getConnectorDetails(cfg *connector.Config) string {
 
 // registerFlows builds flow handlers from configuration.
 func (r *Runtime) registerFlows() error {
+	// Named operations are folded into their inline form first, so everything
+	// below — route registration, destinations, steps — sees one language.
+	if err := r.resolveNamedOperations(); err != nil {
+		return err
+	}
+
 	fmt.Println()
 	fmt.Println("    Flows:")
 
@@ -1456,6 +1520,12 @@ func (r *Runtime) startServers(ctx context.Context) error {
 		return fmt.Errorf("failed to start admin server: %w", err)
 	}
 
+	// And the workflow endpoints, on their own port, when the configuration
+	// asks for them. They are not on the admin server: see workflow_api.go.
+	if err := r.startWorkflowAPI(); err != nil {
+		return fmt.Errorf("failed to start workflow api: %w", err)
+	}
+
 	// Mark service as ready after all servers are started
 	r.health.SetReady(true)
 
@@ -1559,8 +1629,8 @@ func (r *Runtime) startAdminServer() error {
 		mux.Handle("/metrics", r.metrics.Handler())
 	}
 
-	// Register workflow management endpoints
-	r.registerWorkflowEndpoints(mux)
+	// The workflow endpoints are deliberately not here: they wake and cancel
+	// running workflows, and this port is the read-only one. See workflow_api.go.
 
 	// Register debug protocol (Mycel Studio IDE)
 	r.debugServer.RegisterHandlers(mux)
@@ -1649,9 +1719,16 @@ func (r *Runtime) registerWorkflowEndpoints(mux *http.ServeMux) {
 		id := req.PathValue("id")
 		event := req.PathValue("event")
 
+		// A body that is not JSON is refused rather than dropped: decoded and
+		// discarded, a malformed payload woke the workflow with no data at all,
+		// which sent it down a branch reading fields that were never there —
+		// and the caller was told the signal had worked.
 		var data map[string]interface{}
 		if req.Body != nil {
-			json.NewDecoder(req.Body).Decode(&data)
+			if err := json.NewDecoder(req.Body).Decode(&data); err != nil && !errors.Is(err, io.EOF) {
+				http.Error(w, fmt.Sprintf("signal body is not JSON: %v", err), http.StatusBadRequest)
+				return
+			}
 		}
 
 		if err := r.workflowEngine.Signal(req.Context(), id, event, data); err != nil {
@@ -1927,39 +2004,41 @@ func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
 		}
 	}
 
-	// Convert map to slice
+	// Sorted, because these are published in a schema: built by ranging over a
+	// map the order changed on every start, so two replicas of the same service
+	// printed different schemas and an exported schema file differed run to run.
+	names := make([]string, 0, len(args))
+	for name := range args {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
 	result := make([]*ArgDef, 0, len(args))
-	for _, arg := range args {
-		result = append(result, arg)
+	for _, name := range names {
+		result = append(result, args[name])
 	}
 
 	return result
 }
 
-// extractInputArgs extracts input.* references from a param value.
+// extractInputArgs collects the fields an expression reads off the input, so
+// each becomes an argument the GraphQL field publishes.
+//
+// It used to look only at values that began with "input.", which meant a step
+// doing anything at all with the field — lower(input.email), input.first + " " +
+// input.last, input.limit ?? 25 — published no argument, and a client sending
+// one was told it did not exist. Every occurrence is taken now, wherever in the
+// expression it appears.
 func extractInputArgs(value interface{}, args map[string]*ArgDef) {
 	switch v := value.(type) {
 	case string:
-		// Look for patterns like "input.id", "input.name", etc.
-		// Simple extraction for direct references
-		if len(v) > 6 && v[:6] == "input." {
-			// Extract the field name (handle "input.id", not "input.nested.field")
-			rest := v[6:]
-			// Find end of identifier (before any operator or method call)
-			endIdx := len(rest)
-			for i, ch := range rest {
-				if ch == '.' || ch == ' ' || ch == '!' || ch == '=' || ch == '+' || ch == '-' || ch == '*' || ch == '/' || ch == '(' || ch == ')' || ch == '[' || ch == ']' || ch == '?' || ch == ':' {
-					endIdx = i
-					break
-				}
-			}
-			fieldName := rest[:endIdx]
-			if fieldName != "" && args[fieldName] == nil {
-				args[fieldName] = &ArgDef{
-					Name:        fieldName,
+		for _, field := range inputFieldsIn(v) {
+			if args[field] == nil {
+				args[field] = &ArgDef{
+					Name:        field,
 					Type:        "string", // Default to string, could be improved with type inference
 					Required:    false,    // Don't make required by default
-					Description: fmt.Sprintf("Argument %s (inferred from flow)", fieldName),
+					Description: fmt.Sprintf("Argument %s (inferred from flow)", field),
 				}
 			}
 		}
@@ -1967,7 +2046,52 @@ func extractInputArgs(value interface{}, args map[string]*ArgDef) {
 		for _, subVal := range v {
 			extractInputArgs(subVal, args)
 		}
+	case []interface{}:
+		for _, item := range v {
+			extractInputArgs(item, args)
+		}
 	}
+}
+
+// inputFieldsIn returns the first identifier of every input.<field> reference
+// in an expression. input.address.city yields "address": the caller passes the
+// argument, not the path below it.
+func inputFieldsIn(expr string) []string {
+	const prefix = "input."
+
+	var fields []string
+	seen := make(map[string]bool)
+	for i := 0; i+len(prefix) <= len(expr); {
+		next := strings.Index(expr[i:], prefix)
+		if next < 0 {
+			break
+		}
+		start := i + next
+		// "myinput.id" is not a reference to the input.
+		if start > 0 && isIdentifierByte(expr[start-1]) {
+			i = start + len(prefix)
+			continue
+		}
+
+		rest := expr[start+len(prefix):]
+		end := 0
+		for end < len(rest) && isIdentifierByte(rest[end]) {
+			end++
+		}
+		if field := rest[:end]; field != "" && !seen[field] {
+			seen[field] = true
+			fields = append(fields, field)
+		}
+		i = start + len(prefix) + end
+	}
+	return fields
+}
+
+func isIdentifierByte(b byte) bool {
+	return b == '_' ||
+		(b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9')
 }
 
 // isScalarReturnType checks if a return type name is a GraphQL scalar type.
@@ -1998,18 +2122,60 @@ func (r *Runtime) waitForShutdown(ctx context.Context) error {
 }
 
 // Shutdown gracefully shuts down the runtime.
+//
+// The shutdown timeout is a hard deadline, not a suggestion. It used to be
+// passed down as a context and nothing enforced it: a connector whose Close
+// ignored the context and blocked on the network kept the process alive
+// indefinitely. That is fatal under an orchestrator — Kubernetes sends SIGTERM,
+// waits terminationGracePeriodSeconds (30 by default) and then SIGKILLs, so a
+// runtime that will not exit gets killed mid-flight on every rolling update,
+// with consumers never cancelled and in-flight messages lost. Exiting late but
+// under our own control beats being killed.
 func (r *Runtime) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), r.shutdownTimeout)
 	defer cancel()
 
 	banner.PrintShutdown()
 
+	done := make(chan error, 1)
+	go func() { done <- r.shutdownSteps(ctx) }()
+
+	select {
+	case err := <-done:
+		banner.PrintGoodbye()
+		return err
+	case <-ctx.Done():
+		// Deliberately not an error: the shutdown was asked for and got as far
+		// as it could. Saying so loudly matters more than the exit code, which
+		// an orchestrator would read as a failed container.
+		r.logger.Warn("graceful shutdown did not finish within the timeout, exiting anyway",
+			"timeout", r.shutdownTimeout)
+		banner.PrintGoodbye()
+		return nil
+	}
+}
+
+// shutdownSteps performs the shutdown itself. It runs under the deadline its
+// caller owns, so every step here may block without risking the process.
+func (r *Runtime) shutdownSteps(ctx context.Context) error {
 	// Mark service as not ready (stop accepting new traffic)
 	r.health.SetReady(false)
 
-	// Stop the scheduler
+	// Stop the scheduler, but do not wait past the deadline for a cron job
+	// that is still running.
 	if r.scheduler != nil {
-		<-r.scheduler.Stop().Done()
+		select {
+		case <-r.scheduler.Stop().Done():
+		case <-ctx.Done():
+			r.logger.Warn("scheduler still had jobs running at shutdown")
+		}
+	}
+
+	// Stop the auth cleanup loop
+	if r.authCleanup != nil {
+		if err := r.authCleanup.Stop(); err != nil {
+			r.logger.Warn("error stopping auth cleanup", "error", err)
+		}
 	}
 
 	// Close sync manager
@@ -2019,7 +2185,10 @@ func (r *Runtime) Shutdown() error {
 		}
 	}
 
-	// Stop workflow engine
+	// Stop workflow engine and the listener in front of it
+	if err := r.stopWorkflowAPI(ctx); err != nil {
+		r.logger.Warn("error shutting down workflow api", "error", err)
+	}
 	if r.workflowEngine != nil {
 		r.workflowEngine.Stop()
 	}
@@ -2043,7 +2212,6 @@ func (r *Runtime) Shutdown() error {
 		banner.PrintError("Error closing connectors: " + err.Error())
 	}
 
-	banner.PrintGoodbye()
 	return nil
 }
 
@@ -2326,9 +2494,29 @@ func (r *Runtime) hotReloadLoad(ctx context.Context, configPath string) error {
 	return nil
 }
 
+// hotReloadValidate is the dry run the watcher makes before a reload touches
+// the running service. It used to do nothing at all — the files were parsed by
+// the load hook and that was the whole check — so a configuration that parses
+// and is then refused passed the dry run, logged "configuration validation
+// passed", and was turned away seconds later by the switch. It now makes
+// exactly the checks the switch makes, and nothing it does is visible to the
+// running service.
 func (r *Runtime) hotReloadValidate(ctx context.Context) error {
 	r.logger.Debug("hot reload: validating configuration")
-	// Configuration validation happens during load
+
+	p := parser.NewHCLParserWithRegistry(r.schemaRegistry)
+	newConfig, err := p.Parse(ctx, r.configDir)
+	if err != nil {
+		return fmt.Errorf("failed to parse configuration: %w", err)
+	}
+
+	if errs := ValidateFlowSchemas(newConfig, r.schemaRegistry); len(errs) > 0 {
+		return fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
+	}
+	if errs := ValidateConnectorSchemas(newConfig, r.schemaRegistry); len(errs) > 0 {
+		return fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
+	}
+
 	return nil
 }
 
@@ -2345,19 +2533,25 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 	defer r.mu.Unlock()
 
 	// Parse new configuration
-	p := parser.NewHCLParser()
+	p := parser.NewHCLParserWithRegistry(r.schemaRegistry)
 	newConfig, err := p.Parse(ctx, r.configDir)
 	if err != nil {
 		return fmt.Errorf("failed to parse configuration: %w", err)
 	}
 
-	// Clear suspended starters from previous config (they will be re-populated if needed)
-	r.suspendedStarters = nil
-
-	// Close existing connectors gracefully
-	if err := r.connectors.CloseAll(ctx); err != nil {
-		r.logger.Warn("some connectors failed to close during reload", "error", err)
+	// The same check startup makes, so a reload cannot install a configuration
+	// that would have been refused on the way in.
+	if errs := ValidateFlowSchemas(newConfig, r.schemaRegistry); len(errs) > 0 {
+		return fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
+	if errs := ValidateConnectorSchemas(newConfig, r.schemaRegistry); len(errs) > 0 {
+		return fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
+	}
+
+	// Everything below builds the new configuration beside the running one and
+	// swaps it in only once it stands up. See reload_state.go: dismantling
+	// first left a failed reload serving nothing at all.
+	previous := r.snapshotForReload()
 
 	// Create new connector registry
 	newRegistry := connector.NewRegistry()
@@ -2367,10 +2561,10 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 	newResolver := connector.NewOperationResolver()
 
 	// Update runtime state
-	oldConfig := r.config
 	r.config = newConfig
 	r.connectors = newRegistry
 	r.operationResolver = newResolver
+	r.suspendedStarters = nil
 
 	// Rebuild transforms map
 	r.transforms = make(map[string]*transform.Config)
@@ -2393,7 +2587,8 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 	// Rebuild aspect registry
 	r.aspectRegistry = aspect.NewRegistry()
 	if err := r.aspectRegistry.RegisterAll(newConfig.Aspects); err != nil {
-		r.config = oldConfig
+		r.restore(previous)
+		r.abandon(ctx, newRegistry)
 		return fmt.Errorf("failed to register aspects: %w", err)
 	}
 
@@ -2402,26 +2597,35 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 
 	// Initialize new connectors
 	if err := r.initConnectors(ctx); err != nil {
-		// Rollback to old config
-		r.config = oldConfig
+		r.restore(previous)
+		r.abandon(ctx, newRegistry)
 		return fmt.Errorf("failed to initialize connectors: %w", err)
 	}
 
 	// Initialize aspects (creates executor with new connectors)
 	if err := r.initAspects(); err != nil {
-		r.config = oldConfig
+		r.restore(previous)
+		r.abandon(ctx, newRegistry)
 		return fmt.Errorf("failed to initialize aspects: %w", err)
 	}
 
 	// Register flows with new connectors
 	if err := r.registerFlows(); err != nil {
-		r.config = oldConfig
+		r.restore(previous)
+		r.abandon(ctx, newRegistry)
 		return fmt.Errorf("failed to register flows: %w", err)
 	}
 
 	// Wire flow invoker into aspect executor
 	if r.aspectExecutor != nil {
 		r.aspectExecutor.SetFlowInvoker(r.flows)
+	}
+
+	// The new configuration stands up, so the old one can go. Until this line
+	// the service was still serving it, which is what makes a failed reload
+	// harmless rather than fatal.
+	if err := previous.connectors.CloseAll(ctx); err != nil {
+		r.logger.Warn("some connectors failed to close during reload", "error", err)
 	}
 
 	// Note: HTTP/REST/GraphQL/gRPC servers are not restarted here — they're

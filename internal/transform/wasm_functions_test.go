@@ -200,10 +200,11 @@ func TestCelToGo(t *testing.T) {
 	}
 }
 
-func TestCelListToSlice_InvalidInput(t *testing.T) {
-	// Test with non-list value (this should fail)
-	_, err := celListToSlice(nil)
-	if err == nil {
-		t.Error("expected error for nil input")
+func TestCelToGoOnNothing(t *testing.T) {
+	// celListToSlice used to be tested here. It existed only for the variadic
+	// overload that collided with the single-argument one and stopped CEL from
+	// building an environment at all, so both are gone.
+	if celToGo(nil) != nil {
+		t.Error("expected nil for nil input")
 	}
 }

@@ -96,6 +96,19 @@ security {
     window       = "15m"
     lockout_time = "30m"
     track_by     = "ip+user"  # "ip", "user", "ip+user"
+
+    # How long a failed sign-in waits before answering, give or take a
+    # quarter. Defaults to 1.5s; "0" answers immediately, which is only
+    # sensible in a test.
+    fail_delay = "1s"
+
+    # Each further failure makes the next attempt slower still.
+    progressive_delay {
+      enabled    = true
+      initial    = "1s"
+      max        = "30s"
+      multiplier = 2
+    }
   }
 
   replay_protection {
@@ -147,34 +160,224 @@ mfa {
 
   # WebAuthn Configuration
   webauthn {
-    rp_id           = "myapp.com"
-    rp_name         = "My Application"
-    rp_origins      = ["https://myapp.com"]
-    attestation     = "none"  # "none", "indirect", "direct"
+    rp_id             = "myapp.com"
+    rp_name           = "My Application"
+    rp_display_name   = "My Application"      # Shown in the browser prompt
+    rp_origins        = ["https://myapp.com"]
+    attestation       = "none"  # "none", "indirect", "direct"
     user_verification = "preferred"
+    timeout           = 60000   # Milliseconds a ceremony is given
   }
 
   # Recovery codes
-  recovery_codes {
-    enabled = true
-    count   = 10
-    length  = 8
+  recovery {
+    enabled     = true
+    code_count  = 10
+    code_length = 8
   }
 }
 ```
 
-### SSO Configuration
+### What a wrong password costs
+
+A failed sign-in answers slowly, and by an amount that varies. Two reasons, and
+the second is the one that is easy to miss.
+
+The wait is what makes guessing expensive. Without it an attacker is limited
+only by the network, and locking an account after five tries is easy to walk
+around by spreading the guesses across many accounts.
+
+The variation is what stops the answer from being an oracle. Before this
+existed, an address with no account answered in 0.4ms and an address with one in
+46ms — the missing case returned before the password hash was computed. That
+hundredfold difference is a way to harvest which addresses have accounts without
+guessing a single password. A constant delay would not close it, since a
+constant is something an attacker subtracts, so the wait is randomised and both
+outcomes pay it: a login for an address with no account verifies the password
+against a hash that matches nothing, so the work is the same either way.
+
+This is what `pam_unix` does on Linux, for the same reasons.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `fail_delay` | `1.5s` | How long a failure waits, give or take a quarter. `"0"` answers immediately |
+| `max_attempts` | preset | Failures before the account is locked |
+| `lockout_time` | preset | How long it stays locked. The right password is refused too — the account is locked, not the guess |
+| `progressive_delay` | off | Makes each further attempt slower still, on top of the wait above |
+
+### Reading who the caller is
+
+A connector that authenticates a request publishes what it learned, and flows
+read it as `auth`:
+
+| Expression | What it holds |
+|---|---|
+| `auth.authenticated` | Whether the request carried a valid credential |
+| `auth.user_id` | Who it belongs to — the subject of a JWT, the name for basic auth |
+| `auth.email` | From the `email` claim, when there is one |
+| `auth.roles` | From the `roles` claim, as a list |
+| `auth.claims.*` | Everything else the credential carried, so a field nobody mapped is still reachable |
 
 ```hcl
-sso {
-  linking {
-    enabled              = true
-    match_by             = "email"    # "email", "none"
-    require_verification = true       # Require verified email
-    on_match             = "link"     # "link", "prompt", "reject"
+connector "api" {
+  type = "rest"
+  port = 8080
+
+  auth {
+    type   = "jwt"
+    secret = env("JWT_SECRET")
+    public = ["/health"]
+  }
+}
+
+flow "my_orders" {
+  from {
+    connector = "api"
+    operation = "GET /orders"
+  }
+
+  # Only the caller's own rows, decided by the credential rather than by a
+  # parameter the caller controls.
+  to {
+    connector = "db"
+    query     = "SELECT * FROM orders WHERE user_id = :user_id"
+  }
+
+  transform {
+    user_id = "auth.user_id"
   }
 }
 ```
+
+Authorisation is written the same way, as a condition rather than as a separate
+mechanism:
+
+```hcl
+flow "admin_report" {
+  from {
+    connector = "api"
+    operation = "GET /admin/report"
+  }
+
+  accept {
+    when = "'admin' in auth.roles"
+  }
+
+  to {
+    connector = "db"
+    query     = "SELECT * FROM report"
+  }
+}
+```
+
+On a request with no credential — a public path — `auth.authenticated` is false
+and the rest is empty, so an expression that reads it answers rather than fails.
+
+### Rate limiting the auth endpoints
+
+Three protections answer different questions, and this is the one about volume:
+
+| | What it stops |
+|---|---|
+| `brute_force` | Repeated failures against **one account**, which it locks |
+| `rate_limit` | A flood across **many accounts** from one caller — what credential stuffing looks like |
+| A connector's own `rate_limit` | Traffic to the **whole server**, auth endpoints included |
+
+```hcl
+auth {
+  security {
+    rate_limit {
+      enabled = true
+      key_by  = "ip"          # ip | user | ip+user
+
+      # Everything not named below
+      rate   = 100
+      window = "1m"
+
+      login {
+        rate   = 5
+        window = "1m"
+      }
+
+      register {
+        rate   = 3
+        window = "1m"
+      }
+    }
+  }
+}
+```
+
+Each endpoint is counted on its own, so a limit on `login` does not cap
+registration. A refused request is answered `429` with `Retry-After`.
+
+`burst` may be set per endpoint; left out, it follows the rate that was written,
+so `rate = 5` means five, not five plus an unwritten allowance. Endpoints with
+no block of their own use defaults that suit them — logging in is limited more
+tightly than listing sessions.
+
+`key_by = "user"` adds the authenticated user to the count where there is one to
+read. A login carries its identity in a body that has not been parsed when the
+limit is applied, so those are counted per address.
+
+### Signing in through an identity provider
+
+Declaring a provider is the whole of the setup: the endpoints that drive the
+flow are mounted from the same configuration, and a sign-in ends in the same
+session and token pair a password login produces.
+
+One attribute is needed beyond the provider itself. A provider sends the browser
+back to this service after a sign-in, to an absolute address it has on record,
+so it has to be told what that address is:
+
+```hcl
+auth {
+  # The address this service is reached at from outside — not the address it
+  # listens on. Register the callback below with each provider.
+  base_url = env("PUBLIC_URL", "https://app.example.com")
+
+  social {
+    google {
+      client_id     = env("GOOGLE_CLIENT_ID")
+      client_secret = env("GOOGLE_CLIENT_SECRET")
+    }
+  }
+}
+```
+
+Starting without it is a startup error rather than a failure at the first
+sign-in, where the provider's message names none of this.
+
+Two endpoints exist per family. The provider is named in the path, so one route
+serves every provider declared:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /auth/social/{provider}` | Redirects to the provider — `/auth/social/google` |
+| `GET /auth/social/callback` | Where the provider returns; issues the tokens |
+| `GET /auth/sso/{provider}` | The same, for an OIDC provider — `/auth/sso/okta` |
+| `GET /auth/sso/callback` | The OIDC callback |
+
+Register `{base_url}/auth/social/callback` with each social provider, and
+`{base_url}/auth/sso/callback` with each OIDC one. Both paths can be moved with
+`endpoints { social_callback { path = "..." } }`, and the address handed to the
+provider follows, so the two cannot disagree.
+
+The callback answers with the token pair:
+
+```json
+{
+  "access_token": "...",
+  "refresh_token": "...",
+  "action": "created",
+  "provider": "google",
+  "user": { "id": "...", "email": "person@example.com" }
+}
+```
+
+`action` says what happened to the account: `created` for a first sign-in,
+`existing` for a return, `linked` when the identity was attached to an account
+that was already there.
 
 ### Social Login Providers
 
@@ -420,14 +623,15 @@ endpoints {
     enabled = true
   }
 
-  # SSO
-  sso_start {
-    path    = "/sso/:provider"
+  # SSO. The route that starts a flow follows the callback's path and is not
+  # configured on its own.
+  social_callback {
+    path    = "/social/callback"
     method  = "GET"
     enabled = true
   }
   sso_callback {
-    path    = "/callback/:provider"
+    path    = "/sso/callback"
     method  = "GET"
     enabled = true
   }
@@ -573,11 +777,43 @@ CREATE INDEX idx_audit_created ON auth_audit_log(created_at);
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/auth/sso/:provider` | GET | Start SSO flow |
-| `/auth/callback/:provider` | GET/POST | OAuth callback |
-| `/auth/link/:provider` | POST | Link social account |
-| `/auth/unlink/:provider` | DELETE | Unlink social account |
-| `/auth/linked-accounts` | GET | List linked accounts |
+| `/auth/social/{provider}` | GET | Start a social sign-in |
+| `/auth/social/callback` | GET | Where a social provider returns |
+| `/auth/sso/{provider}` | GET | Start an OIDC sign-in |
+| `/auth/sso/callback` | GET | Where an OIDC provider returns |
+
+| `/auth/linked-accounts` | GET | The identities attached to the caller's account |
+| `/auth/unlink/{provider}` | DELETE | Detach one of them |
+
+An identity is attached during a sign-in, by matching the address it carries
+against an account that already exists. What that match does is configurable:
+
+```hcl
+auth {
+  sso {
+    linking {
+      enabled              = true
+      match_by             = "email"   # email | phone | custom
+      require_verification = true      # only an address the provider says is verified
+      on_match             = "link"    # link | prompt | reject
+    }
+
+    oidc "corp" {
+      issuer        = env("OIDC_ISSUER")
+      client_id     = env("OIDC_CLIENT_ID")
+      client_secret = env("OIDC_CLIENT_SECRET")
+    }
+  }
+}
+```
+
+`on_match = "prompt"` answers the callback with `needs_confirmation` instead of
+signing the person in, so an account is never joined to an identity without its
+owner saying so. `reject` refuses the sign-in outright.
+
+Unlinking refuses to remove the last way into an account: someone who signed up
+through a provider and never set a password would otherwise lock themselves out,
+and that refusal is a `400` naming the reason.
 
 ## Security Considerations
 

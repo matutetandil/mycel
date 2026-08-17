@@ -68,11 +68,9 @@ connector "rabbit_secure" {
   port   = 5671
 
   tls {
-    enabled             = true
-    cert                = "./client.pem"
-    key                 = "./client-key.pem"
-    ca_cert             = "./ca.pem"
-    insecure_skip_verify = false
+    cert    = "./client.pem"
+    key     = "./client-key.pem"
+    ca_cert = "./ca.pem"
   }
 }
 ```
@@ -83,7 +81,10 @@ connector "rabbit_secure" {
 | `tls.cert` | string | optional | — | Client certificate file |
 | `tls.key` | string | optional | — | Client key file |
 | `tls.ca_cert` | string | optional | — | CA certificate file |
-| `tls.insecure_skip_verify` | bool | optional | `false` | Skip server certificate verification |
+| `tls.insecure_skip_verify` | bool | optional | `false` | Skip server certificate verification. Development only |
+
+The block is the same on every connector that speaks TLS — see
+[TLS](../core-concepts/connectors.md#tls).
 
 ### Queue Options
 
@@ -274,7 +275,6 @@ connector "kafka" {
   }
 
   tls {
-    enabled = true
     ca_cert = "./ca.pem"
   }
 }

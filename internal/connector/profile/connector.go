@@ -2,6 +2,7 @@ package profile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -358,16 +359,29 @@ func (p *ProfiledConnector) applyTransformToMap(data map[string]interface{}, pro
 }
 
 // isRetriableError determines if an error should trigger fallback.
+// isRetriableError reports whether the next profile is worth trying.
+//
+// A fallback list answers one question — this backend is not available, is
+// there another? — and it is the wrong answer to a request the backend
+// understood and refused. Sending a rejected write to every profile in turn
+// repeats a side effect that already failed for a reason none of them will
+// disagree about, and turns one 4xx into as many requests as there are
+// profiles.
+//
+// The runtime already has a word for that distinction: an error that says it
+// is permanent is the same one the retry budget stops on and an MQ consumer
+// drops rather than redelivers. This asks it the same question.
 func isRetriableError(err error) bool {
-	// TODO: Implement proper error classification
-	// For now, consider all errors as retriable
-	// In production, check for:
-	// - Connection errors
-	// - Timeouts
-	// - 5xx HTTP errors
-	// NOT retriable:
-	// - 4xx HTTP errors (client errors)
-	// - Validation errors
+	if err == nil {
+		return false
+	}
+	if connector.IsPermanent(err) {
+		return false
+	}
+	// A caller that has gone away is not waiting for a second attempt.
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
 	return true
 }
 

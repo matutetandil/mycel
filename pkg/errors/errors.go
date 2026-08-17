@@ -154,6 +154,24 @@ func (e *ValidationError) Error() string {
 	return fmt.Sprintf("validation error on field '%s': %s", e.Field, e.Message)
 }
 
+// Validation is implemented by errors reporting that input failed validation.
+//
+// It exists because the packages involved cannot import one another: the
+// runtime produces validation failures and the aspect executor classifies
+// them, and the runtime already imports the executor. An interface here is
+// what lets them agree on what a validation failure is without sharing a
+// concrete type.
+//
+// Before it, the executor tested for a *ValidationError from this package,
+// which nothing ever produced — so an aspect could not tell a rejected payload
+// from any other error, and the heuristic below it has no case for one either.
+type Validation interface {
+	error
+
+	// ValidationFields returns one message per field that failed.
+	ValidationFields() []string
+}
+
 // NewValidationError creates a new validation error
 func NewValidationError(field, message, code string) *ValidationError {
 	return &ValidationError{

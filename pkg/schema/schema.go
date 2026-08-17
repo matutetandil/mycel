@@ -87,6 +87,21 @@ type Block struct {
 	// and from/to/step (connector-specific params).
 	Open bool
 
+	// RequiredOneOf lists groups of attributes; at least one attribute from
+	// each group must be present.
+	//
+	// Some rules are not "this attribute is required" but "say it one way or
+	// the other". A profiled connector names the profile to use with `select`
+	// or with `default`. A Postgres connector needs a database name, which is
+	// written either as `database` or inside `url` — the URL is taken apart
+	// before anything is checked, so both end up in the same place.
+	//
+	// Marking every alternative Required describes a rule that does not exist
+	// and makes the generator write a file nobody wants; marking none of them
+	// leaves the rule invisible to everything except the connector, which
+	// reports it at start-up rather than at `mycel validate`.
+	RequiredOneOf [][]string
+
 	// Attrs lists the known attributes for this block.
 	Attrs []Attr
 
@@ -122,15 +137,29 @@ type ConnectorSchemaProvider interface {
 func Merge(base, overlay Block) Block {
 	merged := base
 
-	// Merge attrs (overlay wins on name collision)
-	existing := make(map[string]bool)
-	for _, a := range merged.Attrs {
-		existing[a.Name] = true
+	// Merge attrs. The overlay wins on a name collision: the base describes
+	// what every connector has, the overlay what this one makes of it, and the
+	// specific description is the true one.
+	//
+	// It used to be the other way round — the base was kept and the overlay's
+	// version dropped — while the comment said what it says now. Nothing looked
+	// merged-in wrong, it simply went missing: every driver list a connector
+	// declared (memory or redis for cache, twilio or sns for sms, four for
+	// database) was discarded in favour of the base's bare "driver" with no
+	// values and nothing required. So the check that exists to catch a misspelt
+	// word never saw a driver at all, and `driver = "postgress"` validated.
+	merged.Attrs = append([]Attr(nil), merged.Attrs...)
+	position := make(map[string]int, len(merged.Attrs))
+	for i, a := range merged.Attrs {
+		position[a.Name] = i
 	}
 	for _, a := range overlay.Attrs {
-		if !existing[a.Name] {
-			merged.Attrs = append(merged.Attrs, a)
+		if i, clash := position[a.Name]; clash {
+			merged.Attrs[i] = a
+			continue
 		}
+		position[a.Name] = len(merged.Attrs)
+		merged.Attrs = append(merged.Attrs, a)
 	}
 
 	// Merge children (overlay wins on type collision)
@@ -142,6 +171,20 @@ func Merge(base, overlay Block) Block {
 		if !existingChildren[c.Type] {
 			merged.Children = append(merged.Children, c)
 		}
+	}
+
+	// Carry the overlay's "say it one way or the other" rules. These belong to
+	// the connector rather than to connectors in general, so the base has none
+	// and dropping them here made the merged schema describe a rule nobody
+	// had to answer.
+	if len(overlay.RequiredOneOf) > 0 {
+		merged.RequiredOneOf = append(append([][]string(nil), merged.RequiredOneOf...), overlay.RequiredOneOf...)
+	}
+
+	// A block that takes attributes nobody declared says so, and the overlay
+	// is the one that knows.
+	if overlay.Open {
+		merged.Open = true
 	}
 
 	// Inherit doc from overlay if base is empty

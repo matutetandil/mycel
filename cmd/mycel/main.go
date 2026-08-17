@@ -17,6 +17,7 @@ import (
 	"golang.org/x/mod/module"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
+	graphqlconn "github.com/matutetandil/mycel/v2/internal/connector/graphql"
 	"github.com/matutetandil/mycel/v2/internal/envdefaults"
 	"github.com/matutetandil/mycel/v2/internal/export/asyncapi"
 	"github.com/matutetandil/mycel/v2/internal/export/openapi"
@@ -306,6 +307,25 @@ Examples:
 	RunE: runExportAsyncAPI,
 }
 
+var exportGraphQLCmd = &cobra.Command{
+	Use:   "graphql-schema",
+	Short: "Export the GraphQL schema (SDL)",
+	Long: `Export the GraphQL schema your configuration describes, as SDL.
+
+Types and their inputs come from the type blocks. Query and Mutation fields
+come from the flows that serve them, since a field exists exactly when a flow
+answers it — operation = "Query.users" is the declaration. A flow's validate
+block names the argument and result types; without one the field is JSON.
+
+This reads the configuration rather than a running service, which is what a
+federation gateway needs at build time.
+
+Examples:
+  mycel export graphql-schema                       # Output to stdout
+  mycel export graphql-schema -o schema.graphql     # Write to file`,
+	RunE: runExportGraphQLSchema,
+}
+
 // Flags
 var (
 	configDir   string
@@ -317,6 +337,8 @@ var (
 
 	verboseFlow  bool
 	debugSuspend bool
+	mockOnly     []string
+	noMock       []string
 
 	// Check flags
 	checkTimeout time.Duration
@@ -339,6 +361,12 @@ func init() {
 	startCmd.Flags().BoolVar(&hotReload, "hot-reload", true, "Enable hot reload (auto-reload on config changes)")
 	startCmd.Flags().BoolVar(&verboseFlow, "verbose-flow", false, "Log all flow pipeline stages per request (debug)")
 	startCmd.Flags().BoolVar(&debugSuspend, "debug-suspend", false, "Defer event-driven connector start until debugger connects")
+	// The runtime and the parser have always handled these; the flags were
+	// documented in four places and never registered, so following the
+	// documentation produced "unknown flag: --mock". Repeatable and
+	// comma-separated both work, because both spellings are documented.
+	startCmd.Flags().StringSliceVar(&mockOnly, "mock", nil, "Mock these connectors, or \"all\" (repeatable, or comma-separated)")
+	startCmd.Flags().StringSliceVar(&noMock, "no-mock", nil, "Do not mock these connectors, or \"all\" (repeatable, or comma-separated)")
 
 	// Check command flags
 	checkCmd.Flags().DurationVar(&checkTimeout, "timeout", runtime.DefaultConnectivityTimeout,
@@ -352,6 +380,9 @@ func init() {
 	// Export command flags (AsyncAPI)
 	exportAsyncAPICmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file (default: stdout)")
 	exportAsyncAPICmd.Flags().StringVarP(&exportFormat, "format", "f", "yaml", "Output format: yaml, json")
+
+	// SDL has one serialisation, so there is no format flag to offer here.
+	exportGraphQLCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Output file (default: stdout)")
 
 	// Propagate CLI version to the runtime package so banner, health,
 	// and metrics all report the correct Mycel version.
@@ -388,6 +419,7 @@ func init() {
 	// Add export subcommands
 	exportCmd.AddCommand(exportOpenAPICmd)
 	exportCmd.AddCommand(exportAsyncAPICmd)
+	exportCmd.AddCommand(exportGraphQLCmd)
 }
 
 func runStart(cmd *cobra.Command, args []string) error {
@@ -445,14 +477,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	// Create runtime
 	rt, err := runtime.New(runtime.Options{
-		ConfigDir:       configDir,
-		Environment:     env,
-		Logger:          logger,
-		HotReload:       hotReloadEnabled,
-		VerboseFlow:     effectiveVerboseFlow,
-		ShowPayload:     payloadCfg.Show,
-		PayloadMaxBytes: payloadCfg.MaxBytes,
-		DebugSuspend:    effectiveDebugSuspend,
+		ConfigDir:        configDir,
+		Environment:      env,
+		Logger:           logger,
+		HotReload:        hotReloadEnabled,
+		VerboseFlow:      effectiveVerboseFlow,
+		ShowPayload:      payloadCfg.Show,
+		PayloadMaxBytes:  payloadCfg.MaxBytes,
+		DebugSuspend:     effectiveDebugSuspend,
+		MockConnectors:   strings.Join(mockOnly, ","),
+		NoMockConnectors: strings.Join(noMock, ","),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create runtime: %w", err)
@@ -543,6 +577,18 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Println()
 		return fmt.Errorf("validation failed: %d flow error(s)", len(errs))
+	}
+
+	// And each connector's settings against the words that connector accepts,
+	// so a misspelt auth type is caught here rather than by whoever wonders
+	// why every request comes back unauthorised.
+	if errs := runtime.ValidateConnectorSchemas(config, schemaReg); len(errs) > 0 {
+		fmt.Printf("\n✗ Configuration is invalid:\n\n")
+		for _, e := range errs {
+			fmt.Printf("    - %s\n", e)
+		}
+		fmt.Println()
+		return fmt.Errorf("validation failed: %d connector error(s)", len(errs))
 	}
 
 	// Aspects are checked with the same registry startup uses, so a config
@@ -782,6 +828,66 @@ func loadDotEnv() {
 	if configDir != "." {
 		_ = godotenv.Load(".env")
 	}
+}
+
+func runExportGraphQLSchema(cmd *cobra.Command, args []string) error {
+	p := parser.NewHCLParser()
+	config, err := p.Parse(context.Background(), configDir)
+	if err != nil {
+		return fmt.Errorf("failed to parse configuration: %w", err)
+	}
+
+	// A connector that declares a schema file is served that file, so that file
+	// is the schema. Rebuilding one from the type blocks would export something
+	// the running service does not serve.
+	sdl, err := declaredSchema(config)
+	if err != nil {
+		return err
+	}
+	if sdl == "" {
+		sdl = graphqlconn.ExportSDL(config.Types, config.Flows)
+	}
+
+	if exportOutput != "" {
+		if err := os.WriteFile(exportOutput, []byte(sdl), 0644); err != nil {
+			return fmt.Errorf("failed to write file: %w", err)
+		}
+		fmt.Printf("✓ GraphQL schema written to %s\n", exportOutput)
+		return nil
+	}
+	fmt.Print(sdl)
+	return nil
+}
+
+// declaredSchema returns the SDL a graphql connector points at, or empty when
+// none does.
+//
+// The path is resolved against the configuration directory, which is where a
+// running service resolves it from.
+func declaredSchema(config *parser.Configuration) (string, error) {
+	for _, conn := range config.Connectors {
+		if conn.Type != "graphql" {
+			continue
+		}
+		schemaCfg, ok := conn.Properties["schema"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		path, ok := schemaCfg["path"].(string)
+		if !ok || path == "" {
+			continue
+		}
+
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(configDir, path)
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("connector %q declares a schema at %s: %w", conn.Name, path, err)
+		}
+		return string(content), nil
+	}
+	return "", nil
 }
 
 func runExportOpenAPI(cmd *cobra.Command, args []string) error {

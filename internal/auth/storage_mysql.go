@@ -41,16 +41,38 @@ func (s *MySQLUserStore) getTableName() string {
 
 // getFields returns the configured field mappings
 func (s *MySQLUserStore) getFields() *UserFieldsConfig {
-	if s.config != nil && s.config.Fields != nil {
-		return s.config.Fields
+	fields := defaultUserFields()
+	if s.config == nil || s.config.Fields == nil {
+		return fields
 	}
-	return &UserFieldsConfig{
-		ID:           "id",
-		Email:        "email",
-		PasswordHash: "password_hash",
-		CreatedAt:    "created_at",
-		UpdatedAt:    "updated_at",
+
+	// Each name that was written wins; the rest keep the usual one.
+	//
+	// The block used to be taken whole, so naming one column emptied the
+	// others — and the ordinary reason to write this block at all is to turn
+	// roles on, which produced INSERT INTO users (, , , , , roles). A syntax
+	// error on the first registration, from a configuration that reads
+	// exactly like the documentation.
+	written := s.config.Fields
+	if written.ID != "" {
+		fields.ID = written.ID
 	}
+	if written.Email != "" {
+		fields.Email = written.Email
+	}
+	if written.PasswordHash != "" {
+		fields.PasswordHash = written.PasswordHash
+	}
+	if written.CreatedAt != "" {
+		fields.CreatedAt = written.CreatedAt
+	}
+	if written.UpdatedAt != "" {
+		fields.UpdatedAt = written.UpdatedAt
+	}
+	// Roles has no default: naming the column is what turns them on.
+	fields.Roles = written.Roles
+
+	return fields
 }
 
 // Create creates a new user
@@ -58,22 +80,24 @@ func (s *MySQLUserStore) Create(ctx context.Context, user *User) error {
 	table := s.getTableName()
 	fields := s.getFields()
 
-	query := fmt.Sprintf(`
-		INSERT INTO %s (%s, %s, %s, %s, %s)
-		VALUES (?, ?, ?, ?, ?)
-	`, table, fields.ID, fields.Email, fields.PasswordHash, fields.CreatedAt, fields.UpdatedAt)
-
 	now := time.Now()
 	user.CreatedAt = now
 	user.UpdatedAt = now
 
-	_, err := s.db.ExecContext(ctx, query,
-		user.ID,
-		user.Email,
-		user.PasswordHash,
-		user.CreatedAt,
-		user.UpdatedAt,
-	)
+	columns := fmt.Sprintf("%s, %s, %s, %s, %s",
+		fields.ID, fields.Email, fields.PasswordHash, fields.CreatedAt, fields.UpdatedAt)
+	placeholders := "?, ?, ?, ?, ?"
+	args := []interface{}{user.ID, user.Email, user.PasswordHash, user.CreatedAt, user.UpdatedAt}
+
+	if column := rolesColumn(fields); column != "" {
+		columns += ", " + column
+		placeholders += ", ?"
+		args = append(args, encodeRoles(user.Roles))
+	}
+
+	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, columns, placeholders)
+
+	_, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		// Check for unique constraint violation
 		if isMySQLUniqueViolation(err) {
@@ -90,27 +114,20 @@ func (s *MySQLUserStore) GetByID(ctx context.Context, id string) (*User, error) 
 	table := s.getTableName()
 	fields := s.getFields()
 
-	query := fmt.Sprintf(`
-		SELECT %s, %s, %s, %s, %s
-		FROM %s
-		WHERE %s = ?
-	`, fields.ID, fields.Email, fields.PasswordHash, fields.CreatedAt, fields.UpdatedAt,
-		table, fields.ID)
+	columns, rolesCol := userColumns(fields)
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", columns, table, fields.ID)
 
 	user := &User{}
-	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&user.ID,
-		&user.Email,
-		&user.PasswordHash,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
+	targets, storedRoles := userScanTargets(user, rolesCol)
+
+	err := s.db.QueryRowContext(ctx, query, id).Scan(targets...)
 	if err == sql.ErrNoRows {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user by ID: %w", err)
 	}
+	applyStoredRoles(user, rolesCol, storedRoles)
 
 	return user, nil
 }
@@ -120,27 +137,20 @@ func (s *MySQLUserStore) GetByEmail(ctx context.Context, email string) (*User, e
 	table := s.getTableName()
 	fields := s.getFields()
 
-	query := fmt.Sprintf(`
-		SELECT %s, %s, %s, %s, %s
-		FROM %s
-		WHERE %s = ?
-	`, fields.ID, fields.Email, fields.PasswordHash, fields.CreatedAt, fields.UpdatedAt,
-		table, fields.Email)
+	columns, rolesCol := userColumns(fields)
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", columns, table, fields.Email)
 
 	user := &User{}
-	err := s.db.QueryRowContext(ctx, query, email).Scan(
-		&user.ID,
-		&user.Email,
-		&user.PasswordHash,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
+	targets, storedRoles := userScanTargets(user, rolesCol)
+
+	err := s.db.QueryRowContext(ctx, query, email).Scan(targets...)
 	if err == sql.ErrNoRows {
 		return nil, ErrUserNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user by email: %w", err)
 	}
+	applyStoredRoles(user, rolesCol, storedRoles)
 
 	return user, nil
 }
@@ -152,18 +162,18 @@ func (s *MySQLUserStore) Update(ctx context.Context, user *User) error {
 
 	user.UpdatedAt = time.Now()
 
-	query := fmt.Sprintf(`
-		UPDATE %s
-		SET %s = ?, %s = ?, %s = ?
-		WHERE %s = ?
-	`, table, fields.Email, fields.PasswordHash, fields.UpdatedAt, fields.ID)
+	assignments := fmt.Sprintf("%s = ?, %s = ?, %s = ?", fields.Email, fields.PasswordHash, fields.UpdatedAt)
+	args := []interface{}{user.Email, user.PasswordHash, user.UpdatedAt}
 
-	result, err := s.db.ExecContext(ctx, query,
-		user.Email,
-		user.PasswordHash,
-		user.UpdatedAt,
-		user.ID,
-	)
+	if column := rolesColumn(fields); column != "" {
+		assignments += ", " + column + " = ?"
+		args = append(args, encodeRoles(user.Roles))
+	}
+
+	args = append(args, user.ID)
+	query := fmt.Sprintf("UPDATE %s SET %s WHERE %s = ?", table, assignments, fields.ID)
+
+	result, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		if isMySQLUniqueViolation(err) {
 			return ErrUserAlreadyExists
@@ -660,20 +670,35 @@ func (s *MySQLSessionStore) DeleteByUserID(ctx context.Context, userID string) e
 }
 
 // DeleteExpired removes all expired sessions
-func (s *MySQLSessionStore) DeleteExpired(ctx context.Context) (int, error) {
+func (s *MySQLSessionStore) DeleteExpired(ctx context.Context) error {
 	query := fmt.Sprintf(`DELETE FROM %s WHERE expires_at < ?`, s.table)
 
-	result, err := s.db.ExecContext(ctx, query, time.Now())
-	if err != nil {
-		return 0, fmt.Errorf("failed to delete expired sessions: %w", err)
+	if _, err := s.db.ExecContext(ctx, query, time.Now()); err != nil {
+		return fmt.Errorf("failed to delete expired sessions: %w", err)
 	}
+	return nil
+}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("failed to check affected rows: %w", err)
+// Count counts the active sessions for a user, which is what enforces a limit
+// on how many places one account may be signed in from.
+func (s *MySQLSessionStore) Count(ctx context.Context, userID string) (int, error) {
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE user_id = ? AND expires_at > ?`, s.table)
+
+	var count int
+	if err := s.db.QueryRowContext(ctx, query, userID, time.Now()).Scan(&count); err != nil {
+		return 0, fmt.Errorf("failed to count sessions: %w", err)
 	}
+	return count, nil
+}
 
-	return int(rowsAffected), nil
+// Touch records that a session was used, which is what an idle timeout reads.
+func (s *MySQLSessionStore) Touch(ctx context.Context, id string) error {
+	query := fmt.Sprintf(`UPDATE %s SET last_active_at = ? WHERE id = ?`, s.table)
+
+	if _, err := s.db.ExecContext(ctx, query, time.Now(), id); err != nil {
+		return fmt.Errorf("failed to touch session: %w", err)
+	}
+	return nil
 }
 
 // MySQLTokenStore implements TokenStore using MySQL
@@ -764,4 +789,25 @@ func isMySQLUniqueViolation(err error) bool {
 	// MySQL unique violation error code is 1062
 	errStr := err.Error()
 	return containsAny(errStr, "Duplicate entry", "1062", "unique", "UNIQUE constraint")
+}
+
+// DeleteIdle removes sessions nobody has touched since the threshold, which is
+// what an idle timeout ends.
+//
+// It is separate from DeleteExpired: that one removes sessions past their
+// absolute lifetime, and a session can be well inside its lifetime and still
+// have been abandoned on a screen an hour ago.
+func (s *MySQLSessionStore) DeleteIdle(ctx context.Context, threshold time.Time) (int, error) {
+	query := fmt.Sprintf(`DELETE FROM %s WHERE last_active_at < ?`, s.table)
+
+	result, err := s.db.ExecContext(ctx, query, threshold)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete idle sessions: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to count deleted sessions: %w", err)
+	}
+	return int(affected), nil
 }

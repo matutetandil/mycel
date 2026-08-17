@@ -1,0 +1,20 @@
+# A sanitiser the runtime does not ship.
+#
+# The built-in pipeline refuses what everybody has to refuse. What counts as
+# sensitive in a particular business is what this extension point is for, and
+# nothing exercised it end to end: a plugin declaring a sanitiser, the runtime
+# registering it, and a request being masked or turned away before any flow
+# runs.
+
+plugin {
+  name        = "pii-sanitizer"
+  version     = "1.0.0"
+  description = "Masks card numbers and refuses tax numbers"
+}
+
+provides {
+  sanitizer "pii" {
+    wasm       = "sanitizer.wasm"
+    entrypoint = "sanitize"
+  }
+}

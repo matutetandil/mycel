@@ -149,6 +149,27 @@ type WorkflowConfig struct {
 	Table string
 	// AutoCreate creates the table automatically on startup (default: true).
 	AutoCreate bool
+	// API is the HTTP interface to running workflows. Absent when the
+	// configuration does not ask for one, which is the default: the endpoints
+	// wake a paused workflow with data the caller chooses and cancel one that
+	// is running, so they are not something to get by leaving a block out.
+	API *WorkflowAPIConfig
+}
+
+// WorkflowAPIConfig is the listener that serves the workflow endpoints.
+//
+// It has a port of its own rather than sharing the admin server, which carries
+// health and metrics and is read-only and unauthenticated by design, and it
+// does not start without something to check callers against.
+type WorkflowAPIConfig struct {
+	// Port to listen on (default: 9091).
+	Port int
+	// Host to bind to (default: every interface, as the admin server does).
+	Host string
+	// Auth is how callers are checked, in the same shape a connector's auth
+	// block parses to — the same words and the same validators, rather than a
+	// second vocabulary meaning the same thing. Required.
+	Auth map[string]interface{}
 }
 
 // RateLimitConfig holds rate limiting configuration.
@@ -218,6 +239,9 @@ func (c *Configuration) Merge(other *Configuration) {
 	}
 	if other.MockConfig != nil {
 		c.MockConfig = other.MockConfig
+	}
+	if other.Auth != nil {
+		c.Auth = other.Auth
 	}
 	if other.Security != nil {
 		c.Security = other.Security
@@ -718,6 +742,21 @@ func parseServiceBlock(block *hcl.Block, ctx *hcl.EvalContext) (*ServiceConfig, 
 		}
 	}
 
+	// The admin port carries health and metrics: read-only, unauthenticated,
+	// and scraped. The workflow endpoints were mounted there once and putting
+	// them back by hand is the thing their own listener exists to undo.
+	if svc.Workflow != nil && svc.Workflow.API != nil {
+		adminPort := svc.AdminPort
+		if adminPort == 0 {
+			adminPort = 9090
+		}
+		if svc.Workflow.API.Port == adminPort {
+			return nil, fmt.Errorf(
+				"workflow api port %d is the admin port: the admin server carries health and metrics and is read-only, while these endpoints wake and cancel workflows, so they listen separately",
+				svc.Workflow.API.Port)
+		}
+	}
+
 	return svc, nil
 }
 
@@ -829,6 +868,9 @@ func parseWorkflowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*WorkflowConfig
 			{Name: "table"},
 			{Name: "auto_create"},
 		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "api"},
+		},
 	}
 
 	content, diags := block.Body.Content(schema)
@@ -867,5 +909,129 @@ func parseWorkflowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*WorkflowConfig
 		}
 	}
 
+	for _, nested := range content.Blocks {
+		if nested.Type != "api" {
+			continue
+		}
+		api, err := parseWorkflowAPIBlock(nested, ctx)
+		if err != nil {
+			return nil, err
+		}
+		wf.API = api
+	}
+
 	return wf, nil
+}
+
+// parseWorkflowAPIBlock reads the listener that serves the workflow endpoints.
+//
+// Every rule here is a refusal, because the endpoints behind it wake a paused
+// workflow with data the caller chooses and cancel one that is running: no
+// auth block, an auth block that accepts anything, or a port shared with the
+// admin server are all mistakes worth catching in mycel validate rather than
+// finding out about afterwards.
+func parseWorkflowAPIBlock(block *hcl.Block, ctx *hcl.EvalContext) (*WorkflowAPIConfig, error) {
+	schema := &hcl.BodySchema{
+		Attributes: []hcl.AttributeSchema{
+			{Name: "port"},
+			{Name: "host"},
+		},
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "auth"},
+		},
+	}
+
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("workflow api block error: %s", diags.Error())
+	}
+
+	api := &WorkflowAPIConfig{Port: 9091}
+
+	if attr, ok := content.Attributes["port"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("workflow api port error: %s", diags.Error())
+		}
+		port, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("workflow api port error: %s", err)
+		}
+		api.Port = port
+	}
+
+	if attr, ok := content.Attributes["host"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("workflow api host error: %s", diags.Error())
+		}
+		api.Host = val.AsString()
+	}
+
+	for _, nested := range content.Blocks {
+		if nested.Type != "auth" {
+			continue
+		}
+		auth, err := parseAuthBlock(nested, ctx)
+		if err != nil {
+			return nil, fmt.Errorf("workflow api auth block error: %w", err)
+		}
+		api.Auth = auth
+		if err := checkWorkflowAPIAuth(auth); err != nil {
+			return nil, err
+		}
+	}
+
+	if api.Auth == nil {
+		return nil, fmt.Errorf("workflow api requires an auth block: these endpoints wake and cancel running workflows, so they are not served without something to check callers against")
+	}
+
+	return api, nil
+}
+
+// checkWorkflowAPIAuth refuses an auth block that would let everybody through.
+//
+// A block naming no way of checking, or one naming api_key with no keys, reads
+// as though it were configured and accepts anyone — which behind endpoints that
+// wake and cancel workflows is the mistake worth catching in mycel validate.
+func checkWorkflowAPIAuth(auth map[string]interface{}) error {
+	kind, _ := auth["type"].(string)
+	switch strings.ToLower(kind) {
+	case "api_key":
+		if keys, ok := auth["keys"]; !ok || emptyValue(keys) {
+			if _, hasValidate := auth["validate"]; !hasValidate {
+				return fmt.Errorf("workflow api auth of type %q needs keys or a validate block: an auth block with nothing to check against accepts everyone", kind)
+			}
+		}
+	case "basic":
+		if users, ok := auth["users"].(map[string]interface{}); !ok || len(users) == 0 {
+			return fmt.Errorf("workflow api auth of type %q needs users", kind)
+		}
+	case "jwt":
+		secret, _ := auth["secret"].(string)
+		jwksURL, _ := auth["jwks_url"].(string)
+		if secret == "" && jwksURL == "" {
+			return fmt.Errorf("workflow api auth of type %q needs a secret or a jwks_url to check tokens against", kind)
+		}
+	case "":
+		return fmt.Errorf("workflow api auth needs a type: one of jwt, api_key, basic")
+	default:
+		return fmt.Errorf("workflow api auth type %q is not one of: jwt, api_key, basic", kind)
+	}
+	return nil
+}
+
+// emptyValue reports whether a parsed list holds nothing.
+func emptyValue(v interface{}) bool {
+	switch list := v.(type) {
+	case []interface{}:
+		return len(list) == 0
+	case []string:
+		return len(list) == 0
+	case string:
+		return list == ""
+	case nil:
+		return true
+	}
+	return false
 }

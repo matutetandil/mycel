@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -12,8 +13,9 @@ import (
 
 // WebAuthnService handles WebAuthn/Passkeys operations
 type WebAuthnService struct {
-	config   *WebAuthnConfig
-	webauthn *webauthn.WebAuthn
+	config    *WebAuthnConfig
+	webauthn  *webauthn.WebAuthn
+	configErr error
 }
 
 // NewWebAuthnService creates a new WebAuthn service
@@ -64,12 +66,32 @@ func NewWebAuthnService(config *WebAuthnConfig) *WebAuthnService {
 				},
 			},
 		})
-		if err == nil {
+		if err != nil {
+			// Kept, and said out loud. Swallowing it left a service that
+			// started without a word and then refused every passkey with
+			// "webauthn is not configured" — which is true and names none of
+			// the settings that would fix it. Forgetting origins is the
+			// ordinary way to get here.
+			svc.configErr = fmt.Errorf("webauthn is configured for %q but cannot be used: %w", config.RPID, err)
+			slog.Error("webauthn configuration is not usable",
+				"rp_id", config.RPID,
+				"origins", origins,
+				"error", err,
+				"hint", "origins must list the addresses the browser is on, e.g. https://app.example.com")
+		} else {
 			svc.webauthn = wa
 		}
 	}
 
 	return svc
+}
+
+// ConfigError is what stopped this service being usable, if anything did.
+func (s *WebAuthnService) ConfigError() error {
+	if s == nil {
+		return nil
+	}
+	return s.configErr
 }
 
 // IsConfigured returns true if WebAuthn is properly configured
@@ -393,6 +415,34 @@ func (s *MFAService) RemoveWebAuthnCredential(ctx context.Context, userID, crede
 }
 
 // GetWebAuthnCredentials returns all WebAuthn credentials for a user
+// UpdateWebAuthnCredential stores what a use of a passkey changed about it.
+//
+// An authenticator counts its own uses, and the count only ever goes up. Keeping
+// the new one is what lets a cloned key be noticed: a copy carries a count that
+// has fallen behind, and the library refuses it. Not storing it would leave the
+// check comparing against the count from registration for ever.
+func (s *MFAService) UpdateWebAuthnCredential(ctx context.Context, userID string, cred *WebAuthnCredential) error {
+	if cred == nil {
+		return nil
+	}
+
+	data, err := s.store.GetMFAData(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	for i := range data.WebAuthnCredentials {
+		if data.WebAuthnCredentials[i].ID != cred.ID {
+			continue
+		}
+		data.WebAuthnCredentials[i].SignCount = cred.SignCount
+		data.WebAuthnCredentials[i].LastUsedAt = time.Now()
+		return s.store.SaveMFAData(ctx, data)
+	}
+
+	return nil
+}
+
 func (s *MFAService) GetWebAuthnCredentials(ctx context.Context, userID string) ([]WebAuthnCredential, error) {
 	data, err := s.store.GetMFAData(ctx, userID)
 	if err != nil {

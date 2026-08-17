@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
+	"github.com/aws/aws-sdk-go-v2/service/sns/types"
 	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
@@ -248,15 +249,7 @@ func (c *SNSConnector) Send(ctx context.Context, msg *Message) (*SendResult, err
 		return &SendResult{Success: false, Provider: "sns", Error: "not connected"}, fmt.Errorf("not connected")
 	}
 
-	input := &sns.PublishInput{
-		PhoneNumber: aws.String(msg.To),
-		Message:     aws.String(msg.Body),
-	}
-
-	// Note: SMS attributes (SenderID, SMSType) can be set via SNS console
-	// or by using MessageAttributes with types.MessageAttributeValue
-
-	result, err := c.client.Publish(ctx, input)
+	result, err := c.client.Publish(ctx, c.publishInput(msg))
 	if err != nil {
 		return &SendResult{Success: false, Provider: "sns", Error: err.Error()}, err
 	}
@@ -266,6 +259,40 @@ func (c *SNSConnector) Send(ctx context.Context, msg *Message) (*SendResult, err
 		Provider:  "sns",
 		MessageID: aws.ToString(result.MessageId),
 	}, nil
+}
+
+// publishInput builds the request sent to SNS.
+//
+// sender_id and sms_type were read from the configuration, documented, and
+// then dropped: the code carried a note saying they could be set in the AWS
+// console instead. So a service asking for Transactional got whatever the
+// account defaulted to — and the two are not interchangeable. Promotional
+// traffic is the first thing carriers throttle and, in several countries,
+// one-time codes sent as Promotional are not delivered at all. The sender id
+// is the name a message appears from; without it, it appears from a number.
+func (c *SNSConnector) publishInput(msg *Message) *sns.PublishInput {
+	input := &sns.PublishInput{
+		PhoneNumber: aws.String(msg.To),
+		Message:     aws.String(msg.Body),
+	}
+
+	attributes := map[string]types.MessageAttributeValue{}
+	if c.config.SNS.SenderID != "" {
+		attributes["AWS.SNS.SMS.SenderID"] = types.MessageAttributeValue{
+			DataType:    aws.String("String"),
+			StringValue: aws.String(c.config.SNS.SenderID),
+		}
+	}
+	if c.config.SNS.SMSType != "" {
+		attributes["AWS.SNS.SMS.SMSType"] = types.MessageAttributeValue{
+			DataType:    aws.String("String"),
+			StringValue: aws.String(c.config.SNS.SMSType),
+		}
+	}
+	if len(attributes) > 0 {
+		input.MessageAttributes = attributes
+	}
+	return input
 }
 
 // Write implements connector.Writer interface.

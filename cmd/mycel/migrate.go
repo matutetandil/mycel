@@ -11,6 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector/database"
 	"github.com/matutetandil/mycel/v2/internal/parser"
 )
 
@@ -52,14 +54,14 @@ func init() {
 func runMigrate(cmd *cobra.Command, args []string) error {
 	loadDotEnv()
 
-	db, connName, err := getMigrationDB()
+	db, connName, driver, err := getMigrationDB()
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
 	// Ensure migrations table exists
-	if err := ensureMigrationsTable(db); err != nil {
+	if err := ensureMigrationsTable(db, driver); err != nil {
 		return fmt.Errorf("failed to create migrations table: %w", err)
 	}
 
@@ -100,9 +102,12 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("migration %s failed: %w", name, err)
 		}
 
-		// Record migration
-		if _, err := db.ExecContext(context.Background(),
-			"INSERT INTO _mycel_migrations (name) VALUES ($1)", name); err != nil {
+		// Record migration. The placeholder is not the same on every driver,
+		// and an insert that fails here leaves a schema change applied and
+		// unrecorded — which the next run would apply again.
+		insert := fmt.Sprintf("INSERT INTO %s (name) VALUES (%s)",
+			migrationsTable, database.Placeholder(driver, 1))
+		if _, err := db.ExecContext(context.Background(), insert, name); err != nil {
 			return fmt.Errorf("failed to record migration %s: %w", name, err)
 		}
 
@@ -122,13 +127,13 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 func runMigrateStatus(cmd *cobra.Command, args []string) error {
 	loadDotEnv()
 
-	db, connName, err := getMigrationDB()
+	db, connName, driver, err := getMigrationDB()
 	if err != nil {
 		return err
 	}
 	defer db.Close()
 
-	if err := ensureMigrationsTable(db); err != nil {
+	if err := ensureMigrationsTable(db, driver); err != nil {
 		return fmt.Errorf("failed to create migrations table: %w", err)
 	}
 
@@ -160,95 +165,85 @@ func runMigrateStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// getMigrationDB parses config, finds the database connector, and opens a *sql.DB.
-func getMigrationDB() (*sql.DB, string, error) {
+// getMigrationDB parses the configuration, finds the database connector, and
+// opens a connection to the same database that connector reaches.
+//
+// It also reports the driver as it was written, since the tracking table and
+// its inserts are spelled differently by each one.
+func getMigrationDB() (*sql.DB, string, string, error) {
 	p := parser.NewHCLParser()
 	config, err := p.Parse(context.Background(), configDir)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to parse configuration: %w", err)
+		return nil, "", "", fmt.Errorf("failed to parse configuration: %w", err)
 	}
 
-	// Find database connector
-	var dbConnector *struct {
-		Name   string
-		Driver string
-		DSN    string
-	}
-
+	var chosen *connector.Config
+	var names []string
 	for _, c := range config.Connectors {
 		if c.Type != "database" {
 			continue
 		}
+		names = append(names, c.Name)
 		if migrateConnector != "" && c.Name != migrateConnector {
 			continue
 		}
-
-		driver, _ := c.Properties["driver"].(string)
-		dsn, _ := c.Properties["dsn"].(string)
-
-		if driver == "sqlite" {
-			if path, ok := c.Properties["path"].(string); ok {
-				dsn = path
-			}
+		if chosen == nil {
+			chosen = c
 		}
-
-		dbConnector = &struct {
-			Name   string
-			Driver string
-			DSN    string
-		}{
-			Name:   c.Name,
-			Driver: driver,
-			DSN:    dsn,
-		}
-		break
 	}
 
-	if dbConnector == nil {
+	if chosen == nil {
 		if migrateConnector != "" {
-			return nil, "", fmt.Errorf("database connector %q not found", migrateConnector)
+			return nil, "", "", fmt.Errorf("database connector %q not found; the configuration has %s",
+				migrateConnector, strings.Join(names, ", "))
 		}
-		return nil, "", fmt.Errorf("no database connector found in configuration")
+		return nil, "", "", fmt.Errorf("no database connector found in configuration")
 	}
 
-	// Map driver names to database/sql drivers
-	sqlDriver := dbConnector.Driver
-	switch sqlDriver {
-	case "postgres", "postgresql":
-		sqlDriver = "pgx"
-	case "mysql":
-		sqlDriver = "mysql"
-	case "sqlite":
-		sqlDriver = "sqlite3"
+	driver := chosen.Driver
+	if driver == "" {
+		driver, _ = chosen.Properties["driver"].(string)
 	}
 
-	db, err := sql.Open(sqlDriver, dbConnector.DSN)
+	sqlDriver, err := database.SQLDriver(driver)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to connect to %s: %w", dbConnector.Name, err)
+		return nil, "", "", fmt.Errorf("connector %q: %w", chosen.Name, err)
 	}
 
-	return db, dbConnector.Name, nil
+	dsn, err := database.DSN(driver, chosen.Properties)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("connector %q: %w", chosen.Name, err)
+	}
+
+	db, err := sql.Open(sqlDriver, dsn)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("failed to connect to %s: %w", chosen.Name, err)
+	}
+
+	// sql.Open does not reach the database, so an address that goes nowhere
+	// would otherwise surface as a failure in the middle of a migration.
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, "", "", fmt.Errorf("failed to reach the database of connector %s: %w", chosen.Name, err)
+	}
+
+	return db, chosen.Name, driver, nil
 }
 
-func ensureMigrationsTable(db *sql.DB) error {
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS _mycel_migrations (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		name TEXT NOT NULL UNIQUE,
-		applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	)`)
-	// PostgreSQL uses SERIAL instead of AUTOINCREMENT
-	if err != nil && strings.Contains(err.Error(), "AUTOINCREMENT") {
-		_, err = db.Exec(`CREATE TABLE IF NOT EXISTS _mycel_migrations (
-			id SERIAL PRIMARY KEY,
-			name TEXT NOT NULL UNIQUE,
-			applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		)`)
+func ensureMigrationsTable(db *sql.DB, driver string) error {
+	ddl, err := database.MigrationsTableDDL(driver, migrationsTable)
+	if err != nil {
+		return err
 	}
+	_, err = db.Exec(ddl)
 	return err
 }
 
+// migrationsTable is where applied migrations are recorded.
+const migrationsTable = "_mycel_migrations"
+
 func getAppliedMigrations(db *sql.DB) (map[string]bool, error) {
-	rows, err := db.Query("SELECT name FROM _mycel_migrations ORDER BY name")
+	rows, err := db.Query("SELECT name FROM " + migrationsTable + " ORDER BY name")
 	if err != nil {
 		return nil, err
 	}

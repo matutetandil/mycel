@@ -218,7 +218,11 @@ func (c *ServerConnector) Start(ctx context.Context) error {
 	}
 
 	// Build server options
-	opts := c.buildServerOptions()
+	opts, err := c.buildServerOptions()
+	if err != nil {
+		lis.Close()
+		return err
+	}
 
 	// Create server
 	c.server = grpc.NewServer(opts...)
@@ -250,7 +254,13 @@ func (c *ServerConnector) Start(ctx context.Context) error {
 }
 
 // buildServerOptions builds gRPC server options.
-func (c *ServerConnector) buildServerOptions() []grpc.ServerOption {
+//
+// A failure to build credentials is returned rather than skipped. It used to be
+// discarded with `if err == nil`, which meant a server configured for TLS whose
+// certificate could not be loaded started anyway — in plaintext, with the
+// operator believing the connection was encrypted. Refusing to start is the
+// only safe reading of "I asked for TLS".
+func (c *ServerConnector) buildServerOptions() ([]grpc.ServerOption, error) {
 	var opts []grpc.ServerOption
 
 	// TLS or mTLS
@@ -258,14 +268,22 @@ func (c *ServerConnector) buildServerOptions() []grpc.ServerOption {
 		// Check if mTLS is configured
 		if c.config.Auth != nil && c.config.Auth.Type == "mtls" && c.config.TLS.CAFile != "" {
 			tlsCfg, err := BuildMTLSConfig(c.config.TLS)
-			if err == nil && tlsCfg != nil {
-				opts = append(opts, grpc.Creds(credentials.NewTLS(tlsCfg)))
+			if err != nil {
+				return nil, fmt.Errorf("mTLS is configured but the credentials could not be built: %w", err)
 			}
+			if tlsCfg == nil {
+				return nil, fmt.Errorf("mTLS is configured but produced no TLS configuration")
+			}
+			opts = append(opts, grpc.Creds(credentials.NewTLS(tlsCfg)))
 		} else {
-			creds, err := credentials.NewServerTLSFromFile(c.config.TLS.CertFile, c.config.TLS.KeyFile)
-			if err == nil {
-				opts = append(opts, grpc.Creds(creds))
+			if c.config.TLS.CertFile == "" || c.config.TLS.KeyFile == "" {
+				return nil, fmt.Errorf("TLS is enabled but no certificate and key were configured")
 			}
+			creds, err := credentials.NewServerTLSFromFile(c.config.TLS.CertFile, c.config.TLS.KeyFile)
+			if err != nil {
+				return nil, fmt.Errorf("TLS is enabled but the certificate could not be loaded: %w", err)
+			}
+			opts = append(opts, grpc.Creds(creds))
 		}
 	}
 
@@ -285,7 +303,7 @@ func (c *ServerConnector) buildServerOptions() []grpc.ServerOption {
 		opts = append(opts, grpc.MaxSendMsgSize(c.config.MaxSend*1024*1024))
 	}
 
-	return opts
+	return opts, nil
 }
 
 // registerServices registers gRPC services based on handlers.
@@ -398,7 +416,7 @@ func (c *ServerConnector) registerDynamicService(serviceName string, methods map
 		svcDesc.Methods = append(svcDesc.Methods, grpc.MethodDesc{
 			MethodName: name,
 			Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-				return c.handleDynamicUnary(ctx, h, dec, interceptor)
+				return c.handleDynamicUnary(ctx, "/"+serviceName+"/"+name, h, dec, interceptor)
 			},
 		})
 	}
@@ -417,6 +435,35 @@ func (c *ServerConnector) handleUnary(ctx context.Context, md *desc.MethodDescri
 		return nil, err
 	}
 
+	// The server hands a unary interceptor to the method handler and expects
+	// the handler to invoke it — that is what generated code does. This one
+	// took the argument and ignored it, so every server-side interceptor was
+	// dead: a service configured with auth answered calls carrying no
+	// credentials at all, while logging that authentication was enabled.
+	return c.throughInterceptor(ctx, inputMsg, interceptor, fullMethodOf(md), func(ctx context.Context) (interface{}, error) {
+		return c.serveUnary(ctx, md, handler, inputMsg)
+	})
+}
+
+// throughInterceptor runs the call through whatever the server chained onto it
+// — authentication among them — and calls the flow only if that lets it past.
+func (c *ServerConnector) throughInterceptor(ctx context.Context, req interface{}, interceptor grpc.UnaryServerInterceptor, fullMethod string, serve func(context.Context) (interface{}, error)) (interface{}, error) {
+	if interceptor == nil {
+		return serve(ctx)
+	}
+	info := &grpc.UnaryServerInfo{FullMethod: fullMethod}
+	return interceptor(ctx, req, info, func(ctx context.Context, _ interface{}) (interface{}, error) {
+		return serve(ctx)
+	})
+}
+
+// fullMethodOf builds the /package.Service/Method name a interceptor matches
+// its public list against.
+func fullMethodOf(md *desc.MethodDescriptor) string {
+	return "/" + md.GetService().GetFullyQualifiedName() + "/" + md.GetName()
+}
+
+func (c *ServerConnector) serveUnary(ctx context.Context, md *desc.MethodDescriptor, handler HandlerFunc, inputMsg *dynamic.Message) (interface{}, error) {
 	// Convert to map
 	inputData, err := dynamicMessageToMap(inputMsg)
 	if err != nil {
@@ -458,7 +505,7 @@ func (c *ServerConnector) handleUnary(ctx context.Context, md *desc.MethodDescri
 }
 
 // handleDynamicUnary handles a unary RPC call without proto definition.
-func (c *ServerConnector) handleDynamicUnary(ctx context.Context, handler HandlerFunc, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func (c *ServerConnector) handleDynamicUnary(ctx context.Context, fullMethod string, handler HandlerFunc, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	// For dynamic calls, we use JSON encoding
 	var input map[string]interface{}
 	if err := dec(&input); err != nil {
@@ -472,7 +519,9 @@ func (c *ServerConnector) handleDynamicUnary(ctx context.Context, handler Handle
 		}
 	}
 
-	return handler(ctx, input)
+	return c.throughInterceptor(ctx, input, interceptor, fullMethod, func(ctx context.Context) (interface{}, error) {
+		return handler(ctx, input)
+	})
 }
 
 // handleStream handles a streaming RPC call.

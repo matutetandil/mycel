@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,7 +71,12 @@ func (r *FlowRegistry) InvokeFlow(ctx context.Context, flowName string, input ma
 	if !ok {
 		return nil, fmt.Errorf("flow %q not found", flowName)
 	}
-	return handler.HandleRequest(ctx, input)
+	// Refuse a configuration that closes a loop. Without this the call never
+	// returns: see flow_invocation.go.
+	if err := checkInvocationCycle(ctx, flowName); err != nil {
+		return nil, err
+	}
+	return handler.HandleRequest(withInvocation(ctx, flowName), input)
 }
 
 // List returns all registered flow names.
@@ -297,6 +303,18 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 	// payload passes through, so it works regardless of source.
 	h.logIncomingPayload(ctx, input)
 
+	// Apply the contract the source operation declares for its parameters:
+	// defaults for what was not sent, then types and constraints for what was.
+	// Nothing happens unless the flow's source is a named operation with param
+	// blocks.
+	if h.Config.From != nil {
+		if op := OperationDefFor(h.Config.From.ConnectorParams); op != nil {
+			if err := applyOperationParams(op, input); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	// Attach Studio debug context when a debug client is connected.
 	// This takes priority over verbose flow to ensure breakpoints work.
 	var debugThread *debug.DebugThread
@@ -458,10 +476,7 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 					Detail:     h.Config.From.FilterConfig.Condition,
 				}
 				// Evaluate ID field if configured (for requeue dedup)
-				if h.Config.From.FilterConfig.IDField != "" && h.Config.From.FilterConfig.OnReject == "requeue" {
-					msgID, _ := h.evaluateIDField(ctx, input)
-					result.MessageID = msgID
-				}
+				h.attachMessageID(ctx, input, result)
 				return h.prepareDropResult(ctx, input, result)
 			}
 			return FilteredResult, nil
@@ -749,16 +764,17 @@ func (h *FlowHandler) sendToFallback(ctx context.Context, input map[string]inter
 	// Apply transform if configured
 	if len(fb.Transform) > 0 && h.Transformer != nil {
 		rules := transform.RulesFromMappings(fb.Transform, fb.TransformOrder)
-		// Build context with input and error
-		data := map[string]interface{}{
-			"input": input,
-			"error": map[string]interface{}{
-				"message": flowErr.Error(),
-			},
-		}
-		transformed, err := h.Transformer.Transform(ctx, data, rules)
+		transformed, err := h.Transformer.TransformOnError(ctx, input, flowErr, rules)
 		if err == nil {
 			message = transformed
+		} else {
+			// The message still goes to the fallback, because losing it
+			// entirely is worse — but in the shape the flow did not ask for.
+			// A record that lands in a dead-letter queue looking like
+			// something else is one nobody can replay, so it cannot go
+			// unsaid.
+			h.logger().Warn("the fallback transform failed; the message was sent unshaped",
+				"flow", h.Config.Name, "connector", fb.Connector, "error", err)
 		}
 	}
 
@@ -782,6 +798,15 @@ func (h *FlowHandler) sendToFallback(ctx context.Context, input map[string]inter
 
 	_, err := meteredWrite(ctx, writer, data)
 	return err
+}
+
+// logger is the handler's logger, or the default one when a handler was built
+// without it — a warning that cannot be written is worse than a nil check.
+func (h *FlowHandler) logger() *slog.Logger {
+	if h.Logger != nil {
+		return h.Logger
+	}
+	return slog.Default()
 }
 
 // getConnector gets a connector from the handler's connector registry.
@@ -808,17 +833,15 @@ func (h *FlowHandler) wrapErrorResponse(ctx context.Context, input map[string]in
 	var body map[string]interface{}
 	if len(er.Body) > 0 && h.Transformer != nil {
 		rules := transform.RulesFromMappings(er.Body, er.BodyOrder)
-
-		data := map[string]interface{}{
-			"input": input,
-			"error": map[string]interface{}{
-				"message": err.Error(),
-			},
-		}
-
-		transformed, transformErr := h.Transformer.Transform(ctx, data, rules)
+		transformed, transformErr := h.Transformer.TransformOnError(ctx, input, err, rules)
 		if transformErr == nil {
 			body = transformed
+		} else {
+			// The caller still gets an answer, in the default shape rather
+			// than the one that was written. Saying so is what stops the
+			// difference being blamed on the client.
+			h.logger().Warn("the error_response body failed to build; the default was sent instead",
+				"flow", h.Config.Name, "error", transformErr)
 		}
 	}
 
@@ -882,6 +905,31 @@ func (h *FlowHandler) evaluateAccept(ctx context.Context, input map[string]inter
 	return h.Transformer.EvaluateCondition(ctx, data, h.Config.Accept.When)
 }
 
+// attachMessageID puts the message identifier on a rejected result so the
+// consumer can count how many times it has been requeued.
+//
+// An expression that cannot be evaluated is said out loud rather than dropped:
+// without an identifier the consumer falls back to acknowledging, so the
+// message is discarded instead of retried, and its warning — "no message ID
+// available" — reads as a message that arrived without one rather than a
+// configuration mistake in this flow.
+func (h *FlowHandler) attachMessageID(ctx context.Context, input map[string]interface{}, result *flow.FilteredResultWithPolicy) {
+	filter := h.Config.From.FilterConfig
+	if filter == nil || filter.IDField == "" || filter.OnReject != "requeue" {
+		return
+	}
+
+	msgID, err := h.evaluateIDField(ctx, input)
+	if err != nil {
+		h.logger().WarnContext(ctx, "id_field could not be evaluated, so the message has no identifier to be counted under and will be acknowledged rather than requeued",
+			"flow", h.Config.Name,
+			"id_field", filter.IDField,
+			"error", err)
+		return
+	}
+	result.MessageID = msgID
+}
+
 // evaluateIDField evaluates the id_field CEL expression to extract a message ID.
 func (h *FlowHandler) evaluateIDField(ctx context.Context, input map[string]interface{}) (string, error) {
 	if h.Config.From.FilterConfig == nil || h.Config.From.FilterConfig.IDField == "" {
@@ -898,17 +946,25 @@ func (h *FlowHandler) evaluateIDField(ctx context.Context, input map[string]inte
 		}
 	}
 
-	data := map[string]interface{}{
-		"input": input,
-	}
-
-	result, err := h.Transformer.EvaluateExpression(ctx, data, nil, h.Config.From.FilterConfig.IDField)
+	// The message itself, not wrapped: EvaluateExpression binds what it is
+	// given as `input`. Wrapping it once more put the message a level down, so
+	// every expression the documentation shows — id_field = "input.payment_id"
+	// — failed with "no such key", the error was discarded by the caller, and
+	// the feature never produced an identifier for anyone.
+	result, err := h.Transformer.EvaluateExpression(ctx, input, nil, h.Config.From.FilterConfig.IDField)
 	if err != nil {
 		return "", err
 	}
 
 	if s, ok := result.(string); ok {
 		return s, nil
+	}
+	// A number arrives from JSON as a float, and the default formatting turns a
+	// large one into 1.2345678e+07 — the key the requeue counter is kept under
+	// and the identifier in every log line about the message, so an operator
+	// searching for order 12345678 would find nothing.
+	if f, ok := result.(float64); ok {
+		return strconv.FormatFloat(f, 'f', -1, 64), nil
 	}
 	return fmt.Sprintf("%v", result), nil
 }
@@ -1274,8 +1330,34 @@ func (h *FlowHandler) resultToConnectorResult(result interface{}) *connector.Res
 		}
 		return &connector.Result{Rows: []map[string]interface{}{v}}
 	default:
+		// Anything else — a saga's outcome, a state transition, whatever a
+		// connector chose to answer with. This used to return an empty result,
+		// which the response builder then rendered as {"affected":0,"id":null}:
+		// a service with any aspect configured answered a state transition with
+		// nothing at all, because that is the path a flow takes once aspects
+		// are in play. Carrying the value through as a row keeps the answer.
+		if row, ok := structToRow(result); ok {
+			return &connector.Result{Rows: []map[string]interface{}{row}}
+		}
 		return &connector.Result{}
 	}
+}
+
+// structToRow renders a value the way it would be answered over the wire, so
+// that passing through the aspect executor does not lose it.
+func structToRow(value interface{}) (map[string]interface{}, bool) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, false
+	}
+	var row map[string]interface{}
+	if err := json.Unmarshal(encoded, &row); err != nil {
+		return nil, false
+	}
+	if len(row) == 0 {
+		return nil, false
+	}
+	return row, true
 }
 
 // executeFlowCore executes the core flow logic without aspects, wrapping it
@@ -1499,7 +1581,19 @@ func (h *FlowHandler) evaluateSyncKey(ctx context.Context, keyExpr string, input
 		return ""
 	}
 
-	if !looksLikeCEL(keyExpr) || h.Transformer == nil {
+	if !looksLikeCEL(keyExpr) {
+		return keyExpr
+	}
+
+	// The key is evaluated before the flow body runs, so on a flow with no
+	// filter, accept gate or dedupe there is nothing that has created a
+	// transformer yet. Giving up here returned the expression itself as the
+	// key — the same key for every message — so a lock meant to be held per
+	// order became one lock held by everything, and a coordinate key never
+	// matched the signal it was waiting for.
+	if err := h.ensureTransformer(); err != nil {
+		slog.Warn("sync key CEL evaluation not possible, using literal expression as key",
+			"expression", keyExpr, "error", err)
 		return keyExpr
 	}
 
@@ -1641,7 +1735,9 @@ func (h *FlowHandler) evaluateSignalWhen(ctx context.Context, when string, input
 	if when == "" {
 		return true
 	}
-	if h.Transformer == nil {
+	if err := h.ensureTransformer(); err != nil {
+		slog.Warn("coordinate.signal.when cannot be evaluated, signal will not be emitted",
+			"expression", when, "error", err)
 		return false
 	}
 	val, err := h.Transformer.EvaluateExpressionWithOutput(ctx, input, output, when)
@@ -1666,7 +1762,12 @@ func (h *FlowHandler) evaluateSignalWhen(ctx context.Context, when string, input
 // skips writing a corrupted key. Empty / failed evaluations are flagged
 // at WARN so the operator notices.
 func (h *FlowHandler) evaluateSignalKey(ctx context.Context, expr string, input, output map[string]interface{}) (string, bool) {
-	if expr == "" || h.Transformer == nil {
+	if expr == "" {
+		return "", false
+	}
+	if err := h.ensureTransformer(); err != nil {
+		slog.Warn("coordinate.signal.emit cannot be evaluated, nothing will be signalled",
+			"expression", expr, "error", err)
 		return "", false
 	}
 
@@ -1707,7 +1808,13 @@ func looksLikeCEL(expr string) bool {
 // without a stored value pass through and any existing stored value blocks
 // them (the safe default).
 func (h *FlowHandler) evaluateSyncSequence(ctx context.Context, expr string, input map[string]interface{}) int64 {
-	if expr == "" || h.Transformer == nil {
+	if expr == "" {
+		return 0
+	}
+	// Same as the key above: this runs before anything else has needed a
+	// transformer, and answering 0 makes every message look like it carries
+	// no sequence at all.
+	if err := h.ensureTransformer(); err != nil {
 		return 0
 	}
 	result, err := h.Transformer.EvaluateExpression(ctx, input, nil, expr)
@@ -1818,8 +1925,14 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	}
 
 	// For flows with steps, execute steps + transform instead of reading from destination
-	// This supports orchestration flows where data comes from multiple sources
-	if len(h.Config.Steps) > 0 && operation.IsRead() {
+	// This supports orchestration flows where data comes from multiple sources.
+	//
+	// A flow with no destination counts however it was triggered. Steps ran
+	// only for a read, so an orchestration flow answering POST — call these
+	// three things, answer with what they said — skipped every step it
+	// declared and echoed the request back, headers and all. A flow that does
+	// have a destination already runs its steps on the way to writing.
+	if len(h.Config.Steps) > 0 && (operation.IsRead() || h.Dest == nil) {
 		result, err = h.handleStepsFlow(ctx, input)
 	} else if len(h.Config.MultiTo) > 0 && !operation.IsRead() {
 		// Check for multi-destination writes
@@ -1861,6 +1974,18 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 		if err != nil {
 			return nil, fmt.Errorf("response transform error: %w", err)
 		}
+	}
+
+	// Check the answer against the contract the flow declares for it.
+	//
+	// The input side has always been checked, which is what makes the absence
+	// of this one dangerous rather than merely missing: someone who sees
+	// `validate { input = ... }` refuse a bad request reasonably assumes the
+	// output half does the same. See validateResult.
+	if _, valErr := trace.RecordStage(ctx, trace.StageValidateOut, "", result, func() (interface{}, error) {
+		return nil, h.validateResult(ctx, result)
+	}); valErr != nil {
+		return nil, valErr
 	}
 
 	// For read operations, store result in cache
@@ -2157,11 +2282,14 @@ func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]inte
 		return nil, fmt.Errorf("step execution failed: %w", err)
 	}
 
-	// If no transform is configured, return step results directly
+	// If no transform is configured, return the result of the step written
+	// first. It used to walk the map of results and return whichever came out
+	// of it, so a flow with more than one step answered a different step's
+	// result on each request, with nothing in the configuration to explain why
+	// the same call returned a customer once and an order the next time.
 	if h.Config.Transform == nil || len(h.Config.Transform.Mappings) == 0 {
-		// Return the first step's result if available
-		if len(stepResults) > 0 {
-			for _, result := range stepResults {
+		for _, step := range h.Config.Steps {
+			if result, ok := stepResults[step.Name]; ok {
 				return result, nil
 			}
 		}
@@ -2533,6 +2661,12 @@ func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string
 		Success: true,
 	}
 
+	// Two destinations may share a connector — an order and its lines, both
+	// going to the same database — and the report is keyed by name, so one
+	// used to overwrite the other. Both writes happened; only one was ever
+	// accounted for. Repeats are named by what distinguishes them.
+	labels := destinationLabels(h.Config.MultiTo)
+
 	// Execute parallel destinations concurrently
 	if len(parallelDests) > 0 {
 		var wg sync.WaitGroup
@@ -2548,10 +2682,10 @@ func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string
 				mu.Lock()
 				defer mu.Unlock()
 				if destErr != nil {
-					result.Errors[dc.Connector] = destErr.Error()
+					result.Errors[labels[dc]] = destErr.Error()
 					result.Success = false
 				} else {
-					result.Results[dc.Connector] = destResult
+					result.Results[labels[dc]] = destResult
 				}
 			}(destConfig)
 		}
@@ -2562,10 +2696,10 @@ func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string
 	for _, destConfig := range sequentialDests {
 		destResult, destErr := h.writeToDestination(ctx, input, basePayload, destConfig, operation)
 		if destErr != nil {
-			result.Errors[destConfig.Connector] = destErr.Error()
+			result.Errors[labels[destConfig]] = destErr.Error()
 			result.Success = false
 		} else {
-			result.Results[destConfig.Connector] = destResult
+			result.Results[labels[destConfig]] = destResult
 		}
 	}
 
@@ -2577,15 +2711,50 @@ func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string
 	return result, nil
 }
 
+// destinationLabels names each destination in the report.
+//
+// A connector that appears once keeps its bare name, which is what anything
+// reading the result already expects. A connector that appears twice has its
+// entries told apart by what distinguishes them — the table, the queue, the
+// path — so neither is lost to the other.
+func destinationLabels(destinations []*flow.ToConfig) map[*flow.ToConfig]string {
+	appearances := map[string]int{}
+	for _, dest := range destinations {
+		appearances[dest.Connector]++
+	}
+
+	labels := make(map[*flow.ToConfig]string, len(destinations))
+	seen := map[string]int{}
+	for _, dest := range destinations {
+		if appearances[dest.Connector] == 1 {
+			labels[dest] = dest.Connector
+			continue
+		}
+
+		seen[dest.Connector]++
+		if target := dest.GetTarget(); target != "" {
+			labels[dest] = dest.Connector + ":" + target
+			continue
+		}
+		labels[dest] = fmt.Sprintf("%s#%d", dest.Connector, seen[dest.Connector])
+	}
+	return labels
+}
+
 // writeToDestination writes data to a single destination.
 func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload map[string]interface{}, destConfig *flow.ToConfig, operation Operation) (interface{}, error) {
 	// Check when condition if specified
 	if destConfig.When != "" {
-		// Build context with output (the transformed data)
-		evalInput := make(map[string]interface{})
+		// `input` is the message as it arrived and `output` is what the
+		// transform made of it. Only the second used to be bound: the fields
+		// were copied to the top level instead, where CEL cannot see them, so
+		// `input.total > 1000` — the spelling every other condition in a flow
+		// uses — failed the write with "no such key" rather than deciding it.
+		evalInput := make(map[string]interface{}, len(input)+2)
 		for k, v := range input {
 			evalInput[k] = v
 		}
+		evalInput["input"] = input
 		evalInput["output"] = basePayload
 
 		shouldWrite, err := h.Transformer.EvaluateCondition(ctx, evalInput, destConfig.When)
@@ -2749,7 +2918,7 @@ func destMethodIsQuery(to *flow.ToConfig) bool {
 // and write to the destination (message queues, CDC, file watchers).
 func isEventDrivenSource(sourceType string) bool {
 	switch sourceType {
-	case "mq", "mqtt", "cdc", "file", "websocket", "sse", "tcp":
+	case "mq", "mqtt", "cdc", "file", "websocket", "sse", "tcp", "webhook":
 		return true
 	}
 	return false
@@ -3515,6 +3684,18 @@ func (e *ValidationError) Error() string {
 	return e.Errors[0].Error()
 }
 
+// ValidationFields reports the fields that failed, which is what lets an
+// aspect recognise a rejected payload. The aspect executor cannot import this
+// package — this one imports it — so the two agree through the interface in
+// pkg/errors rather than through this type.
+func (e *ValidationError) ValidationFields() []string {
+	fields := make([]string, 0, len(e.Errors))
+	for _, err := range e.Errors {
+		fields = append(fields, err.Error())
+	}
+	return fields
+}
+
 // Caller is implemented by connectors that can make RPC-style calls.
 // This is used for enrichments with TCP, HTTP client, gRPC, etc.
 type Caller interface {
@@ -3573,7 +3754,17 @@ func (h *FlowHandler) executeStateTransition(ctx context.Context, input map[stri
 		data = input
 	}
 
-	return h.StateMachineEngine.Transition(ctx, st.Machine, st.Entity, idStr, eventStr, data)
+	// Where the entity lives. The block can name it; otherwise the flow's own
+	// destination is used, which is where the row is read from and written to
+	// anyway. With neither, the engine falls back to trying every connector —
+	// which is how a state ended up published to a message queue that accepted
+	// the write while the row it was meant for went untouched.
+	connectorName := st.Connector
+	if connectorName == "" && h.Config.To != nil {
+		connectorName = h.Config.To.Connector
+	}
+
+	return h.StateMachineEngine.TransitionOn(ctx, connectorName, st.Machine, st.Entity, idStr, eventStr, data)
 }
 
 // ===== Cache Helper Methods =====
@@ -3617,9 +3808,21 @@ func (h *FlowHandler) buildCacheKey(input map[string]interface{}) string {
 
 	if keyTemplate == "" {
 		// Default key format: flow_name:param1=val1:param2=val2
+		//
+		// Sorted, because ranging over the map produced a different key on
+		// every call for the same input: the entry was written under one key
+		// and looked up under another, so a flow with `cache {}` and no
+		// explicit key never got a hit while still paying to store — and left
+		// one entry per iteration order behind in the cache.
+		names := make([]string, 0, len(input))
+		for k := range input {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+
 		keyTemplate = h.Config.Name
-		for k, v := range input {
-			keyTemplate += fmt.Sprintf(":%s=%v", k, v)
+		for _, k := range names {
+			keyTemplate += fmt.Sprintf(":%s=%v", k, input[k])
 		}
 		return keyTemplate
 	}

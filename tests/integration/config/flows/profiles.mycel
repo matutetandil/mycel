@@ -1,0 +1,35 @@
+# Creating the table the selected profile writes into, the way the sqlite suite
+# does: a flow with a raw statement, so nothing has to be seeded from outside.
+flow "profiled_init" {
+  from {
+    connector = "api"
+    operation = "POST /test/profile/init"
+  }
+  to {
+    connector = "profiled_store"
+    query     = "CREATE TABLE IF NOT EXISTS profile_items (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, status TEXT)"
+  }
+}
+
+# Writing through whichever profile was selected.
+flow "profiled_write" {
+  from {
+    connector = "api"
+    operation = "POST /test/profile"
+  }
+  to {
+    connector = "profiled_store"
+    target    = "profile_items"
+  }
+}
+
+flow "profiled_read" {
+  from {
+    connector = "api"
+    operation = "GET /test/profile"
+  }
+  to {
+    connector = "profiled_store"
+    target    = "profile_items"
+  }
+}
