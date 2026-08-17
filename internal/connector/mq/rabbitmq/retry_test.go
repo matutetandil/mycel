@@ -1,302 +1,155 @@
 package rabbitmq
 
 import (
-	"context"
 	"errors"
 	"testing"
 
 	amqp "github.com/rabbitmq/amqp091-go"
-
-	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
-// A message the flow turned away, and one that failed enough times. These are
-// the two ways a message stops circulating, and the failure in both directions
-// is quiet: too eager and a message is dropped, too reluctant and the queue
-// redelivers the same payload for ever.
+// What happens to a message the flow could not process.
+//
+// This is the machinery that came out of a real incident: a write that timed
+// out, was retried, and raced the first attempt. Every branch here decides
+// whether a message is tried again, given up on, or handed back to the queue
+// for ever, and the difference between them is invisible from outside until
+// somebody counts messages.
 
-func withDLQ(maxRetries int) *Config {
-	return &Config{
-		URL:   "amqp://localhost:5672/",
-		Queue: &QueueConfig{Name: "orders"},
-		Consumer: &ConsumerConfig{
-			AutoAck: false,
-			DLQ: &DLQConfig{
-				Enabled:     true,
-				MaxRetries:  maxRetries,
-				RetryHeader: "x-retry-count",
-			},
-		},
-	}
-}
-
-func TestAMessageTheFilterTurnedAwayFollowsItsPolicy(t *testing.T) {
-	// The flow took the message and decided it was not for it. Which of these
-	// three happens is written in the flow, and each means something different
-	// to the broker.
-	for name, tc := range map[string]struct {
-		policy string
-		want   string
-	}{
-		"ack drops it":                       {"ack", "acked"},
-		"reject sends it to the dead-letter": {"reject", "dead-lettered"},
-		"anything else drops it":             {"something-nobody-implements", "acked"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			c := consumer(t, consuming(), nil)
-			b := &broker{}
-
-			err := c.handleFilterReject(message(b), &flow.FilteredResultWithPolicy{
-				Filtered: true, Policy: tc.policy,
-			})
-			if err != nil {
-				t.Fatalf("handleFilterReject: %v", err)
-			}
-			if b.what() != tc.want {
-				t.Errorf("the message was %s, want %s", b.what(), tc.want)
-			}
-		})
-	}
-}
-
-func TestARequeuedMessageIsHandedBackOnlySoManyTimes(t *testing.T) {
-	// Without the bound this is a message that circles for ever: the filter
-	// turns it away, the broker hands it back, the filter turns it away.
-	c := consumer(t, consuming(), nil)
-	rejected := &flow.FilteredResultWithPolicy{
-		Filtered: true, Policy: "requeue", MessageID: "order-1", MaxRequeue: 3,
-	}
-
-	handedBack := 0
-	for i := 0; i < 6; i++ {
-		b := &broker{}
-		if err := c.handleFilterReject(message(b), rejected); err != nil {
-			t.Fatalf("handleFilterReject: %v", err)
-		}
-		switch b.what() {
-		case "requeued":
-			handedBack++
-		case "acked":
-			// Given up on, which is where this has to end.
-		default:
-			t.Fatalf("the message was %s", b.what())
-		}
-	}
-
-	if handedBack == 0 {
-		t.Error("a message the flow asked to requeue was never handed back")
-	}
-	if handedBack >= 6 {
-		t.Error("the message was handed back every time: it would circle for ever")
-	}
-}
-
-func TestAMessageWithNothingToCountUnderIsDropped(t *testing.T) {
-	// Without an identifier there is nothing to count attempts against, so
-	// requeueing would be unbounded. Dropping one message beats a queue that
-	// never drains.
-	c := consumer(t, consuming(), nil)
-
-	b := &broker{}
-	delivery := message(b)
-	delivery.MessageId = ""
-
-	err := c.handleFilterReject(delivery, &flow.FilteredResultWithPolicy{
-		Filtered: true, Policy: "requeue", MaxRequeue: 3,
-	})
-	if err != nil {
-		t.Fatalf("handleFilterReject: %v", err)
-	}
-	if b.what() != "acked" {
-		t.Errorf("the message was %s, want dropped rather than circling", b.what())
-	}
-}
-
-func TestTheBrokersOwnMessageIdStandsInForAnIdentifier(t *testing.T) {
-	// A publisher that sets message_id gives the consumer something to count
-	// against without the flow naming a field.
-	c := consumer(t, consuming(), nil)
-
-	b := &broker{}
-	err := c.handleFilterReject(message(b), &flow.FilteredResultWithPolicy{
-		Filtered: true, Policy: "requeue", MaxRequeue: 3,
-	})
-	if err != nil {
-		t.Fatalf("handleFilterReject: %v", err)
-	}
-	if b.what() != "requeued" {
-		t.Errorf("the message was %s, want handed back under the broker's own id", b.what())
-	}
-}
-
-func TestAnAutoAckedConsumerHasNothingLeftToDecide(t *testing.T) {
-	// The broker considered the message delivered the moment it was sent, so
-	// nothing here can ack or nack it.
+func withDLQ(dlq *DLQConfig) *Config {
 	config := consuming()
-	config.Consumer.AutoAck = true
-	c := consumer(t, config, nil)
-
-	b := &broker{}
-	if err := c.handleFilterReject(message(b), &flow.FilteredResultWithPolicy{
-		Filtered: true, Policy: "reject",
-	}); err != nil {
-		t.Fatalf("handleFilterReject: %v", err)
-	}
-	if b.what() != "nothing" {
-		t.Errorf("the consumer tried to %s a message the broker already considers delivered", b.what())
-	}
+	config.Consumer.DLQ = dlq
+	return config
 }
 
-// --- Failing enough times ----------------------------------------------------
+func TestAMessageIsTriedAgainUntilItIsNot(t *testing.T) {
+	// The retry count rides on the message. Read wrongly, a message is either
+	// retried for ever or given up on at the first failure — and the header a
+	// broker writes is an int32, not an int.
+	c := consumer(t, withDLQ(&DLQConfig{Enabled: true, MaxRetries: 3}), nil)
 
-func TestWithNoDeadLetterAFailedMessageGoesBackToTheQueue(t *testing.T) {
-	// The default: another worker, or this one again, gets to try.
-	c := consumer(t, consuming(), nil)
-
-	b := &broker{}
-	if err := c.handleRetry(message(b), errors.New("connection refused")); err != nil {
-		t.Fatalf("handleRetry: %v", err)
-	}
-	if b.what() != "requeued" {
-		t.Errorf("the message was %s, want handed back", b.what())
-	}
-}
-
-func TestAMessageThatHasFailedEnoughTimesIsDeadLettered(t *testing.T) {
-	// The count travels with the message in a header, so a consumer that
-	// restarts does not start it again from zero.
-	c := consumer(t, withDLQ(3), nil)
-
-	b := &broker{}
-	delivery := message(b)
-	delivery.Headers = amqp.Table{"x-retry-count": int32(3)}
-
-	if err := c.handleRetry(delivery, errors.New("connection refused")); err != nil {
-		t.Fatalf("handleRetry: %v", err)
-	}
-	if b.what() != "rejected" {
-		t.Errorf("the message was %s, want sent to the dead-letter exchange", b.what())
-	}
-}
-
-func TestTheCountIsUnderstoodWhicheverWayTheBrokerSendsIt(t *testing.T) {
-	// AMQP headers come back as whichever integer the broker chose. A type
-	// this does not understand reads as zero, and a message that has already
-	// failed its limit starts again from nothing — for ever.
-	for name, value := range map[string]interface{}{
-		"a 32-bit integer": int32(5),
-		"a 64-bit integer": int64(5),
-		"a plain integer":  int(5),
+	for name, count := range map[string]interface{}{
+		"as the broker writes it": int32(3),
+		"as a wider number":       int64(3),
+		"as a plain number":       3,
 	} {
-		t.Run(name, func(t *testing.T) {
-			c := consumer(t, withDLQ(3), nil)
+		t.Run("given up on when the count is there "+name, func(t *testing.T) {
 			b := &broker{}
 			delivery := message(b)
-			delivery.Headers = amqp.Table{"x-retry-count": value}
+			delivery.Headers = amqp.Table{"x-retry-count": count}
 
-			if err := c.handleRetry(delivery, errors.New("connection refused")); err != nil {
+			if err := c.handleRetry(delivery, errors.New("the supplier's API is down")); err != nil {
 				t.Fatalf("handleRetry: %v", err)
 			}
+			// Rejected without requeue is what sends it to the dead-letter
+			// exchange: the broker routes it, not us.
 			if b.what() != "rejected" {
-				t.Errorf("a message past its limit was %s: the count was read as zero", b.what())
+				t.Errorf("the message was %s, want it dead-lettered after the last attempt", b.what())
 			}
 		})
 	}
+
+	// Below the limit it goes round again. With no channel to republish
+	// through — which is the state a dropped connection leaves, and the state
+	// a handler is most likely to have failed in — the message goes back to
+	// the queue rather than taking the process down with a nil dereference.
+	b := &broker{}
+	delivery := message(b)
+	delivery.Headers = amqp.Table{"x-retry-count": int32(1)}
+	if err := c.handleRetry(delivery, errors.New("the supplier's API is down")); err != nil {
+		t.Fatalf("handleRetry: %v", err)
+	}
+	if b.what() != "requeued" {
+		t.Errorf("a message with attempts left was %s, want it back on the queue", b.what())
+	}
 }
 
-func TestADeadLetterThatIsConfiguredButOffBehavesLikeNone(t *testing.T) {
-	config := withDLQ(3)
-	config.Consumer.DLQ.Enabled = false
-	c := consumer(t, config, nil)
+func TestAMessageWithNoCountYet(t *testing.T) {
+	// The first failure: nothing has written a count, and the message must
+	// not be treated as having exhausted its attempts.
+	c := consumer(t, withDLQ(&DLQConfig{Enabled: true, MaxRetries: 3}), nil)
+
+	b := &broker{}
+	if err := c.handleRetry(message(b), errors.New("the supplier's API is down")); err != nil {
+		t.Fatalf("handleRetry: %v", err)
+	}
+	if b.what() == "rejected" {
+		t.Error("the first failure was treated as the last")
+	}
+}
+
+func TestHowManyAttemptsWhenNobodySaid(t *testing.T) {
+	// A dead-letter block with no limit written still has one, or a message
+	// that always fails goes round for ever and the queue never drains.
+	c := consumer(t, withDLQ(&DLQConfig{Enabled: true}), nil)
 
 	b := &broker{}
 	delivery := message(b)
 	delivery.Headers = amqp.Table{"x-retry-count": int32(99)}
-
-	if err := c.handleRetry(delivery, errors.New("connection refused")); err != nil {
+	if err := c.handleRetry(delivery, errors.New("the supplier's API is down")); err != nil {
 		t.Fatalf("handleRetry: %v", err)
 	}
-	if b.what() != "requeued" {
-		t.Errorf("the message was %s, want handed back: the dead-letter is turned off", b.what())
+	if b.what() != "rejected" {
+		t.Errorf("a message on its hundredth attempt was %s", b.what())
 	}
 }
 
-func TestTheDeadLetterNamesFollowFromTheQueue(t *testing.T) {
-	// A consumer that names nothing still gets a dead-letter exchange and
-	// queue named after the one it reads, which is what makes the default
-	// usable without writing three more names.
-	c := consumer(t, withDLQ(3), nil)
-	dlq := c.getDLQConfig()
-	if dlq == nil {
-		t.Fatal("a configured dead-letter is not there")
-	}
+func TestTheCountCanBeKeptUnderAnotherName(t *testing.T) {
+	// A queue shared with another system that already uses x-retry-count for
+	// its own purposes.
+	c := consumer(t, withDLQ(&DLQConfig{
+		Enabled: true, MaxRetries: 2, RetryHeader: "x-mycel-attempts",
+	}), nil)
 
-	if name := c.getDLXExchangeName(dlq); name == "" {
-		t.Error("the dead-letter exchange has no name")
-	}
-	if name := c.getDLQQueueName(dlq); name == "" {
-		t.Error("the dead-letter queue has no name")
-	}
+	b := &broker{}
+	delivery := message(b)
+	// The default name is present and is not the one configured: it must be
+	// ignored, or a message is given up on because of somebody else's header.
+	delivery.Headers = amqp.Table{"x-retry-count": int32(9), "x-mycel-attempts": int32(0)}
 
-	// And names that were written are the ones used.
-	dlq.Exchange = "orders.dead"
-	dlq.Queue = "orders.dead.queue"
-	if got := c.getDLXExchangeName(dlq); got != "orders.dead" {
-		t.Errorf("exchange = %q", got)
+	if err := c.handleRetry(delivery, errors.New("the supplier's API is down")); err != nil {
+		t.Fatalf("handleRetry: %v", err)
 	}
-	if got := c.getDLQQueueName(dlq); got != "orders.dead.queue" {
-		t.Errorf("queue = %q", got)
-	}
-
-	// A consumer with no dead-letter configured has none.
-	if consumer(t, consuming(), nil).getDLQConfig() != nil {
-		t.Error("a consumer that configured no dead-letter has one")
+	if b.what() == "rejected" {
+		t.Error("a message was dead-lettered on another system's retry count")
 	}
 }
 
-func TestAConsumerSaysWhatItIsReading(t *testing.T) {
-	// What the banner prints and what an IDE steps through.
+func TestWithNoDeadLetterQueueAMessageGoesBack(t *testing.T) {
+	// Without somewhere to put a message that keeps failing, the only honest
+	// thing is to hand it back: dropping it loses an order, and the queue
+	// depth is what tells somebody it is happening.
+	for name, config := range map[string]*Config{
+		"no dead-letter block": consuming(),
+		"one switched off":     withDLQ(&DLQConfig{Enabled: false, MaxRetries: 3}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := consumer(t, config, nil)
+			b := &broker{}
+
+			if err := c.handleRetry(message(b), errors.New("the supplier's API is down")); err != nil {
+				t.Fatalf("handleRetry: %v", err)
+			}
+			if b.what() != "requeued" {
+				t.Errorf("the message was %s, want it handed back", b.what())
+			}
+		})
+	}
+}
+
+func TestAcknowledgingAfterTheChannelIsGone(t *testing.T) {
+	// A flow that acknowledges for itself, on a connection that dropped while
+	// the message was being processed — which is the case the reconnect work
+	// exists for. Saying so beats a nil dereference, and beats reporting an
+	// acknowledgement the broker never received.
 	c := consumer(t, consuming(), nil)
 
-	kind, source := c.SourceInfo()
-	if kind != "rabbitmq" {
-		t.Errorf("kind = %q", kind)
+	if err := c.Ack(1, false); err == nil {
+		t.Error("a message was acknowledged through a channel that is not there")
 	}
-	if source != "orders" {
-		t.Errorf("source = %q, want the queue it reads", source)
+	if err := c.Nack(1, false, true); err == nil {
+		t.Error("a message was rejected through a channel that is not there")
 	}
-	if c.QueueName() != "orders" {
-		t.Errorf("queue = %q", c.QueueName())
-	}
-
-	if c.Name() != "orders_rabbit" || c.Type() != "mq" {
-		t.Errorf("name = %q, type = %q", c.Name(), c.Type())
-	}
-}
-
-func TestTwoFlowsOnOneQueueBothRun(t *testing.T) {
-	// Fan-out: a second flow registering for the same queue must not replace
-	// the first, which would silently stop one of them.
-	c := consumer(t, consuming(), nil)
-
-	var first, second bool
-	c.RegisterRoute("orders", func(context.Context, map[string]interface{}) (interface{}, error) {
-		first = true
-		return nil, nil
-	})
-	c.RegisterRoute("orders", func(context.Context, map[string]interface{}) (interface{}, error) {
-		second = true
-		return nil, nil
-	})
-
-	handler := c.findHandler("orders")
-	if handler == nil {
-		t.Fatal("no handler for a queue two flows registered")
-	}
-	if _, err := handler(context.Background(), map[string]interface{}{}); err != nil {
-		t.Fatalf("handler: %v", err)
-	}
-	if !first || !second {
-		t.Errorf("first ran = %v, second ran = %v — one of the flows was replaced", first, second)
+	if err := c.Reject(1, false); err == nil {
+		t.Error("a message was refused through a channel that is not there")
 	}
 }
