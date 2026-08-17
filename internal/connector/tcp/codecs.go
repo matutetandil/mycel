@@ -3,6 +3,8 @@ package tcp
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 // Codec defines the interface for encoding/decoding messages.
@@ -94,23 +96,27 @@ func (c *RawCodec) Name() string {
 }
 
 // MsgpackCodec encodes/decodes messages using MessagePack.
-// Note: This is a placeholder - full implementation requires github.com/vmihailenco/msgpack/v5
+//
+// It used to encode JSON and call it MessagePack. `protocol = "msgpack"` was
+// selectable, documented in the connector reference and in the list of what
+// this runtime speaks, and what went over the socket was JSON — so a peer
+// that actually speaks MessagePack could not read a word of it.
+//
+// Two Mycel services configured this way did talk to each other, which is the
+// part that hid it: both were sending JSON, so both were happy. That is not
+// compatibility, it is two ends sharing one bug, and it stops the moment
+// either end is replaced by something that implements the protocol as
+// written.
 type MsgpackCodec struct{}
 
 // Encode encodes a value to MessagePack bytes.
-// Currently falls back to JSON until msgpack dependency is added.
 func (c *MsgpackCodec) Encode(v interface{}) ([]byte, error) {
-	// TODO: Use msgpack.Marshal when dependency is added
-	// For now, fall back to JSON
-	return json.Marshal(v)
+	return msgpack.Marshal(v)
 }
 
 // Decode decodes MessagePack bytes into a value.
-// Currently falls back to JSON until msgpack dependency is added.
 func (c *MsgpackCodec) Decode(data []byte, v interface{}) error {
-	// TODO: Use msgpack.Unmarshal when dependency is added
-	// For now, fall back to JSON
-	return json.Unmarshal(data, v)
+	return msgpack.Unmarshal(data, v)
 }
 
 // Name returns "msgpack".

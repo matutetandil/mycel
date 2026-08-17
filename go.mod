@@ -40,6 +40,7 @@ require (
 	github.com/segmentio/kafka-go v0.4.49
 	github.com/spf13/cobra v1.8.0
 	github.com/tetratelabs/wazero v1.11.0
+	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/xuri/excelize/v2 v2.11.0
 	github.com/zclconf/go-cty v1.17.0
 	go.mongodb.org/mongo-driver v1.17.7
@@ -117,6 +118,7 @@ require (
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/tiendc/go-deepcopy v1.7.2 // indirect
+	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.2 // indirect
