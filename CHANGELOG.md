@@ -60,6 +60,8 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **A single name where a list was wanted was accepted and thrown away.** `invalidate_on = "update_user"` instead of `["update_user"]` is the mistake somebody makes once per language they learn, and these attributes were read behind a bare `if val.Type().IsListType()` whose else branch did nothing: the line parsed, the value vanished, and the cache invalidated nothing, the rule required no roles. The service started and did less than it was told to, silently. Only the aspect's `on` had the single-value branch, which is why that one worked and its seven neighbours did not; they all share one reader now.
+
 - **A number in almost any text attribute crashed the binary.** `cache { ttl = 300 }` — a number where a duration string was wanted, and what somebody means by five minutes — took `mycel validate` down with `panic: not a string`, naming neither the attribute nor the block. It was not one attribute: a test that walks the schema and puts a number in every text attribute found **88 of them across eleven root blocks**. They are read through the same helper the auth parser already used, which reads a number or a boolean as the text a person meant and refuses what cannot be read at all.
 
 - **A duration that could not be read was silently discarded.** Every one was parsed at the point of use with the error thrown away, so `ttl = "5 minutes"` meant *no TTL* — the entry lived for whatever the connector defaults to — and a lock timeout that did not parse meant the default timeout. Durations are checked at startup now, naming the flow and the attribute.

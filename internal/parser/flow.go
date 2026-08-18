@@ -1077,12 +1077,7 @@ func parseRequireBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RequireCon
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("require roles error: %s", diags.Error())
 		}
-		if val.Type().IsListType() || val.Type().IsTupleType() {
-			for it := val.ElementIterator(); it.Next(); {
-				_, v := it.Element()
-				require.Roles = append(require.Roles, stringOrEmpty(v))
-			}
-		}
+		require.Roles = append(require.Roles, stringList(val)...)
 	}
 
 	if attr, ok := content.Attributes["permissions"]; ok {
@@ -1090,12 +1085,7 @@ func parseRequireBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RequireCon
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("require permissions error: %s", diags.Error())
 		}
-		if val.Type().IsListType() || val.Type().IsTupleType() {
-			for it := val.ElementIterator(); it.Next(); {
-				_, v := it.Element()
-				require.Permissions = append(require.Permissions, stringOrEmpty(v))
-			}
-		}
+		require.Permissions = append(require.Permissions, stringList(val)...)
 	}
 
 	return require, nil
@@ -2075,12 +2065,7 @@ func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig,
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("cache invalidate_on error: %s", diags.Error())
 		}
-		if val.Type().IsListType() || val.Type().IsTupleType() {
-			for it := val.ElementIterator(); it.Next(); {
-				_, v := it.Element()
-				cache.InvalidateOn = append(cache.InvalidateOn, stringOrEmpty(v))
-			}
-		}
+		cache.InvalidateOn = append(cache.InvalidateOn, stringList(val)...)
 	}
 
 	if attr, ok := content.Attributes["use"]; ok {
@@ -2168,12 +2153,7 @@ func parseInvalidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Invalid
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("invalidate keys error: %s", diags.Error())
 		}
-		if val.Type().IsListType() || val.Type().IsTupleType() {
-			for it := val.ElementIterator(); it.Next(); {
-				_, v := it.Element()
-				inv.Keys = append(inv.Keys, stringOrEmpty(v))
-			}
-		}
+		inv.Keys = append(inv.Keys, stringList(val)...)
 	}
 
 	if attr, ok := content.Attributes["patterns"]; ok {
@@ -2181,12 +2161,7 @@ func parseInvalidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Invalid
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("invalidate patterns error: %s", diags.Error())
 		}
-		if val.Type().IsListType() || val.Type().IsTupleType() {
-			for it := val.ElementIterator(); it.Next(); {
-				_, v := it.Element()
-				inv.Patterns = append(inv.Patterns, stringOrEmpty(v))
-			}
-		}
+		inv.Patterns = append(inv.Patterns, stringList(val)...)
 	}
 
 	return inv, nil
@@ -2253,12 +2228,7 @@ func parseNamedCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.NamedCa
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("cache invalidate_on error: %s", diags.Error())
 		}
-		if val.Type().IsListType() || val.Type().IsTupleType() {
-			for it := val.ElementIterator(); it.Next(); {
-				_, v := it.Element()
-				cache.InvalidateOn = append(cache.InvalidateOn, stringOrEmpty(v))
-			}
-		}
+		cache.InvalidateOn = append(cache.InvalidateOn, stringList(val)...)
 	}
 
 	return cache, nil

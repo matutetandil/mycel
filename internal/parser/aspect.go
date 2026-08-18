@@ -5,7 +5,6 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
-	"github.com/zclconf/go-cty/cty"
 
 	"github.com/matutetandil/mycel/v2/internal/aspect"
 )
@@ -45,13 +44,7 @@ func parseAspectBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Config, e
 			return nil, fmt.Errorf("aspect 'on' error: %s", diags.Error())
 		}
 
-		if val.Type().IsTupleType() || val.Type().IsListType() {
-			for _, v := range val.AsValueSlice() {
-				config.On = append(config.On, stringOrEmpty(v))
-			}
-		} else if val.Type() == cty.String {
-			config.On = append(config.On, stringOrEmpty(val))
-		}
+		config.On = append(config.On, stringList(val)...)
 	}
 
 	// Parse "when" attribute
