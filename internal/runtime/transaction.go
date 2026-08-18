@@ -224,13 +224,26 @@ func (e *txExecutor) runEach(ctx context.Context, each *flow.TxEach) (int64, err
 	ctx, span := tracing.StartSpan(ctx, "each "+each.Var)
 	defer span.End()
 
-	listVal, err := e.eval.EvaluateWith(ctx, each.In, e.scope)
+	// `?? []` so that a field which is simply absent is nothing to loop over
+	// rather than a failed transaction. An order with no discounts should
+	// write the order, and until now it did not: the expression was evaluated
+	// bare, CEL raised "no such key", and the whole write was rolled back. The
+	// guard only applies to a plain dotted path, so a filter or a function call
+	// still reports whatever it reports.
+	listVal, err := e.eval.EvaluateWith(ctx, each.In+" ?? []", e.scope)
 	if err != nil {
 		return 0, fmt.Errorf("transaction each %q in %q: %w", each.Var, each.In, err)
 	}
 	list, ok := toList(listVal)
 	if !ok {
-		return 0, nil
+		// Present, and not a list. That is a mistake in the configuration or a
+		// payload that is not the shape it was written for — most often an
+		// array that arrived as a string — and it used to write nothing and
+		// report success, so a parent row was committed without the children
+		// that belong to it and the message was acknowledged.
+		return 0, fmt.Errorf("transaction each %q in %q: expected a list, got %T; "+
+			"a field that is absent or empty loops over nothing, but a value that is not a list cannot be looped over",
+			each.Var, each.In, listVal)
 	}
 
 	idxKey := each.Var + "_index"

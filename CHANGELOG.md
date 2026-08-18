@@ -60,6 +60,10 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **An `each` inside a transaction wrote nothing and reported success.** Any value that was not a slice made the loop a no-op: a transaction writing a parent row and its children wrote the parent, wrote no children, committed, and the flow acknowledged its message. The commonest way to get there is an array that arrived as a string, which is the same shape that catches people writing CEL against queue payloads, and nothing anywhere said so. A value that is present and is not a list is now an error naming the expression and what it found, so the transaction rolls back rather than committing half of an aggregate.
+
+- **And the opposite, in the same loop: a field that was simply absent failed the whole transaction.** The expression was evaluated bare, CEL raised "no such key", and the write was rolled back — so an order with no discounts did not write the order. Absent is nothing to loop over now, which is what the code's own comment had always claimed.
+
 - **A health check raced the server it was checking.** The REST connector's `Health` read `started` from the health manager's goroutine while `Start` wrote it under the mutex, so the read was unsynchronised — a real race, caught by the detector on a loaded CI runner rather than by anybody watching. It is atomic now, so a health check cannot block on a mutex held by something slower than it is.
 
 - **`grant_type` on an HTTP connector's `auth` block chose nothing.** Which OAuth2 grant ran was decided by the auth type alone, so a connector written for a grant this does not implement — `password`, say — was accepted in silence and ran a refresh-token flow instead, against a token endpoint that would refuse it. It selects the grant now, and a value that is neither `client_credentials` nor `refresh_token` is named at startup.
