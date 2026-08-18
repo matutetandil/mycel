@@ -36,8 +36,13 @@ var notRead = map[string]string{
 	"push/Config.Driver": "same as email: the factory switches on it and the field is kept for reporting",
 	"sms/Config.Driver":  "same as email",
 
-	"graphql/EntityConfig.TypeName":     "federation entity metadata used by the schema builder through its own map",
-	"graphql/SchemaConfig.AutoGenerate": "decided before the config is built, from whether a schema file was given",
+	// EntityConfig is referenced by nothing at all — not the parser, not the
+	// factory. Federation entities are configured by a flow's `entity`
+	// attribute and registered through EntityDefinition, which is a different
+	// type that is used. Left alone deliberately: whether this is dead or a
+	// caller that was never written is the question being deferred, and it is
+	// not answered by deleting the evidence.
+	"graphql/EntityConfig.TypeName": "declared for an HCL block nothing parses; see the note above",
 
 	"http/AuthConfig.GrantType": "only client_credentials is implemented, and the value is checked " +
 		"by the parser rather than here",

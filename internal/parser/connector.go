@@ -743,9 +743,12 @@ func parseHeadersBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]inter
 	return headers, nil
 }
 
-// parseRetryBlock parses a retry configuration block on a connector. Only
-// "attempts" is honored at runtime today; the connector applies a fixed
-// exponential backoff. The vocabulary is kept aligned with the flow-level
+// parseRetryBlock parses a retry configuration block on a connector.
+//
+// The comment here used to say that only "attempts" was honoured and the wait
+// was a fixed exponential backoff. That stopped being true: the http connector
+// reads delay, max_delay and backoff, so the note was telling people not to
+// write settings that work. The vocabulary is kept aligned with the flow-level
 // retry block (parseRetryConfigBlock) so users see one consistent name.
 func parseRetryBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]interface{}, error) {
 	// Same vocabulary as error_handling.retry, deliberately: two blocks called

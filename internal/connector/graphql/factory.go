@@ -63,11 +63,30 @@ func (f *Factory) createServer(cfg *connector.Config) (*ServerConnector, error) 
 		config.PlaygroundPath = path
 	}
 
-	// Parse schema configuration
+	// Parse schema configuration.
+	//
+	// auto_generate was stored and read by nothing: where the schema comes
+	// from was decided entirely by whether a path was given. So the two ways of
+	// writing a server with no schema at all — no path and auto_generate = false
+	// — started happily and answered every query with an empty schema, which
+	// reads as a service that is up and knows nothing.
 	if schemaCfg := getMap(cfg.Properties, "schema"); schemaCfg != nil {
+		hasAutoGenerate := false
+		if _, written := schemaCfg["auto_generate"]; written {
+			hasAutoGenerate = true
+		}
 		config.Schema = SchemaConfig{
 			Path:         getString(schemaCfg, "path", ""),
-			AutoGenerate: getBool(schemaCfg, "auto_generate", false),
+			AutoGenerate: getBool(schemaCfg, "auto_generate", true),
+		}
+
+		if config.Schema.Path != "" && hasAutoGenerate && config.Schema.AutoGenerate {
+			return nil, fmt.Errorf(
+				"graphql schema names a path and asks for auto_generate; the schema comes from one or the other, not both")
+		}
+		if config.Schema.Path == "" && !config.Schema.AutoGenerate {
+			return nil, fmt.Errorf(
+				"graphql schema has no path and auto_generate is false, so there is nothing to build a schema from")
 		}
 	}
 
