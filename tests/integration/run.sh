@@ -354,6 +354,10 @@ if command -v go > /dev/null 2>&1; then
 
   run_go_tests "rabbitmq reconnect and strict declare" \
     ./internal/connector/mq/rabbitmq/ 'Integration|ResumesAfterConnectionDrop'
+  # Whether a publish means the broker has the message is the broker's answer
+  # to give; a mock asserting we called a method proves nothing about it.
+  run_go_tests "rabbitmq publisher confirms" \
+    ./internal/connector/mq/rabbitmq/ 'ConfirmedPublish|UnconfirmedPublish|FlowPublishingWith'
   run_go_tests "auth stores against postgres and mysql" \
     ./internal/auth/ 'AccountsInPostgres|AccountsInMySQL|SessionsInMySQL|RevokedTokensInMySQL'
   run_go_tests "postgres read replicas" \

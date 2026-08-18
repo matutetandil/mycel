@@ -136,6 +136,24 @@ func (c *Connector) connect() error {
 	c.conn = conn
 	c.channel = channel
 
+	// Publisher confirms are a mode the channel is put into once, and they
+	// are what makes a publish mean "the broker has taken responsibility for
+	// this message" rather than "these bytes reached a socket". A flow that
+	// acknowledges its own source message after publishing downstream is
+	// relying on exactly that.
+	//
+	// It is set here, on every new channel, so a reconnect does not quietly
+	// drop back to unconfirmed publishing.
+	if c.config.Publisher != nil && c.config.Publisher.Confirms {
+		if err := channel.Confirm(false); err != nil {
+			channel.Close()
+			conn.Close()
+			c.channel = nil
+			c.conn = nil
+			return fmt.Errorf("failed to enable publisher confirms: %w", err)
+		}
+	}
+
 	// Set up close notification
 	c.closeChan = make(chan *amqp.Error, 1)
 	c.conn.NotifyClose(c.closeChan)

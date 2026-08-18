@@ -49,7 +49,6 @@ var notRead = map[string]string{
 		"by the parser rather than here",
 
 	"mq/DLQConfig.RetryDelay":                     "delay between retries is the broker's, set by the message TTL on the retry queue",
-	"mq/PublisherConfig.Confirms":                 "publisher confirms are not implemented; a real gap, tracked separately",
 	"mq/ConsumerConfig.AutoCommit":                "Kafka commits on ack; the field is unwired and is a real gap",
 	"mq/ProducerConfig.LingerMs":                  "not passed to the Kafka writer; a real gap",
 	"mq/Config.ClientID":                          "used by the MQTT connector, which keeps its own config",

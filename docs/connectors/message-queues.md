@@ -238,7 +238,15 @@ that does not exist.
 | `publisher.immediate` | bool | optional | `false` | Immediate delivery |
 | `publisher.persistent` | bool | optional | `true` | Persistent messages (survive broker restart) |
 | `publisher.content_type` | string | optional | `application/json` | Message content type |
-| `publisher.confirms` | bool | optional | `false` | Enable publisher confirms |
+| `publisher.confirms` | bool | optional | `false` | Wait for the broker to confirm each message before the write returns |
+
+With `confirms = false` a publish returns as soon as the bytes reach the socket:
+a broker that dies a moment later takes the message with it. With `confirms =
+true` the write does not return until the broker says it has the message, which
+is what a flow needs when it acknowledges its own source message afterwards —
+the difference between at-least-once and hoping. It costs a round trip per
+message. A broker that never answers is given thirty seconds, unless the flow's
+own timeout is shorter.
 
 ---
 

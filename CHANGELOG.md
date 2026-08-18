@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`publisher.confirms` did nothing.** A publish returned as soon as the bytes reached the socket, so a broker that died a moment later took the message with it — and a flow that acknowledges its own source message after publishing downstream was relying on the opposite. The setting was parsed into a field nothing read, and the function that waited for a confirmation had no caller and enabled confirm mode per publish, which is a channel-level mode. Confirm mode is now set once when the channel is opened, and on every new channel so a reconnect does not quietly drop back to unconfirmed publishing; a publish waits for the confirmation belonging to it, so concurrent publishes do not read each other's. A broker that never answers is given thirty seconds unless the flow's own timeout is shorter. Verified against a real broker, in both directions: with confirm mode disabled the test says so and fails.
+
+
 ### Changed
 
 - **BREAKING: the workflow endpoints have their own port and require authentication.** `GET /workflows/{id}`, `POST /workflows/{id}/signal/{event}` and `POST /workflows/{id}/cancel` were mounted on the admin server as soon as a `workflow` block was configured. That port carries health and metrics — read-only, unauthenticated, and reachable by anything on the network the process is on — while these three are not read-only: signalling wakes a paused workflow with data the caller chooses, and the documentation's own example is a loan approval. They are now served only when the configuration asks for them, on a port of their own, and never without something to check callers against:
