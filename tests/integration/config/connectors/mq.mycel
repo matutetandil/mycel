@@ -94,7 +94,11 @@ connector "kafka_pub" {
   brokers = [env("KAFKA_BROKERS", "localhost:9092")]
 
   producer {
-    # topic set per-message via flow target (avoids kafka-go Writer+Message topic conflict)
+    # A default topic, which every flow here overrides with its own target.
+    # Configuring one used to make every publish through this connector fail:
+    # the topic reached both the writer and the message, which kafka-go
+    # refuses. Left set on purpose, so the suite would notice if it came back.
+    topic = "mycel-default"
   }
 }
 

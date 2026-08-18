@@ -106,8 +106,21 @@ func TestAProducerCarriesItsBrokersAndItsTopic(t *testing.T) {
 		},
 	})
 
-	if c.writer.Topic != "orders" {
-		t.Errorf("topic = %q", c.writer.Topic)
+	// The topic is deliberately not on the writer. kafka-go refuses a message
+	// that carries one when the writer has one too, and this connector always
+	// puts the topic on the message so a flow can name its own — so a writer
+	// carrying it made every publish fail with a complaint about the
+	// library's rules, on the setting the documentation lists as required.
+	if c.writer.Topic != "" {
+		t.Errorf("the writer carries topic %q, which makes every publish fail", c.writer.Topic)
+	}
+	// It reaches the message instead, which is what gets published.
+	message, err := c.buildKafkaMessage(types.NewMessage(map[string]interface{}{"order_id": "order-1"}))
+	if err != nil {
+		t.Fatalf("buildKafkaMessage: %v", err)
+	}
+	if message.Topic != "" {
+		t.Errorf("a message with no routing key already carries topic %q", message.Topic)
 	}
 	if !strings.Contains(c.writer.Addr.String(), "kafka-1:9092") {
 		t.Errorf("addr = %v, want both brokers", c.writer.Addr)

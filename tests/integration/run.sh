@@ -82,6 +82,7 @@ PORT_DEFS=(
   PORT_MYSQL:33306
   PORT_MONGO:37017
   PORT_MINIO:39000
+  PORT_KAFKA:29092
 )
 
 echo "Checking ports..."
@@ -334,6 +335,7 @@ if command -v go > /dev/null 2>&1; then
         MYCEL_TEST_MYSQL_DSN="mycel:mycel@tcp(127.0.0.1:${PORT_MYSQL})/mycel_test?parseTime=true" \
         MYCEL_TEST_MONGO_URI="mongodb://mongo:mycel@127.0.0.1:${PORT_MONGO}/mycel_test?authSource=admin" \
         MYCEL_TEST_S3_ENDPOINT="http://127.0.0.1:${PORT_MINIO}" \
+        MYCEL_TEST_KAFKA_BROKERS="localhost:${PORT_KAFKA}" \
         go test "$pkg" -run "$pattern" -count=1 -v 2>&1); then
       if echo "$out" | grep -q -- "--- SKIP"; then
         echo "  ✗ $label skipped itself"
@@ -358,6 +360,10 @@ if command -v go > /dev/null 2>&1; then
   # to give; a mock asserting we called a method proves nothing about it.
   run_go_tests "rabbitmq publisher confirms" \
     ./internal/connector/mq/rabbitmq/ 'ConfirmedPublish|UnconfirmedPublish|FlowPublishingWith'
+  # How long a publish waits, and whether an offset moves before the flow has
+  # done its work: both are the broker's answer, not a mock's.
+  run_go_tests "kafka producer latency and offset commits" \
+    ./internal/connector/mq/kafka/ 'SinglePublishDoesNot|LongerLingerIs|OffsetMoves|OffsetStays'
   run_go_tests "auth stores against postgres and mysql" \
     ./internal/auth/ 'AccountsInPostgres|AccountsInMySQL|SessionsInMySQL|RevokedTokensInMySQL'
   run_go_tests "postgres read replicas" \
