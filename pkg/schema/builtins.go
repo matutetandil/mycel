@@ -902,6 +902,15 @@ func PluginSchema() Block {
 // The nested blocks are named but their contents are not described yet; auth is
 // by far the largest block in the language. Naming them is still worth more
 // than the Open it replaces, which claimed every attribute was valid.
+// hookAttrs describes one auth hook. Every hook takes the same three.
+func hookAttrs() []Attr {
+	return []Attr{
+		{Name: "flow", Doc: "Flow to invoke; the event arrives as auth.*", Type: TypeString, Required: true, Ref: RefFlow},
+		{Name: "condition", Doc: "CEL over the event, such as auth.reason == \"new_device\"; the flow runs only when it holds", Type: TypeString},
+		{Name: "on_error", Doc: "What a failing flow means. Only a before_ hook may refuse what it is attached to", Type: TypeString, Values: []string{"ignore", "fail"}},
+	}
+}
+
 func AuthSchema() Block {
 	return Block{
 		Type: "auth",
@@ -931,19 +940,84 @@ func AuthSchema() Block {
 					{Name: "created_at", Doc: "Creation timestamp column; defaults to created_at", Type: TypeString},
 					{Name: "updated_at", Doc: "Update timestamp column; defaults to updated_at", Type: TypeString},
 					{Name: "roles", Doc: "Roles column. Naming one turns roles on for a database-backed store; without it roles are neither written nor read", Type: TypeString},
+					{Name: "password_changed_at", Doc: "Column recording when a password was last set. Naming one turns password max_age on for a database-backed store; without it nothing expires", Type: TypeString},
 				}},
 			}},
 			{Type: "jwt", Doc: "Token issuing and validation"},
-			{Type: "password", Doc: "Hashing and password policy"},
-			{Type: "mfa", Doc: "Multi-factor authentication; present means enabled"},
-			{Type: "security", Doc: "Lockout, rate limiting and related defences"},
-			{Type: "sessions", Doc: "Session lifetime and limits"},
+			{Type: "password", Doc: "What a password has to be, how long it may be used for, and how it is hashed", Attrs: []Attr{
+				{Name: "required", Doc: "Whether registering requires a password at all", Type: TypeBool},
+				{Name: "min_length", Doc: "Shortest password accepted", Type: TypeNumber},
+				{Name: "max_length", Doc: "Longest password accepted", Type: TypeNumber},
+				{Name: "require_upper", Doc: "Demand an upper-case letter", Type: TypeBool},
+				{Name: "require_lower", Doc: "Demand a lower-case letter", Type: TypeBool},
+				{Name: "require_number", Doc: "Demand a digit", Type: TypeBool},
+				{Name: "require_special", Doc: "Demand a symbol", Type: TypeBool},
+				{Name: "reject_patterns", Doc: "Passwords matching any of these are refused", Type: TypeList},
+				{Name: "history", Doc: "Refuse the last N passwords, the one in use counting as the most recent", Type: TypeNumber},
+				{Name: "max_age", Doc: "How long a password may be used for, such as 90d. On a database-backed store this needs the users fields block to name password_changed_at", Type: TypeString},
+				{Name: "warn_before", Doc: "How long before expiry a sign-in says so, such as 7d", Type: TypeString},
+				{Name: "reset_token_ttl", Doc: "How long a password reset token is good for; one hour unless written", Type: TypeString},
+				{Name: "breach_check", Doc: "Check candidates against known breached passwords", Type: TypeBool},
+				{Name: "algorithm", Doc: "Hashing algorithm", Type: TypeString, Values: []string{"argon2id", "bcrypt"}},
+				{Name: "memory", Doc: "Argon2 memory cost in KiB", Type: TypeNumber},
+				{Name: "iterations", Doc: "Hashing iterations", Type: TypeNumber},
+				{Name: "parallelism", Doc: "Argon2 parallelism", Type: TypeNumber},
+				{Name: "salt_length", Doc: "Salt length in bytes", Type: TypeNumber},
+				{Name: "key_length", Doc: "Derived key length in bytes", Type: TypeNumber},
+			}},
+			{Type: "mfa", Doc: "Multi-factor authentication; present means enabled", Attrs: []Attr{
+				{Name: "enabled", Doc: "Whether MFA runs at all; writing the block is what turns it on", Type: TypeBool},
+				{Name: "required", Doc: "Whether accounts must have a second factor, or are only offered one", Type: TypeString, Values: []string{"optional", "true", "false", "admin_only"}},
+				{Name: "require_for", Doc: "Roles a second factor is required of, when it is not required of everybody", Type: TypeList},
+				{Name: "methods", Doc: "How a second factor may be enrolled", Type: TypeList, Values: []string{"totp", "webauthn"}},
+				{Name: "require_multiple", Doc: "Demand more than one enrolled factor", Type: TypeBool},
+				{Name: "min_factors", Doc: "How many factors an account must have enrolled", Type: TypeNumber},
+				{Name: "grace_period", Doc: "How long a new account may go without enrolling, such as 7d; without it, from the start", Type: TypeString},
+			}},
+			{Type: "security", Doc: "Lockout, rate limiting and related defences", Children: []Block{
+				{Type: "impossible_travel", Doc: "Notice two sign-ins too far apart for the time between them", Attrs: []Attr{
+					{Name: "enabled", Doc: "Whether distances are measured at all; needs a geoip block", Type: TypeBool},
+					{Name: "max_speed_kmh", Doc: "Above this, two sign-ins are not the same person; 900 unless written, which is faster than a flight", Type: TypeNumber},
+					{Name: "on_detect", Doc: "What a sign-in that could not have got there means", Type: TypeString, Values: []string{"notify", "challenge", "block"}},
+				}, Children: []Block{
+					{Type: "geoip", Doc: "Where an address is looked up; name one of these, not both", Attrs: []Attr{
+						{Name: "database", Doc: "Path to a MaxMind City database, which you download under MaxMind's licence", Type: TypeString},
+						{Name: "api", Doc: "URL of an HTTP service with {ip} in it, such as https://geo.example/{ip}", Type: TypeString},
+					}},
+				}},
+				{Type: "device_binding", Doc: "Notice when an account signs in from something it has not used before", Attrs: []Attr{
+					{Name: "enabled", Doc: "Whether devices are watched at all", Type: TypeBool},
+					{Name: "fingerprint", Doc: "What identifies a device, from what a server can see", Type: TypeList, Values: []string{"user_agent", "ip", "device_id"}},
+					{Name: "trust_duration", Doc: "How long a device stays recognised without being used, such as 30d", Type: TypeString},
+					{Name: "max_devices", Doc: "How many devices to remember per account; the least recently used is dropped", Type: TypeNumber},
+					{Name: "on_new_device", Doc: "What a device the account has not used means", Type: TypeString, Values: []string{"notify", "allow", "challenge", "block"}},
+				}},
+			}},
+			{Type: "sessions", Doc: "How long a sign-in lasts, how many at once, and what is kept about it", Attrs: []Attr{
+				{Name: "max_active", Doc: "How many sessions one person may hold at once; 0 is unlimited", Type: TypeNumber},
+				{Name: "idle_timeout", Doc: "End a session left untouched for this long, such as 30m", Type: TypeString},
+				{Name: "absolute_timeout", Doc: "End a session this long after it began however active it is, such as 24h", Type: TypeString},
+				{Name: "on_max_reached", Doc: "What happens to a sign-in beyond max_active", Type: TypeString, Values: []string{"revoke_oldest", "reject_new", "deny"}},
+				{Name: "extend_on_activity", Doc: "Push the idle timeout forward on each request", Type: TypeBool},
+				{Name: "allow_list", Doc: "Serve GET /auth/sessions, letting somebody see where they are signed in; on unless written false", Type: TypeBool},
+				{Name: "allow_revoke", Doc: "Serve DELETE /auth/sessions/{id}, letting somebody end one; on unless written false", Type: TypeBool},
+				{Name: "track", Doc: "What to record about a sign-in. Naming none records address and browser both; naming some records only those", Type: TypeList, Values: []string{"ip", "user_agent"}},
+			}},
 			{Type: "social", Doc: "Social login providers"},
 			{Type: "sso", Doc: "Single sign-on"},
 			{Type: "provider", Doc: "Validate a credential against an external HTTP endpoint", Labels: 1},
 			{Type: "account_linking", Doc: "Joining identities that belong to one person"},
 			{Type: "endpoints", Doc: "Paths the auth routes are served on"},
-			{Type: "hooks", Doc: "Flows invoked around auth events"},
+			{Type: "hooks", Doc: "Flows invoked around auth events", Children: []Block{
+				{Type: "before_login", Doc: "Runs before a sign-in is checked; with on_error = \"fail\" it can refuse one", Attrs: hookAttrs()},
+				{Type: "after_login", Doc: "Runs once somebody has signed in", Attrs: hookAttrs()},
+				{Type: "after_register", Doc: "Runs once an account has been created", Attrs: hookAttrs()},
+				{Type: "on_failed_login", Doc: "Runs when a sign-in is refused", Attrs: hookAttrs()},
+				{Type: "on_suspicious_activity", Doc: "Runs when something about a sign-in is out of the ordinary", Attrs: hookAttrs()},
+				{Type: "on_password_reset", Doc: "Delivers a reset token; the flow is given auth.reset_token and must get it to the person", Attrs: hookAttrs()},
+				{Type: "before_password_change", Doc: "Runs before a password is changed; with on_error = \"fail\" it can refuse one", Attrs: hookAttrs()},
+				{Type: "after_password_change", Doc: "Runs once a password has been changed", Attrs: hookAttrs()},
+			}},
 			{Type: "audit", Doc: "What to record", Attrs: []Attr{
 				{Name: "connector", Doc: "Where audit records are written", Type: TypeString, Required: true, Ref: RefConnector},
 				{Name: "enabled", Doc: "Whether auditing runs", Type: TypeBool},

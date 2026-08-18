@@ -151,6 +151,13 @@ func (p *HCLParser) parseAuthBlock(block *hcl.Block) (*auth.Config, error) {
 			}
 			config.Endpoints = endpoints
 
+		case "hooks":
+			hooks, err := p.parseAuthHooksBlock(nested)
+			if err != nil {
+				return nil, err
+			}
+			config.Hooks = hooks
+
 		case "audit":
 			audit, err := p.parseAuthAuditBlock(nested)
 			if err != nil {
@@ -838,7 +845,15 @@ func (p *HCLParser) parseAuthBruteForceBlock(block *hcl.Block) (*auth.BruteForce
 }
 
 func (p *HCLParser) parseAuthSessionsBlock(block *hcl.Block) (*auth.SessionsConfig, error) {
-	config := &auth.SessionsConfig{}
+	// Listing and revoking are on unless somebody writes them off.
+	//
+	// They are booleans, and a boolean nobody wrote is false — so decoding
+	// straight into the struct would close two endpoints that are open today,
+	// and turn a sliding session into a fixed one, for every deployment with a
+	// sessions block that never mentioned them.
+	// Set first and decoded over, which is how mfa.enabled is handled: the
+	// block being there is not a decision, writing the word is.
+	config := &auth.SessionsConfig{AllowList: true, AllowRevoke: true, ExtendOnActivity: true}
 	diags := gohcl.DecodeBody(block.Body, p.evalCtx, config)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("parsing sessions block: %s", diags.Error())
@@ -1123,6 +1138,20 @@ func (p *HCLParser) parseAuthAuditBlock(block *hcl.Block) (*auth.AuditConfig, er
 	diags := gohcl.DecodeBody(block.Body, p.evalCtx, config)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("parsing audit block: %s", diags.Error())
+	}
+	return config, nil
+}
+
+// parseAuthHooksBlock reads the flows an account's events are bound to.
+//
+// The block was listed in the schema below and never read, so `Config.Hooks`
+// was nil however much was written in it: a service asking to be told about a
+// suspicious sign-in was told nothing, and nothing said why.
+func (p *HCLParser) parseAuthHooksBlock(block *hcl.Block) (*auth.HooksConfig, error) {
+	config := &auth.HooksConfig{}
+	diags := gohcl.DecodeBody(block.Body, p.evalCtx, config)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("parsing hooks block: %s", diags.Error())
 	}
 	return config, nil
 }

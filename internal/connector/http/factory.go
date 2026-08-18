@@ -142,13 +142,24 @@ func parseAuthConfig(cfg map[string]interface{}) (*AuthConfig, error) {
 		}
 	}
 
-	// Grant type (for OAuth2)
-	if grantType, ok := cfg["grant_type"].(string); ok {
-		auth.GrantType = grantType
-		// If grant_type is client_credentials but type is oauth2, upgrade
-		if grantType == "client_credentials" && auth.Type == AuthTypeOAuth2 {
+	// Which OAuth2 grant to use.
+	//
+	// The field was stored and read by nothing: which grant ran was decided by
+	// the auth type alone, so `grant_type = "password"` — a grant this does not
+	// implement — was accepted in silence and a refresh-token flow ran instead,
+	// against a token endpoint that would refuse it. Two are implemented, and
+	// anything else is named rather than ignored.
+	if grantType, ok := cfg["grant_type"].(string); ok && grantType != "" {
+		switch grantType {
+		case "client_credentials":
 			auth.Type = AuthTypeClientCredentials
+		case "refresh_token":
+			auth.Type = AuthTypeOAuth2
+		default:
+			return nil, fmt.Errorf(
+				"auth grant_type %q is not one this implements; use client_credentials or refresh_token", grantType)
 		}
+		auth.GrantType = grantType
 	}
 
 	// Bearer token

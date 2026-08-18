@@ -29,8 +29,9 @@ connector "sms" {
 
 # Push (via mock)
 connector "push" {
-  type       = "push"
-  driver     = "fcm"
-  server_key = "test_server_key"
-  api_url    = env("MOCK_URL", "http://mock:8888")
+  type                 = "push"
+  driver               = "fcm"
+  service_account_json = env("FCM_SERVICE_ACCOUNT", "")
+  project_id           = "mycel-integration"
+  api_url              = env("MOCK_URL", "http://mock:8888")
 }

@@ -7,9 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
+
+	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
 // Manager is the main auth service
@@ -26,6 +29,14 @@ type Manager struct {
 	rateLimiter     *PerKeyRateLimiter
 	mfaStore        MFAStore
 	auditStore      AuditStore
+	passwordHistory PasswordHistoryStore
+	passwordReset   PasswordResetStore
+	devices         DeviceStore
+	geoip           GeoIPLookup
+	breaches        BreachChecker
+	travel          *travelHistory
+	flows           FlowInvoker
+	hookConditions  *transform.CELTransformer
 
 	// Components
 	tokenManager      *TokenManager
@@ -82,6 +93,20 @@ func WithMFAStore(store MFAStore) ManagerOption {
 	}
 }
 
+// WithPasswordResetStore sets where outstanding reset tokens are kept.
+func WithPasswordResetStore(store PasswordResetStore) ManagerOption {
+	return func(m *Manager) {
+		m.passwordReset = store
+	}
+}
+
+// WithPasswordHistoryStore sets where previously used password hashes are kept.
+func WithPasswordHistoryStore(store PasswordHistoryStore) ManagerOption {
+	return func(m *Manager) {
+		m.passwordHistory = store
+	}
+}
+
 // NewManager creates a new auth manager
 func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 	if config == nil {
@@ -97,6 +122,36 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 	}
 	if config.Secret != "" && config.JWT.Secret == "" {
 		config.JWT.Secret = config.Secret
+	}
+
+	if err := validateHooks(config); err != nil {
+		return nil, err
+	}
+	if err := validateDeviceBinding(config); err != nil {
+		return nil, err
+	}
+	if err := validateImpossibleTravel(config); err != nil {
+		return nil, err
+	}
+	if err := validateMFAPolicy(config); err != nil {
+		return nil, err
+	}
+
+	// What to do at the session limit has to be understood before a service
+	// starts, not at the moment somebody is turned away. The word for refusing
+	// was published as `deny` for a long time and the code only ever knew
+	// `reject_new`, so `deny` revoked the oldest session instead — the opposite
+	// of what it says. It is read as refusing now, and anything unrecognised is
+	// refused here rather than quietly meaning revoke_oldest.
+	if config.Sessions != nil {
+		switch config.Sessions.OnMaxReached {
+		case "", "revoke_oldest":
+		case "reject_new", "deny":
+			config.Sessions.OnMaxReached = "reject_new"
+		default:
+			return nil, fmt.Errorf("sessions: on_max_reached = %q is not something this understands; use reject_new or revoke_oldest",
+				config.Sessions.OnMaxReached)
+		}
 	}
 
 	m := &Manager{
@@ -127,6 +182,28 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 	}
 	if m.tokenStore == nil {
 		m.tokenStore = NewMemoryTokenStore()
+	}
+	if m.passwordHistory == nil {
+		m.passwordHistory = NewMemoryPasswordHistoryStore()
+	}
+	if m.passwordReset == nil {
+		m.passwordReset = NewMemoryPasswordResetStore()
+	}
+	if m.devices == nil {
+		m.devices = NewMemoryDeviceStore()
+	}
+	m.travel = newTravelHistory()
+	// The public list unless something else was supplied. Nothing is asked of
+	// it until a service turns breach_check on.
+	if m.breaches == nil {
+		m.breaches = NewPwnedPasswords()
+	}
+	if m.geoip == nil {
+		lookup, err := buildGeoIP(config)
+		if err != nil {
+			return nil, err
+		}
+		m.geoip = lookup
 	}
 	if m.bruteForceStore == nil {
 		m.bruteForceStore = NewMemoryBruteForceStore()
@@ -208,9 +285,13 @@ func (m *Manager) Config() *Config {
 
 // Register registers a new user
 func (m *Manager) Register(ctx context.Context, req *RegisterRequest) (*User, *TokenPair, error) {
-	// Validate password
+	// Validate password. The cheap rules first: a password that is too short
+	// is refused without asking anybody else about it.
 	if err := m.passwordValidator.Validate(req.Password, nil); err != nil {
 		return nil, nil, &AuthError{Code: "weak_password", Message: err.Error()}
+	}
+	if err := m.refuseBreachedPassword(ctx, req.Password); err != nil {
+		return nil, nil, err
 	}
 
 	// Check if user exists
@@ -261,12 +342,23 @@ func (m *Manager) Register(ctx context.Context, req *RegisterRequest) (*User, *T
 	m.audit(ctx, &AuditEvent{
 		Event: AuditRegister, UserID: user.ID, Email: user.Email, Success: true,
 	})
+	_ = m.runHook(ctx, HookAfterRegister, map[string]interface{}{
+		"user_id": user.ID, "email": user.Email,
+	})
 
 	return user, tokens, nil
 }
 
 // Login authenticates a user
 func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent string) (*User, *TokenPair, error) {
+	// Before anything is checked, so that a hook refusing a sign-in refuses it
+	// without the password being verified at all.
+	if err := m.runHook(ctx, HookBeforeLogin, map[string]interface{}{
+		"email": req.Email, "ip": ip, "user_agent": userAgent,
+	}); err != nil {
+		return nil, nil, &AuthError{Code: "login_refused", Message: err.Error()}
+	}
+
 	// Check brute force protection
 	if m.bruteForceEnabled() {
 		key := m.bruteForceKey(req.Email, ip)
@@ -343,6 +435,17 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 		}
 	}
 
+	// Whether this is a machine the account has used before. After the
+	// password is accepted, so that somebody guessing at it does not teach the
+	// service a new device, and before a session exists, so that a refusal
+	// here refuses to open one.
+	if err := m.checkDevice(ctx, user, req, ip, userAgent); err != nil {
+		return nil, nil, err
+	}
+	if err := m.checkTravel(ctx, user, req, ip, userAgent); err != nil {
+		return nil, nil, err
+	}
+
 	// Reset brute force counter on successful login
 	if m.bruteForceEnabled() {
 		_ = m.bruteForce.RecordSuccess(ctx, m.bruteForceKey(req.Email, ip))
@@ -357,6 +460,9 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 	m.audit(ctx, &AuditEvent{
 		Event: AuditLogin, UserID: user.ID, Email: user.Email,
 		IP: ip, UserAgent: userAgent, Success: true,
+	})
+	_ = m.runHook(ctx, HookAfterLogin, map[string]interface{}{
+		"user_id": user.ID, "email": user.Email, "ip": ip, "user_agent": userAgent,
 	})
 
 	return user, tokens, nil
@@ -487,8 +593,25 @@ func (m *Manager) RefreshToken(ctx context.Context, refreshToken string) (*User,
 	return user, tokens, nil
 }
 
-// ValidateToken validates an access token and returns the user
+// ValidateToken validates an access token and returns the user.
+//
+// A password past its max_age is refused here, which is what makes the policy
+// a policy rather than a note in the sign-in response.
 func (m *Manager) ValidateToken(ctx context.Context, accessToken string) (*User, *Claims, error) {
+	return m.validateToken(ctx, accessToken, false)
+}
+
+// ValidateTokenAllowingUnfinishedSetup is ValidateToken for the endpoints an
+// account still has to be able to reach when a policy has put it in a state it
+// must get out of: an expired password, or a second factor it has not enrolled
+// yet. Changing a password, enrolling a factor and signing out are those
+// endpoints; refusing them would leave somebody with no way out of the state
+// they are being asked to leave.
+func (m *Manager) ValidateTokenAllowingUnfinishedSetup(ctx context.Context, accessToken string) (*User, *Claims, error) {
+	return m.validateToken(ctx, accessToken, true)
+}
+
+func (m *Manager) validateToken(ctx context.Context, accessToken string, allowUnfinishedSetup bool) (*User, *Claims, error) {
 	// Validate access token
 	claims, err := m.tokenManager.ValidateAccessToken(accessToken)
 	if err != nil {
@@ -533,6 +656,15 @@ func (m *Manager) ValidateToken(ctx context.Context, accessToken string) (*User,
 		return nil, nil, ErrUserNotFound
 	}
 
+	if !allowUnfinishedSetup {
+		if _, expired, known := m.PasswordExpiry(user); known && expired {
+			return nil, nil, ErrPasswordExpired
+		}
+		if err := m.refuseUnenrolledAccount(ctx, user); err != nil {
+			return nil, nil, err
+		}
+	}
+
 	return user, claims, nil
 }
 
@@ -568,6 +700,12 @@ func (m *Manager) ChangePassword(ctx context.Context, userID, currentPassword, n
 		return err
 	}
 
+	if err := m.runHook(ctx, HookBeforePasswordChange, map[string]interface{}{
+		"user_id": user.ID, "email": user.Email,
+	}); err != nil {
+		return &AuthError{Code: "password_change_refused", Message: err.Error()}
+	}
+
 	// Verify current password
 	valid, err := m.passwordHasher.Verify(currentPassword, user.PasswordHash)
 	if err != nil || !valid {
@@ -585,6 +723,24 @@ func (m *Manager) ChangePassword(ctx context.Context, userID, currentPassword, n
 	if err := m.passwordValidator.Validate(newPassword, user); err != nil {
 		return &AuthError{Code: "weak_password", Message: err.Error()}
 	}
+	if err := m.refuseBreachedPassword(ctx, newPassword); err != nil {
+		return err
+	}
+
+	// Somebody returning to a password they have used before.
+	//
+	// `password { history = N }` was read by nothing, so an account could
+	// alternate between two passwords for ever — which is what somebody
+	// required to change theirs every ninety days will do unless this stops
+	// them. The current one counts as the most recent of the N, so history = 1
+	// means "not the one you already have".
+	if err := m.refusePasswordReuse(ctx, user, newPassword); err != nil {
+		m.audit(ctx, &AuditEvent{
+			Event: AuditPasswordChange, UserID: userID, Email: user.Email,
+			Success: false, ErrorReason: err.Error(),
+		})
+		return &AuthError{Code: "password_reused", Message: err.Error()}
+	}
 
 	// Hash new password
 	passwordHash, err := m.passwordHasher.Hash(newPassword)
@@ -597,10 +753,81 @@ func (m *Manager) ChangePassword(ctx context.Context, userID, currentPassword, n
 		return err
 	}
 
+	// The one being replaced joins the record, and the record is trimmed to
+	// what the policy actually looks at.
+	if keep := m.passwordHistoryDepth(); keep > 0 && user.PasswordHash != "" {
+		if err := m.passwordHistory.AddPasswordHash(ctx, userID, user.PasswordHash); err != nil {
+			m.logger.Warn("could not record the previous password", "user_id", userID, "error", err)
+		} else if err := m.passwordHistory.CleanOldHashes(ctx, userID, keep); err != nil {
+			m.logger.Warn("could not trim the password history", "user_id", userID, "error", err)
+		}
+	}
+
 	m.logger.Info("password changed", "user_id", userID)
 	m.audit(ctx, &AuditEvent{
 		Event: AuditPasswordChange, UserID: userID, Email: user.Email, Success: true,
 	})
+	_ = m.runHook(ctx, HookAfterPasswordChange, map[string]interface{}{
+		"user_id": userID, "email": user.Email,
+	})
+	return nil
+}
+
+// passwordHistoryDepth is how many past passwords the policy looks at.
+func (m *Manager) passwordHistoryDepth() int {
+	if m.config.Password == nil {
+		return 0
+	}
+	return m.config.Password.History
+}
+
+// refusePasswordReuse reports whether a password is one this account has used
+// within the configured depth.
+//
+// Each stored hash is checked with the hasher rather than compared as a
+// string: every hash carries its own salt, so the same password hashed twice
+// does not produce the same text, and a string comparison would let every
+// reuse through while looking like it worked.
+func (m *Manager) refusePasswordReuse(ctx context.Context, user *User, candidate string) error {
+	depth := m.passwordHistoryDepth()
+	if depth <= 0 {
+		return nil
+	}
+
+	// The password in use counts as the most recent one.
+	if user.PasswordHash != "" {
+		if same, _ := m.passwordHasher.Verify(candidate, user.PasswordHash); same {
+			return fmt.Errorf("this is the password already in use; choose one of the last %d you have not used", depth)
+		}
+	}
+	if depth == 1 {
+		return nil
+	}
+
+	previous, err := m.passwordHistory.GetRecentHashes(ctx, user.ID, depth-1)
+	if err != nil {
+		// A history that cannot be read must not become a way to get a reuse
+		// past the policy, nor a way to lock somebody out of changing their
+		// password. It is reported and the change goes ahead.
+		m.logger.Warn("could not read the password history", "user_id", user.ID, "error", err)
+		return nil
+	}
+	for _, hash := range previous {
+		if same, _ := m.passwordHasher.Verify(candidate, hash); same {
+			return fmt.Errorf("this is one of your last %d passwords; choose one you have not used", depth)
+		}
+	}
+	return nil
+}
+
+// Close releases what the manager holds open.
+//
+// Today that is the geoip database, which is a file mapped into memory for as
+// long as it is open. Everything else here is owned by whoever supplied it.
+func (m *Manager) Close() error {
+	if m.geoip != nil {
+		return m.geoip.Close()
+	}
 	return nil
 }
 
@@ -625,14 +852,48 @@ func (m *Manager) createSession(ctx context.Context, user *User, ip, userAgent s
 		expiresAt = now.Add(24 * time.Hour)
 	}
 
+	// A session that is not extended by use ends a fixed time after it began.
+	//
+	// extend_on_activity was read by nothing, so every session slid forward:
+	// each validated request refreshes the last-active time, which is what the
+	// idle sweep reads, and a session in constant use never reached its idle
+	// timeout. A deployment asking for a fixed window — sign in again after
+	// thirty minutes however busy you were — got a sliding one.
+	//
+	// Writing it into the session's own expiry rather than teaching the sweep
+	// a second rule means every store already enforces it, including Redis,
+	// where the session is a key with a lifetime and no sweep runs at all. It
+	// also leaves the last-active time truthful, so a session listing still
+	// says when it was really used.
+	if m.config.Sessions != nil && !m.config.Sessions.ExtendOnActivity && m.config.Sessions.IdleTimeout != "" {
+		if idle, err := ParseDuration(m.config.Sessions.IdleTimeout); err == nil && idle > 0 {
+			if fixed := now.Add(idle); fixed.Before(expiresAt) {
+				expiresAt = fixed
+			}
+		}
+	}
+
 	session := &Session{
 		ID:           sessionID,
 		UserID:       user.ID,
-		IP:           ip,
-		UserAgent:    userAgent,
 		CreatedAt:    now,
 		LastActiveAt: now,
 		ExpiresAt:    expiresAt,
+	}
+
+	// What is kept about the person on the other end.
+	//
+	// The address and the browser string were recorded whatever the
+	// configuration said, and `track` — the list naming what to record — was
+	// read by nothing. That is the wrong way round for the one setting here
+	// that is about not keeping something: an address is personal data in
+	// most of the places this runs, and a deployment that listed only the
+	// browser was storing addresses anyway.
+	if m.sessionTracks("ip") {
+		session.IP = ip
+	}
+	if m.sessionTracks("user_agent") {
+		session.UserAgent = userAgent
 	}
 
 	if err := m.sessionStore.Create(ctx, session); err != nil {
@@ -640,6 +901,23 @@ func (m *Manager) createSession(ctx context.Context, user *User, ip, userAgent s
 	}
 
 	return session, nil
+}
+
+// sessionTracks reports whether an attribute is recorded on a session.
+//
+// Nothing configured means everything is recorded, which is what happened
+// before the setting was honoured — turning it into an opt-in list would
+// silently stop recording for every deployment that never asked.
+func (m *Manager) sessionTracks(attribute string) bool {
+	if m.config.Sessions == nil || len(m.config.Sessions.Track) == 0 {
+		return true
+	}
+	for _, tracked := range m.config.Sessions.Track {
+		if strings.EqualFold(strings.TrimSpace(tracked), attribute) {
+			return true
+		}
+	}
+	return false
 }
 
 // recordFailedLogin records a failed login attempt

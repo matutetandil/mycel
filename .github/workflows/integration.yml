@@ -41,6 +41,9 @@ jobs:
         run: |
           # The container runs as uid 1000 and has to be able to write here.
           mkdir -p .coverage && chmod 777 .coverage
+          # The push connector signs a JWT with this at startup, and refuses to
+          # start without one. run.sh does the same; this job does not use it.
+          export FCM_SERVICE_ACCOUNT=$(bash scripts/fcm-service-account.sh)
           docker compose up -d --build --wait 2>&1 | tail -10
           bash scripts/wait-for-services.sh 120
 

@@ -78,13 +78,60 @@ password {
   require_number  = true
   require_special = false
 
-  # Password history (prevent reuse)
+  # Refuse the last N passwords, the one in use counting as the most recent
   history = 5
 
-  # Breach check (haveibeenpwned)
+  # How long a password may be used for, and how much notice to give
+  max_age     = "90d"
+  warn_before = "7d"
+
+  # Refuse passwords that have already been published
   breach_check = true
 }
 ```
+
+`breach_check` refuses a password that appears in the Have I Been Pwned list —
+the single most effective password rule there is, well ahead of demanding a
+capital letter, which mostly produces Password1.
+
+The password itself never leaves the process. It is hashed, the first five
+characters of that hash are sent, and the service answers with every suffix it
+holds under that prefix; the comparison happens here. What the service learns is
+five characters of a hash, which it cannot turn back into anything.
+
+A list that cannot be reached lets the password through, and says so in the log.
+That is the uncomfortable choice and it is the right one: the alternative is a
+service where nobody can register or change a password because somebody else's
+website is down.
+
+`history` refuses a password this account has used before. The hashes are kept
+in `password_history` for a database-backed deployment and in the process for
+any other, so a service holding its users in memory loses the history with the
+accounts on a restart.
+
+`max_age` expires a password. Signing in keeps working past it — the endpoint
+that fixes it needs a token — but every other endpoint answers `403` with the
+code `password_expired` until the password is changed. Signing out keeps
+working too. `warn_before` puts `password_expires_at` in the sign-in response
+that much ahead of time, which is what a client needs to ask somebody to change
+it before it starts refusing them.
+
+Where the password's age is read from depends on the store. In memory it is
+recorded for you. On a database it is a column, opt-in like `roles`, so a users
+table that already exists need not grow one:
+
+```hcl
+users {
+  connector = "app_db"
+  fields {
+    password_changed_at = "password_changed_at"
+  }
+}
+```
+
+Without that column nothing expires, and the service says so at startup rather
+than leaving a policy that looks configured. An account whose age is not
+recorded — one that predates the column — is never treated as expired.
 
 ### Security Features
 
@@ -117,39 +164,136 @@ security {
   }
 
   impossible_travel {
-    enabled           = true
-    max_speed_kmh     = 1000
-    alert_only        = false  # true = alert but allow
+    enabled       = true
+    max_speed_kmh = 900        # faster than a flight
+    on_detect     = "notify"   # "notify", "challenge", "block"
+
+    geoip {
+      # One of these. A MaxMind City database you have downloaded...
+      database = "/var/lib/mycel/GeoLite2-City.mmdb"
+      # ...or an HTTP service, with {ip} standing for the address:
+      # api = "https://geo.example.com/lookup/{ip}"
+    }
   }
 
   device_binding {
-    enabled = true
-    fields  = ["user_agent", "screen_resolution"]
+    enabled        = true
+    fingerprint    = ["user_agent", "ip"]
+    trust_duration = "30d"
+    max_devices    = 5
+    on_new_device  = "notify"   # "allow", "challenge", "block", "notify"
   }
 }
 ```
+
+### Impossible Travel
+
+Two sign-ins from places too far apart for the time between them. What is
+measured is the straight line over the ground divided by the hours between: any
+journey somebody could really make is longer than a straight line, so the speed
+this produces is the slowest they could have been going, and calling *that*
+impossible is a claim that holds.
+
+`geoip` is where an address is turned into a place, and one of the two is
+required — the block does nothing without it, and a service that enables
+detection without one is refused at startup rather than left believing it is on.
+
+- **`database`** is a MaxMind GeoLite2 City file. Mycel does not ship it and
+  cannot: it is MaxMind's, downloaded under their licence with an account of
+  your own. Point this at one that is already on disk.
+- **`api`** is any HTTP service that answers with JSON, with `{ip}` standing for
+  the address. The answer is read leniently — `latitude`/`longitude`, `lat`/`lon`,
+  `lat`/`lng`, or the same nested under `location` — so this works with whichever
+  provider you already pay for. A lookup is cached for an hour, and a service
+  that is down is not cached at all.
+
+`on_detect` decides what a detection means: `notify` runs the
+`on_suspicious_activity` hook with `auth.reason = "impossible_travel"`,
+`challenge` requires a second factor, `block` refuses the sign-in.
+
+Three things never happen, because each would be worse than a missed detection:
+an address nothing can place is not held against anybody, a local address is not
+looked up at all, and a geolocation service having a bad day does not stop
+people signing in.
+
+### Recognising a Device
+
+`device_binding` notices when an account signs in from something it has not
+used before. A device is identified by what the request already carries — no
+agent is installed on it — so `fingerprint` chooses from what a server can
+actually see:
+
+| Field | What it is |
+|-------|------------|
+| `user_agent` | The browser string. The default, and the only thing every request carries |
+| `ip` | The network the address belongs to, not the address: a phone changes address between one street and the next, and a device that is new every time is no device at all |
+| `device_id` | An identifier the client keeps and sends in the sign-in body |
+
+That is weak on its own — two people on the same browser version look alike —
+which is why the useful settings are the ones that ask for more or tell
+somebody, rather than the one that refuses:
+
+| `on_new_device` | What happens |
+|-----------------|--------------|
+| `allow` | Remember it and carry on. The default |
+| `notify` | Remember it and run the `on_suspicious_activity` hook, with `auth.reason = "new_device"` |
+| `challenge` | Require a second factor for this sign-in. An account with no MFA enrolled is let through and the service says so, because there is nothing to challenge with and locking somebody out of a new laptop is worse |
+| `block` | Refuse the sign-in |
+
+`trust_duration` is how long a device stays recognised without being used: past
+it, the same machine is new again. `max_devices` caps how many are remembered,
+dropping the one nobody has signed in from for longest.
+
+A request carrying nothing to identify a device — a proxy that stopped
+forwarding the browser string — is let through rather than refused. An outage
+is a worse failure than an unrecognised device.
 
 ### Session Management
 
 ```hcl
 sessions {
-  max_active       = 5           # Max concurrent sessions
-  idle_timeout     = "1h"        # Logout after inactivity
-  absolute_timeout = "24h"       # Force logout after this time
+  max_active       = 5           # How many sessions one person may hold at once
+  idle_timeout     = "1h"        # End a session left untouched this long
+  absolute_timeout = "24h"       # End it this long after it began, however active
 
-  allow_list       = true        # Enable session listing
-  allow_revoke     = true        # Enable session revocation
+  extend_on_activity = true      # Using the session pushes the idle timeout forward
 
-  on_max_reached   = "revoke_oldest"  # "deny", "revoke_oldest", "revoke_all"
+  allow_list       = true        # Serve GET /auth/sessions
+  allow_revoke     = true        # Serve DELETE /auth/sessions/{id}
+
+  track            = ["ip", "user_agent"]  # What is recorded about a sign-in
+
+  on_max_reached   = "revoke_oldest"  # "reject_new", "revoke_oldest"
 }
 ```
+
+`allow_list` and `allow_revoke` are on unless you write them false: a service
+with no `sessions` block still lets somebody see where they are signed in and
+end a session they no longer recognise. Writing either false stops that endpoint
+being served at all, rather than serving it and refusing — a client asking for it
+gets a 404, not a 403.
+
+`extend_on_activity` is the difference between a sliding session and a fixed
+one. On, which is the default, each request pushes the idle timeout forward, so
+somebody working steadily is never signed out. Written false, the session ends
+one `idle_timeout` after it began however busy it was — a policy worth having
+where a long-lived session is the risk. What it does not change is what the
+session listing shows: when it was last used stays truthful either way.
+
+`track` names what is recorded about a sign-in. Naming none records both the
+address and the browser string; naming some records only those, so a service
+that must not keep addresses writes `track = ["user_agent"]` and the `ip` field
+on a session stays empty. Whatever is recorded is what `GET /auth/sessions`
+shows.
 
 ### Multi-Factor Authentication
 
 ```hcl
 mfa {
-  required = "optional"  # "required", "optional", "off"
-  methods  = ["totp", "webauthn"]
+  required     = "optional"  # "true", "optional", "false", "admin_only"
+  require_for  = ["finance"] # or the roles it applies to
+  methods      = ["totp", "webauthn"]
+  grace_period = "7d"        # how long a new account may go without enrolling
 
   # TOTP Configuration
   totp {
@@ -177,6 +321,29 @@ mfa {
   }
 }
 ```
+
+#### Requiring a second factor
+
+`required = "true"` means an account must have one, not that it will be asked
+for one it never set up. `admin_only` narrows that to accounts with the `admin`
+role, and `require_for` to any roles you name. `optional` and `false` offer MFA
+without demanding it, which is the default.
+
+What "must" means in practice: **signing in keeps working** — enrolling needs a
+token, so refusing the sign-in would leave somebody unable to do the one thing
+being asked of them — and **every other endpoint refuses** with
+`403 mfa_enrolment_required` until a factor is enrolled. The sign-in response
+says so, with `mfa_enrolment_required`, `mfa_factors_wanted`,
+`mfa_factors_held` and `mfa_grace_until`, so a client can send somebody to the
+enrolment screen rather than to an error.
+
+`grace_period` is how long a new account may go without enrolling, measured
+from when it was created. Without one, the requirement applies from the first
+sign-in.
+
+`require_multiple` and `min_factors` ask for more than one enrolled factor. A
+policy demanding more factors than there are `methods` to enrol them with is
+refused at startup, since no account could ever satisfy it.
 
 ### What a wrong password costs
 
@@ -414,8 +581,9 @@ oidc "okta" {
   client_secret = env("OKTA_CLIENT_SECRET")
   scopes        = ["openid", "email", "profile", "groups"]
 
-  # Custom claim mappings
-  claims {
+  # Custom claim mappings. An attribute, not a block: written with braces and
+  # no equals sign it does not parse.
+  claims = {
     groups = "groups"
     role   = "role"
   }
@@ -655,6 +823,107 @@ endpoints {
 }
 ```
 
+## Forgotten Passwords
+
+Two endpoints, on by default:
+
+| Endpoint | Body | What happens |
+|----------|------|--------------|
+| `POST /auth/forgot-password` | `{"email": "..."}` | Issues a reset token and hands it to the `on_password_reset` hook |
+| `POST /auth/reset-password` | `{"token": "...", "new_password": "..."}` | Spends the token and sets the password |
+
+Getting the token to the person is not auth's job — a flow already knows how to
+send an email:
+
+```hcl
+auth {
+  password {
+    reset_token_ttl = "1h"   # the default
+  }
+
+  hooks {
+    on_password_reset { flow = "send_reset_email" }
+  }
+}
+
+flow "send_reset_email" {
+  from { connector = "internal" }
+  to {
+    connector = "smtp"
+    template  = "Reset your password: https://app.example.com/reset?token=${auth.reset_token}"
+  }
+}
+```
+
+Without that hook the token cannot reach anybody, and the service says so in the
+log rather than leaving somebody waiting for an email.
+
+What the endpoints do and do not say:
+
+- **Asking for a reset answers the same way whether or not the address has an
+  account.** Answering differently would turn it into a way to find out who has
+  one here.
+- **A token is good once, and for `reset_token_ttl`.** It is stored hashed, so
+  a store somebody can read is not a store somebody can reset accounts from.
+- **A reset ends every session the account had.** Somebody resetting a password
+  either forgot it or is taking the account back from whoever did not, and in
+  the second case leaving the other sessions open would defeat the reset.
+- **The password policy still applies** — length, complexity and `history`. A
+  reset is not a way around the rules a deliberate change obeys.
+
+Tokens live in the process by default, which is the wrong place for more than
+one replica: a link issued by one is unknown to the next. A `storage` block on
+`redis` keeps them where every replica can see them, along with the sessions.
+
+## Hooks
+
+A hook runs a flow when something happens to an account. Auth does not send
+email or write to Slack itself — a flow already knows how, and this is how the
+rest of the runtime does it.
+
+```hcl
+auth {
+  hooks {
+    after_register { flow = "send_welcome_email" }
+    after_login    { flow = "record_sign_in" }
+
+    on_failed_login {
+      flow      = "alert_security"
+      condition = "auth.ip != '203.0.113.10'"
+    }
+
+    before_login {
+      flow     = "check_allowlist"
+      on_error = "fail"
+    }
+  }
+}
+```
+
+| Hook | When it runs | The flow is told |
+|------|--------------|------------------|
+| `before_login` | Before a sign-in is checked at all | `email`, `ip`, `user_agent` |
+| `after_login` | Once somebody has signed in | `user_id`, `email`, `ip`, `user_agent` |
+| `after_register` | Once an account has been created | `user_id`, `email` |
+| `on_failed_login` | A sign-in was refused | `email`, `ip`, `user_agent`, `reason`, `code` |
+| `on_suspicious_activity` | Something about a sign-in was out of the ordinary | `user_id`, `email`, `ip`, `user_agent`, `reason` |
+| `on_password_reset` | Somebody asked to reset a forgotten password | `user_id`, `email`, `reset_token`, `expires_at`, `ip`, `user_agent` |
+| `before_password_change` | Before a password is changed | `user_id`, `email` |
+| `after_password_change` | Once a password has been changed | `user_id`, `email` |
+
+The event arrives under `auth`, so the flow reads `auth.email`, `auth.event`,
+and so on. `auth.event` is always the hook's own name.
+
+`condition` is CEL over that event, so one hook can serve a case narrower than
+the event itself. `on_error = "fail"` refuses whatever the hook is attached to —
+only meaningful on a `before_` hook, and a service that writes it on an `after_`
+one is refused at startup, because refusing after the change has been made
+cannot undo it. Everything else is the default: a flow that fails is logged and
+the sign-in goes through, since an account must not become unusable because a
+notification could not be sent.
+
+A hook naming a flow no `flow` block declares is refused by `mycel validate`.
+
 ## Database Schema
 
 ### PostgreSQL / MySQL
@@ -669,6 +938,9 @@ CREATE TABLE users (
   mfa_secret VARCHAR(255),
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
+  -- Only needed for password { max_age }, and only when the users fields block
+  -- names it. Rows written before it existed are null, which is not expired.
+  password_changed_at TIMESTAMP,
   metadata JSONB
 );
 
@@ -678,6 +950,24 @@ CREATE TABLE password_history (
   user_id VARCHAR(64) NOT NULL REFERENCES users(id),
   password_hash VARCHAR(255) NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Sessions and revoked tokens, on MySQL. These are the names the runtime uses;
+-- on PostgreSQL both are held in memory unless Redis is configured for them.
+CREATE TABLE auth_sessions (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  ip VARCHAR(45),
+  user_agent TEXT,
+  created_at TIMESTAMP,
+  last_active_at TIMESTAMP,
+  expires_at TIMESTAMP,
+  device_id VARCHAR(64)
+);
+
+CREATE TABLE auth_tokens (
+  token_id VARCHAR(64) PRIMARY KEY,
+  expires_at TIMESTAMP
 );
 
 -- Linked accounts (SSO/Social)

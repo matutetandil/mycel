@@ -22,6 +22,11 @@ type SubscriptionManager struct {
 	mu       sync.RWMutex
 	clients  map[*wsClient]bool
 	pubsub   *PubSub
+
+	// keepAlive is how often an idle connection is pinged, and idleTimeout is
+	// how long one may go without answering before it is dropped.
+	keepAlive   time.Duration
+	idleTimeout time.Duration
 }
 
 // wsClient represents a WebSocket client connection.
@@ -67,15 +72,43 @@ type subscribePayload struct {
 
 // NewSubscriptionManager creates a new subscription manager.
 func NewSubscriptionManager(schema *graphql.Schema, logger *slog.Logger) *SubscriptionManager {
+	return NewSubscriptionManagerWithTimings(schema, logger, 0, 0)
+}
+
+// NewSubscriptionManagerWithTimings creates a manager that pings idle
+// connections and drops ones that stop answering.
+//
+// A subscription is idle by nature — waiting for something to happen is what
+// it is for — and nothing kept the socket busy: the server answered a ping and
+// never sent one, so `keep_alive_interval`, whose documented purpose is the
+// ping period on an idle socket, did nothing. Worse, the read deadline was a
+// hardcoded minute refreshed only by incoming messages, so a subscription
+// whose client had nothing to say was dropped by this server after sixty
+// seconds — even one that was actively delivering events, because those are
+// writes and the deadline only watches reads.
+func NewSubscriptionManagerWithTimings(schema *graphql.Schema, logger *slog.Logger, keepAlive, idleTimeout time.Duration) *SubscriptionManager {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	if keepAlive <= 0 {
+		keepAlive = 30 * time.Second
+	}
+	if idleTimeout <= 0 {
+		idleTimeout = 60 * time.Second
+	}
+	// A connection must be given time to answer: dropping it before a ping
+	// could have come back would close every idle subscription on schedule.
+	if idleTimeout <= keepAlive {
+		idleTimeout = keepAlive * 2
+	}
 
 	return &SubscriptionManager{
-		schema:  schema,
-		logger:  logger,
-		clients: make(map[*wsClient]bool),
-		pubsub:  NewPubSub(),
+		schema:      schema,
+		logger:      logger,
+		keepAlive:   keepAlive,
+		idleTimeout: idleTimeout,
+		clients:     make(map[*wsClient]bool),
+		pubsub:      NewPubSub(),
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -111,6 +144,7 @@ func (m *SubscriptionManager) Handler() http.HandlerFunc {
 			"remote_addr", r.RemoteAddr)
 
 		go client.readPump()
+		go client.keepAlivePump()
 	}
 }
 
@@ -120,11 +154,15 @@ func (c *wsClient) readPump() {
 		c.close()
 	}()
 
+	idleTimeout := c.manager.idleTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = 60 * time.Second
+	}
+
 	c.conn.SetReadLimit(512 * 1024) // 512KB max message size
-	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	_ = c.conn.SetReadDeadline(time.Now().Add(idleTimeout))
 	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-		return nil
+		return c.conn.SetReadDeadline(time.Now().Add(idleTimeout))
 	})
 
 	for {
@@ -136,7 +174,7 @@ func (c *wsClient) readPump() {
 			return
 		}
 
-		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		_ = c.conn.SetReadDeadline(time.Now().Add(idleTimeout))
 
 		var msg wsMessage
 		if err := json.Unmarshal(message, &msg); err != nil {
@@ -145,6 +183,36 @@ func (c *wsClient) readPump() {
 		}
 
 		c.handleMessage(&msg)
+	}
+}
+
+// keepAlivePump pings an idle connection so it stays open.
+//
+// The ping is the protocol's own, which is what the client libraries answer,
+// and it doubles as the thing that keeps every box between here and the client
+// from closing a socket it believes to be dead. A subscription can sit quiet
+// for hours and is expected to.
+func (c *wsClient) keepAlivePump() {
+	interval := c.manager.keepAlive
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		c.mu.Lock()
+		closed := c.closed
+		c.mu.Unlock()
+		if closed {
+			return
+		}
+
+		// send takes the same lock and gives up quietly on a closed
+		// connection, so a client that went away ends this loop on the next
+		// tick rather than leaving it running.
+		c.send(&wsMessage{Type: msgPing})
 	}
 }
 

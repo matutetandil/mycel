@@ -44,20 +44,52 @@ func (c *Connector) Publish(ctx context.Context, msg *types.Message) error {
 		immediate = c.config.Publisher.Immediate
 	}
 
-	// Publish with context
-	err = c.channel.PublishWithContext(
-		ctx,
-		exchange,
-		routingKey,
-		mandatory,
-		immediate,
-		publishing,
+	// Without confirms, a publish is a write to a socket: it returns as soon
+	// as the bytes are handed over, and a broker that dies a moment later
+	// takes the message with it.
+	if c.config.Publisher == nil || !c.config.Publisher.Confirms {
+		if err := c.channel.PublishWithContext(
+			ctx, exchange, routingKey, mandatory, immediate, publishing,
+		); err != nil {
+			return fmt.Errorf("failed to publish message: %w", err)
+		}
+
+		c.logger.Debug("published message",
+			"id", msg.ID,
+			"exchange", exchange,
+			"routing_key", routingKey,
+		)
+		return nil
+	}
+
+	// With confirms, the publish does not return until the broker says it has
+	// the message — which is the difference between a flow that acknowledges
+	// its source after publishing downstream and one that acknowledges after
+	// writing to a socket.
+	//
+	// The channel was put into confirm mode when it was opened; this waits
+	// for the confirmation belonging to this publish, so concurrent publishes
+	// do not read each other's.
+	confirmation, err := c.channel.PublishWithDeferredConfirmWithContext(
+		ctx, exchange, routingKey, mandatory, immediate, publishing,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
 
-	c.logger.Debug("published message",
+	acked, err := c.awaitConfirmation(ctx, confirmation)
+	if err != nil {
+		return err
+	}
+	if !acked {
+		// A nack means the broker refused it — most often the exchange is
+		// there and nothing is bound to route it to, or the queue is full and
+		// overflow is set to reject.
+		return fmt.Errorf("the broker did not accept the message published to %q with routing key %q",
+			exchange, routingKey)
+	}
+
+	c.logger.Debug("published message, confirmed by the broker",
 		"id", msg.ID,
 		"exchange", exchange,
 		"routing_key", routingKey,
@@ -66,42 +98,37 @@ func (c *Connector) Publish(ctx context.Context, msg *types.Message) error {
 	return nil
 }
 
-// PublishWithConfirm publishes a message and waits for broker confirmation.
-func (c *Connector) PublishWithConfirm(ctx context.Context, msg *types.Message) error {
-	c.mu.Lock()
+// confirmTimeout bounds the wait for a broker that never answers.
+//
+// The caller's context wins when it has a deadline of its own; this is for the
+// ones that do not, so a broker that has stopped confirming blocks a flow for
+// half a minute rather than for ever.
+const confirmTimeout = 30 * time.Second
 
-	if c.channel == nil || c.channel.IsClosed() {
-		c.mu.Unlock()
-		return fmt.Errorf("channel is not available")
+// awaitConfirmation waits for the broker's answer about one publish.
+func (c *Connector) awaitConfirmation(ctx context.Context, confirmation *amqp.DeferredConfirmation) (bool, error) {
+	if confirmation == nil {
+		// The library returns nil when the channel is not in confirm mode.
+		// Treated as unconfirmed rather than as a refusal: the message did go
+		// out, and calling it a failure would have the flow send it twice.
+		c.logger.Warn("publisher confirms are configured and the channel is not in confirm mode",
+			"connector", c.name)
+		return true, nil
 	}
 
-	// Enable confirm mode
-	if err := c.channel.Confirm(false); err != nil {
-		c.mu.Unlock()
-		return fmt.Errorf("failed to enable confirm mode: %w", err)
+	wait := ctx
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		wait, cancel = context.WithTimeout(ctx, confirmTimeout)
+		defer cancel()
 	}
 
-	confirms := c.channel.NotifyPublish(make(chan amqp.Confirmation, 1))
-	c.mu.Unlock()
-
-	// Publish the message
-	if err := c.Publish(ctx, msg); err != nil {
-		return err
-	}
-
-	// Wait for confirmation
 	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case confirm := <-confirms:
-		if !confirm.Ack {
-			return fmt.Errorf("message was not acknowledged by broker")
-		}
-	case <-time.After(5 * time.Second):
-		return fmt.Errorf("timeout waiting for confirmation")
+	case <-wait.Done():
+		return false, fmt.Errorf("gave up waiting for the broker to confirm the message: %w", wait.Err())
+	case <-confirmation.Done():
+		return confirmation.Acked(), nil
 	}
-
-	return nil
 }
 
 // buildPublishing creates an AMQP Publishing from a Message.

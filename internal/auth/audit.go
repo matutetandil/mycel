@@ -25,6 +25,7 @@ const (
 	AuditLogout         = "logout"
 	AuditRegister       = "register"
 	AuditPasswordChange = "password_change"
+	AuditPasswordReset  = "password_reset"
 	AuditTokenRefresh   = "token_refresh"
 )
 
@@ -64,4 +65,17 @@ func (m *Manager) auditFailure(ctx context.Context, event, email, ip, userAgent 
 		record.ErrorReason = reason.Error()
 	}
 	m.audit(ctx, record)
+
+	// A failed sign-in is the event somebody watching an account wants told
+	// about, and the on_failed_login hook is where they say so.
+	if event == AuditLogin {
+		data := map[string]interface{}{"email": email, "ip": ip, "user_agent": userAgent}
+		if reason != nil {
+			data["reason"] = reason.Error()
+		}
+		if authErr, ok := reason.(*AuthError); ok {
+			data["code"] = authErr.Code
+		}
+		_ = m.runHook(ctx, HookOnFailedLogin, data)
+	}
 }

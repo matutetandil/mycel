@@ -337,12 +337,34 @@ func (c *Connector) initProducer() error {
 		requiredAcks = kafka.RequireAll
 	}
 
+	// How long the writer waits for a batch to fill before sending what it
+	// has. linger_ms was read from the configuration into a field nothing
+	// used, so the library's own default applied — a full second — and a
+	// producer sending one message per request waited that long for each,
+	// whatever the configuration said.
+	batchTimeout := time.Duration(producerCfg.LingerMs) * time.Millisecond
+	if batchTimeout <= 0 {
+		// Zero would be read as "unset" by the library and turn into the
+		// default again; the smallest wait is what somebody asking for no
+		// batching means.
+		batchTimeout = time.Millisecond
+	}
+
+	// The topic goes on each message, never on the writer.
+	//
+	// kafka-go refuses a message that carries a topic when the writer has one
+	// — "Topic must not be specified for both Writer and Message" — and this
+	// connector always puts one on the message, falling back to
+	// producer.topic when the flow names none. So configuring producer.topic,
+	// which the documentation lists as required, made every publish through
+	// that connector fail with a message about the library's own rules. The
+	// integration configuration carried a comment working around it.
 	c.writer = &kafka.Writer{
 		Addr:         kafka.TCP(c.config.Brokers...),
-		Topic:        producerCfg.Topic,
 		Balancer:     &kafka.LeastBytes{},
 		MaxAttempts:  producerCfg.Retries,
 		BatchSize:    producerCfg.BatchSize,
+		BatchTimeout: batchTimeout,
 		RequiredAcks: requiredAcks,
 		Compression:  compression,
 	}

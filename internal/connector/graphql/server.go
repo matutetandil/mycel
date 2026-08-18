@@ -241,7 +241,11 @@ func (c *ServerConnector) Start(ctx context.Context) error {
 
 	// Initialize subscription manager if subscriptions are configured
 	if c.config.Subscriptions != nil && c.config.Subscriptions.Enabled {
-		c.subscriptionManager = NewSubscriptionManager(c.schema, c.logger)
+		c.subscriptionManager = NewSubscriptionManagerWithTimings(
+			c.schema, c.logger,
+			c.config.Subscriptions.KeepAliveInterval,
+			c.config.Subscriptions.ConnectionTimeout,
+		)
 		// Share PubSub between SchemaBuilder (for Subscribe resolvers) and
 		// SubscriptionManager (for WebSocket client delivery)
 		c.subscriptionManager.pubsub = c.schemaBuilder.GetPubSub()

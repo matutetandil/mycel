@@ -25,7 +25,10 @@ func (h *Handler) callerOf(w http.ResponseWriter, r *http.Request) (*User, bool)
 		return nil, false
 	}
 
-	user, _, err := h.manager.ValidateToken(r.Context(), token)
+	// Tolerant on purpose: an account being told it must enrol a second factor
+	// has to be able to reach the endpoint that enrols one, and one whose
+	// password has expired has to be able to keep the factor it already has.
+	user, _, err := h.manager.ValidateTokenAllowingUnfinishedSetup(r.Context(), token)
 	if err != nil {
 		h.writeError(w, http.StatusUnauthorized, "unauthorized", "Invalid token")
 		return nil, false

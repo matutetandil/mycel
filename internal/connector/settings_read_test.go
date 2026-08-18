@@ -36,22 +36,18 @@ var notRead = map[string]string{
 	"push/Config.Driver": "same as email: the factory switches on it and the field is kept for reporting",
 	"sms/Config.Driver":  "same as email",
 
-	"push/FCMConfig.ProjectID": "part of the newer HTTP v1 API, which this connector does not speak yet; " +
-		"kept because a configuration written for v1 should not be refused outright",
-	"push/FCMConfig.ServiceAccountJSON": "same as ProjectID — HTTP v1 credentials",
+	// EntityConfig is referenced by nothing at all — not the parser, not the
+	// factory. Federation entities are configured by a flow's `entity`
+	// attribute and registered through EntityDefinition, which is a different
+	// type that is used. Left alone deliberately: whether this is dead or a
+	// caller that was never written is the question being deferred, and it is
+	// not answered by deleting the evidence.
+	"graphql/EntityConfig.TypeName": "declared for an HCL block nothing parses; see the note above",
 
-	"graphql/EntityConfig.TypeName":     "federation entity metadata used by the schema builder through its own map",
-	"graphql/SchemaConfig.AutoGenerate": "decided before the config is built, from whether a schema file was given",
-	"graphql/SubscriptionsConfig.KeepAliveInterval": "the websocket layer keeps its own interval; this one is unwired " +
-		"and is a real gap, tracked separately",
-
-	"http/AuthConfig.GrantType": "only client_credentials is implemented, and the value is checked " +
-		"by the parser rather than here",
+	"http/AuthConfig.GrantType": "read where the connector is built, to choose the grant and to refuse one " +
+		"nothing implements; kept on the struct as a record of what was written",
 
 	"mq/DLQConfig.RetryDelay":                     "delay between retries is the broker's, set by the message TTL on the retry queue",
-	"mq/PublisherConfig.Confirms":                 "publisher confirms are not implemented; a real gap, tracked separately",
-	"mq/ConsumerConfig.AutoCommit":                "Kafka commits on ack; the field is unwired and is a real gap",
-	"mq/ProducerConfig.LingerMs":                  "not passed to the Kafka writer; a real gap",
 	"mq/Config.ClientID":                          "used by the MQTT connector, which keeps its own config",
 	"mq/SchemaRegistryConfig.Format":              "only Avro is implemented",
 	"mq/SchemaRegistryConfig.AutoRegister":        "schemas are looked up, never registered",

@@ -238,7 +238,15 @@ that does not exist.
 | `publisher.immediate` | bool | optional | `false` | Immediate delivery |
 | `publisher.persistent` | bool | optional | `true` | Persistent messages (survive broker restart) |
 | `publisher.content_type` | string | optional | `application/json` | Message content type |
-| `publisher.confirms` | bool | optional | `false` | Enable publisher confirms |
+| `publisher.confirms` | bool | optional | `false` | Wait for the broker to confirm each message before the write returns |
+
+With `confirms = false` a publish returns as soon as the bytes reach the socket:
+a broker that dies a moment later takes the message with it. With `confirms =
+true` the write does not return until the broker says it has the message, which
+is what a flow needs when it acknowledges its own source message afterwards —
+the difference between at-least-once and hoping. It costs a round trip per
+message. A broker that never answers is given thirty seconds, unless the flow's
+own timeout is shorter.
 
 ---
 
@@ -312,7 +320,7 @@ connector "kafka" {
 | `consumer.group_id` | string | **yes** | — | Consumer group ID |
 | `consumer.topics` | list | **yes** | — | Topics to subscribe |
 | `consumer.auto_offset_reset` | string | optional | `earliest` | Start offset: `earliest`, `latest` |
-| `consumer.auto_commit` | bool | optional | `true` | Auto-commit offsets |
+| `consumer.auto_commit` | bool | optional | `true` | Commit offsets on a timer. With `false`, an offset is committed only after the flow handling that message succeeds, so a message whose flow failed is read again after a restart instead of being skipped |
 | `consumer.min_bytes` | int | optional | `1` | Minimum bytes to fetch per request |
 | `consumer.max_bytes` | int | optional | `10485760` | Maximum bytes to fetch (10 MB) |
 | `consumer.max_wait_time` | duration | optional | `500ms` | Maximum time to wait for new data |
@@ -326,7 +334,7 @@ connector "kafka" {
 | `producer.acks` | string | optional | `all` | Acknowledgment level: `none`, `one`, `all` |
 | `producer.retries` | int | optional | `3` | Max delivery retries |
 | `producer.batch_size` | int | optional | `16384` | Max batch size in bytes |
-| `producer.linger_ms` | int | optional | `5` | Time (ms) to wait for batch to fill |
+| `producer.linger_ms` | int | optional | `5` | How long a publish waits for the batch to fill before sending. A flow publishing one message per request waits this long for each |
 | `producer.compression` | string | optional | `none` | Compression: `none`, `gzip`, `snappy`, `lz4`, `zstd` |
 
 ### Schema Registry

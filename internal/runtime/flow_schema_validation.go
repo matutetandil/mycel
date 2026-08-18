@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/matutetandil/mycel/v2/internal/aspect"
+	"github.com/matutetandil/mycel/v2/internal/auth"
 	"github.com/matutetandil/mycel/v2/internal/parser"
 	"github.com/matutetandil/mycel/v2/pkg/schema"
 )
@@ -137,4 +138,50 @@ func ValidateAspects(config *parser.Configuration) error {
 		return nil
 	}
 	return aspect.NewRegistry().RegisterAll(config.Aspects)
+}
+
+// ValidateAuthHooks checks that every flow an auth hook names exists.
+//
+// A hook is invoked at a moment nobody is watching — somebody signing in, an
+// account being registered — so a misspelled flow name would otherwise surface
+// as a line in a log during whatever the hook was meant to prevent. Checked
+// where the flows themselves are, so `mycel validate` refuses it before a
+// deployment rather than after.
+func ValidateAuthHooks(config *parser.Configuration) []error {
+	if config == nil || config.Auth == nil || config.Auth.Hooks == nil {
+		return nil
+	}
+
+	known := make(map[string]bool, len(config.Flows))
+	for _, f := range config.Flows {
+		if f != nil {
+			known[f.Name] = true
+		}
+	}
+
+	hooks := config.Auth.Hooks
+	named := []struct {
+		event string
+		hook  *auth.HookConfig
+	}{
+		{"before_login", hooks.BeforeLogin},
+		{"after_login", hooks.AfterLogin},
+		{"after_register", hooks.AfterRegister},
+		{"on_failed_login", hooks.OnFailedLogin},
+		{"on_suspicious_activity", hooks.OnSuspiciousActivity},
+		{"before_password_change", hooks.BeforePasswordChange},
+		{"after_password_change", hooks.AfterPasswordChange},
+	}
+
+	var errs []error
+	for _, n := range named {
+		if n.hook == nil || n.hook.Flow == "" {
+			continue
+		}
+		if !known[n.hook.Flow] {
+			errs = append(errs, fmt.Errorf("auth hook %s names flow %q, which no flow block declares",
+				n.event, n.hook.Flow))
+		}
+	}
+	return errs
 }

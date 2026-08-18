@@ -181,6 +181,11 @@ type FCMConnector struct {
 	name       string
 	config     *Config
 	httpClient *http.Client
+
+	// What the v1 API needs: the service account, and the access tokens minted
+	// from it. Both are nil until Connect has read the credentials.
+	account *serviceAccount
+	tokens  *googleTokenSource
 }
 
 // NewFCMConnector creates a new FCM connector
@@ -207,113 +212,47 @@ func NewFCMConnector(name string, cfg *Config) *FCMConnector {
 func (c *FCMConnector) Name() string { return c.name }
 func (c *FCMConnector) Type() string { return "push" }
 
+// Connect reads the service account and proves it can be signed with.
+//
+// The legacy server key is refused rather than tried: Google retired that API
+// in June 2024, so a service configured with one would start, look healthy, and
+// fail every push against an endpoint that no longer exists. Saying so at
+// startup is the difference between a configuration error and a mystery.
 func (c *FCMConnector) Connect(ctx context.Context) error {
-	if c.config.FCM.ServerKey == "" {
-		return fmt.Errorf("fcm server_key is required")
+	if c.config.FCM.ServiceAccountJSON == "" {
+		if c.config.FCM.ServerKey != "" {
+			return fmt.Errorf("fcm is configured with server_key, which is the legacy API Google retired in June 2024; " +
+				"use service_account_json with the service account file from the Firebase console, and project_id")
+		}
+		return fmt.Errorf("fcm requires service_account_json, the service account file from the Firebase console")
+	}
+
+	account, err := loadServiceAccount(c.config.FCM.ServiceAccountJSON)
+	if err != nil {
+		return err
+	}
+	c.account = account
+
+	// Signing is checked here rather than at the first push: a key that cannot
+	// be parsed should stop a deployment, not a notification.
+	tokens, err := newGoogleTokenSource(account, c.httpClient)
+	if err != nil {
+		return err
+	}
+	c.tokens = tokens
+
+	if c.projectID() == "" {
+		return fmt.Errorf("fcm has no project_id, and the service account does not name one either")
 	}
 	return nil
 }
 
 func (c *FCMConnector) Send(ctx context.Context, msg *Message) (*SendResult, error) {
-	// Build FCM message
-	fcmMsg := map[string]interface{}{}
-
-	// Single token or multiple
-	if msg.Token != "" {
-		fcmMsg["to"] = msg.Token
-	} else if len(msg.Tokens) > 0 {
-		fcmMsg["registration_ids"] = msg.Tokens
-	} else if msg.Topic != "" {
-		fcmMsg["to"] = "/topics/" + msg.Topic
-	} else if msg.Condition != "" {
-		fcmMsg["condition"] = msg.Condition
-	}
-
-	// Notification
-	if msg.Title != "" || msg.Body != "" {
-		fcmMsg["notification"] = map[string]string{
-			"title": msg.Title,
-			"body":  msg.Body,
-		}
-	}
-
-	// Data
-	if len(msg.Data) > 0 {
-		fcmMsg["data"] = msg.Data
-	}
-
-	// Priority
-	if msg.Priority != "" {
-		fcmMsg["priority"] = msg.Priority
-	}
-
-	// TTL
-	if msg.TTL > 0 {
-		fcmMsg["time_to_live"] = msg.TTL
-	}
-
-	// Collapse key
-	if msg.CollapseKey != "" {
-		fcmMsg["collapse_key"] = msg.CollapseKey
-	}
-
-	body, err := json.Marshal(fcmMsg)
-	if err != nil {
+	if c.tokens == nil {
+		err := fmt.Errorf("fcm is not connected, so it has no credentials to send with")
 		return &SendResult{Success: false, Provider: "fcm", Error: err.Error()}, err
 	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST",
-		c.config.FCM.APIURL+"/fcm/send", bytes.NewReader(body))
-	if err != nil {
-		return &SendResult{Success: false, Provider: "fcm", Error: err.Error()}, err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "key="+c.config.FCM.ServerKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return &SendResult{Success: false, Provider: "fcm", Error: err.Error()}, err
-	}
-	defer resp.Body.Close()
-
-	respBody, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return &SendResult{
-			Success:  false,
-			Provider: "fcm",
-			Error:    fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(respBody)),
-		}, fmt.Errorf("FCM error: %s", string(respBody))
-	}
-
-	var result struct {
-		MessageID int64 `json:"message_id"`
-		Success   int   `json:"success"`
-		Failure   int   `json:"failure"`
-		Results   []struct {
-			MessageID string `json:"message_id"`
-			Error     string `json:"error"`
-		} `json:"results"`
-	}
-	json.Unmarshal(respBody, &result)
-
-	// Collect failed tokens
-	var failedTokens []string
-	if len(msg.Tokens) > 0 && len(result.Results) > 0 {
-		for i, r := range result.Results {
-			if r.Error != "" && i < len(msg.Tokens) {
-				failedTokens = append(failedTokens, msg.Tokens[i])
-			}
-		}
-	}
-
-	return &SendResult{
-		Success:      result.Success > 0 || result.Failure == 0,
-		Provider:     "fcm",
-		MessageID:    fmt.Sprintf("%d", result.MessageID),
-		FailedTokens: failedTokens,
-	}, nil
+	return c.sendV1(ctx, msg)
 }
 
 // Write implements connector.Writer interface.

@@ -99,13 +99,33 @@ func (h *Handler) RegisterRoutes(mux Mux) {
 		mux.HandleFunc(path, h.limited("change_password", h.handleChangePassword))
 	}
 
-	if h.config.SessionsList != nil && h.config.SessionsList.Enabled {
+	// The most-used account flow after signing in, and until 2.19.0 the only
+	// two endpoints in this block with no handler at all: both were on by
+	// default and both answered 404.
+	if h.config.PasswordForgot != nil && h.config.PasswordForgot.Enabled {
+		path := prefix + getPath(h.config.PasswordForgot, "/forgot-password")
+		mux.HandleFunc(path, h.limited("password_forgot", h.handlePasswordForgot))
+	}
+
+	if h.config.PasswordReset != nil && h.config.PasswordReset.Enabled {
+		path := prefix + getPath(h.config.PasswordReset, "/reset-password")
+		mux.HandleFunc(path, h.limited("password_reset", h.handlePasswordReset))
+	}
+
+	// Two ways of saying no, and either of them counts.
+	//
+	// The endpoints block turns an endpoint off; the sessions block's
+	// allow_list and allow_revoke say whether the feature is offered at all.
+	// Only the first was consulted, so a deployment that wrote
+	// `allow_list = false` — meaning nobody may list sessions — still served
+	// the endpoint, and had no way to know.
+	if h.config.SessionsList != nil && h.config.SessionsList.Enabled && h.sessionsMayBeListed() {
 		path := prefix + getPath(h.config.SessionsList, "/sessions")
 		mux.HandleFunc(path, h.limited("sessions", h.handleSessions))
 	}
 
 	// Sessions revoke needs special handling for path param
-	if h.config.SessionsRevoke != nil && h.config.SessionsRevoke.Enabled {
+	if h.config.SessionsRevoke != nil && h.config.SessionsRevoke.Enabled && h.sessionsMayBeRevoked() {
 		path := prefix + "/sessions/"
 		mux.HandleFunc(path, h.limited("sessions", h.handleSessionRevoke))
 	}
@@ -121,6 +141,21 @@ func (h *Handler) RegisterRoutes(mux Mux) {
 // They exist only when a second factor does: paths that answer for a service
 // that cannot enrol anybody would be worse than none, since they invite a
 // client to build the flow.
+// sessionsMayBeListed reports whether the sessions block allows listing.
+//
+// Nothing configured is a yes: this is the behaviour every deployment has
+// today, and the setting exists to take it away rather than to grant it.
+func (h *Handler) sessionsMayBeListed() bool {
+	sessions := h.manager.Config().Sessions
+	return sessions == nil || sessions.AllowList
+}
+
+// sessionsMayBeRevoked reports whether the sessions block allows revocation.
+func (h *Handler) sessionsMayBeRevoked() bool {
+	sessions := h.manager.Config().Sessions
+	return sessions == nil || sessions.AllowRevoke
+}
+
 func (h *Handler) registerMFARoutes(mux Mux, prefix string) {
 	if !h.manager.MFAEnabled() {
 		return
@@ -286,12 +321,112 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+	body := map[string]interface{}{
 		"user":          userToResponse(user),
 		"access_token":  tokens.AccessToken,
 		"refresh_token": tokens.RefreshToken,
 		"token_type":    tokens.TokenType,
 		"expires_in":    tokens.ExpiresIn,
+	}
+
+	// What a client needs to send somebody to the change-password endpoint
+	// before every other one starts refusing them, and what warn_before is
+	// for: a week's notice is no use if nothing says it.
+	// What a client needs to send somebody to the enrolment endpoint before
+	// every other one starts refusing them.
+	if wanted, held, graceUntil, required := h.manager.MFAEnrolment(r.Context(), user); required && held < wanted {
+		body["mfa_enrolment_required"] = true
+		body["mfa_factors_wanted"] = wanted
+		body["mfa_factors_held"] = held
+		if !graceUntil.IsZero() {
+			body["mfa_grace_until"] = graceUntil
+		}
+	}
+
+	if expiresAt, expired, known := h.manager.PasswordExpiry(user); known {
+		if expired {
+			body["password_expired"] = true
+			body["password_expires_at"] = expiresAt
+		} else if _, warn := h.manager.PasswordExpiryWarning(user); warn {
+			body["password_expires_at"] = expiresAt
+		}
+	}
+
+	h.writeJSON(w, http.StatusOK, body)
+}
+
+// handlePasswordForgot handles POST /auth/forgot-password.
+//
+// It answers the same way whether or not the address belongs to an account.
+// Answering differently turns this into a way to find out who has an account
+// here, which is worth more to somebody enumerating a customer list than the
+// reset is to them.
+func (h *Handler) handlePasswordForgot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
+		return
+	}
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid_request", "Invalid request body")
+		return
+	}
+	if req.Email == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request", "Email is required")
+		return
+	}
+
+	if err := h.manager.RequestPasswordReset(r.Context(), req.Email, getClientIP(r), r.UserAgent()); err != nil {
+		// Something here is broken — the store, or the flow that delivers the
+		// token. That is worth reporting as a failure, unlike an address with
+		// no account behind it.
+		h.writeError(w, http.StatusInternalServerError, "reset_failed", "Could not start a password reset")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "If that address has an account, a reset link is on its way",
+	})
+}
+
+// handlePasswordReset handles POST /auth/reset-password.
+func (h *Handler) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
+		return
+	}
+
+	var req struct {
+		Token       string `json:"token"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid_request", "Invalid request body")
+		return
+	}
+	if req.Token == "" || req.NewPassword == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request", "Token and new password are required")
+		return
+	}
+
+	if err := h.manager.ResetPassword(r.Context(), req.Token, req.NewPassword, getClientIP(r), r.UserAgent()); err != nil {
+		if authErr, ok := err.(*AuthError); ok {
+			status := http.StatusBadRequest
+			if authErr.Code == ErrInvalidResetToken.Code {
+				status = http.StatusUnauthorized
+			}
+			h.writeError(w, status, authErr.Code, authErr.Message)
+			return
+		}
+		h.writeError(w, http.StatusInternalServerError, "reset_failed", "Could not reset the password")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Password reset. Every session that account had is now signed out",
 	})
 }
 
@@ -309,8 +444,9 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate token
-	_, claims, err := h.manager.ValidateToken(r.Context(), token)
+	// Signing out has to work whatever state the account is in, including a
+	// password the policy has expired.
+	_, claims, err := h.manager.ValidateTokenAllowingUnfinishedSetup(r.Context(), token)
 	if err != nil {
 		h.writeError(w, http.StatusUnauthorized, "unauthorized", "Invalid token")
 		return
@@ -402,8 +538,9 @@ func (h *Handler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate token
-	user, _, err := h.manager.ValidateToken(r.Context(), token)
+	// The one endpoint an expired password must not be refused at: it is what
+	// somebody in that state is being sent here to do.
+	user, _, err := h.manager.ValidateTokenAllowingUnfinishedSetup(r.Context(), token)
 	if err != nil {
 		h.writeError(w, http.StatusUnauthorized, "unauthorized", "Invalid token")
 		return

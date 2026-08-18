@@ -42,8 +42,11 @@ func (r *Runtime) buildAuthStores(cfg *auth.Config) ([]auth.ManagerOption, error
 			auth.WithSessionStore(auth.NewRedisSessionStore(client, "mycel:auth:session")),
 			auth.WithTokenStore(auth.NewRedisTokenStore(client, "mycel:auth:token")),
 			auth.WithBruteForceStore(auth.NewRedisBruteForceStore(client, "mycel:auth:bf")),
+			// Without this a reset link only works if the replica that issued
+			// it happens to answer, which on more than one is a coin toss.
+			auth.WithPasswordResetStore(auth.NewRedisPasswordResetStore(client, "mycel:auth:reset:")),
 		)
-		persistent = append(persistent, "sessions", "tokens", "brute-force counters")
+		persistent = append(persistent, "sessions", "tokens", "brute-force counters", "password reset tokens")
 
 	case "database":
 		db, driver, err := r.authDatabase(cfg.Storage.Connector)
@@ -56,17 +59,24 @@ func (r *Runtime) buildAuthStores(cfg *auth.Config) ([]auth.ManagerOption, error
 			users = &auth.UsersConfig{}
 		}
 
+		// The password history is only worth keeping where the accounts are:
+		// in memory it is lost with them on a restart, which would quietly
+		// return every account to being able to reuse its old passwords.
 		switch driver {
 		case "postgres", "postgresql":
-			opts = append(opts, auth.WithUserStore(auth.NewPostgresUserStore(db, users)))
-			persistent = append(persistent, "users")
+			opts = append(opts,
+				auth.WithUserStore(auth.NewPostgresUserStore(db, users)),
+				auth.WithPasswordHistoryStore(auth.NewPostgresPasswordHistoryStore(db, "password_history")),
+			)
+			persistent = append(persistent, "users", "password history")
 		case "mysql", "mariadb":
 			opts = append(opts,
 				auth.WithUserStore(auth.NewMySQLUserStore(db, users)),
 				auth.WithSessionStore(auth.NewMySQLSessionStore(db, "auth_sessions")),
 				auth.WithTokenStore(auth.NewMySQLTokenStore(db, "auth_tokens")),
+				auth.WithPasswordHistoryStore(auth.NewMySQLPasswordHistoryStore(db, "password_history")),
 			)
-			persistent = append(persistent, "users", "sessions", "tokens")
+			persistent = append(persistent, "users", "sessions", "tokens", "password history")
 		default:
 			return nil, fmt.Errorf("auth storage connector %q is a %s database, and auth stores exist for postgres and mysql only",
 				cfg.Storage.Connector, driver)
@@ -74,6 +84,19 @@ func (r *Runtime) buildAuthStores(cfg *auth.Config) ([]auth.ManagerOption, error
 
 	default:
 		return nil, fmt.Errorf("auth storage driver %q is not one of memory, redis or database", cfg.Storage.Driver)
+	}
+
+	// An age policy needs somewhere to read the age from. On a SQL store the
+	// column is opt-in, like roles, so that a users table that already exists
+	// keeps working — which means a service can configure max_age against a
+	// database and have nothing ever expire. Saying so is the difference
+	// between a policy that is off and one that looks on.
+	if cfg.Storage.Driver == "database" && cfg.Password != nil && cfg.Password.MaxAge != "" {
+		if cfg.Users == nil || cfg.Users.Fields == nil || cfg.Users.Fields.PasswordChangedAt == "" {
+			slog.Warn("password max_age is configured but no column records when a password was last set, so nothing will expire",
+				"max_age", cfg.Password.MaxAge,
+				"hint", "name the column in the users fields block, for example fields { password_changed_at = \"password_changed_at\" }")
+		}
 	}
 
 	slog.Info("auth storage configured", "driver", cfg.Storage.Driver, "persistent", persistent)
@@ -198,7 +221,13 @@ func (r *Runtime) initAuth(ctx context.Context) error {
 		stores = append(stores, audit)
 	}
 
-	opts := append([]auth.ManagerOption{auth.WithLogger(r.logger)}, stores...)
+	// Hooks name flows, and this is what runs them. The registry exists
+	// already; the flows in it are registered a moment later, which is in time
+	// because a hook does not run until somebody signs in.
+	opts := append([]auth.ManagerOption{
+		auth.WithLogger(r.logger),
+		auth.WithFlowInvoker(r.flows),
+	}, stores...)
 	manager, err := auth.NewManager(r.config.Auth, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create auth manager: %w", err)

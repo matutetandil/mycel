@@ -43,16 +43,25 @@ func (c *Connector) startConsumer(ctx context.Context) error {
 		startOffset = kafka.FirstOffset
 	}
 
-	// Create reader configuration
+	// Create reader configuration.
+	//
+	// A commit interval above zero is what makes the reader commit offsets on
+	// a timer, which is auto-commit; zero means offsets move only when this
+	// connector commits them. The interval used to be set unconditionally
+	// while the comment beside it said "if auto-commit is enabled" — so
+	// `auto_commit = false`, which is what somebody sets precisely so a
+	// message is not lost when the flow handling it fails, did nothing at all.
 	readerConfig := kafka.ReaderConfig{
-		Brokers:        c.config.Brokers,
-		GroupID:        consumerCfg.GroupID,
-		GroupTopics:    consumerCfg.Topics,
-		MinBytes:       consumerCfg.MinBytes,
-		MaxBytes:       consumerCfg.MaxBytes,
-		MaxWait:        consumerCfg.MaxWaitTime,
-		StartOffset:    startOffset,
-		CommitInterval: time.Second, // Commit offsets every second if auto-commit is enabled
+		Brokers:     c.config.Brokers,
+		GroupID:     consumerCfg.GroupID,
+		GroupTopics: consumerCfg.Topics,
+		MinBytes:    consumerCfg.MinBytes,
+		MaxBytes:    consumerCfg.MaxBytes,
+		MaxWait:     consumerCfg.MaxWaitTime,
+		StartOffset: startOffset,
+	}
+	if consumerCfg.AutoCommit {
+		readerConfig.CommitInterval = time.Second
 	}
 
 	// Handle TLS if configured
@@ -146,8 +155,10 @@ func (c *Connector) consumeLoop(ctx context.Context, workerID int) {
 			c.logger.Debug("consumer worker stopping", "worker_id", workerID)
 			return
 		default:
-			// Read message with context
-			msg, err := reader.ReadMessage(ctx)
+			// ReadMessage moves the offset by itself; FetchMessage leaves it
+			// where it was until this connector commits, which is the only
+			// way a failed message can be seen again.
+			msg, err := c.nextMessage(ctx, reader)
 			if err != nil {
 				if ctx.Err() != nil {
 					return
@@ -170,9 +181,39 @@ func (c *Connector) consumeLoop(ctx context.Context, workerID int) {
 					"offset", msg.Offset,
 					"error", err,
 				)
+				// Left uncommitted on purpose: a restart resumes from the
+				// last committed offset and this message is read again.
+				// Kafka has no way to return one message on its own, so this
+				// is what "do not lose it" means here.
+				continue
+			}
+
+			if !c.autoCommitting() {
+				if err := reader.CommitMessages(ctx, msg); err != nil && ctx.Err() == nil {
+					c.logger.Error("failed to commit offset after handling the message",
+						"worker_id", workerID,
+						"topic", msg.Topic,
+						"partition", msg.Partition,
+						"offset", msg.Offset,
+						"error", err,
+					)
+				}
 			}
 		}
 	}
+}
+
+// autoCommitting reports whether offsets move on their own.
+func (c *Connector) autoCommitting() bool {
+	return c.config.Consumer == nil || c.config.Consumer.AutoCommit
+}
+
+// nextMessage reads the next message, in the way the commit setting requires.
+func (c *Connector) nextMessage(ctx context.Context, reader *kafka.Reader) (kafka.Message, error) {
+	if c.autoCommitting() {
+		return reader.ReadMessage(ctx)
+	}
+	return reader.FetchMessage(ctx)
 }
 
 // handleMessage processes a single Kafka message.

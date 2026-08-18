@@ -462,6 +462,32 @@ func startTestRuntime(ctx context.Context, configDir string) (*Runtime, error) {
 	return rt, nil
 }
 
+// waitForReady waits until the service reports itself ready.
+//
+// The admin server starts listening before the runtime marks the service
+// ready, deliberately: a probe has to be able to reach the endpoint in order
+// to be told "not yet". So waiting for the port and then asking for readiness
+// races that gap — which passes on an idle machine and answers 503 on a loaded
+// CI runner, which is the correct answer to a question asked too early.
+func waitForReady(t *testing.T, port int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/health/ready", port))
+		if err == nil {
+			status := resp.StatusCode
+			resp.Body.Close()
+			if status == http.StatusOK {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	t.Fatalf("service was not ready within timeout on port %d", port)
+}
+
 func waitForServer(t *testing.T, port int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -2327,8 +2353,11 @@ service {
 	}
 	defer rt.Shutdown()
 
-	// Wait for admin server to be ready
+	// Wait for the admin server, and then for the service to say it is ready:
+	// the port opens first, so asking about readiness before that would be
+	// asking a question whose honest answer is 503.
 	waitForServer(t, 19090)
+	waitForReady(t, 19090)
 
 	t.Run("health endpoint returns 200", func(t *testing.T) {
 		resp, err := http.Get("http://localhost:19090/health")

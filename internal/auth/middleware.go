@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 )
@@ -78,6 +79,14 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// Validate token
 		user, claims, err := m.manager.ValidateToken(r.Context(), token)
 		if err != nil {
+			// An expired password is a different situation from a bad token,
+			// and a client that cannot tell them apart sends somebody back to
+			// the sign-in screen to do it again with the same result.
+			if authErr, ok := err.(*AuthError); ok && authErr.Code == ErrPasswordExpired.Code {
+				writeAuthError(w, http.StatusForbidden, authErr.Code,
+					"Your password has expired; change it before continuing")
+				return
+			}
 			writeUnauthorized(w, "Invalid or expired token")
 			return
 		}
@@ -314,6 +323,16 @@ func writeUnauthorized(w http.ResponseWriter, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	w.Write([]byte(`{"error":{"code":"unauthorized","message":"` + message + `"}}`))
+}
+
+// writeAuthError answers with a code the caller can act on rather than the one
+// word every refusal shares.
+func writeAuthError(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"error": map[string]string{"code": code, "message": message},
+	})
 }
 
 func writeForbidden(w http.ResponseWriter, message string) {

@@ -260,6 +260,10 @@ func New(opts Options) (*Runtime, error) {
 		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
 
+	if errs := ValidateAuthHooks(config); len(errs) > 0 {
+		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
+	}
+
 	// And each connector's settings against the words that connector accepts.
 	if errs := ValidateConnectorSchemas(config, schemaReg); len(errs) > 0 {
 		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
@@ -2176,6 +2180,13 @@ func (r *Runtime) shutdownSteps(ctx context.Context) error {
 	if r.authCleanup != nil {
 		if err := r.authCleanup.Stop(); err != nil {
 			r.logger.Warn("error stopping auth cleanup", "error", err)
+		}
+	}
+	// And release what auth holds open, which is the geoip database: a file
+	// mapped into memory for as long as it is open.
+	if r.authManager != nil {
+		if err := r.authManager.Close(); err != nil {
+			r.logger.Warn("error closing the auth manager", "error", err)
 		}
 	}
 

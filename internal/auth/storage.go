@@ -155,6 +155,16 @@ func (s *MemoryUserStore) Create(ctx context.Context, user *User) error {
 		return ErrUserExists
 	}
 
+	// A new account's password is as old as the account, which is what an age
+	// policy measures from for somebody who has never changed it.
+	if user.PasswordChangedAt == nil && user.PasswordHash != "" {
+		created := user.CreatedAt
+		if created.IsZero() {
+			created = time.Now()
+		}
+		user.PasswordChangedAt = &created
+	}
+
 	s.users[user.ID] = copyUser(user)
 	s.byEmail[user.Email] = user.ID
 	return nil
@@ -202,8 +212,11 @@ func (s *MemoryUserStore) UpdatePassword(ctx context.Context, id string, passwor
 		return ErrUserNotFound
 	}
 
+	now := time.Now()
 	user.PasswordHash = passwordHash
-	user.UpdatedAt = time.Now()
+	user.UpdatedAt = now
+	// When it changed is what password { max_age } is measured from.
+	user.PasswordChangedAt = &now
 	return nil
 }
 
