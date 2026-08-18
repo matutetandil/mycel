@@ -597,6 +597,7 @@ var (
 	ErrBreachedPassword   = &AuthError{Code: "breached_password", Message: "Password found in data breach"}
 	ErrInvalidResetToken  = &AuthError{Code: "invalid_reset_token", Message: "This reset link is not valid or has expired"}
 	ErrUnknownDevice      = &AuthError{Code: "unknown_device", Message: "This device is not recognised"}
+	ErrImpossibleTravel   = &AuthError{Code: "impossible_travel", Message: "This sign-in is too far from the last one to be the same person"}
 )
 
 // UserFieldsConfig is an alias for FieldsConfig

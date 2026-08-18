@@ -32,6 +32,8 @@ type Manager struct {
 	passwordHistory PasswordHistoryStore
 	passwordReset   PasswordResetStore
 	devices         DeviceStore
+	geoip           GeoIPLookup
+	travel          *travelHistory
 	flows           FlowInvoker
 	hookConditions  *transform.CELTransformer
 
@@ -127,6 +129,9 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 	if err := validateDeviceBinding(config); err != nil {
 		return nil, err
 	}
+	if err := validateImpossibleTravel(config); err != nil {
+		return nil, err
+	}
 
 	// What to do at the session limit has to be understood before a service
 	// starts, not at the moment somebody is turned away. The word for refusing
@@ -182,6 +187,14 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 	}
 	if m.devices == nil {
 		m.devices = NewMemoryDeviceStore()
+	}
+	m.travel = newTravelHistory()
+	if m.geoip == nil {
+		lookup, err := buildGeoIP(config)
+		if err != nil {
+			return nil, err
+		}
+		m.geoip = lookup
 	}
 	if m.bruteForceStore == nil {
 		m.bruteForceStore = NewMemoryBruteForceStore()
@@ -414,6 +427,9 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 	// service a new device, and before a session exists, so that a refusal
 	// here refuses to open one.
 	if err := m.checkDevice(ctx, user, req, ip, userAgent); err != nil {
+		return nil, nil, err
+	}
+	if err := m.checkTravel(ctx, user, req, ip, userAgent); err != nil {
 		return nil, nil, err
 	}
 
@@ -779,6 +795,17 @@ func (m *Manager) refusePasswordReuse(ctx context.Context, user *User, candidate
 		if same, _ := m.passwordHasher.Verify(candidate, hash); same {
 			return fmt.Errorf("this is one of your last %d passwords; choose one you have not used", depth)
 		}
+	}
+	return nil
+}
+
+// Close releases what the manager holds open.
+//
+// Today that is the geoip database, which is a file mapped into memory for as
+// long as it is open. Everything else here is owned by whoever supplied it.
+func (m *Manager) Close() error {
+	if m.geoip != nil {
+		return m.geoip.Close()
 	}
 	return nil
 }

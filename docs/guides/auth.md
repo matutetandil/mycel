@@ -150,9 +150,16 @@ security {
   }
 
   impossible_travel {
-    enabled           = true
-    max_speed_kmh     = 1000
-    alert_only        = false  # true = alert but allow
+    enabled       = true
+    max_speed_kmh = 900        # faster than a flight
+    on_detect     = "notify"   # "notify", "challenge", "block"
+
+    geoip {
+      # One of these. A MaxMind City database you have downloaded...
+      database = "/var/lib/mycel/GeoLite2-City.mmdb"
+      # ...or an HTTP service, with {ip} standing for the address:
+      # api = "https://geo.example.com/lookup/{ip}"
+    }
   }
 
   device_binding {
@@ -164,6 +171,36 @@ security {
   }
 }
 ```
+
+### Impossible Travel
+
+Two sign-ins from places too far apart for the time between them. What is
+measured is the straight line over the ground divided by the hours between: any
+journey somebody could really make is longer than a straight line, so the speed
+this produces is the slowest they could have been going, and calling *that*
+impossible is a claim that holds.
+
+`geoip` is where an address is turned into a place, and one of the two is
+required — the block does nothing without it, and a service that enables
+detection without one is refused at startup rather than left believing it is on.
+
+- **`database`** is a MaxMind GeoLite2 City file. Mycel does not ship it and
+  cannot: it is MaxMind's, downloaded under their licence with an account of
+  your own. Point this at one that is already on disk.
+- **`api`** is any HTTP service that answers with JSON, with `{ip}` standing for
+  the address. The answer is read leniently — `latitude`/`longitude`, `lat`/`lon`,
+  `lat`/`lng`, or the same nested under `location` — so this works with whichever
+  provider you already pay for. A lookup is cached for an hour, and a service
+  that is down is not cached at all.
+
+`on_detect` decides what a detection means: `notify` runs the
+`on_suspicious_activity` hook with `auth.reason = "impossible_travel"`,
+`challenge` requires a second factor, `block` refuses the sign-in.
+
+Three things never happen, because each would be worse than a missed detection:
+an address nothing can place is not held against anybody, a local address is not
+looked up at all, and a geolocation service having a bad day does not stop
+people signing in.
 
 ### Recognising a Device
 

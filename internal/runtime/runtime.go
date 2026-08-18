@@ -2182,6 +2182,13 @@ func (r *Runtime) shutdownSteps(ctx context.Context) error {
 			r.logger.Warn("error stopping auth cleanup", "error", err)
 		}
 	}
+	// And release what auth holds open, which is the geoip database: a file
+	// mapped into memory for as long as it is open.
+	if r.authManager != nil {
+		if err := r.authManager.Close(); err != nil {
+			r.logger.Warn("error closing the auth manager", "error", err)
+		}
+	}
 
 	// Close sync manager
 	if r.syncManager != nil {

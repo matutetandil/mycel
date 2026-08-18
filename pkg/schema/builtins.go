@@ -967,6 +967,16 @@ func AuthSchema() Block {
 			}},
 			{Type: "mfa", Doc: "Multi-factor authentication; present means enabled"},
 			{Type: "security", Doc: "Lockout, rate limiting and related defences", Children: []Block{
+				{Type: "impossible_travel", Doc: "Notice two sign-ins too far apart for the time between them", Attrs: []Attr{
+					{Name: "enabled", Doc: "Whether distances are measured at all; needs a geoip block", Type: TypeBool},
+					{Name: "max_speed_kmh", Doc: "Above this, two sign-ins are not the same person; 900 unless written, which is faster than a flight", Type: TypeNumber},
+					{Name: "on_detect", Doc: "What a sign-in that could not have got there means", Type: TypeString, Values: []string{"notify", "challenge", "block"}},
+				}, Children: []Block{
+					{Type: "geoip", Doc: "Where an address is looked up; name one of these, not both", Attrs: []Attr{
+						{Name: "database", Doc: "Path to a MaxMind City database, which you download under MaxMind's licence", Type: TypeString},
+						{Name: "api", Doc: "URL of an HTTP service with {ip} in it, such as https://geo.example/{ip}", Type: TypeString},
+					}},
+				}},
 				{Type: "device_binding", Doc: "Notice when an account signs in from something it has not used before", Attrs: []Attr{
 					{Name: "enabled", Doc: "Whether devices are watched at all", Type: TypeBool},
 					{Name: "fingerprint", Doc: "What identifies a device, from what a server can see", Type: TypeList, Values: []string{"user_agent", "ip", "device_id"}},
