@@ -30,6 +30,7 @@ type Manager struct {
 	mfaStore        MFAStore
 	auditStore      AuditStore
 	passwordHistory PasswordHistoryStore
+	passwordReset   PasswordResetStore
 	flows           FlowInvoker
 	hookConditions  *transform.CELTransformer
 
@@ -85,6 +86,13 @@ func WithLogger(logger *slog.Logger) ManagerOption {
 func WithMFAStore(store MFAStore) ManagerOption {
 	return func(m *Manager) {
 		m.mfaStore = store
+	}
+}
+
+// WithPasswordResetStore sets where outstanding reset tokens are kept.
+func WithPasswordResetStore(store PasswordResetStore) ManagerOption {
+	return func(m *Manager) {
+		m.passwordReset = store
 	}
 }
 
@@ -164,6 +172,9 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 	}
 	if m.passwordHistory == nil {
 		m.passwordHistory = NewMemoryPasswordHistoryStore()
+	}
+	if m.passwordReset == nil {
+		m.passwordReset = NewMemoryPasswordResetStore()
 	}
 	if m.bruteForceStore == nil {
 		m.bruteForceStore = NewMemoryBruteForceStore()

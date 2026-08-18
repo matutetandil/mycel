@@ -711,6 +711,58 @@ endpoints {
 }
 ```
 
+## Forgotten Passwords
+
+Two endpoints, on by default:
+
+| Endpoint | Body | What happens |
+|----------|------|--------------|
+| `POST /auth/forgot-password` | `{"email": "..."}` | Issues a reset token and hands it to the `on_password_reset` hook |
+| `POST /auth/reset-password` | `{"token": "...", "new_password": "..."}` | Spends the token and sets the password |
+
+Getting the token to the person is not auth's job — a flow already knows how to
+send an email:
+
+```hcl
+auth {
+  password {
+    reset_token_ttl = "1h"   # the default
+  }
+
+  hooks {
+    on_password_reset { flow = "send_reset_email" }
+  }
+}
+
+flow "send_reset_email" {
+  from { connector = "internal" }
+  to {
+    connector = "smtp"
+    template  = "Reset your password: https://app.example.com/reset?token=${auth.reset_token}"
+  }
+}
+```
+
+Without that hook the token cannot reach anybody, and the service says so in the
+log rather than leaving somebody waiting for an email.
+
+What the endpoints do and do not say:
+
+- **Asking for a reset answers the same way whether or not the address has an
+  account.** Answering differently would turn it into a way to find out who has
+  one here.
+- **A token is good once, and for `reset_token_ttl`.** It is stored hashed, so
+  a store somebody can read is not a store somebody can reset accounts from.
+- **A reset ends every session the account had.** Somebody resetting a password
+  either forgot it or is taking the account back from whoever did not, and in
+  the second case leaving the other sessions open would defeat the reset.
+- **The password policy still applies** — length, complexity and `history`. A
+  reset is not a way around the rules a deliberate change obeys.
+
+Tokens live in the process by default, which is the wrong place for more than
+one replica: a link issued by one is unknown to the next. A `storage` block on
+`redis` keeps them where every replica can see them, along with the sessions.
+
 ## Hooks
 
 A hook runs a flow when something happens to an account. Auth does not send
@@ -743,6 +795,7 @@ auth {
 | `after_register` | Once an account has been created | `user_id`, `email` |
 | `on_failed_login` | A sign-in was refused | `email`, `ip`, `user_agent`, `reason`, `code` |
 | `on_suspicious_activity` | Something about a sign-in was out of the ordinary | `user_id`, `email`, `ip`, `user_agent`, `reason` |
+| `on_password_reset` | Somebody asked to reset a forgotten password | `user_id`, `email`, `reset_token`, `expires_at`, `ip`, `user_agent` |
 | `before_password_change` | Before a password is changed | `user_id`, `email` |
 | `after_password_change` | Once a password has been changed | `user_id`, `email` |
 

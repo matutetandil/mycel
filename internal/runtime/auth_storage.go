@@ -42,8 +42,11 @@ func (r *Runtime) buildAuthStores(cfg *auth.Config) ([]auth.ManagerOption, error
 			auth.WithSessionStore(auth.NewRedisSessionStore(client, "mycel:auth:session")),
 			auth.WithTokenStore(auth.NewRedisTokenStore(client, "mycel:auth:token")),
 			auth.WithBruteForceStore(auth.NewRedisBruteForceStore(client, "mycel:auth:bf")),
+			// Without this a reset link only works if the replica that issued
+			// it happens to answer, which on more than one is a coin toss.
+			auth.WithPasswordResetStore(auth.NewRedisPasswordResetStore(client, "mycel:auth:reset:")),
 		)
-		persistent = append(persistent, "sessions", "tokens", "brute-force counters")
+		persistent = append(persistent, "sessions", "tokens", "brute-force counters", "password reset tokens")
 
 	case "database":
 		db, driver, err := r.authDatabase(cfg.Storage.Connector)

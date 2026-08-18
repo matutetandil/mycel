@@ -531,3 +531,78 @@ func NewRedisClient(addr, password string, db int) *redis.Client {
 		DB:       db,
 	})
 }
+
+// RedisPasswordResetStore keeps outstanding reset tokens in Redis.
+//
+// The reason to have one at all: the in-process store is unknown to the next
+// replica, so a reset link works only if the same one answers. A service
+// running more than one keeps its sessions here for that reason, and reset
+// tokens belong with them.
+//
+// Redis expires the key itself, so an unused token disappears without anything
+// sweeping for it. The user's own set is what makes "drop every outstanding
+// token for this account" possible after a reset.
+type RedisPasswordResetStore struct {
+	client    *redis.Client
+	keyPrefix string
+}
+
+// NewRedisPasswordResetStore creates a Redis-backed reset token store.
+func NewRedisPasswordResetStore(client *redis.Client, keyPrefix string) *RedisPasswordResetStore {
+	if keyPrefix == "" {
+		keyPrefix = "mycel:auth:reset:"
+	}
+	return &RedisPasswordResetStore{client: client, keyPrefix: keyPrefix}
+}
+
+func (s *RedisPasswordResetStore) tokenKey(hash string) string {
+	return s.keyPrefix + hash
+}
+
+func (s *RedisPasswordResetStore) userTokensKey(userID string) string {
+	return s.keyPrefix + "user:" + userID
+}
+
+func (s *RedisPasswordResetStore) Create(ctx context.Context, tokenHash, userID string, expiresAt time.Time) error {
+	ttl := time.Until(expiresAt)
+	if ttl <= 0 {
+		return fmt.Errorf("the reset token has already expired")
+	}
+
+	if err := s.client.Set(ctx, s.tokenKey(tokenHash), userID, ttl).Err(); err != nil {
+		return fmt.Errorf("failed to store the reset token: %w", err)
+	}
+	if err := s.client.SAdd(ctx, s.userTokensKey(userID), tokenHash).Err(); err != nil {
+		return fmt.Errorf("failed to record the reset token against the user: %w", err)
+	}
+	// The set outlives the tokens in it unless it is told not to. Given the
+	// token's own life, this only has to be no shorter.
+	s.client.Expire(ctx, s.userTokensKey(userID), ttl+time.Hour)
+	return nil
+}
+
+func (s *RedisPasswordResetStore) Consume(ctx context.Context, tokenHash string) (string, error) {
+	// GetDel, so that two requests arriving with the same token cannot both
+	// win: one gets the user, the other gets nothing.
+	userID, err := s.client.GetDel(ctx, s.tokenKey(tokenHash)).Result()
+	if err == redis.Nil {
+		return "", ErrInvalidResetToken
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to read the reset token: %w", err)
+	}
+
+	s.client.SRem(ctx, s.userTokensKey(userID), tokenHash)
+	return userID, nil
+}
+
+func (s *RedisPasswordResetStore) DeleteForUser(ctx context.Context, userID string) error {
+	hashes, err := s.client.SMembers(ctx, s.userTokensKey(userID)).Result()
+	if err != nil {
+		return fmt.Errorf("failed to list the reset tokens for a user: %w", err)
+	}
+	for _, hash := range hashes {
+		s.client.Del(ctx, s.tokenKey(hash))
+	}
+	return s.client.Del(ctx, s.userTokensKey(userID)).Err()
+}

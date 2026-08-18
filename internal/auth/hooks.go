@@ -26,6 +26,7 @@ const (
 	HookAfterRegister        = "after_register"
 	HookOnFailedLogin        = "on_failed_login"
 	HookOnSuspiciousActivity = "on_suspicious_activity"
+	HookOnPasswordReset      = "on_password_reset"
 	HookBeforePasswordChange = "before_password_change"
 	HookAfterPasswordChange  = "after_password_change"
 )
@@ -58,6 +59,8 @@ func (m *Manager) hookFor(event string) *HookConfig {
 		return m.config.Hooks.OnFailedLogin
 	case HookOnSuspiciousActivity:
 		return m.config.Hooks.OnSuspiciousActivity
+	case HookOnPasswordReset:
+		return m.config.Hooks.OnPasswordReset
 	case HookBeforePasswordChange:
 		return m.config.Hooks.BeforePasswordChange
 	case HookAfterPasswordChange:
@@ -137,7 +140,7 @@ func validateHooks(cfg *Config) error {
 	}
 	for _, event := range []string{
 		HookBeforeLogin, HookAfterLogin, HookAfterRegister, HookOnFailedLogin,
-		HookOnSuspiciousActivity, HookBeforePasswordChange, HookAfterPasswordChange,
+		HookOnSuspiciousActivity, HookOnPasswordReset, HookBeforePasswordChange, HookAfterPasswordChange,
 	} {
 		hook := hookIn(cfg.Hooks, event)
 		if hook == nil {
@@ -173,6 +176,8 @@ func hookIn(hooks *HooksConfig, event string) *HookConfig {
 		return hooks.OnFailedLogin
 	case HookOnSuspiciousActivity:
 		return hooks.OnSuspiciousActivity
+	case HookOnPasswordReset:
+		return hooks.OnPasswordReset
 	case HookBeforePasswordChange:
 		return hooks.BeforePasswordChange
 	case HookAfterPasswordChange:

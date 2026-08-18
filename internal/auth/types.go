@@ -147,6 +147,11 @@ type PasswordConfig struct {
 	MaxAge     string `hcl:"max_age,optional"`
 	WarnBefore string `hcl:"warn_before,optional"`
 
+	// ResetTokenTTL is how long a password reset token is good for. Default
+	// one hour: long enough to reach an inbox and be acted on, short enough
+	// that a link left in one is not a standing key to the account.
+	ResetTokenTTL string `hcl:"reset_token_ttl,optional"`
+
 	// Breach check (HaveIBeenPwned)
 	BreachCheck bool `hcl:"breach_check,optional"`
 
@@ -465,6 +470,7 @@ type HooksConfig struct {
 	AfterRegister        *HookConfig `hcl:"after_register,block"`
 	OnFailedLogin        *HookConfig `hcl:"on_failed_login,block"`
 	OnSuspiciousActivity *HookConfig `hcl:"on_suspicious_activity,block"`
+	OnPasswordReset      *HookConfig `hcl:"on_password_reset,block"`
 	BeforePasswordChange *HookConfig `hcl:"before_password_change,block"`
 	AfterPasswordChange  *HookConfig `hcl:"after_password_change,block"`
 }
@@ -589,6 +595,7 @@ var (
 	ErrPasswordExpired    = &AuthError{Code: "password_expired", Message: "Password has expired"}
 	ErrWeakPassword       = &AuthError{Code: "weak_password", Message: "Password does not meet requirements"}
 	ErrBreachedPassword   = &AuthError{Code: "breached_password", Message: "Password found in data breach"}
+	ErrInvalidResetToken  = &AuthError{Code: "invalid_reset_token", Message: "This reset link is not valid or has expired"}
 )
 
 // UserFieldsConfig is an alias for FieldsConfig

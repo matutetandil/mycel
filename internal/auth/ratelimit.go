@@ -129,6 +129,11 @@ func (rl *RateLimiter) initEndpointLimiters() {
 		"refresh":         {30, 10}, // 30 per minute, burst 10
 		"logout":          {30, 10}, // 30 per minute, burst 10
 		"sessions":        {30, 10}, // 30 per minute, burst 10
+		// Asking for a reset sends somebody an email, so an unlimited endpoint
+		// is a way to bury an address in them; offering a token is a guess at
+		// one, and guesses should be expensive.
+		"password_forgot": {3, 2}, // 3 per minute, burst 2
+		"password_reset":  {5, 3}, // 5 per minute, burst 3
 	}
 
 	for name, cfg := range endpoints {
@@ -312,6 +317,8 @@ func (rl *PerKeyRateLimiter) getRateForEndpoint(endpoint string) (rate.Limit, in
 	// Sensitive endpoint defaults
 	sensitiveDefaults := map[string]struct{ rate, burst int }{
 		"login":           {5, 3},
+		"password_forgot": {3, 2},
+		"password_reset":  {5, 3},
 		"register":        {10, 5},
 		"change_password": {3, 2},
 		"refresh":         {30, 10},

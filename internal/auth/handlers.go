@@ -99,6 +99,19 @@ func (h *Handler) RegisterRoutes(mux Mux) {
 		mux.HandleFunc(path, h.limited("change_password", h.handleChangePassword))
 	}
 
+	// The most-used account flow after signing in, and until 2.19.0 the only
+	// two endpoints in this block with no handler at all: both were on by
+	// default and both answered 404.
+	if h.config.PasswordForgot != nil && h.config.PasswordForgot.Enabled {
+		path := prefix + getPath(h.config.PasswordForgot, "/forgot-password")
+		mux.HandleFunc(path, h.limited("password_forgot", h.handlePasswordForgot))
+	}
+
+	if h.config.PasswordReset != nil && h.config.PasswordReset.Enabled {
+		path := prefix + getPath(h.config.PasswordReset, "/reset-password")
+		mux.HandleFunc(path, h.limited("password_reset", h.handlePasswordReset))
+	}
+
 	// Two ways of saying no, and either of them counts.
 	//
 	// The endpoints block turns an endpoint off; the sessions block's
@@ -329,6 +342,81 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.writeJSON(w, http.StatusOK, body)
+}
+
+// handlePasswordForgot handles POST /auth/forgot-password.
+//
+// It answers the same way whether or not the address belongs to an account.
+// Answering differently turns this into a way to find out who has an account
+// here, which is worth more to somebody enumerating a customer list than the
+// reset is to them.
+func (h *Handler) handlePasswordForgot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
+		return
+	}
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid_request", "Invalid request body")
+		return
+	}
+	if req.Email == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request", "Email is required")
+		return
+	}
+
+	if err := h.manager.RequestPasswordReset(r.Context(), req.Email, getClientIP(r), r.UserAgent()); err != nil {
+		// Something here is broken — the store, or the flow that delivers the
+		// token. That is worth reporting as a failure, unlike an address with
+		// no account behind it.
+		h.writeError(w, http.StatusInternalServerError, "reset_failed", "Could not start a password reset")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "If that address has an account, a reset link is on its way",
+	})
+}
+
+// handlePasswordReset handles POST /auth/reset-password.
+func (h *Handler) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		h.writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed")
+		return
+	}
+
+	var req struct {
+		Token       string `json:"token"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.writeError(w, http.StatusBadRequest, "invalid_request", "Invalid request body")
+		return
+	}
+	if req.Token == "" || req.NewPassword == "" {
+		h.writeError(w, http.StatusBadRequest, "invalid_request", "Token and new password are required")
+		return
+	}
+
+	if err := h.manager.ResetPassword(r.Context(), req.Token, req.NewPassword, getClientIP(r), r.UserAgent()); err != nil {
+		if authErr, ok := err.(*AuthError); ok {
+			status := http.StatusBadRequest
+			if authErr.Code == ErrInvalidResetToken.Code {
+				status = http.StatusUnauthorized
+			}
+			h.writeError(w, status, authErr.Code, authErr.Message)
+			return
+		}
+		h.writeError(w, http.StatusInternalServerError, "reset_failed", "Could not reset the password")
+		return
+	}
+
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Password reset. Every session that account had is now signed out",
+	})
 }
 
 // handleLogout handles POST /auth/logout

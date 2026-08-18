@@ -128,8 +128,9 @@ func TestADatabaseWithNoStoresBehindItIsRefused(t *testing.T) {
 }
 
 func TestRedisStorageBuildsWhatItCanHold(t *testing.T) {
-	// Redis holds sessions, tokens and the brute-force counters, but not
-	// accounts — which is why the warning about them exists.
+	// Redis holds sessions, tokens, the brute-force counters and outstanding
+	// password reset tokens, but not accounts — which is why the warning about
+	// them exists.
 	rt := runtimeWithConnectors(t, "")
 
 	opts, err := rt.buildAuthStores(&auth.Config{
@@ -139,8 +140,8 @@ func TestRedisStorageBuildsWhatItCanHold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildAuthStores: %v", err)
 	}
-	if len(opts) != 3 {
-		t.Errorf("%d stores, want sessions, tokens and brute-force counters", len(opts))
+	if len(opts) != 4 {
+		t.Errorf("%d stores, want sessions, tokens, brute-force counters and reset tokens", len(opts))
 	}
 }
 

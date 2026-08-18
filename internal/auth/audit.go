@@ -25,6 +25,7 @@ const (
 	AuditLogout         = "logout"
 	AuditRegister       = "register"
 	AuditPasswordChange = "password_change"
+	AuditPasswordReset  = "password_reset"
 	AuditTokenRefresh   = "token_refresh"
 )
 
