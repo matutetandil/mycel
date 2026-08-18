@@ -25,7 +25,7 @@ connector "partner_sftp" {
 | `password` | string | — | Authentication password |
 | `base_path` | string | — | Remote base directory for all operations |
 | `key_file` | string | — | SSH private key file (SFTP only) |
-| `passive` | bool | `true` | Enable FTP passive mode |
+| `passive` | bool | `true` | Passive mode. Transfers are always passive — the mode that works from behind NAT — so `false` is refused rather than silently ignored |
 | `timeout` | duration | `"30s"` | Connection timeout |
 | `tls` | bool | `false` | Enable explicit TLS (FTPS) |
 
