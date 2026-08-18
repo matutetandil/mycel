@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 // What the sessions block is allowed to decide.
@@ -190,5 +191,110 @@ func TestWhatHappensAtTheSessionLimitHasToBeUnderstood(t *testing.T) {
 				t.Errorf("on_max_reached = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestASessionThatIsNotExtendedByUseEndsOnSchedule(t *testing.T) {
+	// The difference between a sliding session and a fixed one, which is what
+	// extend_on_activity is for and what it decided nothing about: every
+	// validated request refreshes the last-active time the idle sweep reads,
+	// so a session in constant use never reached its idle timeout however the
+	// deployment was configured.
+	ctx := context.Background()
+	user := &User{ID: "user-1", Email: "someone@example.test"}
+
+	for name, tc := range map[string]struct {
+		sessions  *SessionsConfig
+		endsAfter time.Duration
+	}{
+		"extended by use, so the idle window is not the end": {
+			&SessionsConfig{ExtendOnActivity: true, IdleTimeout: "30m", AbsoluteTimeout: "24h"},
+			24 * time.Hour,
+		},
+		"fixed, so it ends an idle window after it began": {
+			&SessionsConfig{ExtendOnActivity: false, IdleTimeout: "30m", AbsoluteTimeout: "24h"},
+			30 * time.Minute,
+		},
+		"fixed with no idle window is just the absolute one": {
+			&SessionsConfig{ExtendOnActivity: false, AbsoluteTimeout: "24h"},
+			24 * time.Hour,
+		},
+		"a fixed window longer than the absolute one does not extend it": {
+			&SessionsConfig{ExtendOnActivity: false, IdleTimeout: "48h", AbsoluteTimeout: "24h"},
+			24 * time.Hour,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			manager, err := NewManager(&Config{
+				Preset:   "development",
+				JWT:      &JWTConfig{Secret: "a-secret-long-enough-for-signing"},
+				Sessions: tc.sessions,
+			})
+			if err != nil {
+				t.Fatalf("NewManager: %v", err)
+			}
+
+			before := time.Now()
+			session, err := manager.createSession(ctx, user, "203.0.113.10", "Mozilla/5.0")
+			if err != nil {
+				t.Fatalf("createSession: %v", err)
+			}
+
+			lasts := session.ExpiresAt.Sub(before)
+			if lasts < tc.endsAfter-time.Minute || lasts > tc.endsAfter+time.Minute {
+				t.Errorf("the session lasts %v, want about %v", lasts.Round(time.Second), tc.endsAfter)
+			}
+			// However it ends, when it was last used stays truthful: a listing
+			// showing creation time forever would be worse than the bug.
+			if session.LastActiveAt.IsZero() {
+				t.Error("the session does not record when it was last used")
+			}
+		})
+	}
+}
+
+func TestUsingAFixedSessionDoesNotBuyMoreTime(t *testing.T) {
+	// The behaviour the expiry stands in for: validating a token refreshes the
+	// last-active time, and with a fixed window that must not move the end.
+	ctx := context.Background()
+	manager, err := NewManager(&Config{
+		Preset:   "development",
+		JWT:      &JWTConfig{Secret: "a-secret-long-enough-for-signing"},
+		Sessions: &SessionsConfig{ExtendOnActivity: false, IdleTimeout: "30m", AbsoluteTimeout: "24h"},
+	})
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+
+	user := &User{ID: "user-1", Email: "someone@example.test"}
+	if err := manager.userStore.Create(ctx, user); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	tokens, err := manager.EstablishSession(ctx, user, "203.0.113.10", "Mozilla/5.0")
+	if err != nil {
+		t.Fatalf("EstablishSession: %v", err)
+	}
+
+	claims, err := manager.tokenManager.ValidateAccessToken(tokens.AccessToken)
+	if err != nil {
+		t.Fatalf("the token this just issued does not validate: %v", err)
+	}
+	opened, err := manager.sessionStore.FindByID(ctx, claims.SessionID)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	endsAt := opened.ExpiresAt
+
+	if _, _, err := manager.ValidateToken(ctx, tokens.AccessToken); err != nil {
+		t.Fatalf("ValidateToken: %v", err)
+	}
+
+	used, err := manager.sessionStore.FindByID(ctx, claims.SessionID)
+	if err != nil {
+		t.Fatalf("FindByID after use: %v", err)
+	}
+	if !used.ExpiresAt.Equal(endsAt) {
+		t.Errorf("using the session moved its end from %v to %v", endsAt, used.ExpiresAt)
 	}
 }

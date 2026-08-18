@@ -137,6 +137,8 @@ sessions {
   idle_timeout     = "1h"        # End a session left untouched this long
   absolute_timeout = "24h"       # End it this long after it began, however active
 
+  extend_on_activity = true      # Using the session pushes the idle timeout forward
+
   allow_list       = true        # Serve GET /auth/sessions
   allow_revoke     = true        # Serve DELETE /auth/sessions/{id}
 
@@ -151,6 +153,13 @@ with no `sessions` block still lets somebody see where they are signed in and
 end a session they no longer recognise. Writing either false stops that endpoint
 being served at all, rather than serving it and refusing — a client asking for it
 gets a 404, not a 403.
+
+`extend_on_activity` is the difference between a sliding session and a fixed
+one. On, which is the default, each request pushes the idle timeout forward, so
+somebody working steadily is never signed out. Written false, the session ends
+one `idle_timeout` after it began however busy it was — a policy worth having
+where a long-lived session is the risk. What it does not change is what the
+session listing shows: when it was last used stays truthful either way.
 
 `track` names what is recorded about a sign-in. Naming none records both the
 address and the browser string; naming some records only those, so a service

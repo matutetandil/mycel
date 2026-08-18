@@ -643,6 +643,27 @@ func (m *Manager) createSession(ctx context.Context, user *User, ip, userAgent s
 		expiresAt = now.Add(24 * time.Hour)
 	}
 
+	// A session that is not extended by use ends a fixed time after it began.
+	//
+	// extend_on_activity was read by nothing, so every session slid forward:
+	// each validated request refreshes the last-active time, which is what the
+	// idle sweep reads, and a session in constant use never reached its idle
+	// timeout. A deployment asking for a fixed window — sign in again after
+	// thirty minutes however busy you were — got a sliding one.
+	//
+	// Writing it into the session's own expiry rather than teaching the sweep
+	// a second rule means every store already enforces it, including Redis,
+	// where the session is a key with a lifetime and no sweep runs at all. It
+	// also leaves the last-active time truthful, so a session listing still
+	// says when it was really used.
+	if m.config.Sessions != nil && !m.config.Sessions.ExtendOnActivity && m.config.Sessions.IdleTimeout != "" {
+		if idle, err := ParseDuration(m.config.Sessions.IdleTimeout); err == nil && idle > 0 {
+			if fixed := now.Add(idle); fixed.Before(expiresAt) {
+				expiresAt = fixed
+			}
+		}
+	}
+
 	session := &Session{
 		ID:           sessionID,
 		UserID:       user.ID,

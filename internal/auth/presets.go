@@ -416,6 +416,10 @@ func mergeSessions(cfg, preset *SessionsConfig) {
 	if cfg.OnMaxReached == "" {
 		cfg.OnMaxReached = preset.OnMaxReached
 	}
+	// Not merged from the preset: every preset extends on activity, so taking
+	// the preset's value whenever the config's is false would overwrite the
+	// only interesting thing somebody can say about it. The parser hands this
+	// over already set for a block that did not mention it.
 }
 
 // ParseDuration parses a duration string like "15m", "1h", "7d"
