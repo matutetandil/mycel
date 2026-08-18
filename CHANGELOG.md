@@ -60,6 +60,8 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **A health check raced the server it was checking.** The REST connector's `Health` read `started` from the health manager's goroutine while `Start` wrote it under the mutex, so the read was unsynchronised — a real race, caught by the detector on a loaded CI runner rather than by anybody watching. It is atomic now, so a health check cannot block on a mutex held by something slower than it is.
+
 - **`grant_type` on an HTTP connector's `auth` block chose nothing.** Which OAuth2 grant ran was decided by the auth type alone, so a connector written for a grant this does not implement — `password`, say — was accepted in silence and ran a refresh-token flow instead, against a token endpoint that would refuse it. It selects the grant now, and a value that is neither `client_credentials` nor `refresh_token` is named at startup.
 
 - **A GraphQL server with no schema at all started happily.** `schema { auto_generate }` was stored and read by nothing: where the schema came from was decided entirely by whether a `path` was given. So the two ways of saying there is no schema — no path, and `auto_generate = false` — produced a service that was up and answered every query with an empty schema. Both that and the contradiction, a path together with `auto_generate = true`, are refused at startup now.
