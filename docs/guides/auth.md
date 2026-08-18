@@ -703,6 +703,24 @@ CREATE TABLE password_history (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Sessions and revoked tokens, on MySQL. These are the names the runtime uses;
+-- on PostgreSQL both are held in memory unless Redis is configured for them.
+CREATE TABLE auth_sessions (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  ip VARCHAR(45),
+  user_agent TEXT,
+  created_at TIMESTAMP,
+  last_active_at TIMESTAMP,
+  expires_at TIMESTAMP,
+  device_id VARCHAR(64)
+);
+
+CREATE TABLE auth_tokens (
+  token_id VARCHAR(64) PRIMARY KEY,
+  expires_at TIMESTAMP
+);
+
 -- Linked accounts (SSO/Social)
 CREATE TABLE linked_accounts (
   id VARCHAR(64) PRIMARY KEY,

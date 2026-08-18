@@ -56,17 +56,24 @@ func (r *Runtime) buildAuthStores(cfg *auth.Config) ([]auth.ManagerOption, error
 			users = &auth.UsersConfig{}
 		}
 
+		// The password history is only worth keeping where the accounts are:
+		// in memory it is lost with them on a restart, which would quietly
+		// return every account to being able to reuse its old passwords.
 		switch driver {
 		case "postgres", "postgresql":
-			opts = append(opts, auth.WithUserStore(auth.NewPostgresUserStore(db, users)))
-			persistent = append(persistent, "users")
+			opts = append(opts,
+				auth.WithUserStore(auth.NewPostgresUserStore(db, users)),
+				auth.WithPasswordHistoryStore(auth.NewPostgresPasswordHistoryStore(db, "password_history")),
+			)
+			persistent = append(persistent, "users", "password history")
 		case "mysql", "mariadb":
 			opts = append(opts,
 				auth.WithUserStore(auth.NewMySQLUserStore(db, users)),
 				auth.WithSessionStore(auth.NewMySQLSessionStore(db, "auth_sessions")),
 				auth.WithTokenStore(auth.NewMySQLTokenStore(db, "auth_tokens")),
+				auth.WithPasswordHistoryStore(auth.NewMySQLPasswordHistoryStore(db, "password_history")),
 			)
-			persistent = append(persistent, "users", "sessions", "tokens")
+			persistent = append(persistent, "users", "sessions", "tokens", "password history")
 		default:
 			return nil, fmt.Errorf("auth storage connector %q is a %s database, and auth stores exist for postgres and mysql only",
 				cfg.Storage.Connector, driver)

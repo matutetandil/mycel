@@ -27,6 +27,7 @@ type Manager struct {
 	rateLimiter     *PerKeyRateLimiter
 	mfaStore        MFAStore
 	auditStore      AuditStore
+	passwordHistory PasswordHistoryStore
 
 	// Components
 	tokenManager      *TokenManager
@@ -80,6 +81,13 @@ func WithLogger(logger *slog.Logger) ManagerOption {
 func WithMFAStore(store MFAStore) ManagerOption {
 	return func(m *Manager) {
 		m.mfaStore = store
+	}
+}
+
+// WithPasswordHistoryStore sets where previously used password hashes are kept.
+func WithPasswordHistoryStore(store PasswordHistoryStore) ManagerOption {
+	return func(m *Manager) {
+		m.passwordHistory = store
 	}
 }
 
@@ -145,6 +153,9 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 	}
 	if m.tokenStore == nil {
 		m.tokenStore = NewMemoryTokenStore()
+	}
+	if m.passwordHistory == nil {
+		m.passwordHistory = NewMemoryPasswordHistoryStore()
 	}
 	if m.bruteForceStore == nil {
 		m.bruteForceStore = NewMemoryBruteForceStore()
@@ -604,6 +615,21 @@ func (m *Manager) ChangePassword(ctx context.Context, userID, currentPassword, n
 		return &AuthError{Code: "weak_password", Message: err.Error()}
 	}
 
+	// Somebody returning to a password they have used before.
+	//
+	// `password { history = N }` was read by nothing, so an account could
+	// alternate between two passwords for ever — which is what somebody
+	// required to change theirs every ninety days will do unless this stops
+	// them. The current one counts as the most recent of the N, so history = 1
+	// means "not the one you already have".
+	if err := m.refusePasswordReuse(ctx, user, newPassword); err != nil {
+		m.audit(ctx, &AuditEvent{
+			Event: AuditPasswordChange, UserID: userID, Email: user.Email,
+			Success: false, ErrorReason: err.Error(),
+		})
+		return &AuthError{Code: "password_reused", Message: err.Error()}
+	}
+
 	// Hash new password
 	passwordHash, err := m.passwordHasher.Hash(newPassword)
 	if err != nil {
@@ -615,10 +641,67 @@ func (m *Manager) ChangePassword(ctx context.Context, userID, currentPassword, n
 		return err
 	}
 
+	// The one being replaced joins the record, and the record is trimmed to
+	// what the policy actually looks at.
+	if keep := m.passwordHistoryDepth(); keep > 0 && user.PasswordHash != "" {
+		if err := m.passwordHistory.AddPasswordHash(ctx, userID, user.PasswordHash); err != nil {
+			m.logger.Warn("could not record the previous password", "user_id", userID, "error", err)
+		} else if err := m.passwordHistory.CleanOldHashes(ctx, userID, keep); err != nil {
+			m.logger.Warn("could not trim the password history", "user_id", userID, "error", err)
+		}
+	}
+
 	m.logger.Info("password changed", "user_id", userID)
 	m.audit(ctx, &AuditEvent{
 		Event: AuditPasswordChange, UserID: userID, Email: user.Email, Success: true,
 	})
+	return nil
+}
+
+// passwordHistoryDepth is how many past passwords the policy looks at.
+func (m *Manager) passwordHistoryDepth() int {
+	if m.config.Password == nil {
+		return 0
+	}
+	return m.config.Password.History
+}
+
+// refusePasswordReuse reports whether a password is one this account has used
+// within the configured depth.
+//
+// Each stored hash is checked with the hasher rather than compared as a
+// string: every hash carries its own salt, so the same password hashed twice
+// does not produce the same text, and a string comparison would let every
+// reuse through while looking like it worked.
+func (m *Manager) refusePasswordReuse(ctx context.Context, user *User, candidate string) error {
+	depth := m.passwordHistoryDepth()
+	if depth <= 0 {
+		return nil
+	}
+
+	// The password in use counts as the most recent one.
+	if user.PasswordHash != "" {
+		if same, _ := m.passwordHasher.Verify(candidate, user.PasswordHash); same {
+			return fmt.Errorf("this is the password already in use; choose one of the last %d you have not used", depth)
+		}
+	}
+	if depth == 1 {
+		return nil
+	}
+
+	previous, err := m.passwordHistory.GetRecentHashes(ctx, user.ID, depth-1)
+	if err != nil {
+		// A history that cannot be read must not become a way to get a reuse
+		// past the policy, nor a way to lock somebody out of changing their
+		// password. It is reported and the change goes ahead.
+		m.logger.Warn("could not read the password history", "user_id", user.ID, "error", err)
+		return nil
+	}
+	for _, hash := range previous {
+		if same, _ := m.passwordHasher.Verify(candidate, hash); same {
+			return fmt.Errorf("this is one of your last %d passwords; choose one you have not used", depth)
+		}
+	}
 	return nil
 }
 
