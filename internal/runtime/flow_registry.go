@@ -633,12 +633,12 @@ func (h *FlowHandler) executeWithRetry(ctx context.Context, input map[string]int
 			maxAttempts = eh.Retry.Attempts
 		}
 		if eh.Retry.Delay != "" {
-			if d, err := time.ParseDuration(eh.Retry.Delay); err == nil {
+			if d, err := flow.ParseDuration(eh.Retry.Delay); err == nil {
 				delay = d
 			}
 		}
 		if eh.Retry.MaxDelay != "" {
-			if d, err := time.ParseDuration(eh.Retry.MaxDelay); err == nil {
+			if d, err := flow.ParseDuration(eh.Retry.MaxDelay); err == nil {
 				maxDelay = d
 			}
 		}
@@ -992,7 +992,7 @@ func (h *FlowHandler) executeAsync(ctx context.Context, input map[string]interfa
 
 	ttl := time.Hour
 	if async.TTL != "" {
-		if d, parseErr := time.ParseDuration(async.TTL); parseErr == nil {
+		if d, parseErr := flow.ParseDuration(async.TTL); parseErr == nil {
 			ttl = d
 		}
 	}
@@ -1130,7 +1130,7 @@ func (h *FlowHandler) storeIdempotencyResult(ctx context.Context, input map[stri
 
 	ttl := 24 * time.Hour // Default 24h
 	if idem.TTL != "" {
-		if d, parseErr := time.ParseDuration(idem.TTL); parseErr == nil {
+		if d, parseErr := flow.ParseDuration(idem.TTL); parseErr == nil {
 			ttl = d
 		}
 	}
@@ -3987,7 +3987,7 @@ func (h *FlowHandler) getCacheTTL() time.Duration {
 
 	// First check flow-level TTL
 	if h.Config.Cache.TTL != "" {
-		if ttl, err := time.ParseDuration(h.Config.Cache.TTL); err == nil {
+		if ttl, err := flow.ParseDuration(h.Config.Cache.TTL); err == nil {
 			return ttl
 		}
 	}
@@ -3995,7 +3995,7 @@ func (h *FlowHandler) getCacheTTL() time.Duration {
 	// Fall back to named cache TTL
 	if h.Config.Cache.Use != "" {
 		if named, ok := h.NamedCaches[h.Config.Cache.Use]; ok && named.TTL != "" {
-			if ttl, err := time.ParseDuration(named.TTL); err == nil {
+			if ttl, err := flow.ParseDuration(named.TTL); err == nil {
 				return ttl
 			}
 		}

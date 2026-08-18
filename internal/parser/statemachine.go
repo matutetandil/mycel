@@ -41,7 +41,7 @@ func parseStateMachineBlock(block *hcl.Block, ctx *hcl.EvalContext) (*statemachi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("state_machine initial error: %s", diags.Error())
 		}
-		config.Initial = val.AsString()
+		config.Initial = stringOrEmpty(val)
 	}
 
 	// Parse state blocks
@@ -140,14 +140,14 @@ func parseTransitionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*statemachine
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("transition_to error: %s", diags.Error())
 		}
-		transition.TransitionTo = val.AsString()
+		transition.TransitionTo = stringOrEmpty(val)
 	}
 
 	// Parse guard
 	if attr, ok := content.Attributes["guard"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			transition.Guard = val.AsString()
+			transition.Guard = stringOrEmpty(val)
 		}
 	}
 
@@ -192,7 +192,7 @@ func parseStateMachineActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*stat
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("action connector error: %s", diags.Error())
 		}
-		ref := val.AsString()
+		ref := stringOrEmpty(val)
 		if strings.HasPrefix(ref, "connector.") {
 			ref = strings.TrimPrefix(ref, "connector.")
 		}
@@ -202,14 +202,14 @@ func parseStateMachineActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*stat
 	if attr, ok := content.Attributes["operation"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			action.Operation = val.AsString()
+			action.Operation = stringOrEmpty(val)
 		}
 	}
 
 	if attr, ok := content.Attributes["target"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			action.Target = val.AsString()
+			action.Target = stringOrEmpty(val)
 		}
 	}
 
@@ -237,14 +237,14 @@ func parseStateMachineActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*stat
 	if attr, ok := content.Attributes["template"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			action.Template = val.AsString()
+			action.Template = stringOrEmpty(val)
 		}
 	}
 
 	if attr, ok := content.Attributes["to"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			action.To = val.AsString()
+			action.To = stringOrEmpty(val)
 		}
 	}
 

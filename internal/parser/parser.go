@@ -701,7 +701,7 @@ func parseServiceBlock(block *hcl.Block, ctx *hcl.EvalContext) (*ServiceConfig, 
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("service name error: %s", diags.Error())
 		}
-		svc.Name = val.AsString()
+		svc.Name = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["version"]; ok {
@@ -709,7 +709,7 @@ func parseServiceBlock(block *hcl.Block, ctx *hcl.EvalContext) (*ServiceConfig, 
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("service version error: %s", diags.Error())
 		}
-		svc.Version = val.AsString()
+		svc.Version = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["admin_port"]; ok {
@@ -826,7 +826,7 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("key_extractor error: %s", diags.Error())
 		}
-		rl.KeyExtractor = val.AsString()
+		rl.KeyExtractor = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["exclude_paths"]; ok {
@@ -836,7 +836,7 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 		}
 		paths := []string{}
 		for _, v := range val.AsValueSlice() {
-			paths = append(paths, v.AsString())
+			paths = append(paths, stringOrEmpty(v))
 		}
 		rl.ExcludePaths = paths
 	}
@@ -854,7 +854,7 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("storage error: %s", diags.Error())
 		}
-		rl.Storage = val.AsString()
+		rl.Storage = stringOrEmpty(val)
 	}
 
 	return rl, nil
@@ -888,7 +888,7 @@ func parseWorkflowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*WorkflowConfig
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("workflow storage error: %s", diags.Error())
 		}
-		ref := val.AsString()
+		ref := stringOrEmpty(val)
 		if strings.HasPrefix(ref, "connector.") {
 			ref = strings.TrimPrefix(ref, "connector.")
 		}
@@ -898,7 +898,7 @@ func parseWorkflowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*WorkflowConfig
 	if attr, ok := content.Attributes["table"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			wf.Table = val.AsString()
+			wf.Table = stringOrEmpty(val)
 		}
 	}
 
@@ -965,7 +965,7 @@ func parseWorkflowAPIBlock(block *hcl.Block, ctx *hcl.EvalContext) (*WorkflowAPI
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("workflow api host error: %s", diags.Error())
 		}
-		api.Host = val.AsString()
+		api.Host = stringOrEmpty(val)
 	}
 
 	for _, nested := range content.Blocks {

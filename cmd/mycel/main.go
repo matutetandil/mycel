@@ -579,6 +579,18 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed: %d flow error(s)", len(errs))
 	}
 
+	// A duration that cannot be read is discarded at the point of use, so a
+	// cache that meant to last five minutes lasts however long the connector
+	// defaults to.
+	if errs := runtime.ValidateFlowDurations(config); len(errs) > 0 {
+		fmt.Printf("\n✗ Configuration is invalid:\n\n")
+		for _, e := range errs {
+			fmt.Printf("    - %s\n", e)
+		}
+		fmt.Println()
+		return fmt.Errorf("validation failed: %d duration error(s)", len(errs))
+	}
+
 	// A hook naming a flow that does not exist would otherwise surface as a
 	// line in a log during whatever the hook was meant to catch.
 	if errs := runtime.ValidateAuthHooks(config); len(errs) > 0 {

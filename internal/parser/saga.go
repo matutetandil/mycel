@@ -40,7 +40,7 @@ func parseSagaBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.Config, error
 	if attr, ok := content.Attributes["timeout"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			config.Timeout = val.AsString()
+			config.Timeout = stringOrEmpty(val)
 		}
 	}
 
@@ -106,7 +106,7 @@ func parseSagaFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.FromConfi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("saga from connector error: %s", diags.Error())
 		}
-		from.Connector = parseSagaConnectorRef(val.AsString())
+		from.Connector = parseSagaConnectorRef(stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["operation"]; ok {
@@ -114,7 +114,7 @@ func parseSagaFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.FromConfi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("saga from operation error: %s", diags.Error())
 		}
-		from.Operation = val.AsString()
+		from.Operation = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["filter"]; ok {
@@ -122,7 +122,7 @@ func parseSagaFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.FromConfi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("saga from filter error: %s", diags.Error())
 		}
-		from.Filter = val.AsString()
+		from.Filter = stringOrEmpty(val)
 	}
 
 	return from, nil
@@ -160,7 +160,7 @@ func parseSagaStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.StepConfi
 	if attr, ok := content.Attributes["timeout"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			step.Timeout = val.AsString()
+			step.Timeout = stringOrEmpty(val)
 		}
 	}
 
@@ -168,7 +168,7 @@ func parseSagaStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.StepConfi
 	if attr, ok := content.Attributes["on_error"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			step.OnError = val.AsString()
+			step.OnError = stringOrEmpty(val)
 		}
 	}
 
@@ -176,7 +176,7 @@ func parseSagaStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.StepConfi
 	if attr, ok := content.Attributes["delay"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			step.Delay = val.AsString()
+			step.Delay = stringOrEmpty(val)
 		}
 	}
 
@@ -184,7 +184,7 @@ func parseSagaStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.StepConfi
 	if attr, ok := content.Attributes["await"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			step.Await = val.AsString()
+			step.Await = stringOrEmpty(val)
 		}
 	}
 
@@ -245,7 +245,7 @@ func parseSagaActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.ActionC
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("saga action connector error: %s", diags.Error())
 		}
-		action.Connector = parseSagaConnectorRef(val.AsString())
+		action.Connector = parseSagaConnectorRef(stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["operation"]; ok {
@@ -253,20 +253,20 @@ func parseSagaActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.ActionC
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("saga action operation error: %s", diags.Error())
 		}
-		action.Operation = val.AsString()
+		action.Operation = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["target"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			action.Target = val.AsString()
+			action.Target = stringOrEmpty(val)
 		}
 	}
 
 	if attr, ok := content.Attributes["query"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			action.Query = val.AsString()
+			action.Query = stringOrEmpty(val)
 		}
 	}
 
@@ -308,14 +308,14 @@ func parseSagaActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.ActionC
 	if attr, ok := content.Attributes["template"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			action.Template = val.AsString()
+			action.Template = stringOrEmpty(val)
 		}
 	}
 
 	if attr, ok := content.Attributes["to"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			action.To = val.AsString()
+			action.To = stringOrEmpty(val)
 		}
 	}
 

@@ -35,7 +35,7 @@ func parseFunctionsBlock(block *hcl.Block, ctx *hcl.EvalContext) (*functions.Con
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("wasm attribute error: %s", diags.Error())
 		}
-		cfg.WASM = val.AsString()
+		cfg.WASM = stringOrEmpty(val)
 	}
 
 	// Parse exports array
@@ -47,7 +47,7 @@ func parseFunctionsBlock(block *hcl.Block, ctx *hcl.EvalContext) (*functions.Con
 
 		exports := []string{}
 		for _, v := range val.AsValueSlice() {
-			exports = append(exports, v.AsString())
+			exports = append(exports, stringOrEmpty(v))
 		}
 		cfg.Exports = exports
 	}

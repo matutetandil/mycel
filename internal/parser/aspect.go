@@ -47,10 +47,10 @@ func parseAspectBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Config, e
 
 		if val.Type().IsTupleType() || val.Type().IsListType() {
 			for _, v := range val.AsValueSlice() {
-				config.On = append(config.On, v.AsString())
+				config.On = append(config.On, stringOrEmpty(v))
 			}
 		} else if val.Type() == cty.String {
-			config.On = append(config.On, val.AsString())
+			config.On = append(config.On, stringOrEmpty(val))
 		}
 	}
 
@@ -60,7 +60,7 @@ func parseAspectBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Config, e
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("aspect 'when' error: %s", diags.Error())
 		}
-		config.When = aspect.When(val.AsString())
+		config.When = aspect.When(stringOrEmpty(val))
 	}
 
 	// Parse "if" attribute (optional condition)
@@ -69,7 +69,7 @@ func parseAspectBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Config, e
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("aspect 'if' error: %s", diags.Error())
 		}
-		config.If = val.AsString()
+		config.If = stringOrEmpty(val)
 	}
 
 	// Parse "priority" attribute (optional)
@@ -161,7 +161,7 @@ func parseAspectActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Act
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("action 'connector' error: %s", diags.Error())
 		}
-		action.Connector = val.AsString()
+		action.Connector = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["flow"]; ok {
@@ -169,7 +169,7 @@ func parseAspectActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Act
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("action 'flow' error: %s", diags.Error())
 		}
-		action.Flow = val.AsString()
+		action.Flow = stringOrEmpty(val)
 	}
 
 	// Validate mutual exclusivity: connector XOR flow
@@ -185,7 +185,7 @@ func parseAspectActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Act
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("action 'operation' error: %s", diags.Error())
 		}
-		action.Operation = val.AsString()
+		action.Operation = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["target"]; ok {
@@ -193,7 +193,7 @@ func parseAspectActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Act
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("action 'target' error: %s", diags.Error())
 		}
-		action.Target = val.AsString()
+		action.Target = stringOrEmpty(val)
 	}
 
 	// Parse transform block
@@ -224,7 +224,7 @@ func parseAspectTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[stri
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("transform '%s' error: %s", name, diags.Error())
 		}
-		transform[name] = val.AsString()
+		transform[name] = stringOrEmpty(val)
 	}
 
 	return transform, nil
@@ -252,7 +252,7 @@ func parseAspectResponseBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.R
 			}
 			if val.Type().IsObjectType() || val.Type().IsMapType() {
 				for k, v := range val.AsValueMap() {
-					config.Headers[k] = v.AsString()
+					config.Headers[k] = stringOrEmpty(v)
 				}
 			}
 			continue
@@ -263,7 +263,7 @@ func parseAspectResponseBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.R
 		if valDiags.HasErrors() {
 			return nil, fmt.Errorf("response '%s' error: %s", name, valDiags.Error())
 		}
-		config.Fields[name] = val.AsString()
+		config.Fields[name] = stringOrEmpty(val)
 	}
 
 	return config, nil
@@ -291,7 +291,7 @@ func parseAspectCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Cach
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("cache 'storage' error: %s", diags.Error())
 		}
-		cache.Storage = val.AsString()
+		cache.Storage = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["ttl"]; ok {
@@ -299,7 +299,7 @@ func parseAspectCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Cach
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("cache 'ttl' error: %s", diags.Error())
 		}
-		cache.TTL = val.AsString()
+		cache.TTL = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["key"]; ok {
@@ -309,7 +309,7 @@ func parseAspectCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Cach
 			// Extract raw text instead of evaluating
 			cache.Key = extractExpressionText(attr.Expr)
 		} else {
-			cache.Key = val.AsString()
+			cache.Key = stringOrEmpty(val)
 		}
 	}
 
@@ -338,7 +338,7 @@ func parseAspectInvalidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("invalidate 'storage' error: %s", diags.Error())
 		}
-		invalidate.Storage = val.AsString()
+		invalidate.Storage = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["keys"]; ok {
@@ -349,7 +349,7 @@ func parseAspectInvalidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect
 			invalidate.Keys = extractTupleElements(attr.Expr)
 		} else if val.Type().IsTupleType() || val.Type().IsListType() {
 			for _, v := range val.AsValueSlice() {
-				invalidate.Keys = append(invalidate.Keys, v.AsString())
+				invalidate.Keys = append(invalidate.Keys, stringOrEmpty(v))
 			}
 		}
 	}
@@ -361,7 +361,7 @@ func parseAspectInvalidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect
 			invalidate.Patterns = extractTupleElements(attr.Expr)
 		} else if val.Type().IsTupleType() || val.Type().IsListType() {
 			for _, v := range val.AsValueSlice() {
-				invalidate.Patterns = append(invalidate.Patterns, v.AsString())
+				invalidate.Patterns = append(invalidate.Patterns, stringOrEmpty(v))
 			}
 		}
 	}
@@ -391,7 +391,7 @@ func parseAspectRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("rate_limit 'key' error: %s", diags.Error())
 		}
-		rateLimit.Key = val.AsString()
+		rateLimit.Key = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["requests_per_second"]; ok {
@@ -444,7 +444,7 @@ func parseAspectCircuitBreakerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*as
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("circuit_breaker 'name' error: %s", diags.Error())
 		}
-		cb.Name = val.AsString()
+		cb.Name = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["failure_threshold"]; ok {
@@ -476,7 +476,7 @@ func parseAspectCircuitBreakerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*as
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("circuit_breaker 'timeout' error: %s", diags.Error())
 		}
-		cb.Timeout = val.AsString()
+		cb.Timeout = stringOrEmpty(val)
 	}
 
 	return cb, nil

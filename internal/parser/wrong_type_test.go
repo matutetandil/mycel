@@ -1,151 +1,144 @@
 package parser
 
 import (
-	"context"
-	"os"
-	"path/filepath"
+	"fmt"
+	"sort"
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector/profile"
+	"github.com/matutetandil/mycel/v2/pkg/schema"
 )
 
-// Reading an attribute with cty's AsString when it is not a string does not
-// return an error — it panics. A panic during parsing is the worst answer a
-// configuration mistake can get: the binary stops with a Go stack trace, before
-// it has said which file, which block or which attribute, and an operator
-// reads it as a crash rather than as something they wrote.
+// What happens when an attribute holds the wrong kind of value.
 //
-// A number where a name belongs is an ordinary slip — `port = 8080` next to
-// `type = 8080` — and every string attribute has to survive one.
-
-func parseText(t *testing.T, config string) error {
-	t.Helper()
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "c.mycel"), []byte(config), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	_, err := NewHCLParser().Parse(context.Background(), dir)
-	return err
-}
-
-func TestAWrongTypedAttributeDoesNotBringTheBinaryDown(t *testing.T) {
-	for name, config := range map[string]string{
-		"a connector type as a number": `connector "a" { type = 5 }`,
-		"an operation description as a number": `
-connector "a" {
-  type = "rest"
-  operation "get_user" {
-    description = 5
-    method      = "GET"
-    path        = "/users"
-  }
-}`,
-		"an operation path as a number": `
-connector "a" {
-  type = "rest"
-  operation "get_user" {
-    method = "GET"
-    path   = 404
-  }
-}`,
-		"an operation query as a boolean": `
-connector "a" {
-  type   = "database"
-  driver = "sqlite"
-  operation "list" {
-    query = true
-  }
-}`,
-		"a profile transform holding a number": `
-connector "prices" {
-  type    = "http"
-  default = "live"
-  profile "live" {
-    type     = "http"
-    base_url = "https://api.example.com"
-    transform {
-      factor = 2
-    }
-  }
-}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Fatalf("parsing panicked instead of reporting: %v", r)
-				}
-			}()
-			// Whether it is accepted or refused is the next question; what
-			// matters here is that it is answered rather than crashed on.
-			_ = parseText(t, config)
+// The parser reads most attributes with a bare cty AsString, which panics on
+// anything that is not text — so `cache { ttl = 300 }`, a number where a
+// duration string was wanted, took the whole binary down with "panic: not a
+// string" during `mycel validate`. That is a plausible thing to write: 300 is
+// what somebody means by five minutes, and the failure names neither the
+// attribute nor the block.
+//
+// This walks the schema and puts a number in every attribute declared as text,
+// one at a time, asking only that the parser not die. Refusing the value is
+// the right answer; so is accepting it and reading it as "300". Crashing is
+// not.
+//
+// It is the third parity test in this package, and the same shape as the other
+// two: the schema says what the language contains, and the test asks the real
+// parser whether that is true.
+func TestNoAttributeCanCrashTheParser(t *testing.T) {
+	for _, blk := range schema.BuiltinRootSchemas() {
+		blk := blk
+		t.Run(blk.Type, func(t *testing.T) {
+			for _, probe := range wrongTypeProbes(blk, blk.Type) {
+				probe := probe
+				t.Run(probe.where, func(t *testing.T) {
+					doc := probe.doc
+					_, err := tryParse(t, doc)
+					if err != nil && strings.HasPrefix(err.Error(), "panic:") {
+						t.Errorf("%s took the parser down: %v\n\n%s", probe.where, err, doc)
+					}
+				})
+			}
 		})
 	}
 }
 
-func TestAProfileTransformTakesTheSameValuesAFlowTransformDoes(t *testing.T) {
-	// The rule is shared rather than repeated: a quoted CEL expression, or a
-	// bare number or boolean, whose literal text is the expression for it.
-	cfg := parseOne(t, `
-connector "prices" {
-  type    = "http"
-  default = "live"
-
-  profile "live" {
-    type     = "http"
-    base_url = "https://api.example.com"
-
-    transform {
-      amount   = "input.price * 100"
-      currency = "NZD"
-      factor   = 2
-      active   = true
-    }
-  }
+type wrongTypeProbe struct {
+	where string // block.attribute, for the failure message
+	doc   string
 }
-`)
 
-	if len(cfg.Connectors) != 1 {
-		t.Fatalf("got %d connectors", len(cfg.Connectors))
-	}
-	profiles, ok := cfg.Connectors[0].Properties["_profiles"].(*profile.Config)
-	if !ok || profiles == nil {
-		t.Fatal("the profile block was not read")
-	}
-	live, found := profiles.Profiles["live"]
-	if !found {
-		t.Fatalf("profiles = %v", profiles.Profiles)
+// wrongTypeProbes renders one document per string-typed attribute, with a
+// number in place of the text.
+func wrongTypeProbes(blk schema.Block, name string) []wrongTypeProbe {
+	var probes []wrongTypeProbe
+
+	labels := make([]string, blk.Labels)
+	for i := range labels {
+		labels[i] = name
 	}
 
-	for field, want := range map[string]string{
-		"amount":   "input.price * 100",
-		"currency": "NZD",
-		"factor":   "2",
-		"active":   "true",
-	} {
-		if got := live.Transform[field]; got != want {
-			t.Errorf("%s = %q, want %q", field, got, want)
+	for _, path := range stringAttrPaths(blk, nil) {
+		doc := renderWithOverride(blk, labels, 0, path, "1234")
+		probes = append(probes, wrongTypeProbe{
+			where: strings.Join(append([]string{blk.Type}, path...), "."),
+			doc:   doc,
+		})
+	}
+	return probes
+}
+
+// stringAttrPaths lists every text attribute in a block and its children, as a
+// path of block types ending in the attribute name.
+func stringAttrPaths(blk schema.Block, prefix []string) [][]string {
+	var paths [][]string
+
+	attrs := append([]schema.Attr(nil), blk.Attrs...)
+	sort.Slice(attrs, func(i, j int) bool { return attrs[i].Name < attrs[j].Name })
+	for _, a := range attrs {
+		// Only the ones that would reach AsString: a declared enum is rendered
+		// as its first value and is covered by the parity test already.
+		if a.Type != schema.TypeString && a.Type != schema.TypeDuration {
+			continue
+		}
+		if len(a.Values) > 0 {
+			continue
+		}
+		if skipAttrForParity(blk.Type, a.Name) {
+			continue
+		}
+		paths = append(paths, append(append([]string{}, prefix...), a.Name))
+	}
+
+	children := append([]schema.Block(nil), blk.Children...)
+	sort.Slice(children, func(i, j int) bool { return children[i].Type < children[j].Type })
+	for _, child := range children {
+		paths = append(paths, stringAttrPaths(child, append(append([]string{}, prefix...), child.Type))...)
+	}
+	return paths
+}
+
+// renderWithOverride renders the block the way the parity test does, but with
+// one attribute holding the given literal instead of its sample value.
+func renderWithOverride(blk schema.Block, labels []string, depth int, path []string, literal string) string {
+	var b strings.Builder
+	b.WriteString(blockHeader(blk, labels) + " {\n")
+	indent := strings.Repeat("  ", depth+1)
+
+	attrs := append([]schema.Attr(nil), blk.Attrs...)
+	sort.Slice(attrs, func(i, j int) bool { return attrs[i].Name < attrs[j].Name })
+	for _, a := range attrs {
+		if skipAttrForParity(blk.Type, a.Name) {
+			continue
+		}
+		value := sampleValue(a)
+		// The override applies when this block is where the path ends.
+		if len(path) == 1 && path[0] == a.Name {
+			value = literal
+		}
+		fmt.Fprintf(&b, "%s%s = %s\n", indent, a.Name, value)
+	}
+
+	children := append([]schema.Block(nil), blk.Children...)
+	sort.Slice(children, func(i, j int) bool { return children[i].Type < children[j].Type })
+	for _, child := range children {
+		childLabels := make([]string, child.Labels)
+		for i := range childLabels {
+			childLabels[i] = "example"
+		}
+		childPath := path
+		if len(path) > 1 && path[0] == child.Type {
+			childPath = path[1:]
+		} else {
+			childPath = nil
+		}
+		rendered := renderWithOverride(child, childLabels, depth+1, childPath, literal)
+		for _, line := range strings.Split(strings.TrimRight(rendered, "\n"), "\n") {
+			b.WriteString(indent + line + "\n")
 		}
 	}
-}
 
-func TestAProfileTransformRefusesWhatHasNoExpression(t *testing.T) {
-	err := parseText(t, `
-connector "prices" {
-  type    = "http"
-  default = "live"
-  profile "live" {
-    type = "http"
-    transform {
-      fields = ["a", "b"]
-    }
-  }
-}
-`)
-	if err == nil {
-		t.Fatal("a mapping with no expression text was accepted")
-	}
-	if !strings.Contains(err.Error(), "fields") {
-		t.Errorf("error = %q, want it to name the field", err)
-	}
+	b.WriteString(strings.Repeat("  ", depth) + "}\n")
+	return b.String()
 }

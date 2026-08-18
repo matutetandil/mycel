@@ -26,7 +26,7 @@ func coerceInt(val cty.Value) (int, error) {
 		i, _ := bf.Int64()
 		return int(i), nil
 	case cty.String:
-		s := val.AsString()
+		s := stringOrEmpty(val)
 		if s == "" {
 			return 0, nil
 		}
@@ -51,7 +51,7 @@ func coerceFloat(val cty.Value) (float64, error) {
 		f, _ := val.AsBigFloat().Float64()
 		return f, nil
 	case cty.String:
-		s := val.AsString()
+		s := stringOrEmpty(val)
 		if s == "" {
 			return 0, nil
 		}
@@ -136,10 +136,10 @@ func parseTypeDirective(schema *validate.TypeSchema, name string, attr *hcl.Attr
 		if val.Type().IsTupleType() || val.Type().IsListType() {
 			for it := val.ElementIterator(); it.Next(); {
 				_, v := it.Element()
-				schema.Keys = append(schema.Keys, v.AsString())
+				schema.Keys = append(schema.Keys, stringOrEmpty(v))
 			}
 		} else {
-			schema.Keys = append(schema.Keys, val.AsString())
+			schema.Keys = append(schema.Keys, stringOrEmpty(val))
 		}
 
 	case "_shareable":
@@ -149,17 +149,17 @@ func parseTypeDirective(schema *validate.TypeSchema, name string, attr *hcl.Attr
 		schema.Inaccessible = val.True()
 
 	case "_description":
-		schema.Description = val.AsString()
+		schema.Description = stringOrEmpty(val)
 
 	case "_implements":
 		// List of interface names
 		if val.Type().IsTupleType() || val.Type().IsListType() {
 			for it := val.ElementIterator(); it.Next(); {
 				_, v := it.Element()
-				schema.InterfaceNames = append(schema.InterfaceNames, v.AsString())
+				schema.InterfaceNames = append(schema.InterfaceNames, stringOrEmpty(v))
 			}
 		} else {
-			schema.InterfaceNames = append(schema.InterfaceNames, val.AsString())
+			schema.InterfaceNames = append(schema.InterfaceNames, stringOrEmpty(val))
 		}
 	}
 
@@ -207,7 +207,7 @@ func parseFieldDefinition(name string, attr *hcl.Attribute, ctx *hcl.EvalContext
 		case diags.HasErrors():
 			return nil, fmt.Errorf("field %q: %s", name, diags.Error())
 		case val.Type() == cty.String:
-			field.Type = val.AsString()
+			field.Type = stringOrEmpty(val)
 		default:
 			// A number or a boolean where a type belongs — `age = 18` rather
 			// than `age = number` — used to panic the process on "not a
@@ -247,7 +247,7 @@ func parseConstraintsAndDirectives(field *validate.FieldSchema, args []hclsyntax
 				if diags.HasErrors() {
 					continue
 				}
-				key := keyVal.AsString()
+				key := stringOrEmpty(keyVal)
 
 				val, diags := item.ValueExpr.Value(ctx)
 				if diags.HasErrors() {
@@ -370,7 +370,7 @@ func parseConstraintsFromArgs(args []hclsyntax.Expression, ctx *hcl.EvalContext)
 				if diags.HasErrors() {
 					continue
 				}
-				key := keyVal.AsString()
+				key := stringOrEmpty(keyVal)
 
 				val, diags := item.ValueExpr.Value(ctx)
 				if diags.HasErrors() {

@@ -40,7 +40,7 @@ func parseMockConfig(block *hcl.Block) (*mock.Config, error) {
 	if attr, ok := content.Attributes["path"]; ok {
 		val, diags := attr.Expr.Value(nil)
 		if !diags.HasErrors() && val.Type() == cty.String {
-			config.Path = val.AsString()
+			config.Path = stringOrEmpty(val)
 		}
 	}
 
@@ -75,7 +75,7 @@ func parseConnectorMocks(block *hcl.Block, config *mock.Config) error {
 
 			if objType.HasAttribute("latency") {
 				if v := val.GetAttr("latency"); !v.IsNull() && v.Type() == cty.String {
-					if d, err := time.ParseDuration(v.AsString()); err == nil {
+					if d, err := time.ParseDuration(stringOrEmpty(v)); err == nil {
 						connConfig.Latency = d
 					}
 				}

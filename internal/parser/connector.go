@@ -422,9 +422,9 @@ func parseProfileBlock(block *hcl.Block, ctx *hcl.EvalContext) (*profile.Profile
 		}
 
 		if name == "type" {
-			connConfig.Type = val.AsString()
+			connConfig.Type = stringOrEmpty(val)
 		} else if name == "driver" {
-			connConfig.Driver = val.AsString()
+			connConfig.Driver = stringOrEmpty(val)
 		}
 		connConfig.Properties[name] = ctyValueToGo(val)
 	}
@@ -815,7 +815,7 @@ func ctyValueToGo(val cty.Value) interface{} {
 
 	switch val.Type() {
 	case cty.String:
-		return val.AsString()
+		return stringOrEmpty(val)
 
 	case cty.Number:
 		bf := val.AsBigFloat()
@@ -845,7 +845,7 @@ func ctyValueToGo(val cty.Value) interface{} {
 			result := make(map[string]interface{})
 			for it := val.ElementIterator(); it.Next(); {
 				k, v := it.Element()
-				result[k.AsString()] = ctyValueToGo(v)
+				result[stringOrEmpty(k)] = ctyValueToGo(v)
 			}
 			return result
 		}
@@ -1103,15 +1103,15 @@ func parseParamBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.ParamDe
 
 		switch name {
 		case "type":
-			param.Type = val.AsString()
+			param.Type = stringOrEmpty(val)
 		case "required":
 			param.Required = val.True()
 		case "default":
 			param.Default = ctyValueToGo(val)
 		case "description":
-			param.Description = val.AsString()
+			param.Description = stringOrEmpty(val)
 		case "in":
-			param.In = val.AsString()
+			param.In = stringOrEmpty(val)
 		case "min":
 			v := toFloat64(ctyValueToGo(val))
 			param.Min = &v
@@ -1125,7 +1125,7 @@ func parseParamBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.ParamDe
 			v := toInt(ctyValueToGo(val))
 			param.MaxLength = &v
 		case "pattern":
-			param.Pattern = val.AsString()
+			param.Pattern = stringOrEmpty(val)
 		case "enum":
 			enumVals := ctyValueToGo(val)
 			if arr, ok := enumVals.([]interface{}); ok {

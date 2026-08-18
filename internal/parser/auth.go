@@ -1007,7 +1007,7 @@ func (p *HCLParser) parseAuthProviderBlock(block *hcl.Block) (*auth.ProviderConf
 			config.Request = make(map[string]string)
 			for it := val.ElementIterator(); it.Next(); {
 				k, v := it.Element()
-				config.Request[k.AsString()] = v.AsString()
+				config.Request[stringOrEmpty(k)] = stringOrEmpty(v)
 			}
 		}
 	}

@@ -60,6 +60,12 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **A number in almost any text attribute crashed the binary.** `cache { ttl = 300 }` — a number where a duration string was wanted, and what somebody means by five minutes — took `mycel validate` down with `panic: not a string`, naming neither the attribute nor the block. It was not one attribute: a test that walks the schema and puts a number in every text attribute found **88 of them across eleven root blocks**. They are read through the same helper the auth parser already used, which reads a number or a boolean as the text a person meant and refuses what cannot be read at all.
+
+- **A duration that could not be read was silently discarded.** Every one was parsed at the point of use with the error thrown away, so `ttl = "5 minutes"` meant *no TTL* — the entry lived for whatever the connector defaults to — and a lock timeout that did not parse meant the default timeout. Durations are checked at startup now, naming the flow and the attribute.
+
+- **And `ttl = "30d"` was one of them.** The runtime read cache, async, idempotency and retry durations with the standard library's parser, which has no day or week unit, while this configuration language has both — `flow.ParseDuration` has supported them all along and `dedupe` validated against it. So a TTL written in days, which is how the examples in this repository write them, silently meant no TTL. All of them use one parser now, and the examples that had been quietly doing nothing for months do what they say.
+
 - **An `each` inside a transaction wrote nothing and reported success.** Any value that was not a slice made the loop a no-op: a transaction writing a parent row and its children wrote the parent, wrote no children, committed, and the flow acknowledged its message. The commonest way to get there is an array that arrived as a string, which is the same shape that catches people writing CEL against queue payloads, and nothing anywhere said so. A value that is present and is not a list is now an error naming the expression and what it found, so the transaction rolls back rather than committing half of an aggregate.
 
 - **And the opposite, in the same loop: a field that was simply absent failed the whole transaction.** The expression was evaluated bare, CEL raised "no such key", and the write was rolled back — so an order with no discounts did not write the order. Absent is nothing to loop over now, which is what the code's own comment had always claimed.

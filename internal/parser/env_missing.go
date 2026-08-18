@@ -78,7 +78,7 @@ func unresolvedEnvCalls(expr hclsyntax.Expression) []string {
 			return nil
 		}
 
-		name := val.AsString()
+		name := stringOrEmpty(val)
 		if name != "" && os.Getenv(name) == "" {
 			names = append(names, name)
 		}
