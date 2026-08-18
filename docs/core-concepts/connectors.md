@@ -199,6 +199,11 @@ connector "gql" {
     path                = "/graphql/ws"  # default /subscriptions
     keep_alive_interval = "30s"          # ping period on an idle socket
     connection_timeout  = "60s"          # drop a connection that stops answering
+    # A subscription is idle by nature, so the server pings it: without that
+    # the socket looks dead to every proxy between here and the client, and
+    # the first one with an idle timeout closes it while the client still
+    # believes it is subscribed. connection_timeout is always given room for
+    # an answer — a timeout at or below the ping period is widened.
   }
 }
 

@@ -42,8 +42,6 @@ var notRead = map[string]string{
 
 	"graphql/EntityConfig.TypeName":     "federation entity metadata used by the schema builder through its own map",
 	"graphql/SchemaConfig.AutoGenerate": "decided before the config is built, from whether a schema file was given",
-	"graphql/SubscriptionsConfig.KeepAliveInterval": "the websocket layer keeps its own interval; this one is unwired " +
-		"and is a real gap, tracked separately",
 
 	"http/AuthConfig.GrantType": "only client_credentials is implemented, and the value is checked " +
 		"by the parser rather than here",
