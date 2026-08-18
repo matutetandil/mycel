@@ -15,7 +15,7 @@ func (FTPSchema) ConnectorSchema() schema.Block {
 			{Name: "protocol", Doc: "Transfer protocol", Type: schema.TypeString, Values: []string{"ftp", "sftp"}},
 			{Name: "base_path", Doc: "Base directory on remote server", Type: schema.TypeString},
 			{Name: "key_file", Doc: "SSH private key file for SFTP", Type: schema.TypeString},
-			{Name: "passive", Doc: "Use passive mode for FTP", Type: schema.TypeBool},
+			{Name: "passive", Doc: "Passive mode. Always on — active transfers are not supported, so false is refused", Type: schema.TypeBool},
 			{Name: "tls", Doc: "Enable TLS for FTP", Type: schema.TypeBool},
 			{Name: "timeout", Doc: "Connection timeout", Type: schema.TypeDuration},
 		},

@@ -56,6 +56,11 @@ connector "remote" {
 | `ssh.port` | int | `22` | SSH port |
 | `ssh.user` | string | — | SSH username |
 | `ssh.key_file` | string | — | Path to SSH private key |
+| `ssh.known_hosts` | string | — | Known hosts file. Given one, the host is verified against it; given none, the host key is accepted unchecked and the service says so at start-up |
+
+Authentication is by key. `ssh.password` cannot be used: commands run with
+`BatchMode`, so nothing stops to prompt, and a connector configured with a
+password and no key is refused at start-up.
 
 ## Operations
 

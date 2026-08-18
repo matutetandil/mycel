@@ -481,6 +481,22 @@ type ftpClient struct {
 func newFTPClient(cfg *Config) (*ftpClient, error) {
 	addr := net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port))
 
+	// Transfers are passive, always.
+	//
+	// The library this speaks FTP with has no active mode: it asks the server
+	// for a port and connects out to it, which is the mode that works from
+	// behind NAT and is why nearly everything uses it. `passive = false` was
+	// read from the configuration into a field nothing looked at, so somebody
+	// asking for active transfers got passive ones and no word about it —
+	// and active is the one that needs the *server* to connect back in.
+	//
+	// Refused rather than ignored: a setting that cannot be honoured should
+	// not look like it was.
+	if !cfg.Passive {
+		return nil, fmt.Errorf("ftp connector: active mode is not supported — " +
+			"transfers are passive, which is what works from behind NAT; remove passive = false")
+	}
+
 	var opts []goftp.DialOption
 	opts = append(opts, goftp.DialWithTimeout(cfg.Timeout))
 

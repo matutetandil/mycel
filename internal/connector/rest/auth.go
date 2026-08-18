@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/matutetandil/mycel/v2/internal/connector"
 	"github.com/matutetandil/mycel/v2/internal/identity"
 	"github.com/matutetandil/mycel/v2/internal/jwks"
 )
@@ -93,6 +95,12 @@ type APIKeyAuthConfig struct {
 	// For HCL config: connector name and query for dynamic validation
 	ValidateConnector string // e.g., "connector.db"
 	ValidateQuery     string // e.g., "SELECT 1 FROM api_keys WHERE key = :key AND active = true"
+}
+
+// APIKeyReader is the part of a connector this needs: somewhere to run the
+// lookup. A database connector satisfies it.
+type APIKeyReader interface {
+	Read(ctx context.Context, query connector.Query) (*connector.Result, error)
 }
 
 // APIKeyValidateFunc is a function type for validating API keys dynamically.
@@ -197,6 +205,38 @@ func (c *Connector) SetAuthConfig(cfg *AuthConfig) {
 	defer c.mu.Unlock()
 	c.authConfig = cfg
 	c.authenticator = NewAuthenticator(cfg, c.logger)
+}
+
+// APIKeyValidateConnector returns the connector this server was told to check
+// API keys against, and the query to check them with.
+//
+// The runtime resolves the name once every connector exists — a REST server is
+// built before the database it looks keys up in — and hands back the reader
+// through SetAPIKeyValidator.
+func (c *Connector) APIKeyValidateConnector() (name, query string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.authConfig == nil || c.authConfig.APIKey == nil {
+		return "", ""
+	}
+	return c.authConfig.APIKey.ValidateConnector, c.authConfig.APIKey.ValidateQuery
+}
+
+// SetAPIKeyValidator gives this server somewhere to look API keys up.
+//
+// Until this existed the `validate` block was parsed into two fields that
+// nothing read: keys were checked against the static list and nothing else, so
+// a connector configured to check them against a table — which is how a key is
+// revoked without a deployment — refused every key it was given.
+func (c *Connector) SetAPIKeyValidator(reader APIKeyReader) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.authConfig == nil || c.authConfig.APIKey == nil || c.authConfig.APIKey.ValidateQuery == "" {
+		return
+	}
+	c.authConfig.APIKey.ValidateFunc = CreateAPIKeyValidator(reader, c.authConfig.APIKey.ValidateQuery)
+	c.authenticator = NewAuthenticator(c.authConfig, c.logger)
 }
 
 // authMiddleware checks a request the way this connector was configured to.
@@ -652,15 +692,18 @@ func (a *Authenticator) validateAPIKey(r *http.Request) (*AuthContext, error) {
 // CreateAPIKeyValidator creates an APIKeyValidateFunc from a database connector.
 // The query should return at least one row if the key is valid.
 // Optional columns: user_id, and any additional columns will be added to metadata.
-func CreateAPIKeyValidator(reader interface {
-	Read(ctx context.Context, query interface{}) (interface{}, error)
-}, queryTemplate string) APIKeyValidateFunc {
+func CreateAPIKeyValidator(reader APIKeyReader, queryTemplate string) APIKeyValidateFunc {
 	return func(ctx context.Context, apiKey string) (bool, string, map[string]interface{}, error) {
-		// Replace :key placeholder with actual key
-		query := strings.ReplaceAll(queryTemplate, ":key", apiKey)
-		query = strings.ReplaceAll(query, "${key}", apiKey)
-
-		result, err := reader.Read(ctx, query)
+		// The key is passed as a parameter, never written into the statement.
+		//
+		// It used to be substituted in with ReplaceAll. The key is whatever
+		// the caller sent in a header, so that is a caller writing SQL: a key
+		// of `' OR '1'='1` turns the lookup into one that matches every row,
+		// and the request is authenticated as whoever came back first.
+		result, err := reader.Read(ctx, connector.Query{
+			RawSQL:  queryTemplate,
+			Filters: map[string]interface{}{"key": apiKey},
+		})
 		if err != nil {
 			return false, "", nil, err
 		}
@@ -670,22 +713,7 @@ func CreateAPIKeyValidator(reader interface {
 			return false, "", nil, nil
 		}
 
-		// Try to extract rows from result
-		var rows []map[string]interface{}
-		switch r := result.(type) {
-		case *struct {
-			Rows     []map[string]interface{}
-			Affected int64
-		}:
-			rows = r.Rows
-		case map[string]interface{}:
-			if rowsData, ok := r["rows"].([]map[string]interface{}); ok {
-				rows = rowsData
-			} else if rowsData, ok := r["Rows"].([]map[string]interface{}); ok {
-				rows = rowsData
-			}
-		}
-
+		rows := result.Rows
 		if len(rows) == 0 {
 			return false, "", nil, nil
 		}

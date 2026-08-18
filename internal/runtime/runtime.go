@@ -759,6 +759,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 
 	// Mount the auth endpoints and the inbound webhooks, after flows so that a
 	// flow claiming one of those paths keeps it.
+	r.wireAPIKeyValidators()
 	r.mountAuthEndpoints()
 	r.mountInboundWebhooks()
 

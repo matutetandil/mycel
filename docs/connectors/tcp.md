@@ -35,6 +35,11 @@ connector "tcp_client" {
 | `port` | int | — | Listen port (server) |
 | `address` | string | — | Target address (client) |
 | `codec` | string | `"json"` | Wire format: `json`, `msgpack`, `raw`, `nestjs` |
+
+`msgpack` is MessagePack as the specification defines it, so the peer can be
+anything that implements it. Before 2.19.0 it encoded JSON under that name:
+two Mycel services configured for it did understand each other — both were
+sending JSON — and nothing else could read a word of it.
 | `timeout` | duration | `"10s"` | Connection timeout (client) |
 
 ## Operations

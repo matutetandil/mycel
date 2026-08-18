@@ -3,6 +3,7 @@ package runtime
 import (
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/matutetandil/mycel/v2/internal/connector/rest"
 	"github.com/matutetandil/mycel/v2/internal/connector/webhook"
@@ -19,6 +20,47 @@ import (
 // They are mounted on each REST connector because that is where an HTTP client
 // can reach them; a service with two REST servers on different ports gets them
 // on both, since either is a legitimate front door.
+// wireAPIKeyValidators gives every REST server that checks API keys against a
+// connector somewhere to check them.
+//
+// It runs after every connector exists, because a REST server is built before
+// the database it looks keys up in. Without it the `validate` block was parsed
+// into two fields nothing read: keys were checked against the static list and
+// nothing else, so a connector configured to check them against a table —
+// which is how a key is revoked without a deployment — refused every key.
+func (r *Runtime) wireAPIKeyValidators() {
+	for _, name := range r.connectors.Names() {
+		conn, err := r.connectors.Get(name)
+		if err != nil {
+			continue
+		}
+		server, ok := conn.(*rest.Connector)
+		if !ok {
+			continue
+		}
+
+		validateConnector, query := server.APIKeyValidateConnector()
+		if validateConnector == "" || query == "" {
+			continue
+		}
+
+		// `connector.db` is how the block is written in the documentation;
+		// the name is what the registry knows.
+		lookupName := strings.TrimPrefix(validateConnector, "connector.")
+
+		reader, err := r.connectors.GetReader(lookupName)
+		if err != nil {
+			slog.Error("api keys cannot be checked: the connector named to check them against is unusable",
+				"rest_connector", name, "validate_connector", validateConnector, "error", err)
+			continue
+		}
+
+		server.SetAPIKeyValidator(reader)
+		slog.Info("api keys are checked against a connector",
+			"rest_connector", name, "validate_connector", lookupName)
+	}
+}
+
 func (r *Runtime) mountAuthEndpoints() {
 	if r.authHandler == nil {
 		return

@@ -432,8 +432,32 @@ func (c *Connector) handleRetry(delivery amqp.Delivery, handlerErr error) error 
 	exchange := delivery.Exchange
 	routingKey := delivery.RoutingKey
 
+	// A retry is a publish, and a publish needs a channel.
+	//
+	// This used to go straight to c.channel. The channel is gone whenever the
+	// connection dropped — which is precisely the situation a handler is most
+	// likely to have failed in — and publishing through a nil channel is not
+	// an error, it is a nil dereference that takes the process down. The
+	// acknowledgement methods beside this one have always checked; this did
+	// not.
+	//
+	// With no channel there is nothing to republish through, so the message
+	// goes back to the queue: the broker will redeliver it once a consumer is
+	// connected again, which is the outcome a retry was asking for anyway.
+	c.mu.RLock()
+	channel := c.channel
+	c.mu.RUnlock()
+
+	if channel == nil || channel.IsClosed() {
+		c.logger.Warn("cannot republish for retry, no channel; returning the message to the queue",
+			"routing_key", routingKey,
+			"retry_count", retryCount,
+		)
+		return delivery.Nack(false, true)
+	}
+
 	// Publish retry message
-	err := c.channel.PublishWithContext(
+	err := channel.PublishWithContext(
 		context.Background(),
 		exchange,
 		routingKey,
