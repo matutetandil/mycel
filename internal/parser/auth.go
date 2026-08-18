@@ -281,7 +281,7 @@ func (p *HCLParser) parseAuthMFABlock(block *hcl.Block) (*auth.MFAConfig, error)
 	if attr, exists := content.Attributes["enabled"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Enabled = val.True()
+			config.Enabled = boolOrFalse(val)
 		}
 	}
 
@@ -321,7 +321,7 @@ func (p *HCLParser) parseAuthMFABlock(block *hcl.Block) (*auth.MFAConfig, error)
 	if attr, exists := content.Attributes["require_multiple"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.RequireMultiple = val.True()
+			config.RequireMultiple = boolOrFalse(val)
 		}
 	}
 
@@ -774,7 +774,7 @@ func (p *HCLParser) parseAuthBruteForceBlock(block *hcl.Block) (*auth.BruteForce
 	if attr, exists := content.Attributes["enabled"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Enabled = val.True()
+			config.Enabled = boolOrFalse(val)
 		}
 	}
 
@@ -1197,7 +1197,7 @@ func stringValue(name string, val cty.Value) (string, error) {
 	case cty.String:
 		return val.AsString(), nil
 	case cty.Bool:
-		if val.True() {
+		if boolOrFalse(val) {
 			return "true", nil
 		}
 		return "false", nil

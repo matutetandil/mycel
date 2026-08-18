@@ -60,7 +60,7 @@ func parsePluginBlock(block *hcl.Block, ctx *hcl.EvalContext) (*plugin.PluginDec
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("plugin copy error: %s", diags.Error())
 		}
-		decl.Copy = val.True()
+		decl.Copy = boolOrFalse(val)
 	}
 
 	return decl, nil

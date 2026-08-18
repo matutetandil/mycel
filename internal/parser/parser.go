@@ -794,7 +794,7 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("enabled error: %s", diags.Error())
 		}
-		rl.Enabled = val.True()
+		rl.Enabled = boolOrFalse(val)
 	}
 
 	if attr, ok := content.Attributes["requests_per_second"]; ok {
@@ -846,7 +846,7 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("enable_headers error: %s", diags.Error())
 		}
-		rl.EnableHeaders = val.True()
+		rl.EnableHeaders = boolOrFalse(val)
 	}
 
 	if attr, ok := content.Attributes["storage"]; ok {
@@ -905,7 +905,7 @@ func parseWorkflowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*WorkflowConfig
 	if attr, ok := content.Attributes["auto_create"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			wf.AutoCreate = val.True()
+			wf.AutoCreate = boolOrFalse(val)
 		}
 	}
 

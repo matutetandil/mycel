@@ -32,7 +32,7 @@ func parseMockConfig(block *hcl.Block) (*mock.Config, error) {
 	if attr, ok := content.Attributes["enabled"]; ok {
 		val, diags := attr.Expr.Value(nil)
 		if !diags.HasErrors() && val.Type() == cty.Bool {
-			config.Enabled = val.True()
+			config.Enabled = boolOrFalse(val)
 		}
 	}
 
@@ -90,7 +90,7 @@ func parseConnectorMocks(block *hcl.Block, config *mock.Config) error {
 
 			if objType.HasAttribute("enabled") {
 				if v := val.GetAttr("enabled"); !v.IsNull() && v.Type() == cty.Bool {
-					enabled := v.True()
+					enabled := boolOrFalse(v)
 					connConfig.Enabled = &enabled
 				}
 			}

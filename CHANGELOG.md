@@ -60,6 +60,8 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **A boolean set from the environment crashed the binary.** `env()` always returns a string, so `mfa { enabled = env("MFA_ON") }` handed a string to a boolean — and cty's `True()` panics on anything that is not one. Six attributes across four blocks went down that way, including `auth.mfa.enabled` and the service rate limiter's. Integers already had a coercion for exactly this reason; booleans now read the several ways a person writes one — `true`, `yes`, `on`, `1` and their opposites — and refuse a word that is neither.
+
 - **A single name where a list was wanted was accepted and thrown away.** `invalidate_on = "update_user"` instead of `["update_user"]` is the mistake somebody makes once per language they learn, and these attributes were read behind a bare `if val.Type().IsListType()` whose else branch did nothing: the line parsed, the value vanished, and the cache invalidated nothing, the rule required no roles. The service started and did less than it was told to, silently. Only the aspect's `on` had the single-value branch, which is why that one worked and its seven neighbours did not; they all share one reader now.
 
 - **A number in almost any text attribute crashed the binary.** `cache { ttl = 300 }` — a number where a duration string was wanted, and what somebody means by five minutes — took `mycel validate` down with `panic: not a string`, naming neither the attribute nor the block. It was not one attribute: a test that walks the schema and puts a number in every text attribute found **88 of them across eleven root blocks**. They are read through the same helper the auth parser already used, which reads a number or a boolean as the text a person meant and refuses what cannot be read at all.

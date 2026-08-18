@@ -827,7 +827,7 @@ func ctyValueToGo(val cty.Value) interface{} {
 		return f
 
 	case cty.Bool:
-		return val.True()
+		return boolOrFalse(val)
 
 	default:
 		// Handle lists
@@ -1105,7 +1105,7 @@ func parseParamBlock(block *hcl.Block, ctx *hcl.EvalContext) (*connector.ParamDe
 		case "type":
 			param.Type = stringOrEmpty(val)
 		case "required":
-			param.Required = val.True()
+			param.Required = boolOrFalse(val)
 		case "default":
 			param.Default = ctyValueToGo(val)
 		case "description":

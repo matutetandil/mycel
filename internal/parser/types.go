@@ -143,10 +143,10 @@ func parseTypeDirective(schema *validate.TypeSchema, name string, attr *hcl.Attr
 		}
 
 	case "_shareable":
-		schema.Shareable = val.True()
+		schema.Shareable = boolOrFalse(val)
 
 	case "_inaccessible":
-		schema.Inaccessible = val.True()
+		schema.Inaccessible = boolOrFalse(val)
 
 	case "_description":
 		schema.Description = stringOrEmpty(val)

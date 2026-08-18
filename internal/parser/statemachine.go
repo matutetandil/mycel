@@ -91,7 +91,7 @@ func parseStateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*statemachine.Stat
 	if attr, ok := content.Attributes["final"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() && val.Type() == cty.Bool {
-			state.Final = val.True()
+			state.Final = boolOrFalse(val)
 		}
 	}
 

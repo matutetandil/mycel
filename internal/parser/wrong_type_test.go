@@ -362,3 +362,64 @@ flow "get_user" {
 		t.Errorf("roles = %v", got)
 	}
 }
+
+// A string where a boolean was wanted.
+//
+// cty's True() panics on anything that is not a boolean, the same way AsString
+// panics on anything that is not text — and this one has a production path
+// behind it that is not a typo at all: env() always returns a string, so
+// `enabled = env("FEATURE_ON")` hands a string to every boolean in the
+// language. Integers already had a coercion for exactly this reason.
+func TestAStringInABooleanCannotCrashTheParser(t *testing.T) {
+	for _, blk := range schema.BuiltinRootSchemas() {
+		blk := blk
+		t.Run(blk.Type, func(t *testing.T) {
+			for _, probe := range boolProbes(blk, blk.Type) {
+				probe := probe
+				t.Run(probe.where, func(t *testing.T) {
+					_, err := tryParse(t, probe.doc)
+					if err != nil && strings.HasPrefix(err.Error(), "panic:") {
+						t.Errorf("%s took the parser down: %v\n\n%s", probe.where, err, probe.doc)
+					}
+				})
+			}
+		})
+	}
+}
+
+func boolProbes(blk schema.Block, name string) []wrongTypeProbe {
+	var probes []wrongTypeProbe
+
+	labels := make([]string, blk.Labels)
+	for i := range labels {
+		labels[i] = name
+	}
+	for _, path := range boolAttrPaths(blk, nil) {
+		probes = append(probes, wrongTypeProbe{
+			where: strings.Join(append([]string{blk.Type}, path...), "."),
+			// What env() hands back for a setting somebody meant as on.
+			doc: renderWithOverride(blk, labels, 0, path, `"true"`),
+		})
+	}
+	return probes
+}
+
+func boolAttrPaths(blk schema.Block, prefix []string) [][]string {
+	var paths [][]string
+
+	attrs := append([]schema.Attr(nil), blk.Attrs...)
+	sort.Slice(attrs, func(i, j int) bool { return attrs[i].Name < attrs[j].Name })
+	for _, a := range attrs {
+		if a.Type != schema.TypeBool || skipAttrForParity(blk.Type, a.Name) {
+			continue
+		}
+		paths = append(paths, append(append([]string{}, prefix...), a.Name))
+	}
+
+	children := append([]schema.Block(nil), blk.Children...)
+	sort.Slice(children, func(i, j int) bool { return children[i].Type < children[j].Type })
+	for _, child := range children {
+		paths = append(paths, boolAttrPaths(child, append(append([]string{}, prefix...), child.Type))...)
+	}
+	return paths
+}

@@ -600,7 +600,7 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 			return nil, fmt.Errorf("to parallel error: %s", diags.Error())
 		}
 		if val.Type() == cty.Bool {
-			to.Parallel = val.True()
+			to.Parallel = boolOrFalse(val)
 		}
 	}
 
@@ -958,7 +958,7 @@ func mappingExpression(field string, val cty.Value) (string, error) {
 	case cty.Number:
 		return val.AsBigFloat().Text('f', -1), nil
 	case cty.Bool:
-		if val.True() {
+		if boolOrFalse(val) {
 			return "true", nil
 		}
 		return "false", nil
@@ -1370,7 +1370,7 @@ func parseFallbackConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Fal
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("fallback include_error error: %s", diags.Error())
 		}
-		fallback.IncludeError = val.True()
+		fallback.IncludeError = boolOrFalse(val)
 	}
 
 	// Parse optional transform block
@@ -1976,7 +1976,7 @@ func ctyValueToInterface(val cty.Value) interface{} {
 		return f
 	}
 	if valType == cty.Bool {
-		return val.True()
+		return boolOrFalse(val)
 	}
 
 	// Handle lists/tuples
@@ -2337,7 +2337,7 @@ func parseLockBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.L
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("lock wait error: %s", diags.Error())
 		}
-		lock.Wait = val.True()
+		lock.Wait = boolOrFalse(val)
 	}
 
 	if attr, ok := content.Attributes["retry"]; ok {
