@@ -591,6 +591,17 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed: %d duration error(s)", len(errs))
 	}
 
+	// And names repeated inside a flow, where something is keyed by them: the
+	// second silently overwrites the first.
+	if errs := runtime.ValidateUniqueInnerNames(config); len(errs) > 0 {
+		fmt.Printf("\n✗ Configuration is invalid:\n\n")
+		for _, e := range errs {
+			fmt.Printf("    - %s\n", e)
+		}
+		fmt.Println()
+		return fmt.Errorf("validation failed: %d duplicate name(s)", len(errs))
+	}
+
 	// A connector named by a block other than from/to was checked by nobody:
 	// depending on the block it was refused, or failed on the first request,
 	// or silently did nothing at all for ever.
