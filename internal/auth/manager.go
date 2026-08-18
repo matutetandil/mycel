@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -97,6 +98,23 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 	}
 	if config.Secret != "" && config.JWT.Secret == "" {
 		config.JWT.Secret = config.Secret
+	}
+
+	// What to do at the session limit has to be understood before a service
+	// starts, not at the moment somebody is turned away. The word for refusing
+	// was published as `deny` for a long time and the code only ever knew
+	// `reject_new`, so `deny` revoked the oldest session instead — the opposite
+	// of what it says. It is read as refusing now, and anything unrecognised is
+	// refused here rather than quietly meaning revoke_oldest.
+	if config.Sessions != nil {
+		switch config.Sessions.OnMaxReached {
+		case "", "revoke_oldest":
+		case "reject_new", "deny":
+			config.Sessions.OnMaxReached = "reject_new"
+		default:
+			return nil, fmt.Errorf("sessions: on_max_reached = %q is not something this understands; use reject_new or revoke_oldest",
+				config.Sessions.OnMaxReached)
+		}
 	}
 
 	m := &Manager{
@@ -628,11 +646,24 @@ func (m *Manager) createSession(ctx context.Context, user *User, ip, userAgent s
 	session := &Session{
 		ID:           sessionID,
 		UserID:       user.ID,
-		IP:           ip,
-		UserAgent:    userAgent,
 		CreatedAt:    now,
 		LastActiveAt: now,
 		ExpiresAt:    expiresAt,
+	}
+
+	// What is kept about the person on the other end.
+	//
+	// The address and the browser string were recorded whatever the
+	// configuration said, and `track` — the list naming what to record — was
+	// read by nothing. That is the wrong way round for the one setting here
+	// that is about not keeping something: an address is personal data in
+	// most of the places this runs, and a deployment that listed only the
+	// browser was storing addresses anyway.
+	if m.sessionTracks("ip") {
+		session.IP = ip
+	}
+	if m.sessionTracks("user_agent") {
+		session.UserAgent = userAgent
 	}
 
 	if err := m.sessionStore.Create(ctx, session); err != nil {
@@ -640,6 +671,23 @@ func (m *Manager) createSession(ctx context.Context, user *User, ip, userAgent s
 	}
 
 	return session, nil
+}
+
+// sessionTracks reports whether an attribute is recorded on a session.
+//
+// Nothing configured means everything is recorded, which is what happened
+// before the setting was honoured — turning it into an opt-in list would
+// silently stop recording for every deployment that never asked.
+func (m *Manager) sessionTracks(attribute string) bool {
+	if m.config.Sessions == nil || len(m.config.Sessions.Track) == 0 {
+		return true
+	}
+	for _, tracked := range m.config.Sessions.Track {
+		if strings.EqualFold(strings.TrimSpace(tracked), attribute) {
+			return true
+		}
+	}
+	return false
 }
 
 // recordFailedLogin records a failed login attempt

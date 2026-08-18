@@ -146,6 +146,11 @@ func blockHeader(blk schema.Block, labels []string) string {
 // fails here rather than in production.
 func sampleValue(a schema.Attr) string {
 	if len(a.Values) > 0 {
+		// An enum on a list attribute names what the elements may be, not what
+		// the whole value is: `track` accepts ["ip"], never "ip".
+		if a.Type == schema.TypeList {
+			return fmt.Sprintf("[%q]", a.Values[0])
+		}
 		return fmt.Sprintf("%q", a.Values[0])
 	}
 	switch a.Type {

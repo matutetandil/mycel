@@ -133,16 +133,30 @@ security {
 
 ```hcl
 sessions {
-  max_active       = 5           # Max concurrent sessions
-  idle_timeout     = "1h"        # Logout after inactivity
-  absolute_timeout = "24h"       # Force logout after this time
+  max_active       = 5           # How many sessions one person may hold at once
+  idle_timeout     = "1h"        # End a session left untouched this long
+  absolute_timeout = "24h"       # End it this long after it began, however active
 
-  allow_list       = true        # Enable session listing
-  allow_revoke     = true        # Enable session revocation
+  allow_list       = true        # Serve GET /auth/sessions
+  allow_revoke     = true        # Serve DELETE /auth/sessions/{id}
 
-  on_max_reached   = "revoke_oldest"  # "deny", "revoke_oldest", "revoke_all"
+  track            = ["ip", "user_agent"]  # What is recorded about a sign-in
+
+  on_max_reached   = "revoke_oldest"  # "reject_new", "revoke_oldest"
 }
 ```
+
+`allow_list` and `allow_revoke` are on unless you write them false: a service
+with no `sessions` block still lets somebody see where they are signed in and
+end a session they no longer recognise. Writing either false stops that endpoint
+being served at all, rather than serving it and refusing — a client asking for it
+gets a 404, not a 403.
+
+`track` names what is recorded about a sign-in. Naming none records both the
+address and the browser string; naming some records only those, so a service
+that must not keep addresses writes `track = ["user_agent"]` and the `ip` field
+on a session stays empty. Whatever is recorded is what `GET /auth/sessions`
+shows.
 
 ### Multi-Factor Authentication
 

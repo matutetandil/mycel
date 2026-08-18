@@ -838,7 +838,14 @@ func (p *HCLParser) parseAuthBruteForceBlock(block *hcl.Block) (*auth.BruteForce
 }
 
 func (p *HCLParser) parseAuthSessionsBlock(block *hcl.Block) (*auth.SessionsConfig, error) {
-	config := &auth.SessionsConfig{}
+	// Listing and revoking are on unless somebody writes them off.
+	//
+	// They are booleans, and a boolean nobody wrote is false — so decoding
+	// straight into the struct would close two endpoints that are open today
+	// for every deployment with a sessions block that never mentioned them.
+	// Set first and decoded over, which is how mfa.enabled is handled: the
+	// block being there is not a decision, writing the word is.
+	config := &auth.SessionsConfig{AllowList: true, AllowRevoke: true}
 	diags := gohcl.DecodeBody(block.Body, p.evalCtx, config)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("parsing sessions block: %s", diags.Error())

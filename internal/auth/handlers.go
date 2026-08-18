@@ -99,13 +99,20 @@ func (h *Handler) RegisterRoutes(mux Mux) {
 		mux.HandleFunc(path, h.limited("change_password", h.handleChangePassword))
 	}
 
-	if h.config.SessionsList != nil && h.config.SessionsList.Enabled {
+	// Two ways of saying no, and either of them counts.
+	//
+	// The endpoints block turns an endpoint off; the sessions block's
+	// allow_list and allow_revoke say whether the feature is offered at all.
+	// Only the first was consulted, so a deployment that wrote
+	// `allow_list = false` — meaning nobody may list sessions — still served
+	// the endpoint, and had no way to know.
+	if h.config.SessionsList != nil && h.config.SessionsList.Enabled && h.sessionsMayBeListed() {
 		path := prefix + getPath(h.config.SessionsList, "/sessions")
 		mux.HandleFunc(path, h.limited("sessions", h.handleSessions))
 	}
 
 	// Sessions revoke needs special handling for path param
-	if h.config.SessionsRevoke != nil && h.config.SessionsRevoke.Enabled {
+	if h.config.SessionsRevoke != nil && h.config.SessionsRevoke.Enabled && h.sessionsMayBeRevoked() {
 		path := prefix + "/sessions/"
 		mux.HandleFunc(path, h.limited("sessions", h.handleSessionRevoke))
 	}
@@ -121,6 +128,21 @@ func (h *Handler) RegisterRoutes(mux Mux) {
 // They exist only when a second factor does: paths that answer for a service
 // that cannot enrol anybody would be worse than none, since they invite a
 // client to build the flow.
+// sessionsMayBeListed reports whether the sessions block allows listing.
+//
+// Nothing configured is a yes: this is the behaviour every deployment has
+// today, and the setting exists to take it away rather than to grant it.
+func (h *Handler) sessionsMayBeListed() bool {
+	sessions := h.manager.Config().Sessions
+	return sessions == nil || sessions.AllowList
+}
+
+// sessionsMayBeRevoked reports whether the sessions block allows revocation.
+func (h *Handler) sessionsMayBeRevoked() bool {
+	sessions := h.manager.Config().Sessions
+	return sessions == nil || sessions.AllowRevoke
+}
+
 func (h *Handler) registerMFARoutes(mux Mux, prefix string) {
 	if !h.manager.MFAEnabled() {
 		return
