@@ -3797,12 +3797,21 @@ func (h *FlowHandler) buildCacheKey(input map[string]interface{}) string {
 	keyTemplate := h.Config.Cache.Key
 	if keyTemplate == "" && h.Config.Cache.Use != "" {
 		// If using named cache, build default key from flow name
+		if _, ok := h.NamedCaches[h.Config.Cache.Use]; ok {
+			keyTemplate = h.Config.Name
+		}
+	}
+
+	// A named cache's prefix goes on whatever key is used, which is what a
+	// prefix is: the namespace shared by everything in that cache. It used to
+	// apply only when the flow wrote no key of its own, so two flows sharing a
+	// named cache with keys of their own shared its keyspace as well — and
+	// prefixing is exactly what keeps them apart. The field's own comment, the
+	// documentation and the name all said "prepended to all cache keys".
+	prefix := ""
+	if h.Config.Cache.Use != "" {
 		if named, ok := h.NamedCaches[h.Config.Cache.Use]; ok {
-			if named.Prefix != "" {
-				keyTemplate = named.Prefix + ":" + h.Config.Name
-			} else {
-				keyTemplate = h.Config.Name
-			}
+			prefix = named.Prefix
 		}
 	}
 
@@ -3824,11 +3833,19 @@ func (h *FlowHandler) buildCacheKey(input map[string]interface{}) string {
 		for _, k := range names {
 			keyTemplate += fmt.Sprintf(":%s=%v", k, input[k])
 		}
-		return keyTemplate
+		return withCachePrefix(prefix, keyTemplate)
 	}
 
 	// Interpolate variables in key template
-	return h.interpolateKey(keyTemplate, input)
+	return withCachePrefix(prefix, h.interpolateKey(keyTemplate, input))
+}
+
+// withCachePrefix puts a named cache's prefix in front of a key.
+func withCachePrefix(prefix, key string) string {
+	if prefix == "" || key == "" {
+		return key
+	}
+	return prefix + ":" + key
 }
 
 // interpolateKey replaces ${input.xxx} placeholders with actual values.

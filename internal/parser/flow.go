@@ -2019,9 +2019,18 @@ func parseCacheReference(ref string) string {
 //	  invalidate_on = ["products:updated:${input.params.id}"]
 //	}
 func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig, error) {
+	// storage is not required here, because `use` supplies it.
+	//
+	// It used to be, and cache was the only one of the ten reusable blocks
+	// where that was so — which made it the only one whose `use` could not be
+	// written: `cache { use = "cache.short" }`, the spelling the documentation
+	// calls the recommended one, was refused with "the argument storage is
+	// required". The example in this repository declares three named caches
+	// and references none of them, writing storage out again in every flow,
+	// which is what the feature not working looks like from the outside.
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "storage", Required: true},
+			{Name: "storage"},
 			{Name: "ttl"},
 			{Name: "key"},
 			{Name: "invalidate_on"},
@@ -2074,6 +2083,14 @@ func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig,
 			return nil, fmt.Errorf("cache use error: %s", diags.Error())
 		}
 		cache.Use = parseCacheReference(stringOrEmpty(val))
+	}
+
+	// One or the other has to say where the cache lives. Checked here rather
+	// than by the schema so that either spelling is accepted, and refused with
+	// a message naming both rather than only the one that is missing.
+	if cache.Storage == "" && cache.Use == "" {
+		return nil, fmt.Errorf("cache block names no storage: write storage = \"<connector>\", " +
+			"or use = \"cache.<name>\" to take it from a named cache")
 	}
 
 	return cache, nil

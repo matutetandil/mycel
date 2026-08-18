@@ -423,3 +423,63 @@ func boolAttrPaths(blk schema.Block, prefix []string) [][]string {
 	}
 	return paths
 }
+
+// A number written as a string.
+//
+// The other half of the env() problem: `port = env("PORT")` hands "8080" to a
+// number, and cty's AsBigFloat panics on anything that is not one. An integer
+// coercion was written for exactly this case; the question is whether every
+// number in the language goes through it.
+func TestAStringInANumberCannotCrashTheParser(t *testing.T) {
+	for _, blk := range schema.BuiltinRootSchemas() {
+		blk := blk
+		t.Run(blk.Type, func(t *testing.T) {
+			for _, probe := range numberProbes(blk, blk.Type) {
+				probe := probe
+				t.Run(probe.where, func(t *testing.T) {
+					_, err := tryParse(t, probe.doc)
+					if err != nil && strings.HasPrefix(err.Error(), "panic:") {
+						t.Errorf("%s took the parser down: %v\n\n%s", probe.where, err, probe.doc)
+					}
+				})
+			}
+		})
+	}
+}
+
+func numberProbes(blk schema.Block, name string) []wrongTypeProbe {
+	var probes []wrongTypeProbe
+
+	labels := make([]string, blk.Labels)
+	for i := range labels {
+		labels[i] = name
+	}
+	for _, path := range numberAttrPaths(blk, nil) {
+		probes = append(probes, wrongTypeProbe{
+			where: strings.Join(append([]string{blk.Type}, path...), "."),
+			// What env() hands back for a number.
+			doc: renderWithOverride(blk, labels, 0, path, `"8080"`),
+		})
+	}
+	return probes
+}
+
+func numberAttrPaths(blk schema.Block, prefix []string) [][]string {
+	var paths [][]string
+
+	attrs := append([]schema.Attr(nil), blk.Attrs...)
+	sort.Slice(attrs, func(i, j int) bool { return attrs[i].Name < attrs[j].Name })
+	for _, a := range attrs {
+		if a.Type != schema.TypeNumber || skipAttrForParity(blk.Type, a.Name) {
+			continue
+		}
+		paths = append(paths, append(append([]string{}, prefix...), a.Name))
+	}
+
+	children := append([]schema.Block(nil), blk.Children...)
+	sort.Slice(children, func(i, j int) bool { return children[i].Type < children[j].Type })
+	for _, child := range children {
+		paths = append(paths, numberAttrPaths(child, append(append([]string{}, prefix...), child.Type))...)
+	}
+	return paths
+}

@@ -23,10 +23,12 @@ flow "get_product" {
   }
 
   # Cache with static key
+  # Referencing the named cache rather than repeating its settings. The
+  # storage and the TTL come from `cache "products"` next door; only the key
+  # is particular to this flow.
   cache {
-    storage = "memory_cache"
-    ttl     = "5m"
-    key     = "products:item"
+    use = "cache.products"
+    key = "item"
   }
 }
 
@@ -47,9 +49,8 @@ flow "list_products" {
   }
 
   cache {
-    storage = "memory_cache"
-    ttl     = "1m"
-    key     = "products:all"
+    use = "cache.lists"
+    key = "products:all"
   }
 }
 
@@ -65,9 +66,8 @@ flow "list_users" {
   }
 
   cache {
-    storage = "memory_cache"
-    ttl     = "1m"
-    key     = "users:all"
+    use = "cache.lists"
+    key = "users:all"
   }
 }
 
