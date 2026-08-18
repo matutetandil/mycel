@@ -184,6 +184,9 @@ func (m *Manager) ResetPassword(ctx context.Context, token, newPassword, ip, use
 	if err := m.passwordValidator.Validate(newPassword, user); err != nil {
 		return &AuthError{Code: "weak_password", Message: err.Error()}
 	}
+	if err := m.refuseBreachedPassword(ctx, newPassword); err != nil {
+		return err
+	}
 	// The same policy a deliberate change is held to: a reset is not a way
 	// around the history.
 	if err := m.refusePasswordReuse(ctx, user, newPassword); err != nil {

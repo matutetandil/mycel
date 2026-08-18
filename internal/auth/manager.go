@@ -33,6 +33,7 @@ type Manager struct {
 	passwordReset   PasswordResetStore
 	devices         DeviceStore
 	geoip           GeoIPLookup
+	breaches        BreachChecker
 	travel          *travelHistory
 	flows           FlowInvoker
 	hookConditions  *transform.CELTransformer
@@ -132,6 +133,9 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 	if err := validateImpossibleTravel(config); err != nil {
 		return nil, err
 	}
+	if err := validateMFAPolicy(config); err != nil {
+		return nil, err
+	}
 
 	// What to do at the session limit has to be understood before a service
 	// starts, not at the moment somebody is turned away. The word for refusing
@@ -189,6 +193,11 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 		m.devices = NewMemoryDeviceStore()
 	}
 	m.travel = newTravelHistory()
+	// The public list unless something else was supplied. Nothing is asked of
+	// it until a service turns breach_check on.
+	if m.breaches == nil {
+		m.breaches = NewPwnedPasswords()
+	}
 	if m.geoip == nil {
 		lookup, err := buildGeoIP(config)
 		if err != nil {
@@ -276,9 +285,13 @@ func (m *Manager) Config() *Config {
 
 // Register registers a new user
 func (m *Manager) Register(ctx context.Context, req *RegisterRequest) (*User, *TokenPair, error) {
-	// Validate password
+	// Validate password. The cheap rules first: a password that is too short
+	// is refused without asking anybody else about it.
 	if err := m.passwordValidator.Validate(req.Password, nil); err != nil {
 		return nil, nil, &AuthError{Code: "weak_password", Message: err.Error()}
+	}
+	if err := m.refuseBreachedPassword(ctx, req.Password); err != nil {
+		return nil, nil, err
 	}
 
 	// Check if user exists
@@ -588,15 +601,17 @@ func (m *Manager) ValidateToken(ctx context.Context, accessToken string) (*User,
 	return m.validateToken(ctx, accessToken, false)
 }
 
-// ValidateTokenAllowingExpiredPassword is ValidateToken for the endpoints
-// somebody with an expired password still has to be able to reach: changing
-// the password, and signing out. Refusing those would leave them with no way
-// out of the state the policy put them in.
-func (m *Manager) ValidateTokenAllowingExpiredPassword(ctx context.Context, accessToken string) (*User, *Claims, error) {
+// ValidateTokenAllowingUnfinishedSetup is ValidateToken for the endpoints an
+// account still has to be able to reach when a policy has put it in a state it
+// must get out of: an expired password, or a second factor it has not enrolled
+// yet. Changing a password, enrolling a factor and signing out are those
+// endpoints; refusing them would leave somebody with no way out of the state
+// they are being asked to leave.
+func (m *Manager) ValidateTokenAllowingUnfinishedSetup(ctx context.Context, accessToken string) (*User, *Claims, error) {
 	return m.validateToken(ctx, accessToken, true)
 }
 
-func (m *Manager) validateToken(ctx context.Context, accessToken string, allowExpiredPassword bool) (*User, *Claims, error) {
+func (m *Manager) validateToken(ctx context.Context, accessToken string, allowUnfinishedSetup bool) (*User, *Claims, error) {
 	// Validate access token
 	claims, err := m.tokenManager.ValidateAccessToken(accessToken)
 	if err != nil {
@@ -641,9 +656,12 @@ func (m *Manager) validateToken(ctx context.Context, accessToken string, allowEx
 		return nil, nil, ErrUserNotFound
 	}
 
-	if !allowExpiredPassword {
+	if !allowUnfinishedSetup {
 		if _, expired, known := m.PasswordExpiry(user); known && expired {
 			return nil, nil, ErrPasswordExpired
+		}
+		if err := m.refuseUnenrolledAccount(ctx, user); err != nil {
+			return nil, nil, err
 		}
 	}
 
@@ -704,6 +722,9 @@ func (m *Manager) ChangePassword(ctx context.Context, userID, currentPassword, n
 	// Validate new password
 	if err := m.passwordValidator.Validate(newPassword, user); err != nil {
 		return &AuthError{Code: "weak_password", Message: err.Error()}
+	}
+	if err := m.refuseBreachedPassword(ctx, newPassword); err != nil {
+		return err
 	}
 
 	// Somebody returning to a password they have used before.

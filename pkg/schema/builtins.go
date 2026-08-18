@@ -965,7 +965,15 @@ func AuthSchema() Block {
 				{Name: "salt_length", Doc: "Salt length in bytes", Type: TypeNumber},
 				{Name: "key_length", Doc: "Derived key length in bytes", Type: TypeNumber},
 			}},
-			{Type: "mfa", Doc: "Multi-factor authentication; present means enabled"},
+			{Type: "mfa", Doc: "Multi-factor authentication; present means enabled", Attrs: []Attr{
+				{Name: "enabled", Doc: "Whether MFA runs at all; writing the block is what turns it on", Type: TypeBool},
+				{Name: "required", Doc: "Whether accounts must have a second factor, or are only offered one", Type: TypeString, Values: []string{"optional", "true", "false", "admin_only"}},
+				{Name: "require_for", Doc: "Roles a second factor is required of, when it is not required of everybody", Type: TypeList},
+				{Name: "methods", Doc: "How a second factor may be enrolled", Type: TypeList, Values: []string{"totp", "webauthn"}},
+				{Name: "require_multiple", Doc: "Demand more than one enrolled factor", Type: TypeBool},
+				{Name: "min_factors", Doc: "How many factors an account must have enrolled", Type: TypeNumber},
+				{Name: "grace_period", Doc: "How long a new account may go without enrolling, such as 7d; without it, from the start", Type: TypeString},
+			}},
 			{Type: "security", Doc: "Lockout, rate limiting and related defences", Children: []Block{
 				{Type: "impossible_travel", Doc: "Notice two sign-ins too far apart for the time between them", Attrs: []Attr{
 					{Name: "enabled", Doc: "Whether distances are measured at all; needs a geoip block", Type: TypeBool},

@@ -332,6 +332,17 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// What a client needs to send somebody to the change-password endpoint
 	// before every other one starts refusing them, and what warn_before is
 	// for: a week's notice is no use if nothing says it.
+	// What a client needs to send somebody to the enrolment endpoint before
+	// every other one starts refusing them.
+	if wanted, held, graceUntil, required := h.manager.MFAEnrolment(r.Context(), user); required && held < wanted {
+		body["mfa_enrolment_required"] = true
+		body["mfa_factors_wanted"] = wanted
+		body["mfa_factors_held"] = held
+		if !graceUntil.IsZero() {
+			body["mfa_grace_until"] = graceUntil
+		}
+	}
+
 	if expiresAt, expired, known := h.manager.PasswordExpiry(user); known {
 		if expired {
 			body["password_expired"] = true
@@ -435,7 +446,7 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 	// Signing out has to work whatever state the account is in, including a
 	// password the policy has expired.
-	_, claims, err := h.manager.ValidateTokenAllowingExpiredPassword(r.Context(), token)
+	_, claims, err := h.manager.ValidateTokenAllowingUnfinishedSetup(r.Context(), token)
 	if err != nil {
 		h.writeError(w, http.StatusUnauthorized, "unauthorized", "Invalid token")
 		return
@@ -529,7 +540,7 @@ func (h *Handler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	// The one endpoint an expired password must not be refused at: it is what
 	// somebody in that state is being sent here to do.
-	user, _, err := h.manager.ValidateTokenAllowingExpiredPassword(r.Context(), token)
+	user, _, err := h.manager.ValidateTokenAllowingUnfinishedSetup(r.Context(), token)
 	if err != nil {
 		h.writeError(w, http.StatusUnauthorized, "unauthorized", "Invalid token")
 		return

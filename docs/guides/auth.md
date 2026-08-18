@@ -85,10 +85,24 @@ password {
   max_age     = "90d"
   warn_before = "7d"
 
-  # Breach check (haveibeenpwned)
+  # Refuse passwords that have already been published
   breach_check = true
 }
 ```
+
+`breach_check` refuses a password that appears in the Have I Been Pwned list —
+the single most effective password rule there is, well ahead of demanding a
+capital letter, which mostly produces Password1.
+
+The password itself never leaves the process. It is hashed, the first five
+characters of that hash are sent, and the service answers with every suffix it
+holds under that prefix; the comparison happens here. What the service learns is
+five characters of a hash, which it cannot turn back into anything.
+
+A list that cannot be reached lets the password through, and says so in the log.
+That is the uncomfortable choice and it is the right one: the alternative is a
+service where nobody can register or change a password because somebody else's
+website is down.
 
 `history` refuses a password this account has used before. The hashes are kept
 in `password_history` for a database-backed deployment and in the process for
@@ -276,8 +290,10 @@ shows.
 
 ```hcl
 mfa {
-  required = "optional"  # "required", "optional", "off"
-  methods  = ["totp", "webauthn"]
+  required     = "optional"  # "true", "optional", "false", "admin_only"
+  require_for  = ["finance"] # or the roles it applies to
+  methods      = ["totp", "webauthn"]
+  grace_period = "7d"        # how long a new account may go without enrolling
 
   # TOTP Configuration
   totp {
@@ -305,6 +321,29 @@ mfa {
   }
 }
 ```
+
+#### Requiring a second factor
+
+`required = "true"` means an account must have one, not that it will be asked
+for one it never set up. `admin_only` narrows that to accounts with the `admin`
+role, and `require_for` to any roles you name. `optional` and `false` offer MFA
+without demanding it, which is the default.
+
+What "must" means in practice: **signing in keeps working** — enrolling needs a
+token, so refusing the sign-in would leave somebody unable to do the one thing
+being asked of them — and **every other endpoint refuses** with
+`403 mfa_enrolment_required` until a factor is enrolled. The sign-in response
+says so, with `mfa_enrolment_required`, `mfa_factors_wanted`,
+`mfa_factors_held` and `mfa_grace_until`, so a client can send somebody to the
+enrolment screen rather than to an error.
+
+`grace_period` is how long a new account may go without enrolling, measured
+from when it was created. Without one, the requirement applies from the first
+sign-in.
+
+`require_multiple` and `min_factors` ask for more than one enrolled factor. A
+policy demanding more factors than there are `methods` to enrol them with is
+refused at startup, since no account could ever satisfy it.
 
 ### What a wrong password costs
 
@@ -542,8 +581,9 @@ oidc "okta" {
   client_secret = env("OKTA_CLIENT_SECRET")
   scopes        = ["openid", "email", "profile", "groups"]
 
-  # Custom claim mappings
-  claims {
+  # Custom claim mappings. An attribute, not a block: written with braces and
+  # no equals sign it does not parse.
+  claims = {
     groups = "groups"
     role   = "role"
   }
