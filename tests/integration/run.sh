@@ -105,6 +105,26 @@ else
 fi
 echo ""
 
+# A throwaway service account for the push connector.
+#
+# Firebase's v1 API — the only one Google still answers — authenticates with a
+# service account rather than a shared key, and the connector signs a JWT with
+# its private key at startup. So the suite needs a real key pair, and generating
+# one per run keeps anything key-shaped out of the repository. token_uri points
+# at the mock, which answers with an access token.
+if [ -z "${FCM_SERVICE_ACCOUNT:-}" ]; then
+  FCM_KEY=$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null)
+  export FCM_SERVICE_ACCOUNT=$(FCM_KEY="$FCM_KEY" python3 -c '
+import json, os
+print(json.dumps({
+    "type": "service_account",
+    "project_id": "mycel-integration",
+    "private_key": os.environ["FCM_KEY"],
+    "client_email": "push@mycel-integration.iam.gserviceaccount.com",
+    "token_uri": "http://mock:8888/token",
+}))')
+fi
+
 # Step 1: Start services
 echo "Starting services..."
 BUILD_FLAG=""

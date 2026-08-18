@@ -70,6 +70,8 @@ services:
       S3_BUCKET: test-bucket
       # Mock server (for HTTP client + notifications)
       MOCK_URL: "http://mock:8888"
+      # Generated per run by run.sh; the push connector signs a JWT with it.
+      FCM_SERVICE_ACCOUNT: "${FCM_SERVICE_ACCOUNT:-}"
       # MQTT
       MQTT_BROKER: "tcp://mosquitto:1883"
       # SFTP

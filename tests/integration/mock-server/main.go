@@ -68,6 +68,17 @@ func main() {
 		w.Write([]byte(`{"status": "ok"}`))
 	})
 
+	// Google's token endpoint, for the push connector.
+	//
+	// FCM's v1 API wants a bearer token exchanged for a signed assertion, so
+	// without this the connector starts and then fails every notification with
+	// "Google returned no access token" — which the catch-all below would
+	// otherwise answer with {"ok": true}.
+	mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token": "mock-access-token", "expires_in": 3600, "token_type": "Bearer"}`))
+	})
+
 	// Catch-all: capture any other request
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
