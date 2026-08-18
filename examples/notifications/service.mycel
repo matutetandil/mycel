@@ -48,7 +48,7 @@ connector "sms" {
 connector "push" {
   type       = "push"
   driver     = "fcm"
-  server_key = env("FCM_SERVER_KEY", "")
+  service_account_json = env("FCM_SERVICE_ACCOUNT", "")
 }
 
 # Inbound webhooks

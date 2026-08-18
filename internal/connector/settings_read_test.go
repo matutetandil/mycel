@@ -36,10 +36,6 @@ var notRead = map[string]string{
 	"push/Config.Driver": "same as email: the factory switches on it and the field is kept for reporting",
 	"sms/Config.Driver":  "same as email",
 
-	"push/FCMConfig.ProjectID": "part of the newer HTTP v1 API, which this connector does not speak yet; " +
-		"kept because a configuration written for v1 should not be refused outright",
-	"push/FCMConfig.ServiceAccountJSON": "same as ProjectID — HTTP v1 credentials",
-
 	"graphql/EntityConfig.TypeName":     "federation entity metadata used by the schema builder through its own map",
 	"graphql/SchemaConfig.AutoGenerate": "decided before the config is built, from whether a schema file was given",
 

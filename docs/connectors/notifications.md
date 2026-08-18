@@ -490,9 +490,10 @@ Two drivers: **fcm** (Firebase Cloud Messaging) and **apns** (Apple Push Notific
 ```hcl
 # Firebase Cloud Messaging
 connector "push_fcm" {
-  type       = "push"
-  driver     = "fcm"
-  server_key = env("FCM_SERVER_KEY")
+  type                 = "push"
+  driver               = "fcm"
+  service_account_json = env("FCM_SERVICE_ACCOUNT")   # the file, or its contents
+  project_id           = "my-firebase-project"        # optional: the file names it
 }
 
 # Apple Push Notifications
@@ -511,11 +512,23 @@ connector "push_apns" {
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `server_key` | string | **yes** | — | Legacy FCM server key |
-| `project_id` | string | optional | — | Firebase project ID (v1 API) |
-| `service_account_json` | string | optional | — | Path to service account credentials |
+| `service_account_json` | string | **yes** | — | The service account from the Firebase console: a path to the file, or the JSON itself |
+| `project_id` | string | optional | from the file | Firebase project the messages belong to |
 | `api_url` | string | optional | `https://fcm.googleapis.com` | FCM API base URL |
 | `timeout` | duration | optional | `30s` | Request timeout |
+
+Mycel speaks the FCM **HTTP v1** API. `server_key` and the legacy `/fcm/send`
+endpoint it belongs to were retired by Google in June 2024, so a connector
+configured with one is refused at startup rather than left failing every push
+against an endpoint that is gone.
+
+Some of what a message carries moves in this API: priority, time to live and
+the collapse key travel under `android`, and every value in `data` has to be a
+string. Mycel does that translation, so a flow writes the same fields it always
+did. One difference is worth knowing: a message to several devices is one
+request per device, which is what the API allows — and it means a token whose
+app has been uninstalled fails on its own rather than failing the batch, and
+comes back in `failed_tokens`.
 
 ### APNs Options
 

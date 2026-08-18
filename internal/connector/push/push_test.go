@@ -2,9 +2,6 @@ package push
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -46,7 +43,7 @@ func TestFCMConnector_DefaultTimeout(t *testing.T) {
 	}
 }
 
-func TestFCMConnector_Connect_RequiresServerKey(t *testing.T) {
+func TestFCMConnector_Connect_RequiresCredentials(t *testing.T) {
 	cfg := &Config{
 		Name:   "test",
 		Driver: "fcm",
@@ -57,11 +54,13 @@ func TestFCMConnector_Connect_RequiresServerKey(t *testing.T) {
 	err := conn.Connect(context.Background())
 
 	if err == nil {
-		t.Error("expected error when server_key is missing")
+		t.Error("expected error when there is no service account to sign with")
 	}
 }
 
-func TestFCMConnector_Connect_WithServerKey(t *testing.T) {
+func TestFCMConnector_Connect_RefusesTheLegacyServerKey(t *testing.T) {
+	// This used to be the only way to configure FCM, and it used to succeed.
+	// Google retired the API it belongs to in June 2024.
 	cfg := &Config{
 		Name:   "test",
 		Driver: "fcm",
@@ -71,55 +70,9 @@ func TestFCMConnector_Connect_WithServerKey(t *testing.T) {
 	}
 
 	conn := NewFCMConnector("test", cfg)
-	err := conn.Connect(context.Background())
-
-	if err != nil {
-		t.Errorf("Connect should succeed: %v", err)
+	if err := conn.Connect(context.Background()); err == nil {
+		t.Error("a connector configured with the retired server key started")
 	}
-}
-
-func TestFCMConnector_Send(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
-			t.Errorf("expected POST, got %s", r.Method)
-		}
-		if r.Header.Get("Authorization") != "key=test-key" {
-			t.Errorf("expected Authorization 'key=test-key', got %s", r.Header.Get("Authorization"))
-		}
-
-		var msg map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&msg)
-
-		if msg["to"] != "device-token-123" {
-			t.Errorf("expected to 'device-token-123', got %v", msg["to"])
-		}
-
-		notification := msg["notification"].(map[string]interface{})
-		if notification["title"] != "Test Title" {
-			t.Errorf("expected title 'Test Title', got %v", notification["title"])
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"message_id": 12345,
-			"success":    1,
-			"failure":    0,
-		})
-	}))
-	defer server.Close()
-
-	// Note: We can't easily override the FCM URL, so this test verifies structure
-	cfg := &Config{
-		Name:   "test",
-		Driver: "fcm",
-		FCM: &FCMConfig{
-			ServerKey: "test-key",
-		},
-	}
-
-	conn := NewFCMConnector("test", cfg)
-	_ = conn
-	_ = server
 }
 
 func TestFCMConnector_Health(t *testing.T) {
