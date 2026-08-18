@@ -136,3 +136,38 @@ func TestWritingStorageInlineStillWorks(t *testing.T) {
 		t.Errorf("storage = %q", cfg.Flows[0].Cache.Storage)
 	}
 }
+
+// The prefixed spelling of a validator reference.
+//
+// The registry keys validators by their bare name, and the validators example
+// in this repository documents the prefixed form — `validator = "validator.email"`
+// — so writing what the example shows resolved to nothing. Silently: a
+// reference that does not resolve leaves the field unvalidated rather than
+// failing.
+func TestAValidatorReferenceReadsEitherSpelling(t *testing.T) {
+	for name, written := range map[string]string{
+		"the bare name":     "corporate_email",
+		"the prefixed name": "validator.corporate_email",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := tryParse(t, `validator "corporate_email" {
+  type    = "regex"
+  pattern = "^[a-z]+@example.com$"
+}
+type "user" {
+  email = string({ validator = "`+written+`" })
+}`)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if len(cfg.Types) != 1 || len(cfg.Types[0].Fields) != 1 {
+				t.Fatalf("types = %+v", cfg.Types)
+			}
+			// Both have to arrive as the name the registry holds, or the
+			// lookup misses and the field goes unvalidated.
+			if got := cfg.Types[0].Fields[0].ValidatorRef; got != "corporate_email" {
+				t.Errorf("validator ref = %q, want the registry's key", got)
+			}
+		})
+	}
+}

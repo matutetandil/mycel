@@ -591,6 +591,17 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed: %d duration error(s)", len(errs))
 	}
 
+	// A validator a type names but nothing declares is not a failure at run
+	// time: the rule is simply skipped, so the field goes unvalidated.
+	if errs := runtime.ValidateValidatorReferences(config); len(errs) > 0 {
+		fmt.Printf("\n✗ Configuration is invalid:\n\n")
+		for _, e := range errs {
+			fmt.Printf("    - %s\n", e)
+		}
+		fmt.Println()
+		return fmt.Errorf("validation failed: %d validator reference error(s)", len(errs))
+	}
+
 	// And names repeated inside a flow, where something is keyed by them: the
 	// second silently overwrites the first.
 	if errs := runtime.ValidateUniqueInnerNames(config); len(errs) > 0 {

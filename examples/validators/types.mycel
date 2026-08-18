@@ -18,14 +18,13 @@ type "product" {
   price = number
 }
 
-// Note: The validate attribute will be supported in the type parser.
-// For now, validators are defined and can be used programmatically.
-// Future syntax:
+// Referencing a validator from a type. The attribute is `validator`, and the
+// constraints go inside the parentheses:
 //
 // type "user" {
-//   email    = string { validate = "validator.email" }
-//   password = string { validate = "validator.strong_password" }
-//   age      = number { validate = "validator.adult_age" }
-//   phone    = string { validate = "validator.phone_ar" }
-//   status   = string { validate = "validator.valid_status" }
+//   email    = string({ validator = "email" })
+//   password = string({ validator = "strong_password" })
+//   age      = number({ validator = "adult_age" })
+//   phone    = string({ validator = "phone_ar" })
+//   status   = string({ validator = "valid_status" })
 // }

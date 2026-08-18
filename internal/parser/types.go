@@ -350,7 +350,12 @@ func parseFieldDirective(field *validate.FieldSchema, key string, value interfac
 
 	case "validator":
 		if s, ok := value.(string); ok {
-			field.ValidatorRef = s
+			// Either spelling: the registry keys validators by their bare
+			// name, and the example in this repository documents the
+			// prefixed form, so `validator.email` used to resolve to
+			// nothing — silently, since a reference that does not resolve
+			// leaves the field unvalidated.
+			field.ValidatorRef = parseRefName("validator", s)
 		}
 		return true
 	}
