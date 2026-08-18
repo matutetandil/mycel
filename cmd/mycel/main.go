@@ -591,6 +591,18 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed: %d duration error(s)", len(errs))
 	}
 
+	// A connector named by a block other than from/to was checked by nobody:
+	// depending on the block it was refused, or failed on the first request,
+	// or silently did nothing at all for ever.
+	if errs := runtime.ValidateConnectorReferences(config); len(errs) > 0 {
+		fmt.Printf("\n✗ Configuration is invalid:\n\n")
+		for _, e := range errs {
+			fmt.Printf("    - %s\n", e)
+		}
+		fmt.Println()
+		return fmt.Errorf("validation failed: %d connector reference error(s)", len(errs))
+	}
+
 	// A hook naming a flow that does not exist would otherwise surface as a
 	// line in a log during whatever the hook was meant to catch.
 	if errs := runtime.ValidateAuthHooks(config); len(errs) > 0 {

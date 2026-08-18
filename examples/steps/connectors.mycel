@@ -31,3 +31,68 @@ connector "inventory_db" {
   driver   = "sqlite"
   database = ":memory:"
 }
+
+# The rest of the sources the flows below read from and write to.
+#
+# They were referenced by name and never declared, so this example loaded, said
+# nothing, and failed on the first request that reached a step — or, where a
+# step says on_error = "skip", carried on for ever with that part of the answer
+# missing. `mycel validate` names an undeclared connector now, which is how
+# this was found.
+connector "product_db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = ":memory:"
+}
+
+connector "reviews_db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = ":memory:"
+}
+
+connector "orders_db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = ":memory:"
+}
+
+connector "billing_db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = ":memory:"
+}
+
+connector "payments_db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = ":memory:"
+}
+
+connector "audit_db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = ":memory:"
+}
+
+connector "analytics_db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = ":memory:"
+}
+
+# Where the fan-out and the notifications go.
+connector "rabbit" {
+  type = "mq"
+  driver = "rabbitmq"
+  url  = env("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+}
+
+# Where the dedupe fingerprints live. A dedupe pointing at a connector nobody
+# declared was refused at parse time already, which is why this one was the
+# last to be noticed rather than the first.
+connector "redis_cache" {
+  type   = "cache"
+  driver = "redis"
+  url    = env("REDIS_URL", "redis://localhost:6379")
+}
