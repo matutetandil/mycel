@@ -596,6 +596,7 @@ var (
 	ErrWeakPassword       = &AuthError{Code: "weak_password", Message: "Password does not meet requirements"}
 	ErrBreachedPassword   = &AuthError{Code: "breached_password", Message: "Password found in data breach"}
 	ErrInvalidResetToken  = &AuthError{Code: "invalid_reset_token", Message: "This reset link is not valid or has expired"}
+	ErrUnknownDevice      = &AuthError{Code: "unknown_device", Message: "This device is not recognised"}
 )
 
 // UserFieldsConfig is an alias for FieldsConfig

@@ -31,6 +31,7 @@ type Manager struct {
 	auditStore      AuditStore
 	passwordHistory PasswordHistoryStore
 	passwordReset   PasswordResetStore
+	devices         DeviceStore
 	flows           FlowInvoker
 	hookConditions  *transform.CELTransformer
 
@@ -123,6 +124,9 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 	if err := validateHooks(config); err != nil {
 		return nil, err
 	}
+	if err := validateDeviceBinding(config); err != nil {
+		return nil, err
+	}
 
 	// What to do at the session limit has to be understood before a service
 	// starts, not at the moment somebody is turned away. The word for refusing
@@ -175,6 +179,9 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 	}
 	if m.passwordReset == nil {
 		m.passwordReset = NewMemoryPasswordResetStore()
+	}
+	if m.devices == nil {
+		m.devices = NewMemoryDeviceStore()
 	}
 	if m.bruteForceStore == nil {
 		m.bruteForceStore = NewMemoryBruteForceStore()
@@ -400,6 +407,14 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 			}
 			m.logger.Warn("user logged in with recovery code", "user_id", user.ID)
 		}
+	}
+
+	// Whether this is a machine the account has used before. After the
+	// password is accepted, so that somebody guessing at it does not teach the
+	// service a new device, and before a session exists, so that a refusal
+	// here refuses to open one.
+	if err := m.checkDevice(ctx, user, req, ip, userAgent); err != nil {
+		return nil, nil, err
 	}
 
 	// Reset brute force counter on successful login

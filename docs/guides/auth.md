@@ -156,11 +156,46 @@ security {
   }
 
   device_binding {
-    enabled = true
-    fields  = ["user_agent", "screen_resolution"]
+    enabled        = true
+    fingerprint    = ["user_agent", "ip"]
+    trust_duration = "30d"
+    max_devices    = 5
+    on_new_device  = "notify"   # "allow", "challenge", "block", "notify"
   }
 }
 ```
+
+### Recognising a Device
+
+`device_binding` notices when an account signs in from something it has not
+used before. A device is identified by what the request already carries — no
+agent is installed on it — so `fingerprint` chooses from what a server can
+actually see:
+
+| Field | What it is |
+|-------|------------|
+| `user_agent` | The browser string. The default, and the only thing every request carries |
+| `ip` | The network the address belongs to, not the address: a phone changes address between one street and the next, and a device that is new every time is no device at all |
+| `device_id` | An identifier the client keeps and sends in the sign-in body |
+
+That is weak on its own — two people on the same browser version look alike —
+which is why the useful settings are the ones that ask for more or tell
+somebody, rather than the one that refuses:
+
+| `on_new_device` | What happens |
+|-----------------|--------------|
+| `allow` | Remember it and carry on. The default |
+| `notify` | Remember it and run the `on_suspicious_activity` hook, with `auth.reason = "new_device"` |
+| `challenge` | Require a second factor for this sign-in. An account with no MFA enrolled is let through and the service says so, because there is nothing to challenge with and locking somebody out of a new laptop is worse |
+| `block` | Refuse the sign-in |
+
+`trust_duration` is how long a device stays recognised without being used: past
+it, the same machine is new again. `max_devices` caps how many are remembered,
+dropping the one nobody has signed in from for longest.
+
+A request carrying nothing to identify a device — a proxy that stopped
+forwarding the browser string — is let through rather than refused. An outage
+is a worse failure than an unrecognised device.
 
 ### Session Management
 

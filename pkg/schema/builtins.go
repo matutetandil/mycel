@@ -966,7 +966,15 @@ func AuthSchema() Block {
 				{Name: "key_length", Doc: "Derived key length in bytes", Type: TypeNumber},
 			}},
 			{Type: "mfa", Doc: "Multi-factor authentication; present means enabled"},
-			{Type: "security", Doc: "Lockout, rate limiting and related defences"},
+			{Type: "security", Doc: "Lockout, rate limiting and related defences", Children: []Block{
+				{Type: "device_binding", Doc: "Notice when an account signs in from something it has not used before", Attrs: []Attr{
+					{Name: "enabled", Doc: "Whether devices are watched at all", Type: TypeBool},
+					{Name: "fingerprint", Doc: "What identifies a device, from what a server can see", Type: TypeList, Values: []string{"user_agent", "ip", "device_id"}},
+					{Name: "trust_duration", Doc: "How long a device stays recognised without being used, such as 30d", Type: TypeString},
+					{Name: "max_devices", Doc: "How many devices to remember per account; the least recently used is dropped", Type: TypeNumber},
+					{Name: "on_new_device", Doc: "What a device the account has not used means", Type: TypeString, Values: []string{"notify", "allow", "challenge", "block"}},
+				}},
+			}},
 			{Type: "sessions", Doc: "How long a sign-in lasts, how many at once, and what is kept about it", Attrs: []Attr{
 				{Name: "max_active", Doc: "How many sessions one person may hold at once; 0 is unlimited", Type: TypeNumber},
 				{Name: "idle_timeout", Doc: "End a session left untouched for this long, such as 30m", Type: TypeString},
