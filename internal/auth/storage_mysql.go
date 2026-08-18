@@ -69,8 +69,10 @@ func (s *MySQLUserStore) getFields() *UserFieldsConfig {
 	if written.UpdatedAt != "" {
 		fields.UpdatedAt = written.UpdatedAt
 	}
-	// Roles has no default: naming the column is what turns them on.
+	// Neither of these has a default: naming the column is what turns the
+	// feature on.
 	fields.Roles = written.Roles
+	fields.PasswordChangedAt = written.PasswordChangedAt
 
 	return fields
 }
@@ -94,6 +96,14 @@ func (s *MySQLUserStore) Create(ctx context.Context, user *User) error {
 		placeholders += ", ?"
 		args = append(args, encodeRoles(user.Roles))
 	}
+	// A new account's password is as old as the account, which is what an age
+	// policy has to measure from for somebody who has never changed it.
+	if column := passwordChangedColumn(fields); column != "" {
+		columns += ", " + column
+		placeholders += ", ?"
+		args = append(args, now)
+		user.PasswordChangedAt = &now
+	}
 
 	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, columns, placeholders)
 
@@ -114,11 +124,11 @@ func (s *MySQLUserStore) GetByID(ctx context.Context, id string) (*User, error) 
 	table := s.getTableName()
 	fields := s.getFields()
 
-	columns, rolesCol := userColumns(fields)
+	columns, optional := userColumns(fields)
 	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", columns, table, fields.ID)
 
 	user := &User{}
-	targets, storedRoles := userScanTargets(user, rolesCol)
+	targets, stored := userScanTargets(user, optional)
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(targets...)
 	if err == sql.ErrNoRows {
@@ -127,7 +137,7 @@ func (s *MySQLUserStore) GetByID(ctx context.Context, id string) (*User, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user by ID: %w", err)
 	}
-	applyStoredRoles(user, rolesCol, storedRoles)
+	applyStoredOptionals(user, optional, stored)
 
 	return user, nil
 }
@@ -137,11 +147,11 @@ func (s *MySQLUserStore) GetByEmail(ctx context.Context, email string) (*User, e
 	table := s.getTableName()
 	fields := s.getFields()
 
-	columns, rolesCol := userColumns(fields)
+	columns, optional := userColumns(fields)
 	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = ?", columns, table, fields.Email)
 
 	user := &User{}
-	targets, storedRoles := userScanTargets(user, rolesCol)
+	targets, stored := userScanTargets(user, optional)
 
 	err := s.db.QueryRowContext(ctx, query, email).Scan(targets...)
 	if err == sql.ErrNoRows {
@@ -150,7 +160,7 @@ func (s *MySQLUserStore) GetByEmail(ctx context.Context, email string) (*User, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user by email: %w", err)
 	}
-	applyStoredRoles(user, rolesCol, storedRoles)
+	applyStoredOptionals(user, optional, stored)
 
 	return user, nil
 }
@@ -230,11 +240,19 @@ func (s *MySQLUserStore) UpdatePassword(ctx context.Context, id string, password
 	table := s.getTableName()
 	fields := s.getFields()
 
-	query := fmt.Sprintf(`
-		UPDATE %s SET %s = ?, %s = ? WHERE %s = ?
-	`, table, fields.PasswordHash, fields.UpdatedAt, fields.ID)
+	now := time.Now()
+	assignments := fmt.Sprintf("%s = ?, %s = ?", fields.PasswordHash, fields.UpdatedAt)
+	args := []interface{}{passwordHash, now}
+	// Recording when it changed is the whole of what max_age reads.
+	if column := passwordChangedColumn(fields); column != "" {
+		assignments += fmt.Sprintf(", %s = ?", column)
+		args = append(args, now)
+	}
+	args = append(args, id)
 
-	result, err := s.db.ExecContext(ctx, query, passwordHash, time.Now(), id)
+	query := fmt.Sprintf("UPDATE %s SET %s WHERE %s = ?", table, assignments, fields.ID)
+
+	result, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}

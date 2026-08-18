@@ -94,6 +94,11 @@ type FieldsConfig struct {
 	// turns roles on for a SQL-backed store: without it the column is neither
 	// written nor read, so a users table that already exists keeps working.
 	Roles string `hcl:"roles,optional"`
+
+	// PasswordChangedAt names the column recording when a password was last
+	// set. Naming one is what turns password { max_age } on for a SQL-backed
+	// store, on the same terms as roles.
+	PasswordChangedAt string `hcl:"password_changed_at,optional"`
 }
 
 // JWTConfig defines JWT token settings
@@ -499,6 +504,12 @@ type User struct {
 	CreatedAt    time.Time              `json:"created_at"`
 	UpdatedAt    time.Time              `json:"updated_at"`
 	LastLoginAt  *time.Time             `json:"last_login_at,omitempty"`
+
+	// PasswordChangedAt is when the password was last set, which is what
+	// password { max_age } is measured from. Nil means it is not known: an
+	// account from before this was recorded, or a SQL store whose fields block
+	// names no column for it.
+	PasswordChangedAt *time.Time `json:"password_changed_at,omitempty"`
 }
 
 // Session represents an active session

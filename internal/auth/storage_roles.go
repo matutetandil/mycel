@@ -31,32 +31,79 @@ func rolesColumn(fields *FieldsConfig) string {
 	return fields.Roles
 }
 
-// userColumns lists the columns a user is read from, and reports the roles
-// column separately so the caller knows whether to expect it back.
-func userColumns(fields *FieldsConfig) (columns, rolesCol string) {
+// passwordChangedColumn returns the column recording when a password was last
+// set, or "" when the configuration names none.
+//
+// Opt-in for the same reason as roles: a users table that already exists need
+// not grow a column, and selecting one nobody created would turn a working
+// service into one that cannot read its own users. Writing
+// `fields { password_changed_at = "..." }` is what turns password expiry on
+// for a SQL-backed store.
+func passwordChangedColumn(fields *FieldsConfig) string {
+	if fields == nil {
+		return ""
+	}
+	return fields.PasswordChangedAt
+}
+
+// optionalColumns are the columns a users table may or may not have.
+type optionalColumns struct {
+	roles           string
+	passwordChanged string
+}
+
+func optionalUserColumns(fields *FieldsConfig) optionalColumns {
+	return optionalColumns{
+		roles:           rolesColumn(fields),
+		passwordChanged: passwordChangedColumn(fields),
+	}
+}
+
+// storedOptionals holds what those columns read back as, each null until a
+// column that exists says otherwise.
+type storedOptionals struct {
+	roles           sql.NullString
+	passwordChanged sql.NullTime
+}
+
+// userColumns lists the columns a user is read from, and reports which of the
+// optional ones are among them so the caller knows what to expect back.
+func userColumns(fields *FieldsConfig) (columns string, optional optionalColumns) {
 	columns = fmt.Sprintf("%s, %s, %s, %s, %s",
 		fields.ID, fields.Email, fields.PasswordHash, fields.CreatedAt, fields.UpdatedAt)
-	if rolesCol = rolesColumn(fields); rolesCol != "" {
-		columns += ", " + rolesCol
+	optional = optionalUserColumns(fields)
+	if optional.roles != "" {
+		columns += ", " + optional.roles
 	}
-	return columns, rolesCol
+	if optional.passwordChanged != "" {
+		columns += ", " + optional.passwordChanged
+	}
+	return columns, optional
 }
 
 // userScanTargets pairs those columns with the fields they are read into.
-func userScanTargets(user *User, rolesCol string) ([]interface{}, *sql.NullString) {
+func userScanTargets(user *User, optional optionalColumns) ([]interface{}, *storedOptionals) {
 	targets := []interface{}{&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt}
-	storedRoles := &sql.NullString{}
-	if rolesCol != "" {
-		targets = append(targets, storedRoles)
+	stored := &storedOptionals{}
+	if optional.roles != "" {
+		targets = append(targets, &stored.roles)
 	}
-	return targets, storedRoles
+	if optional.passwordChanged != "" {
+		targets = append(targets, &stored.passwordChanged)
+	}
+	return targets, stored
 }
 
-// applyStoredRoles puts the roles column onto the user, if there was one. A
-// null column is a user with no roles rather than an error.
-func applyStoredRoles(user *User, rolesCol string, stored *sql.NullString) {
-	if rolesCol != "" && stored.Valid {
-		user.Roles = decodeRoles(stored.String)
+// applyStoredOptionals puts those columns onto the user, if there were any. A
+// null column is a user with no roles, or one whose password has no recorded
+// age, rather than an error.
+func applyStoredOptionals(user *User, optional optionalColumns, stored *storedOptionals) {
+	if optional.roles != "" && stored.roles.Valid {
+		user.Roles = decodeRoles(stored.roles.String)
+	}
+	if optional.passwordChanged != "" && stored.passwordChanged.Valid {
+		changed := stored.passwordChanged.Time
+		user.PasswordChangedAt = &changed
 	}
 }
 

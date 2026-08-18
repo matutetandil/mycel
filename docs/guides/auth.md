@@ -78,13 +78,46 @@ password {
   require_number  = true
   require_special = false
 
-  # Password history (prevent reuse)
+  # Refuse the last N passwords, the one in use counting as the most recent
   history = 5
+
+  # How long a password may be used for, and how much notice to give
+  max_age     = "90d"
+  warn_before = "7d"
 
   # Breach check (haveibeenpwned)
   breach_check = true
 }
 ```
+
+`history` refuses a password this account has used before. The hashes are kept
+in `password_history` for a database-backed deployment and in the process for
+any other, so a service holding its users in memory loses the history with the
+accounts on a restart.
+
+`max_age` expires a password. Signing in keeps working past it — the endpoint
+that fixes it needs a token — but every other endpoint answers `403` with the
+code `password_expired` until the password is changed. Signing out keeps
+working too. `warn_before` puts `password_expires_at` in the sign-in response
+that much ahead of time, which is what a client needs to ask somebody to change
+it before it starts refusing them.
+
+Where the password's age is read from depends on the store. In memory it is
+recorded for you. On a database it is a column, opt-in like `roles`, so a users
+table that already exists need not grow one:
+
+```hcl
+users {
+  connector = "app_db"
+  fields {
+    password_changed_at = "password_changed_at"
+  }
+}
+```
+
+Without that column nothing expires, and the service says so at startup rather
+than leaving a policy that looks configured. An account whose age is not
+recorded — one that predates the column — is never treated as expired.
 
 ### Security Features
 
@@ -692,6 +725,9 @@ CREATE TABLE users (
   mfa_secret VARCHAR(255),
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
+  -- Only needed for password { max_age }, and only when the users fields block
+  -- names it. Rows written before it existed are null, which is not expired.
+  password_changed_at TIMESTAMP,
   metadata JSONB
 );
 

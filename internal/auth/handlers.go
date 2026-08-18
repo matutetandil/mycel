@@ -308,13 +308,27 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
+	body := map[string]interface{}{
 		"user":          userToResponse(user),
 		"access_token":  tokens.AccessToken,
 		"refresh_token": tokens.RefreshToken,
 		"token_type":    tokens.TokenType,
 		"expires_in":    tokens.ExpiresIn,
-	})
+	}
+
+	// What a client needs to send somebody to the change-password endpoint
+	// before every other one starts refusing them, and what warn_before is
+	// for: a week's notice is no use if nothing says it.
+	if expiresAt, expired, known := h.manager.PasswordExpiry(user); known {
+		if expired {
+			body["password_expired"] = true
+			body["password_expires_at"] = expiresAt
+		} else if _, warn := h.manager.PasswordExpiryWarning(user); warn {
+			body["password_expires_at"] = expiresAt
+		}
+	}
+
+	h.writeJSON(w, http.StatusOK, body)
 }
 
 // handleLogout handles POST /auth/logout
@@ -331,8 +345,9 @@ func (h *Handler) handleLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate token
-	_, claims, err := h.manager.ValidateToken(r.Context(), token)
+	// Signing out has to work whatever state the account is in, including a
+	// password the policy has expired.
+	_, claims, err := h.manager.ValidateTokenAllowingExpiredPassword(r.Context(), token)
 	if err != nil {
 		h.writeError(w, http.StatusUnauthorized, "unauthorized", "Invalid token")
 		return
@@ -424,8 +439,9 @@ func (h *Handler) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate token
-	user, _, err := h.manager.ValidateToken(r.Context(), token)
+	// The one endpoint an expired password must not be refused at: it is what
+	// somebody in that state is being sent here to do.
+	user, _, err := h.manager.ValidateTokenAllowingExpiredPassword(r.Context(), token)
 	if err != nil {
 		h.writeError(w, http.StatusUnauthorized, "unauthorized", "Invalid token")
 		return

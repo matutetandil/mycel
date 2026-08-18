@@ -83,6 +83,19 @@ func (r *Runtime) buildAuthStores(cfg *auth.Config) ([]auth.ManagerOption, error
 		return nil, fmt.Errorf("auth storage driver %q is not one of memory, redis or database", cfg.Storage.Driver)
 	}
 
+	// An age policy needs somewhere to read the age from. On a SQL store the
+	// column is opt-in, like roles, so that a users table that already exists
+	// keeps working — which means a service can configure max_age against a
+	// database and have nothing ever expire. Saying so is the difference
+	// between a policy that is off and one that looks on.
+	if cfg.Storage.Driver == "database" && cfg.Password != nil && cfg.Password.MaxAge != "" {
+		if cfg.Users == nil || cfg.Users.Fields == nil || cfg.Users.Fields.PasswordChangedAt == "" {
+			slog.Warn("password max_age is configured but no column records when a password was last set, so nothing will expire",
+				"max_age", cfg.Password.MaxAge,
+				"hint", "name the column in the users fields block, for example fields { password_changed_at = \"password_changed_at\" }")
+		}
+	}
+
 	slog.Info("auth storage configured", "driver", cfg.Storage.Driver, "persistent", persistent)
 
 	// The one that matters enough to say on its own: without a user store,

@@ -516,8 +516,23 @@ func (m *Manager) RefreshToken(ctx context.Context, refreshToken string) (*User,
 	return user, tokens, nil
 }
 
-// ValidateToken validates an access token and returns the user
+// ValidateToken validates an access token and returns the user.
+//
+// A password past its max_age is refused here, which is what makes the policy
+// a policy rather than a note in the sign-in response.
 func (m *Manager) ValidateToken(ctx context.Context, accessToken string) (*User, *Claims, error) {
+	return m.validateToken(ctx, accessToken, false)
+}
+
+// ValidateTokenAllowingExpiredPassword is ValidateToken for the endpoints
+// somebody with an expired password still has to be able to reach: changing
+// the password, and signing out. Refusing those would leave them with no way
+// out of the state the policy put them in.
+func (m *Manager) ValidateTokenAllowingExpiredPassword(ctx context.Context, accessToken string) (*User, *Claims, error) {
+	return m.validateToken(ctx, accessToken, true)
+}
+
+func (m *Manager) validateToken(ctx context.Context, accessToken string, allowExpiredPassword bool) (*User, *Claims, error) {
 	// Validate access token
 	claims, err := m.tokenManager.ValidateAccessToken(accessToken)
 	if err != nil {
@@ -560,6 +575,12 @@ func (m *Manager) ValidateToken(ctx context.Context, accessToken string) (*User,
 	user, err := m.userStore.FindByID(ctx, claims.UserID)
 	if err != nil {
 		return nil, nil, ErrUserNotFound
+	}
+
+	if !allowExpiredPassword {
+		if _, expired, known := m.PasswordExpiry(user); known && expired {
+			return nil, nil, ErrPasswordExpired
+		}
 	}
 
 	return user, claims, nil

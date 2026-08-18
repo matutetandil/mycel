@@ -383,3 +383,109 @@ func TestMySQLAuditLogWritesTheEvent(t *testing.T) {
 		t.Fatalf("Log: %v", err)
 	}
 }
+
+// The column that records when a password was last set is opt-in, on the same
+// terms as roles: a users table that already exists need not grow one, and
+// selecting a column nobody created would turn a working service into one that
+// cannot read its own users.
+
+func TestThePasswordAgeColumnIsOnlyReadWhenItIsNamed(t *testing.T) {
+	db, mock := mockDB(t)
+	store := NewPostgresUserStore(db, &UsersConfig{})
+
+	// No column named, so the query must not ask for one — a row with five
+	// columns is all this store expects back.
+	mock.ExpectQuery("SELECT").
+		WithArgs("person@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "email", "password_hash", "created_at", "updated_at"}).
+			AddRow("u-1", "person@example.com", "hash", time.Now(), time.Now()))
+
+	user, err := store.FindByEmail(context.Background(), "person@example.com")
+	if err != nil {
+		t.Fatalf("FindByEmail: %v", err)
+	}
+	if user.PasswordChangedAt != nil {
+		t.Errorf("an age came back from a store that reads no column for it: %v", user.PasswordChangedAt)
+	}
+}
+
+func TestNamingThePasswordAgeColumnReadsIt(t *testing.T) {
+	db, mock := mockDB(t)
+	store := NewPostgresUserStore(db, &UsersConfig{
+		Fields: &FieldsConfig{PasswordChangedAt: "password_changed_at"},
+	})
+
+	changed := time.Now().Add(-30 * 24 * time.Hour)
+	mock.ExpectQuery("password_changed_at").
+		WithArgs("person@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "email", "password_hash", "created_at", "updated_at", "password_changed_at"}).
+			AddRow("u-1", "person@example.com", "hash", time.Now(), time.Now(), changed))
+
+	user, err := store.FindByEmail(context.Background(), "person@example.com")
+	if err != nil {
+		t.Fatalf("FindByEmail: %v", err)
+	}
+	if user.PasswordChangedAt == nil || !user.PasswordChangedAt.Equal(changed) {
+		t.Errorf("password age = %v, want %v", user.PasswordChangedAt, changed)
+	}
+}
+
+func TestANullPasswordAgeIsNotAnError(t *testing.T) {
+	// A column added to a table that already has rows: everything written
+	// before it existed is null, and none of those accounts may be locked out.
+	db, mock := mockDB(t)
+	store := NewPostgresUserStore(db, &UsersConfig{
+		Fields: &FieldsConfig{PasswordChangedAt: "password_changed_at"},
+	})
+
+	mock.ExpectQuery("SELECT").
+		WithArgs("person@example.com").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "email", "password_hash", "created_at", "updated_at", "password_changed_at"}).
+			AddRow("u-1", "person@example.com", "hash", time.Now(), time.Now(), nil))
+
+	user, err := store.FindByEmail(context.Background(), "person@example.com")
+	if err != nil {
+		t.Fatalf("a null column was an error: %v", err)
+	}
+	if user.PasswordChangedAt != nil {
+		t.Errorf("a null column became an age: %v", user.PasswordChangedAt)
+	}
+}
+
+func TestChangingAPasswordStampsTheColumn(t *testing.T) {
+	// Without this the age never moves, so somebody who has just changed their
+	// password is asked to change it again.
+	db, mock := mockDB(t)
+	store := NewPostgresUserStore(db, &UsersConfig{
+		Fields: &FieldsConfig{PasswordChangedAt: "password_changed_at"},
+	})
+
+	mock.ExpectExec("password_changed_at").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := store.UpdatePassword(context.Background(), "u-1", "new-hash"); err != nil {
+		t.Fatalf("UpdatePassword: %v", err)
+	}
+}
+
+func TestANewAccountsPasswordIsAsOldAsTheAccount(t *testing.T) {
+	// Somebody who has never changed their password still has one with an age,
+	// or a policy that expires nothing until the first change.
+	db, mock := mockDB(t)
+	store := NewMySQLUserStore(db, &UsersConfig{
+		Fields: &FieldsConfig{PasswordChangedAt: "password_changed_at"},
+	})
+
+	mock.ExpectExec("password_changed_at").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	user := &User{ID: "u-1", Email: "person@example.com", PasswordHash: "hash"}
+	if err := store.Create(context.Background(), user); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if user.PasswordChangedAt == nil {
+		t.Error("a new account came back with no password age")
+	}
+}
