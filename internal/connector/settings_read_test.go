@@ -44,8 +44,8 @@ var notRead = map[string]string{
 	// not answered by deleting the evidence.
 	"graphql/EntityConfig.TypeName": "declared for an HCL block nothing parses; see the note above",
 
-	"http/AuthConfig.GrantType": "only client_credentials is implemented, and the value is checked " +
-		"by the parser rather than here",
+	"http/AuthConfig.GrantType": "read where the connector is built, to choose the grant and to refuse one " +
+		"nothing implements; kept on the struct as a record of what was written",
 
 	"mq/DLQConfig.RetryDelay":                     "delay between retries is the broker's, set by the message TTL on the retry queue",
 	"mq/Config.ClientID":                          "used by the MQTT connector, which keeps its own config",
