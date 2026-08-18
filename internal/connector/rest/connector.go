@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/matutetandil/mycel/v2/internal/codec"
@@ -46,7 +47,13 @@ type Connector struct {
 	mu         sync.Mutex
 	handlers   map[string]HandlerFunc
 	pathParams map[string][]string // maps path pattern to param names
-	started    bool
+
+	// started is atomic rather than guarded by mu, because Health reads it
+	// from the health manager's own goroutine while the runtime is still
+	// starting servers — an unsynchronised read that the race detector caught
+	// on CI. A health check must also never be able to block on a mutex held
+	// by something slower than it is.
+	started atomic.Bool
 }
 
 // CORSConfig holds CORS configuration.
@@ -99,7 +106,7 @@ func (c *Connector) Close(ctx context.Context) error {
 
 // Health checks if the connector is healthy.
 func (c *Connector) Health(ctx context.Context) error {
-	if !c.started {
+	if !c.started.Load() {
 		return fmt.Errorf("server not started")
 	}
 	return nil
@@ -163,7 +170,7 @@ func (c *Connector) Start(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.started {
+	if c.started.Load() {
 		return fmt.Errorf("server already started")
 	}
 
@@ -204,7 +211,7 @@ func (c *Connector) Start(ctx context.Context) error {
 		}
 	}()
 
-	c.started = true
+	c.started.Store(true)
 	return nil
 }
 
