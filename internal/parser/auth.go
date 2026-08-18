@@ -151,6 +151,13 @@ func (p *HCLParser) parseAuthBlock(block *hcl.Block) (*auth.Config, error) {
 			}
 			config.Endpoints = endpoints
 
+		case "hooks":
+			hooks, err := p.parseAuthHooksBlock(nested)
+			if err != nil {
+				return nil, err
+			}
+			config.Hooks = hooks
+
 		case "audit":
 			audit, err := p.parseAuthAuditBlock(nested)
 			if err != nil {
@@ -1131,6 +1138,20 @@ func (p *HCLParser) parseAuthAuditBlock(block *hcl.Block) (*auth.AuditConfig, er
 	diags := gohcl.DecodeBody(block.Body, p.evalCtx, config)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("parsing audit block: %s", diags.Error())
+	}
+	return config, nil
+}
+
+// parseAuthHooksBlock reads the flows an account's events are bound to.
+//
+// The block was listed in the schema below and never read, so `Config.Hooks`
+// was nil however much was written in it: a service asking to be told about a
+// suspicious sign-in was told nothing, and nothing said why.
+func (p *HCLParser) parseAuthHooksBlock(block *hcl.Block) (*auth.HooksConfig, error) {
+	config := &auth.HooksConfig{}
+	diags := gohcl.DecodeBody(block.Body, p.evalCtx, config)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("parsing hooks block: %s", diags.Error())
 	}
 	return config, nil
 }

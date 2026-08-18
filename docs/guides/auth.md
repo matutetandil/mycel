@@ -711,6 +711,54 @@ endpoints {
 }
 ```
 
+## Hooks
+
+A hook runs a flow when something happens to an account. Auth does not send
+email or write to Slack itself — a flow already knows how, and this is how the
+rest of the runtime does it.
+
+```hcl
+auth {
+  hooks {
+    after_register { flow = "send_welcome_email" }
+    after_login    { flow = "record_sign_in" }
+
+    on_failed_login {
+      flow      = "alert_security"
+      condition = "auth.ip != '203.0.113.10'"
+    }
+
+    before_login {
+      flow     = "check_allowlist"
+      on_error = "fail"
+    }
+  }
+}
+```
+
+| Hook | When it runs | The flow is told |
+|------|--------------|------------------|
+| `before_login` | Before a sign-in is checked at all | `email`, `ip`, `user_agent` |
+| `after_login` | Once somebody has signed in | `user_id`, `email`, `ip`, `user_agent` |
+| `after_register` | Once an account has been created | `user_id`, `email` |
+| `on_failed_login` | A sign-in was refused | `email`, `ip`, `user_agent`, `reason`, `code` |
+| `on_suspicious_activity` | Something about a sign-in was out of the ordinary | `user_id`, `email`, `ip`, `user_agent`, `reason` |
+| `before_password_change` | Before a password is changed | `user_id`, `email` |
+| `after_password_change` | Once a password has been changed | `user_id`, `email` |
+
+The event arrives under `auth`, so the flow reads `auth.email`, `auth.event`,
+and so on. `auth.event` is always the hook's own name.
+
+`condition` is CEL over that event, so one hook can serve a case narrower than
+the event itself. `on_error = "fail"` refuses whatever the hook is attached to —
+only meaningful on a `before_` hook, and a service that writes it on an `after_`
+one is refused at startup, because refusing after the change has been made
+cannot undo it. Everything else is the default: a flow that fails is logged and
+the sign-in goes through, since an account must not become unusable because a
+notification could not be sent.
+
+A hook naming a flow no `flow` block declares is refused by `mycel validate`.
+
 ## Database Schema
 
 ### PostgreSQL / MySQL

@@ -902,6 +902,15 @@ func PluginSchema() Block {
 // The nested blocks are named but their contents are not described yet; auth is
 // by far the largest block in the language. Naming them is still worth more
 // than the Open it replaces, which claimed every attribute was valid.
+// hookAttrs describes one auth hook. Every hook takes the same three.
+func hookAttrs() []Attr {
+	return []Attr{
+		{Name: "flow", Doc: "Flow to invoke; the event arrives as auth.*", Type: TypeString, Required: true, Ref: RefFlow},
+		{Name: "condition", Doc: "CEL over the event, such as auth.reason == \"new_device\"; the flow runs only when it holds", Type: TypeString},
+		{Name: "on_error", Doc: "What a failing flow means. Only a before_ hook may refuse what it is attached to", Type: TypeString, Values: []string{"ignore", "fail"}},
+	}
+}
+
 func AuthSchema() Block {
 	return Block{
 		Type: "auth",
@@ -972,7 +981,15 @@ func AuthSchema() Block {
 			{Type: "provider", Doc: "Validate a credential against an external HTTP endpoint", Labels: 1},
 			{Type: "account_linking", Doc: "Joining identities that belong to one person"},
 			{Type: "endpoints", Doc: "Paths the auth routes are served on"},
-			{Type: "hooks", Doc: "Flows invoked around auth events"},
+			{Type: "hooks", Doc: "Flows invoked around auth events", Children: []Block{
+				{Type: "before_login", Doc: "Runs before a sign-in is checked; with on_error = \"fail\" it can refuse one", Attrs: hookAttrs()},
+				{Type: "after_login", Doc: "Runs once somebody has signed in", Attrs: hookAttrs()},
+				{Type: "after_register", Doc: "Runs once an account has been created", Attrs: hookAttrs()},
+				{Type: "on_failed_login", Doc: "Runs when a sign-in is refused", Attrs: hookAttrs()},
+				{Type: "on_suspicious_activity", Doc: "Runs when something about a sign-in is out of the ordinary", Attrs: hookAttrs()},
+				{Type: "before_password_change", Doc: "Runs before a password is changed; with on_error = \"fail\" it can refuse one", Attrs: hookAttrs()},
+				{Type: "after_password_change", Doc: "Runs once a password has been changed", Attrs: hookAttrs()},
+			}},
 			{Type: "audit", Doc: "What to record", Attrs: []Attr{
 				{Name: "connector", Doc: "Where audit records are written", Type: TypeString, Required: true, Ref: RefConnector},
 				{Name: "enabled", Doc: "Whether auditing runs", Type: TypeBool},

@@ -469,15 +469,22 @@ type HooksConfig struct {
 	AfterPasswordChange  *HookConfig `hcl:"after_password_change,block"`
 }
 
-// HookConfig defines a single hook
+// HookConfig defines a single hook: a flow to run when something happens to an
+// account, and the terms it runs on.
 type HookConfig struct {
-	Condition string                 `hcl:"condition,optional"`
-	OnFail    map[string]interface{} `hcl:"on_fail,optional"`
-	When      string                 `hcl:"when,optional"`
-	Actions   map[string]interface{} `hcl:"actions,optional"`
+	// Flow is the name of the flow to invoke.
+	Flow string `hcl:"flow"`
 
-	// Shortcuts for common actions
-	RevokeOtherSessions bool `hcl:"revoke_other_sessions,optional"`
+	// Condition is a CEL expression over the event. The flow runs only when it
+	// is true, so one hook can serve a case narrower than the event itself:
+	// `auth.reason == "new_device"`.
+	Condition string `hcl:"condition,optional"`
+
+	// OnError decides what a failing flow means. "ignore", the default, logs
+	// it and carries on; "fail" refuses whatever the hook was attached to,
+	// which is only useful on a before_ hook — refusing after the fact would
+	// leave the account changed and the caller told otherwise.
+	OnError string `hcl:"on_error,optional"`
 }
 
 // AuditConfig defines audit logging

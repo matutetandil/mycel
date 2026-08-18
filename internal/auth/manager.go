@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
+
+	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
 // Manager is the main auth service
@@ -28,6 +30,8 @@ type Manager struct {
 	mfaStore        MFAStore
 	auditStore      AuditStore
 	passwordHistory PasswordHistoryStore
+	flows           FlowInvoker
+	hookConditions  *transform.CELTransformer
 
 	// Components
 	tokenManager      *TokenManager
@@ -106,6 +110,10 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 	}
 	if config.Secret != "" && config.JWT.Secret == "" {
 		config.JWT.Secret = config.Secret
+	}
+
+	if err := validateHooks(config); err != nil {
+		return nil, err
 	}
 
 	// What to do at the session limit has to be understood before a service
@@ -290,12 +298,23 @@ func (m *Manager) Register(ctx context.Context, req *RegisterRequest) (*User, *T
 	m.audit(ctx, &AuditEvent{
 		Event: AuditRegister, UserID: user.ID, Email: user.Email, Success: true,
 	})
+	_ = m.runHook(ctx, HookAfterRegister, map[string]interface{}{
+		"user_id": user.ID, "email": user.Email,
+	})
 
 	return user, tokens, nil
 }
 
 // Login authenticates a user
 func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent string) (*User, *TokenPair, error) {
+	// Before anything is checked, so that a hook refusing a sign-in refuses it
+	// without the password being verified at all.
+	if err := m.runHook(ctx, HookBeforeLogin, map[string]interface{}{
+		"email": req.Email, "ip": ip, "user_agent": userAgent,
+	}); err != nil {
+		return nil, nil, &AuthError{Code: "login_refused", Message: err.Error()}
+	}
+
 	// Check brute force protection
 	if m.bruteForceEnabled() {
 		key := m.bruteForceKey(req.Email, ip)
@@ -386,6 +405,9 @@ func (m *Manager) Login(ctx context.Context, req *LoginRequest, ip, userAgent st
 	m.audit(ctx, &AuditEvent{
 		Event: AuditLogin, UserID: user.ID, Email: user.Email,
 		IP: ip, UserAgent: userAgent, Success: true,
+	})
+	_ = m.runHook(ctx, HookAfterLogin, map[string]interface{}{
+		"user_id": user.ID, "email": user.Email, "ip": ip, "user_agent": userAgent,
 	})
 
 	return user, tokens, nil
@@ -618,6 +640,12 @@ func (m *Manager) ChangePassword(ctx context.Context, userID, currentPassword, n
 		return err
 	}
 
+	if err := m.runHook(ctx, HookBeforePasswordChange, map[string]interface{}{
+		"user_id": user.ID, "email": user.Email,
+	}); err != nil {
+		return &AuthError{Code: "password_change_refused", Message: err.Error()}
+	}
+
 	// Verify current password
 	valid, err := m.passwordHasher.Verify(currentPassword, user.PasswordHash)
 	if err != nil || !valid {
@@ -675,6 +703,9 @@ func (m *Manager) ChangePassword(ctx context.Context, userID, currentPassword, n
 	m.logger.Info("password changed", "user_id", userID)
 	m.audit(ctx, &AuditEvent{
 		Event: AuditPasswordChange, UserID: userID, Email: user.Email, Success: true,
+	})
+	_ = m.runHook(ctx, HookAfterPasswordChange, map[string]interface{}{
+		"user_id": userID, "email": user.Email,
 	})
 	return nil
 }

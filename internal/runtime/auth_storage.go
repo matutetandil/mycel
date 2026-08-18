@@ -218,7 +218,13 @@ func (r *Runtime) initAuth(ctx context.Context) error {
 		stores = append(stores, audit)
 	}
 
-	opts := append([]auth.ManagerOption{auth.WithLogger(r.logger)}, stores...)
+	// Hooks name flows, and this is what runs them. The registry exists
+	// already; the flows in it are registered a moment later, which is in time
+	// because a hook does not run until somebody signs in.
+	opts := append([]auth.ManagerOption{
+		auth.WithLogger(r.logger),
+		auth.WithFlowInvoker(r.flows),
+	}, stores...)
 	manager, err := auth.NewManager(r.config.Auth, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create auth manager: %w", err)

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Auth hooks run flows.** The `hooks` block was listed in the parser's block schema and never read into the configuration: `Config.Hooks` was nil however much was written in it, and nothing would have looked at it anyway — so a service asking to be told about a suspicious sign-in was told nothing, silently, which is the worst way for a security feature to be absent. A hook now names a flow, the way an aspect does, and the event arrives under `auth`: `before_login`, `after_login`, `after_register`, `on_failed_login`, `on_suspicious_activity`, `before_password_change`, `after_password_change`. A `condition` in CEL narrows when it runs. `on_error = "fail"` lets a `before_` hook refuse the thing it is attached to, and writing it on an `after_` hook is refused at startup rather than pretending it could undo one. A hook naming a flow nothing declares is refused by `mycel validate`.
+
 ### Fixed
 
 - **Three settings in the `sessions` block decided nothing.** `allow_list` and `allow_revoke`, documented as enabling session listing and revocation, were read by nothing: the endpoints were governed only by the `endpoints` block, so a service that wrote them false served both anyway and had no way to know. Both are honoured now, and stop the route being mounted at all rather than serving it and refusing. Because a bare bool is false when it is absent and these have always been on, the parser fills them in before decoding — the block being present is not a decision about a setting nobody mentioned, the same rule `mfa.enabled` follows. `track`, which names what to record about a sign-in, was never consulted either, so a deployment that listed only the browser string was storing addresses regardless; naming none still records both, naming some records only those.
