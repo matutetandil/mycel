@@ -17,10 +17,12 @@ connector "s3" {
   type   = "s3"
   driver = "s3"
 
-  bucket     = "my-bucket"
-  region     = "us-east-1"
-  access_key = "your-access-key"
-  secret_key = "your-secret-key"
+  # Credentials come from the environment. Written into the file they are
+  # either a placeholder nobody can run or a secret nobody should commit.
+  bucket     = env("S3_BUCKET", "my-bucket")
+  region     = env("AWS_REGION", "us-east-1")
+  access_key = env("AWS_ACCESS_KEY_ID", "")
+  secret_key = env("AWS_SECRET_ACCESS_KEY", "")
   prefix     = "uploads/"
   format     = "json"
 }
@@ -30,10 +32,10 @@ connector "minio" {
   type   = "s3"
   driver = "s3"
 
-  bucket         = "local-bucket"
-  endpoint       = "http://localhost:9000"
-  access_key     = "minioadmin"
-  secret_key     = "minioadmin"
+  bucket         = env("MINIO_BUCKET", "local-bucket")
+  endpoint       = env("MINIO_ENDPOINT", "http://localhost:9000")
+  access_key     = env("MINIO_ACCESS_KEY", "minioadmin")
+  secret_key     = env("MINIO_SECRET_KEY", "minioadmin")
   use_path_style = true  # Required for MinIO
   prefix         = "data/"
 }

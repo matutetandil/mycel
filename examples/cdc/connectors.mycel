@@ -3,10 +3,10 @@ connector "pg_cdc" {
   type   = "cdc"
   driver = "postgres"
 
-  host     = "localhost"
-  port     = 5432
-  database = "myapp"
-  user     = "replication_user"
+  host     = env("DB_HOST", "localhost")
+  port     = env("DB_PORT", "5432")
+  database = env("DB_NAME", "myapp")
+  user     = env("DB_USER", "replication_user")
   password = env("DB_PASSWORD")
 
   slot_name   = "mycel_slot"

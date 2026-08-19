@@ -108,7 +108,7 @@ func (c *Connector) readObject(ctx context.Context, query *connector.Query) ([]m
 		}
 	}
 
-	key := c.buildKey(query.Target)
+	key := c.buildKey(connector.ResolveTarget(query.Target, query.Filters))
 	format := c.getFormat(key, query.Params)
 
 	// Check if this is a list operation
@@ -142,12 +142,20 @@ func (c *Connector) writeObject(ctx context.Context, data *connector.Data) (map[
 		}
 	}
 
-	key := c.buildKey(data.Target)
+	// Where to write is often carried by the message rather than fixed in the
+	// configuration — an upload names its own object.
+	key := c.buildKey(connector.ResolveTarget(data.Target, data.Payload))
 	format := c.getFormat(key, data.Params)
 
-	content, ok := data.Params["content"]
-	if !ok {
-		return nil, fmt.Errorf("content is required for write operation")
+	// What to write is the payload, as it is for the file connector. Demanding
+	// it in params instead meant a flow that sends its message to a bucket —
+	// the ordinary thing to write — was refused for want of content.
+	content := interface{}(data.Payload)
+	if explicit, given := data.Params["content"]; given {
+		content = explicit
+	}
+	if content == nil {
+		return nil, fmt.Errorf("nothing to write: the flow sent no payload and no content parameter")
 	}
 
 	// Serialize content based on format

@@ -13,7 +13,7 @@ connector "postgres" {
   type     = "database"
   driver   = "postgres"
   host     = env("PG_PRIMARY_HOST", "pg-primary")
-  port     = 5432
+  port     = env("PG_PORT", "5432")
   user     = env("PG_USER", "mycel")
   password = env("PG_PASSWORD", "secret")
   database = env("PG_DATABASE", "app")
@@ -30,7 +30,7 @@ connector "mysql" {
   type     = "database"
   driver   = "mysql"
   host     = env("MYSQL_PRIMARY_HOST", "mysql-primary")
-  port     = 3306
+  port     = env("MYSQL_PORT", "3306")
   user     = env("MYSQL_USER", "mycel")
   password = env("MYSQL_PASSWORD", "secret")
   database = env("MYSQL_DATABASE", "app")

@@ -2178,7 +2178,7 @@ func (h *FlowHandler) executeBatch(ctx context.Context, input map[string]interfa
 // handleRead handles GET requests.
 func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface{}, dest connector.Reader) (interface{}, error) {
 	query := connector.Query{
-		Target:    h.Config.To.GetTarget(),
+		Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 		Operation: "SELECT",
 		Filters:   make(map[string]interface{}),
 	}
@@ -2256,6 +2256,20 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 		for _, param := range pathParams {
 			if val, ok := input[param]; ok {
 				query.Filters[param] = val
+			}
+		}
+
+		// A filter document written on the destination, which is how a Mongo
+		// read says which documents it wants. Nothing read it here, so a flow
+		// asking for the active users answered with all of them — the
+		// collection, unfiltered, reported as the answer.
+		if len(h.Config.To.GetQueryFilter()) > 0 {
+			resolved, err := h.resolveFilterDocument(ctx, h.Config.To.GetQueryFilter(), input)
+			if err != nil {
+				return nil, err
+			}
+			for key, val := range resolved {
+				query.Filters[key] = val
 			}
 		}
 
@@ -2381,7 +2395,7 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 	delete(payload, "headers")
 
 	data := &connector.Data{
-		Target:    h.Config.To.GetTarget(),
+		Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 		Operation: "INSERT",
 		Payload:   flow.WrapPayload(payload, h.Config.To.Envelope),
 	}
@@ -2443,7 +2457,7 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		// Try to read back the created record
 		if reader, ok := dest.(connector.Reader); ok {
 			query := connector.Query{
-				Target:    h.Config.To.GetTarget(),
+				Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 				Operation: "SELECT",
 				Filters:   map[string]interface{}{"id": result.LastID},
 			}
@@ -2489,7 +2503,7 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 	delete(payload, "headers")
 
 	data := &connector.Data{
-		Target:    h.Config.To.GetTarget(),
+		Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 		Operation: "UPDATE",
 		Payload:   flow.WrapPayload(payload, h.Config.To.Envelope),
 		Filters:   make(map[string]interface{}),
@@ -2550,7 +2564,7 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 // handleDelete handles DELETE requests.
 func (h *FlowHandler) handleDelete(ctx context.Context, input map[string]interface{}, dest connector.Writer) (interface{}, error) {
 	data := &connector.Data{
-		Target:    h.Config.To.GetTarget(),
+		Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 		Operation: "DELETE",
 		Filters:   make(map[string]interface{}),
 	}
@@ -2798,6 +2812,15 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 		}
 		transformInput["output"] = basePayload
 
+		// A flow may shape each destination and never declare a transform of
+		// its own, and then nothing has built the evaluator: this took the
+		// service down with a nil dereference on the first message, which is
+		// what a fan-out to two destinations with a transform on each looks
+		// like.
+		if err := h.ensureTransformer(); err != nil {
+			return nil, err
+		}
+
 		// Convert map[string]string to []transform.Rule
 		rules := transform.RulesFromMappings(destConfig.Transform, destConfig.TransformOrder)
 
@@ -2812,8 +2835,22 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 
 	// Build data for write
 	data := &connector.Data{
-		Target:  destConfig.GetTarget(),
+		// Resolved against the message rather than the payload: a
+		// per-destination transform has already replaced the payload by now,
+		// so a target naming a field of the message would find nothing in it.
+		Target:  connector.ResolveTarget(destConfig.GetTarget(), input),
 		Payload: flow.WrapPayload(payload, destConfig.Envelope),
+	}
+
+	// Extra parameters the destination declares. The reference documents these
+	// as CEL expressions and maps them to connector.Data.Params, and nothing
+	// ever put them there: a `to` block's params reached no connector at all.
+	if len(destConfig.GetParams()) > 0 {
+		params, err := h.resolveFilterDocument(ctx, destConfig.GetParams(), input)
+		if err != nil {
+			return nil, fmt.Errorf("params: %w", err)
+		}
+		data.Params = params
 	}
 
 	// Set operation type
@@ -2845,7 +2882,11 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 
 	// Set query filter for NoSQL (MongoDB)
 	if len(destConfig.GetQueryFilter()) > 0 {
-		data.Filters = destConfig.GetQueryFilter()
+		resolved, err := h.resolveFilterDocument(ctx, destConfig.GetQueryFilter(), input)
+		if err != nil {
+			return nil, err
+		}
+		data.Filters = resolved
 	}
 
 	// Set update document for NoSQL
@@ -2892,6 +2933,82 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 		"id":       writeResult.LastID,
 		"affected": writeResult.Affected,
 	}, nil
+}
+
+// resolveFilterDocument resolves the values in a filter document against the
+// message.
+//
+// The documentation writes one as `query_filter = { order_id = "input.order_id" }`,
+// and the examples as `{ "_id" = ":id" }` — the two ways everything else in
+// Mycel refers to something the message carries. Neither was resolved: the
+// document went to the driver as written, so it matched documents whose field
+// literally held the text "input.order_id", which is to say none.
+//
+// Operators and constants pass through: `{ status = "active" }` and
+// `{ created_at = { "$gte" = "input.since" } }` both mean what they say.
+func (h *FlowHandler) resolveFilterDocument(
+	ctx context.Context,
+	document map[string]interface{},
+	input map[string]interface{},
+) (map[string]interface{}, error) {
+	// A read flow may have no transform block, and then nothing has built the
+	// evaluator yet — without it every expression here would be left as the
+	// text it is, and the filter would match documents holding that text.
+	if err := h.ensureTransformer(); err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]interface{}, len(document))
+	for key, val := range document {
+		resolved, err := h.resolveFilterValue(ctx, key, val, input)
+		if err != nil {
+			return nil, err
+		}
+		out[key] = resolved
+	}
+	return out, nil
+}
+
+func (h *FlowHandler) resolveFilterValue(
+	ctx context.Context,
+	key string,
+	val interface{},
+	input map[string]interface{},
+) (interface{}, error) {
+	switch typed := val.(type) {
+	case map[string]interface{}:
+		return h.resolveFilterDocument(ctx, typed, input)
+
+	case []interface{}:
+		out := make([]interface{}, len(typed))
+		for i, item := range typed {
+			resolved, err := h.resolveFilterValue(ctx, key, item, input)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = resolved
+		}
+		return out, nil
+
+	case string:
+		// ":name" is the path parameter of that name.
+		if strings.HasPrefix(typed, ":") {
+			if value, found := input[strings.TrimPrefix(typed, ":")]; found {
+				return value, nil
+			}
+			return typed, nil
+		}
+		if h.Transformer == nil || !strings.Contains(typed, "input.") {
+			return typed, nil
+		}
+		result, err := h.Transformer.EvaluateExpression(ctx, input, nil, typed)
+		if err != nil {
+			return nil, fmt.Errorf("query_filter %s: %w", key, err)
+		}
+		return result, nil
+	}
+
+	return val, nil
 }
 
 // evaluateStepValues resolves the expressions in a step's params or body.

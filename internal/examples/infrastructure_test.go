@@ -136,6 +136,36 @@ func address(t *testing.T, name string) string {
 	return os.Getenv(name)
 }
 
+func mongoEnv(t *testing.T) []string {
+	t.Helper()
+	uri := os.Getenv("MYCEL_TEST_MONGO_URI")
+	if uri == "" {
+		return nil
+	}
+	return []string{"MONGO_URI=" + uri}
+}
+
+func minioEnv(t *testing.T) []string {
+	t.Helper()
+	endpoint := os.Getenv("MYCEL_TEST_S3_ENDPOINT")
+	if endpoint == "" {
+		return nil
+	}
+	return []string{
+		"MINIO_ENDPOINT=" + endpoint,
+		"MINIO_BUCKET=" + envOr("MYCEL_TEST_S3_BUCKET", "test-bucket"),
+		"MINIO_ACCESS_KEY=" + envOr("MYCEL_TEST_S3_ACCESS_KEY", "minioadmin"),
+		"MINIO_SECRET_KEY=" + envOr("MYCEL_TEST_S3_SECRET_KEY", "minioadmin"),
+	}
+}
+
+func envOr(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
+
 var needsInfrastructure = []infrastructure{
 	{
 		example: "mq",
@@ -148,6 +178,16 @@ var needsInfrastructure = []infrastructure{
 		env: func(t *testing.T) []string {
 			return append(postgresEnvFor(t, "error-handling"), rabbitEnv(t)...)
 		},
+	},
+	{
+		example: "mongodb",
+		needs:   []string{"MYCEL_TEST_MONGO_URI"},
+		env:     mongoEnv,
+	},
+	{
+		example: "s3",
+		needs:   []string{"MYCEL_TEST_S3_ENDPOINT"},
+		env:     minioEnv,
 	},
 	{
 		example: "workflows",
