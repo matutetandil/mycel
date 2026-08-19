@@ -10,15 +10,15 @@ func TestABooleanFromTheEnvironmentLands(t *testing.T) {
 		written string
 		want    bool
 	}{
-		"true":  {`"true"`, true},
-		"yes":   {`"yes"`, true},
-		"on":    {`"on"`, true},
-		"one":   {`"1"`, true},
-		"false": {`"false"`, false},
-		"no":    {`"no"`, false},
-		"off":   {`"off"`, false},
-		"zero":  {`"0"`, false},
-		"empty": {`""`, false},
+		"true":           {`"true"`, true},
+		"yes":            {`"yes"`, true},
+		"on":             {`"on"`, true},
+		"one":            {`"1"`, true},
+		"false":          {`"false"`, false},
+		"no":             {`"no"`, false},
+		"off":            {`"off"`, false},
+		"zero":           {`"0"`, false},
+		"empty":          {`""`, false},
 		"a real boolean": {`true`, true},
 	} {
 		t.Run(name, func(t *testing.T) {
