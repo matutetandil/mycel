@@ -115,7 +115,7 @@ func (g *Generator) connectorToServer(conn *connector.Config) *Server {
 // addFlowToSpec adds a flow as an AsyncAPI channel if it uses MQ.
 func (g *Generator) addFlowToSpec(spec *Spec, f *flow.Config) error {
 	// Check if this flow involves MQ
-	fromConnector := g.getConnectorType(f.From.Connector)
+	fromConnector := g.getConnectorType(f.From.GetConnector())
 	toConnector := g.getConnectorType(f.To.Connector)
 
 	// Flow consumes from MQ (subscribe)
@@ -167,7 +167,7 @@ func (g *Generator) createSubscribeChannel(f *flow.Config) Channel {
 				Payload:     g.inferMessageSchema(f),
 			},
 		},
-		Bindings: g.inferChannelBindings(f.From.Connector),
+		Bindings: g.inferChannelBindings(f.From.GetConnector()),
 	}
 }
 

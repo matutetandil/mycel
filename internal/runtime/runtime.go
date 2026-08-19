@@ -265,7 +265,6 @@ func New(opts Options) (*Runtime, error) {
 		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
 
-
 	// Attributes that parse but do nothing. Not fatal — they are inert, and
 	// failing here would break configs that work today — but the whole point
 	// is that nobody can tell they are inert by reading the file.
@@ -1321,10 +1320,21 @@ func (r *Runtime) registerFlows() error {
 	fmt.Println("    Flows:")
 
 	for _, cfg := range r.config.Flows {
-		// Get source connector
-		source, err := r.connectors.Get(cfg.From.Connector)
-		if err != nil {
-			return fmt.Errorf("flow %s: source connector not found: %w", cfg.Name, err)
+		// A scheduled flow has no source: the clock is what triggers it, which
+		// is how the documentation describes `when` and how the scheduled
+		// example is written. Reading through a nil `from` crashed the service
+		// at startup — the example demonstrating the feature could not be
+		// started, and `mycel validate` accepted it.
+		var source connector.Connector
+		var err error
+		if cfg.From != nil && cfg.From.GetConnector() != "" {
+			source, err = r.connectors.Get(cfg.From.GetConnector())
+			if err != nil {
+				return fmt.Errorf("flow %s: source connector not found: %w", cfg.Name, err)
+			}
+		} else if cfg.When == "" {
+			// No source and no schedule: nothing would ever run it.
+			return fmt.Errorf("flow %q has no from block and no when schedule, so nothing can trigger it", cfg.Name)
 		}
 
 		// Get destination connector (optional — flows without "to" are echo flows)
@@ -1338,9 +1348,9 @@ func (r *Runtime) registerFlows() error {
 
 		// Validate connector-specific parameters if connectors implement validators.
 		// Validators may set defaults (e.g., operation = "*") in ConnectorParams.
-		if sv, ok := source.(connector.SourceValidator); ok {
+		if sv, ok := source.(connector.SourceValidator); ok && cfg.From != nil {
 			if err := sv.ValidateSourceParams(cfg.From.ConnectorParams); err != nil {
-				return fmt.Errorf("flow %s: source %s: %w", cfg.Name, cfg.From.Connector, err)
+				return fmt.Errorf("flow %s: source %s: %w", cfg.Name, cfg.From.GetConnector(), err)
 			}
 		}
 		if dest != nil {
@@ -1355,7 +1365,7 @@ func (r *Runtime) registerFlows() error {
 		handler := &FlowHandler{
 			Config:             cfg,
 			Source:             source,
-			SourceType:         r.getConnectorType(cfg.From.Connector),
+			SourceType:         r.sourceTypeOf(cfg),
 			Dest:               dest,
 			NamedTransforms:    r.transforms,
 			Types:              r.types,
@@ -1429,8 +1439,15 @@ func (r *Runtime) registerFlows() error {
 			}
 		}
 
-		// Parse operation to get method and path
-		method, path := r.parseFlowOperation(cfg.From.Connector, cfg.From.GetOperation())
+		// Parse operation to get method and path. A scheduled flow has no
+		// source to parse: what triggers it is the schedule, so that is what
+		// the banner shows.
+		var method, path string
+		if cfg.From != nil {
+			method, path = r.parseFlowOperation(cfg.From.GetConnector(), cfg.From.GetOperation())
+		} else {
+			method, path = "CRON", cfg.When
+		}
 		// "(echo)" is only true of a flow that has no destination and shapes
 		// nothing: a fan-out writes to several places, and a response block
 		// answers with something the flow computed. Reporting all three as an
@@ -1824,7 +1841,7 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 
 	// Find flows that use this connector as source
 	for _, handler := range r.flows.handlers {
-		if handler.Config.From.Connector == connectorName {
+		if handler.Config.From.GetConnector() == connectorName {
 			// Wrap handler with format context if flow declares a format
 			requestHandler := handler.HandleRequest
 			if handler.Config.From.GetFormat() != "" {
@@ -1871,7 +1888,7 @@ func (r *Runtime) registerJobStatusEndpoint(connectorName string, conn connector
 	hasAsync := false
 	for _, handler := range r.flows.handlers {
 		if handler.Config.From != nil && handler.Config.Async != nil {
-			fromConn := handler.Config.From.Connector
+			fromConn := handler.Config.From.GetConnector()
 			if fromConn == connectorName {
 				hasAsync = true
 				break
@@ -1892,7 +1909,7 @@ func (r *Runtime) registerJobStatusEndpoint(connectorName string, conn connector
 	var storageName string
 	for _, handler := range r.flows.handlers {
 		if handler.Config.From != nil && handler.Config.Async != nil {
-			fromConn := handler.Config.From.Connector
+			fromConn := handler.Config.From.GetConnector()
 			if fromConn == connectorName {
 				storageName = handler.Config.Async.Storage
 				break
@@ -1985,7 +2002,7 @@ func (r *Runtime) registerEntityResolvers(connectorName string, conn connector.C
 		// Look for flows like: from { connector.api = "Query.user" } to { connector.db = "users" }
 		var resolverHandler *FlowHandler
 		for _, handler := range r.flows.handlers {
-			if handler.Config.From.Connector != connectorName {
+			if handler.Config.From.GetConnector() != connectorName {
 				continue
 			}
 			// Check if the flow returns this type
@@ -2846,4 +2863,13 @@ func (r *Runtime) AuthManager() *auth.Manager {
 // AuthHandler returns the auth HTTP handler, or nil if auth is not configured.
 func (r *Runtime) AuthHandler() *auth.Handler {
 	return r.authHandler
+}
+
+// sourceTypeOf reports the connector type a flow is triggered from, or "" for a
+// scheduled flow, which is triggered by the clock and names no source.
+func (r *Runtime) sourceTypeOf(cfg *flow.Config) string {
+	if cfg.From == nil || cfg.From.GetConnector() == "" {
+		return ""
+	}
+	return r.getConnectorType(cfg.From.GetConnector())
 }

@@ -40,11 +40,11 @@ func ValidateFlowSchemas(config *parser.Configuration, reg *schema.Registry) []e
 
 	var errs []error
 	for _, f := range config.Flows {
-		if f == nil || f.From == nil || f.From.Connector == "" {
+		if f == nil || f.From == nil || f.From.GetConnector() == "" {
 			continue
 		}
 
-		ref, ok := byName[f.From.Connector]
+		ref, ok := byName[f.From.GetConnector()]
 		if !ok {
 			// Unknown connector: registerFlows reports this with a better message.
 			continue
@@ -76,7 +76,7 @@ func ValidateFlowSchemas(config *parser.Configuration, reg *schema.Registry) []e
 		sort.Strings(missing)
 		errs = append(errs, fmt.Errorf(
 			"flow %q: from block is missing %s required by connector %q (%s)",
-			f.Name, quoteList(missing), f.From.Connector, describeType(ref),
+			f.Name, quoteList(missing), f.From.GetConnector(), describeType(ref),
 		))
 	}
 

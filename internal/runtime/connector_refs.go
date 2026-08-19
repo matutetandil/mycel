@@ -119,7 +119,7 @@ func collectConnectorRefs(config *parser.Configuration) []connectorRefRule {
 		at := func(what string) string { return fmt.Sprintf("flow %q: %s", f.Name, what) }
 
 		if f.From != nil {
-			add(at("from.connector"), f.From.Connector, "")
+			add(at("from.connector"), f.From.GetConnector(), "")
 		}
 		if f.To != nil {
 			add(at("to.connector"), f.To.Connector, "")

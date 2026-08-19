@@ -37,7 +37,7 @@ func (r *Runtime) resolveNamedOperations() error {
 
 	for _, cfg := range r.config.Flows {
 		if cfg.From != nil {
-			if err := r.resolveOperationParam(cfg.Name, cfg.From.Connector, cfg.From.ConnectorParams, "operation"); err != nil {
+			if err := r.resolveOperationParam(cfg.Name, cfg.From.GetConnector(), cfg.From.ConnectorParams, "operation"); err != nil {
 				return err
 			}
 		}

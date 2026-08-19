@@ -304,19 +304,42 @@ type FromConfig struct {
 	ConnectorParams map[string]interface{}
 }
 
+// A scheduled flow has no from block at all, so every one of these answers for
+// a nil receiver rather than crashing the service that reads it. The runtime
+// asked a scheduled flow what it was triggered by in three separate places, and
+// each one took the process down.
+
 // GetOperation returns the operation from ConnectorParams.
 func (f *FromConfig) GetOperation() string {
+	if f == nil {
+		return ""
+	}
 	return getStringParam(f.ConnectorParams, "operation", "")
 }
 
 // GetFormat returns the format from ConnectorParams.
 func (f *FromConfig) GetFormat() string {
+	if f == nil {
+		return ""
+	}
 	return getStringParam(f.ConnectorParams, "format", "")
+}
+
+// GetConnector returns the source connector name, or "" for a flow that has no
+// source.
+func (f *FromConfig) GetConnector() string {
+	if f == nil {
+		return ""
+	}
+	return f.Connector
 }
 
 // FilterCondition returns the active filter condition expression.
 // Returns empty string if no filter is configured.
 func (f *FromConfig) FilterCondition() string {
+	if f == nil {
+		return ""
+	}
 	if f.FilterConfig != nil {
 		return f.FilterConfig.Condition
 	}

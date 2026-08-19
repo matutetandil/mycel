@@ -37,7 +37,7 @@ func buildFlowInfo(cfg *flow.Config) *FlowInfo {
 
 	if cfg.From != nil {
 		info.From = &FlowEndpoint{
-			Connector: cfg.From.Connector,
+			Connector: cfg.From.GetConnector(),
 			Operation: cfg.From.GetOperation(),
 		}
 	}
