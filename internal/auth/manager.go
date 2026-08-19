@@ -537,6 +537,18 @@ func (m *Manager) LogoutAll(ctx context.Context, userID string) error {
 	return nil
 }
 
+// replayChecked reports whether a token has to be checked against the list of
+// spent ones: because rotation puts them there, or because replay protection
+// was asked for.
+func (m *Manager) replayChecked() bool {
+	if m.config.JWT != nil && m.config.JWT.Rotation {
+		return true
+	}
+	return m.config.Security != nil &&
+		m.config.Security.ReplayProtection != nil &&
+		m.config.Security.ReplayProtection.Enabled
+}
+
 // RefreshToken refreshes an access token
 func (m *Manager) RefreshToken(ctx context.Context, refreshToken string) (*User, *TokenPair, error) {
 	// Validate refresh token
@@ -545,8 +557,14 @@ func (m *Manager) RefreshToken(ctx context.Context, refreshToken string) (*User,
 		return nil, nil, ErrInvalidToken
 	}
 
-	// Check if token is blacklisted (replay protection)
-	if m.config.Security != nil && m.config.Security.ReplayProtection != nil && m.config.Security.ReplayProtection.Enabled {
+	// A refresh token that has already been spent is refused.
+	//
+	// Rotation is what puts it on the list, a few lines below, and the list was
+	// read only when replay protection was separately switched on — so
+	// `rotation = true` on its own issued a new token and went on honouring the
+	// one it replaced, which is not rotation at all. The field says "rotate on
+	// use"; being good once is the whole of what that buys.
+	if m.replayChecked() {
 		exists, _ := m.tokenStore.Exists(ctx, claims.ID)
 		if exists {
 			return nil, nil, ErrInvalidToken
