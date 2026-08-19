@@ -945,8 +945,8 @@ flow "process_payment" {
       driver = "redis"
       url    = env("REDIS_URL", "redis://localhost:6379")
     }
-    key     = "'account:' + input.account_id"
-    timeout = "30s"
+    key         = "'account:' + input.account_id"
+    timeout     = "30s"
     wait    = true
     retry   = "100ms"
   }
@@ -972,9 +972,9 @@ flow "call_external_api" {
       driver = "redis"
       url    = env("REDIS_URL", "redis://localhost:6379")
     }
-    key     = "'api_quota'"
-    limit   = 10        # Max 10 concurrent flows
-    timeout = "5s"
+    key         = "'api_quota'"
+    max_permits = 10        # Max 10 concurrent flows
+    timeout     = "5s"
   }
 
   to {

@@ -84,15 +84,11 @@ var knownBad = map[string]bool{
 	// An attribute the parser does not take.
 	"docs/connectors/cache.md:62":          true,
 	"docs/connectors/graphql.md:8":         true,
-	"docs/core-concepts/flows.md:964":      true,
 	"docs/guides/batch-processing.md:249":  true,
 	"docs/guides/notifications.md:134":     true,
 	"docs/guides/notifications.md:164":     true,
 	"docs/guides/real-time.md:149":         true,
 	"docs/guides/real-time.md:225":         true,
-	"docs/guides/synchronization.md:105":   true,
-	"docs/guides/synchronization.md:140":   true,
-	"docs/guides/synchronization.md:380":   true,
 	"docs/guides/troubleshooting.md:520":   true,
 	"docs/guides/troubleshooting.md:529":   true,
 	"docs/guides/use-cases.md:40":          true,
@@ -110,11 +106,6 @@ var knownBad = map[string]bool{
 	"docs/reference/configuration.md:1260": true,
 
 	// A CEL expression written without quotes.
-	"docs/core-concepts/flows.md:786":     true,
-	"docs/guides/caching.md:125":          true,
-	"docs/guides/caching.md:150":          true,
-	"docs/guides/caching.md:267":          true,
-	"docs/guides/multi-step-flows.md:155": true,
 
 	// `validate` where the constraint is `validator`.
 	"docs/core-concepts/types.md:170": true,

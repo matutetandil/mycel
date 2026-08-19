@@ -300,7 +300,7 @@ func parseAspectCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Cach
 		if diags.HasErrors() {
 			// Key may contain template expressions like ${input.id}
 			// Extract raw text instead of evaluating
-			cache.Key = extractExpressionText(attr.Expr)
+			cache.Key = templateText(attr.Expr)
 		} else {
 			cache.Key = stringOrEmpty(val)
 		}

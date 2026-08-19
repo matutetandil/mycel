@@ -2062,19 +2062,30 @@ func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig,
 	}
 
 	if attr, ok := content.Attributes["key"]; ok {
+		// A cache key is a template, not an HCL expression: the runtime
+		// replaces ${input.id} in it when a request arrives. HCL sees the same
+		// ${...} and tries to resolve `input` as a variable it does not have,
+		// so evaluating first refused the spelling the feature was built for —
+		// the one the guide shows, and the one an aspect's cache key already
+		// accepted through this same fallback. The two blocks are called cache
+		// and behaved differently.
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("cache key error: %s", diags.Error())
+			cache.Key = templateText(attr.Expr)
+		} else {
+			cache.Key = stringOrEmpty(val)
 		}
-		cache.Key = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["invalidate_on"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("cache invalidate_on error: %s", diags.Error())
+			// Templates, like the key above: ${input.id} in one of these is
+			// replaced when the flow runs, and HCL cannot resolve it here.
+			cache.InvalidateOn = append(cache.InvalidateOn, templateList(attr.Expr)...)
+		} else {
+			cache.InvalidateOn = append(cache.InvalidateOn, stringList(val)...)
 		}
-		cache.InvalidateOn = append(cache.InvalidateOn, stringList(val)...)
 	}
 
 	if attr, ok := content.Attributes["use"]; ok {
@@ -2168,17 +2179,23 @@ func parseInvalidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Invalid
 	if attr, ok := content.Attributes["keys"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("invalidate keys error: %s", diags.Error())
+			// Templates, like the key above: ${input.id} in one of these is
+			// replaced when the flow runs, and HCL cannot resolve it here.
+			inv.Keys = append(inv.Keys, templateList(attr.Expr)...)
+		} else {
+			inv.Keys = append(inv.Keys, stringList(val)...)
 		}
-		inv.Keys = append(inv.Keys, stringList(val)...)
 	}
 
 	if attr, ok := content.Attributes["patterns"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("invalidate patterns error: %s", diags.Error())
+			// Templates, like the key above: ${input.id} in one of these is
+			// replaced when the flow runs, and HCL cannot resolve it here.
+			inv.Patterns = append(inv.Patterns, templateList(attr.Expr)...)
+		} else {
+			inv.Patterns = append(inv.Patterns, stringList(val)...)
 		}
-		inv.Patterns = append(inv.Patterns, stringList(val)...)
 	}
 
 	return inv, nil
@@ -2243,9 +2260,12 @@ func parseNamedCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.NamedCa
 	if attr, ok := content.Attributes["invalidate_on"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("cache invalidate_on error: %s", diags.Error())
+			// Templates, like the key above: ${input.id} in one of these is
+			// replaced when the flow runs, and HCL cannot resolve it here.
+			cache.InvalidateOn = append(cache.InvalidateOn, templateList(attr.Expr)...)
+		} else {
+			cache.InvalidateOn = append(cache.InvalidateOn, stringList(val)...)
 		}
-		cache.InvalidateOn = append(cache.InvalidateOn, stringList(val)...)
 	}
 
 	return cache, nil
