@@ -13,17 +13,13 @@ import (
 	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
-// parseFlowBlock parses a flow block from HCL.
-func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error) {
-	if len(block.Labels) < 1 {
-		return nil, fmt.Errorf("flow block requires a name label")
-	}
-
-	config := &flow.Config{
-		Name: block.Labels[0],
-	}
-
-	schema := &hcl.BodySchema{
+// flowBodySchema is what a flow block may contain.
+//
+// A function rather than a literal inside the parser so that it can be
+// counted: docs/llms.txt states how many blocks and attributes a flow holds,
+// and that number is checked against this one rather than believed.
+func flowBodySchema() *hcl.BodySchema {
+	return &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "returns"}, // GraphQL return type for HCL-first mode
 			{Name: "cache"},   // Reference to named cache (cache.name)
@@ -54,6 +50,19 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			{Type: "state_transition"}, // State machine transition
 		},
 	}
+}
+
+// parseFlowBlock parses a flow block from HCL.
+func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("flow block requires a name label")
+	}
+
+	config := &flow.Config{
+		Name: block.Labels[0],
+	}
+
+	schema := flowBodySchema()
 
 	content, diags := block.Body.Content(schema)
 	if diags.HasErrors() {
