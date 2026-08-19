@@ -166,20 +166,24 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	case "broadcast":
 		c.broadcast(payload)
 	case "send_to_room":
-		room := data.Target
+		room := connector.ResolveTarget(data.Target, payload)
 		if room == "" {
 			return nil, fmt.Errorf("send_to_room requires a target room")
 		}
 		c.sendToRoom(room, payload)
 	case "send_to_user":
-		userID := ""
-		if data.Filters != nil {
+		// The addressee comes from target, as it does for send_to_room and as
+		// the documentation shows — `target = "input.user_id"`. Only filters
+		// were read, which a `to` block does not set, so every send_to_user
+		// was refused and the example demonstrating it answered 500.
+		userID := connector.ResolveTarget(data.Target, payload)
+		if userID == "" && data.Filters != nil {
 			if uid, ok := data.Filters["user_id"].(string); ok {
 				userID = uid
 			}
 		}
 		if userID == "" {
-			return nil, fmt.Errorf("send_to_user requires user_id in filters")
+			return nil, fmt.Errorf("send_to_user requires a target user, as in target = \"input.user_id\"")
 		}
 		c.sendToUser(userID, payload)
 	default:

@@ -203,7 +203,7 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	case "broadcast":
 		c.broadcast(payload)
 	case "send_to_room":
-		room := data.Target
+		room := connector.ResolveTarget(data.Target, payload)
 		if room == "" {
 			return nil, fmt.Errorf("send_to_room requires a target room")
 		}
@@ -212,7 +212,10 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 		// The documentation says the payload or the filters may carry it, and
 		// only the filters were read — so the form the documentation shows,
 		// with the id in the payload, sent to nobody.
-		userID := userIDFrom(data.Filters)
+		userID := connector.ResolveTarget(data.Target, payload)
+		if userID == "" {
+			userID = userIDFrom(data.Filters)
+		}
 		if userID == "" {
 			userID = userIDFrom(payload)
 		}
