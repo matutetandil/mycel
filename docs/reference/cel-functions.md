@@ -254,7 +254,7 @@ sets.intersects([1, 2], [2, 3])      // true
 int("42")                            // 42
 double(42)                           // 42.0
 string(42)                           // "42"
-bool(1)                              // true
+bool("true")                         // true  (from a string; there is no int conversion)
 bytes("hello")                       // b"hello"
 ```
 
