@@ -672,7 +672,11 @@ func FieldConstraints() []Attr {
 		{Name: "min", Doc: "Minimum numeric value (inclusive)", Type: TypeNumber},
 		{Name: "max", Doc: "Maximum numeric value (inclusive)", Type: TypeNumber},
 		{Name: "enum", Doc: "Value must be one of these", Type: TypeList},
-		{Name: "validate", Doc: "Name of a custom validator to apply", Type: TypeString, Ref: RefValidator},
+		// `validator`, not `validate`: the parser accepts the first and
+		// refuses the second, so anything completing from this schema was
+		// offering a word that does not work.
+		{Name: "validator", Doc: "Name of a custom validator to apply", Type: TypeString, Ref: RefValidator},
+		{Name: "description", Doc: "What the field is, for generated documentation", Type: TypeString},
 	}
 }
 

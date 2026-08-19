@@ -60,6 +60,8 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **The schema named a constraint the parser refuses.** A field's custom validator is `validator`; the schema said `validate`, so anything completing from it — an editor, `mycel add` — offered a word that does not parse. The parser's own "the ones there are" list left out `validator`, `required` and `description` as well, so somebody who reached that error was told a list that did not contain the thing they were reaching for.
+
 - **A type a flow validates against, and a flow an aspect invokes, were both unchecked.** A misspelt `validate { input = "usr" }` is a 500 on the first request through the door rather than a refusal at deploy. A misspelt flow name in an aspect's action is worse: an `after` aspect whose action fails is logged at warning level and the flow carries on, so an audit aspect pointing at a flow that does not exist writes nothing, for ever, while producing a line per message that nobody reads. Both are checked at startup now, which closes the last two of the seven namespaces this configuration can point into by name.
 
 - **A type naming a validator that does not exist left the field unvalidated.** The reference is looked up when the flow runs and a name that is not in the registry is skipped, so a typo did not fail — it turned the rule off. That is the worst place in the language for a name to go unchecked, since a validator exists precisely to refuse input that should not get in. And the spelling the validators example documents, `validator = "validator.email"`, was one of those names: the registry keys validators by their bare name, so the prefixed form resolved to nothing. Both spellings resolve now, and a name nothing declares is refused at startup.

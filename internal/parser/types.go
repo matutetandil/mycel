@@ -282,7 +282,16 @@ func parseConstraintsAndDirectives(field *validate.FieldSchema, args []hclsyntax
 
 // constraintNames are the rules a field can carry, in the order they are worth
 // reading.
-var constraintNames = []string{"format", "min", "max", "min_length", "max_length", "pattern", "enum"}
+//
+// Everything applyConstraint accepts, not only the value rules: somebody who
+// reaches this message wrote a word that is not one of these, and being told a
+// list that leaves out `validator` — the word for the thing they were most
+// likely reaching for — sends them looking in the documentation for something
+// that is right here.
+var constraintNames = []string{
+	"format", "min", "max", "min_length", "max_length", "pattern", "enum",
+	"validator", "required", "description",
+}
 
 // describeConstraint explains why a constraint produced nothing: either the
 // name is not one, or the value is not the kind that name takes.
