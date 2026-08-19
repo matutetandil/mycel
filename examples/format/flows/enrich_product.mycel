@@ -7,14 +7,28 @@ flow "enrich_product" {
     operation = "POST /products/enrich"
   }
 
-  # Step 1: Save to local database
+  # Step 1: Save to local database.
+  #
+  # A step names what it does: without an operation this reads the table
+  # rather than writing to it, and the id the next step wants is never
+  # produced. The body is what gets written.
   step "save" {
     connector = "sqlite"
     target    = "products"
+    operation = "INSERT"
+
+    body = {
+      name  = "input.name"
+      price = "input.price"
+    }
   }
 
   # Step 2: Enrich with data from legacy SOAP API (XML)
-  # The connector already has format = "xml", but you can also set it per step
+  # The connector already has format = "xml", but you can also set it per step.
+  #
+  # There is no service behind soap_api — it points at a host that does not
+  # exist — so this step is here to show the shape, and the flow answers with a
+  # connection error until you point it at something real.
   step "get_legacy_info" {
     connector = "soap_api"
     operation = "GET /products/${step.save.id}/details"
@@ -24,8 +38,8 @@ flow "enrich_product" {
   # Step 3: Merge and return as JSON (default)
   transform {
     id          = "step.save.id"
-    name        = "step.save.name"
-    price       = "step.save.price"
+    name        = "input.name"
+    price       = "input.price"
     legacy_code = "step.get_legacy_info.product_code"
     warehouse   = "step.get_legacy_info.warehouse"
   }

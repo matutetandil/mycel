@@ -124,6 +124,10 @@ curl -X POST http://localhost:3000/products \
 
 ### Mixed Format Flow
 
+The `soap_api` connector points at a host that does not exist, so this one
+answers with a connection error until you point it at a real service — it is
+here to show what a step-level format looks like.
+
 ```bash
 # JSON in -> enrichment calls SOAP (XML) -> JSON out
 curl -X POST http://localhost:3000/products/enrich \

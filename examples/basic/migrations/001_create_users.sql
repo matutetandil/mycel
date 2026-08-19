@@ -1,5 +1,7 @@
--- Setup script for the example SQLite database
--- Run: sqlite3 ./data/app.db < setup.sql
+-- The table the flows read and write.
+--
+-- Applied with `mycel migrate --config .` before starting; nothing creates it
+-- otherwise, and every command in README.md answers 500 without it.
 
 -- Create users table
 CREATE TABLE IF NOT EXISTS users (

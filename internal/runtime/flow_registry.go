@@ -2894,6 +2894,35 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 	}, nil
 }
 
+// evaluateStepValues resolves the expressions in a step's params or body.
+//
+// A value that mentions the message or an earlier step is evaluated; anything
+// else is the literal it looks like, so a constant stays a constant.
+func (h *FlowHandler) evaluateStepValues(
+	ctx context.Context,
+	step *flow.StepConfig,
+	what string,
+	values map[string]interface{},
+	input map[string]interface{},
+	stepResults map[string]interface{},
+) (map[string]interface{}, error) {
+	out := make(map[string]interface{}, len(values))
+	for key, val := range values {
+		text, isText := val.(string)
+		if !isText || h.Transformer == nil ||
+			(!strings.Contains(text, "input.") && !strings.Contains(text, "step.")) {
+			out[key] = val
+			continue
+		}
+		result, err := h.Transformer.EvaluateExpressionWithSteps(ctx, input, stepResults, text)
+		if err != nil {
+			return nil, fmt.Errorf("step %s: failed to evaluate %s %s: %w", step.Name, what, key, err)
+		}
+		out[key] = result
+	}
+	return out, nil
+}
+
 // Operation represents a parsed HTTP operation from flow config.
 type Operation struct {
 	Method string
@@ -3176,26 +3205,18 @@ func (h *FlowHandler) executeStepsCore(ctx context.Context, input map[string]int
 		}
 
 		// Build params by evaluating CEL expressions if needed
-		params := make(map[string]interface{})
-		if h.Transformer != nil && len(step.GetParams()) > 0 {
-			for key, val := range step.GetParams() {
-				// If value is a string that looks like an expression, evaluate it
-				if strVal, ok := val.(string); ok {
-					if strings.Contains(strVal, "input.") || strings.Contains(strVal, "step.") {
-						result, err := h.Transformer.EvaluateExpressionWithSteps(ctx, input, stepResults, strVal)
-						if err != nil {
-							return nil, fmt.Errorf("step %s: failed to evaluate param %s: %w", step.Name, key, err)
-						}
-						params[key] = result
-						continue
-					}
-				}
-				params[key] = val
-			}
-		} else {
-			for key, val := range step.GetParams() {
-				params[key] = val
-			}
+		params, err := h.evaluateStepValues(ctx, step, "param", step.GetParams(), input, stepResults)
+		if err != nil {
+			return nil, err
+		}
+
+		// And the body the same way. It was passed through as written, so the
+		// documented form — body = { items = "step.cart.items" } — sent that
+		// text over the wire, and a step writing to a database stored the words
+		// "input.name" in the column.
+		body, err := h.evaluateStepValues(ctx, step, "body field", step.GetBody(), input, stepResults)
+		if err != nil {
+			return nil, err
 		}
 
 		// Execute the step based on connector type and operation
@@ -3238,8 +3259,8 @@ func (h *FlowHandler) executeStepsCore(ctx context.Context, input map[string]int
 			if caller, ok := conn.(Caller); ok {
 				// For Caller interface (TCP, HTTP client, gRPC)
 				callParams := params
-				if len(step.GetBody()) > 0 {
-					callParams = step.GetBody()
+				if len(body) > 0 {
+					callParams = body
 				}
 				callResult, err := meteredCall(ctx, caller, step.GetOperation(), callParams)
 				if err != nil {
@@ -3258,8 +3279,15 @@ func (h *FlowHandler) executeStepsCore(ctx context.Context, input map[string]int
 					return nil, fmt.Errorf("step %s: call failed: %w", step.Name, err)
 				}
 				result = callResult
-			} else if reader, ok := conn.(connector.Reader); ok {
-				// For Reader interface (database SELECT)
+			} else if reader, ok := conn.(connector.Reader); ok && !connector.IsWriteOperation(step.GetOperation()) {
+				// For Reader interface (database SELECT).
+				//
+				// Which ability to use is decided by the operation, not by
+				// which interface the connector happens to satisfy first: a
+				// database satisfies both, so a step naming INSERT came down
+				// here and the branch below was unreachable. A step could not
+				// write, and did not say so — the insert quietly became a
+				// select, and the id a later step wanted was never there.
 				query := connector.Query{
 					Target:    step.GetTarget(),
 					Operation: step.GetOperation(),
@@ -3291,7 +3319,7 @@ func (h *FlowHandler) executeStepsCore(ctx context.Context, input map[string]int
 				data := &connector.Data{
 					Target:    step.GetTarget(),
 					Operation: step.GetOperation(),
-					Payload:   flow.WrapPayload(step.GetBody(), step.Envelope),
+					Payload:   flow.WrapPayload(body, step.Envelope),
 					Filters:   params,
 				}
 				writeResult, err := meteredWrite(ctx, writer, data)

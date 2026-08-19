@@ -1,0 +1,432 @@
+// Package examples holds no code. It exists for one test: the examples, started
+// and driven the way their READMEs say to.
+package examples
+
+import (
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+)
+
+// mycelBinary builds the binary once for the whole package.
+var mycelBinary string
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "mycel-examples-")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "examples harness: %v\n", err)
+		os.Exit(1)
+	}
+	defer os.RemoveAll(dir)
+
+	mycelBinary = filepath.Join(dir, "mycel")
+	build := exec.Command("go", "build", "-o", mycelBinary, "../../cmd/mycel")
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "examples harness: building mycel: %v\n", err)
+		os.Exit(1)
+	}
+
+	os.Exit(m.Run())
+}
+
+// repoPath resolves a path relative to the repository root.
+func repoPath(parts ...string) string {
+	return filepath.Join(append([]string{"..", ".."}, parts...)...)
+}
+
+// freePort asks the operating system for a port nobody is using.
+func freePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("finding a free port: %v", err)
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
+}
+
+var (
+	portInConfig  = regexp.MustCompile(`(?m)^(\s*(?:admin_)?port\s*=\s*)(\d+)`)
+	portInCommand = regexp.MustCompile(`(localhost|127\.0\.0\.1):(\d+)`)
+	fencedBlock   = regexp.MustCompile("(?s)```[a-zA-Z]*\n(.*?)```")
+	lineJoin      = regexp.MustCompile(`\\\n\s*`)
+	// A placeholder standing in for a value the reader is meant to supply,
+	// inside the URL: /files/{id}/download, /orders/<uuid>.
+	urlPlaceholder = regexp.MustCompile(`https?://[^\s'"]*[{<][a-zA-Z_]+[}>]`)
+)
+
+// service is one example, copied aside and running.
+type service struct {
+	dir   string
+	ports map[int]int // the port written in the example → the one it listens on
+	log   string
+}
+
+// start copies the example, moves every port it declares to one that is free,
+// applies its migrations and runs it.
+func start(t *testing.T, example string) *service {
+	t.Helper()
+
+	dir := t.TempDir()
+	if out, err := exec.Command("cp", "-R", repoPath("examples", example)+"/.", dir).CombinedOutput(); err != nil {
+		t.Fatalf("copying %s: %v: %s", example, err, out)
+	}
+	// A database left behind by somebody's local run is not what a reader has.
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasSuffix(path, ".db") {
+			_ = os.Remove(path)
+		}
+		return nil
+	})
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatalf("data directory: %v", err)
+	}
+
+	svc := &service{dir: dir, ports: map[int]int{}}
+
+	// Every port the example declares is moved out of the way, so this can run
+	// beside anything else — including the integration stack, which holds the
+	// ports the examples like to use.
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".mycel") {
+			return nil
+		}
+		source, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		rewritten := portInConfig.ReplaceAllStringFunc(string(source), func(match string) string {
+			parts := portInConfig.FindStringSubmatch(match)
+			declared, _ := strconv.Atoi(parts[2])
+			moved, seen := svc.ports[declared]
+			if !seen {
+				moved = freePort(t)
+				svc.ports[declared] = moved
+			}
+			return parts[1] + strconv.Itoa(moved)
+		})
+		_ = os.WriteFile(path, []byte(rewritten), 0o644)
+		return nil
+	})
+
+	svc.moveAdminPort(t, dir)
+
+	for _, connector := range databaseConnectors(t, dir) {
+		args := []string{"migrate", "--config", "."}
+		if connector != "" {
+			args = append(args, "--connector", connector)
+		}
+		migrate := exec.Command(mycelBinary, args...)
+		migrate.Dir = dir
+		if out, err := migrate.CombinedOutput(); err != nil {
+			t.Fatalf("%s: migrate: %v: %s", example, err, out)
+		}
+	}
+
+	svc.log = filepath.Join(dir, "service.log")
+	logFile, err := os.Create(svc.log)
+	if err != nil {
+		t.Fatalf("log: %v", err)
+	}
+
+	run := exec.Command(mycelBinary, "start", "--config", ".")
+	run.Dir = dir
+	run.Stdout = logFile
+	run.Stderr = logFile
+	if err := run.Start(); err != nil {
+		t.Fatalf("%s: starting: %v", example, err)
+	}
+	t.Cleanup(func() {
+		_ = run.Process.Kill()
+		_, _ = run.Process.Wait()
+		_ = logFile.Close()
+	})
+
+	svc.waitUntilListening(t, example)
+	return svc
+}
+
+// moveAdminPort gives this copy an admin port of its own.
+//
+// The admin server listens on 9090 unless the configuration says otherwise, and
+// almost no example says otherwise — so two of them cannot run at once, which
+// is what running them all is.
+func (s *service) moveAdminPort(t *testing.T, dir string) {
+	t.Helper()
+
+	port := freePort(t)
+	declared := false
+
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".mycel") || declared {
+			return nil
+		}
+		source, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		text := string(source)
+		open := regexp.MustCompile(`(?m)^service\s*\{`)
+		if !open.MatchString(text) {
+			return nil
+		}
+		if strings.Contains(text, "admin_port") {
+			text = regexp.MustCompile(`(?m)^(\s*admin_port\s*=\s*)\d+`).
+				ReplaceAllString(text, "${1}"+strconv.Itoa(port))
+		} else {
+			text = open.ReplaceAllString(text, "service {\n  admin_port = "+strconv.Itoa(port))
+		}
+		_ = os.WriteFile(path, []byte(text), 0o644)
+		declared = true
+		return nil
+	})
+
+	if !declared {
+		// No service block anywhere: give it one.
+		_ = os.WriteFile(filepath.Join(dir, "zz-admin-port.mycel"),
+			[]byte("service {\n  admin_port = "+strconv.Itoa(port)+"\n}\n"), 0o644)
+	}
+}
+
+// databaseConnectors returns the connectors migrate has to be pointed at: one
+// entry for each database when there are several, and a single empty name when
+// there is one, which is when migrate finds it by itself.
+func databaseConnectors(t *testing.T, dir string) []string {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(dir, "migrations")); err != nil {
+		return nil
+	}
+
+	entries, err := os.ReadDir(filepath.Join(dir, "migrations"))
+	if err != nil {
+		return nil
+	}
+	var perConnector []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			perConnector = append(perConnector, entry.Name())
+		}
+	}
+	if len(perConnector) > 0 {
+		return perConnector
+	}
+	return []string{""}
+}
+
+func (s *service) waitUntilListening(t *testing.T, example string) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for _, port := range s.ports {
+		listening := false
+		for time.Now().Before(deadline) {
+			conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 300*time.Millisecond)
+			if err == nil {
+				_ = conn.Close()
+				listening = true
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if !listening {
+			t.Fatalf("%s did not start; its log says:\n%s", example, s.tail())
+		}
+	}
+}
+
+func (s *service) tail() string {
+	content, err := os.ReadFile(s.log)
+	if err != nil {
+		return "(no log)"
+	}
+	text := stripANSI(string(content))
+	if len(text) > 2000 {
+		text = text[len(text)-2000:]
+	}
+	return text
+}
+
+var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string { return ansi.ReplaceAllString(s, "") }
+
+// commands returns the curl commands an example's README shows, in order, with
+// the ports moved to where the service actually listens.
+func (s *service) commands(t *testing.T, example string) []string {
+	t.Helper()
+
+	readme, err := os.ReadFile(repoPath("examples", example, "README.md"))
+	if err != nil {
+		t.Fatalf("%s has no README: %v", example, err)
+	}
+
+	var out []string
+	for _, block := range fencedBlock.FindAllStringSubmatch(string(readme), -1) {
+		for _, line := range statements(lineJoin.ReplaceAllString(block[1], " ")) {
+			if !strings.HasPrefix(line, "curl ") {
+				continue
+			}
+			// A command whose URL has a placeholder in it was never meant to
+			// be run as written. A JSON body has braces too, which is not the
+			// same thing.
+			if urlPlaceholder.MatchString(line) {
+				continue
+			}
+			// A command piped into something else is checking a header or
+			// filtering output, not whether the route is there.
+			if strings.Contains(line, "|") {
+				continue
+			}
+			moved := portInCommand.ReplaceAllStringFunc(line, func(match string) string {
+				parts := portInCommand.FindStringSubmatch(match)
+				declared, _ := strconv.Atoi(parts[2])
+				if to, ok := s.ports[declared]; ok {
+					return parts[1] + ":" + strconv.Itoa(to)
+				}
+				return match
+			})
+			if portInCommand.MatchString(moved) {
+				out = append(out, moved)
+			}
+		}
+	}
+	return out
+}
+
+// statements splits a block into commands, keeping a quoted argument that runs
+// over several lines together — a JSON body is usually written that way, and
+// cutting it at the newline leaves a command that is not valid shell.
+func statements(block string) []string {
+	var out []string
+	var current strings.Builder
+
+	for _, line := range strings.Split(block, "\n") {
+		if current.Len() > 0 {
+			current.WriteString("\n")
+		}
+		current.WriteString(line)
+
+		if strings.Count(current.String(), "'")%2 == 0 {
+			out = append(out, strings.TrimSpace(current.String()))
+			current.Reset()
+		}
+	}
+	if current.Len() > 0 {
+		out = append(out, strings.TrimSpace(current.String()))
+	}
+	return out
+}
+
+// run executes one command and reports the status it was answered with.
+func (s *service) run(t *testing.T, command string) (int, string) {
+	t.Helper()
+
+	body := filepath.Join(s.dir, "body.out")
+	probe := strings.Replace(command, "curl ",
+		fmt.Sprintf("curl -s -o %s -w '%%{http_code}' --max-time 15 ", body), 1)
+
+	cmd := exec.Command("bash", "-c", probe)
+	cmd.Dir = s.dir
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, ""
+	}
+	status, _ := strconv.Atoi(strings.Trim(strings.TrimSpace(string(out)), "'"))
+	answer, _ := os.ReadFile(body)
+	return status, string(answer)
+}
+
+// selfContained lists the examples that need nothing but Mycel — no broker, no
+// database server, no external service. They are the ones a reader is most
+// likely to start with, and every one of them was broken.
+var selfContained = []string{
+	"aspects",
+	"basic",
+	"cache",
+	"files",
+	"format",
+	"query-method",
+	"rate-limit",
+	"scheduled",
+	"security",
+	"state-machine",
+	"transactional-write",
+	"validators",
+	"websocket",
+}
+
+// cannotBeRunHere holds the commands an example shows that need something this
+// harness does not have, keyed by the body that identifies them. Each is a
+// decision with a reason written down, not an oversight — and the README says
+// the same thing to whoever is reading it.
+var cannotBeRunHere = map[string]string{
+	`-d '{"event": "ship", "data": {"tracking_number": "TRK123"}}'`: "the ship transition calls a notification service on port 6000 that the example does not include, which its README says",
+	`/products/enrich`: "the enrichment step calls a legacy SOAP service at a host that does not exist, which its README says",
+}
+
+// whyNotRun reports whether a command is one the harness deliberately leaves
+// alone, and why.
+func whyNotRun(command string) (string, bool) {
+	for marker, reason := range cannotBeRunHere {
+		if strings.Contains(command, marker) {
+			return reason, true
+		}
+	}
+	return "", false
+}
+
+// Following an example's README has to work.
+//
+// Nothing checked this, and thirty of the thirty-six examples using SQLite
+// shipped no way to create their tables: they started, printed their routes,
+// and answered 500 to every request. Others declared flows the README's
+// commands did not match, or asked for a file the connector could not write.
+//
+// A command answering 4xx is not a failure here — several READMEs deliberately
+// show a request being refused. What this asserts is that the service starts,
+// that the route exists, and that nothing falls over.
+func TestTheExamplesWorkWhenFollowed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("starting services")
+	}
+
+	for _, example := range selfContained {
+		t.Run(example, func(t *testing.T) {
+			t.Parallel()
+
+			svc := start(t, example)
+			commands := svc.commands(t, example)
+			if len(commands) == 0 {
+				t.Fatalf("no commands found in the README; this example is not being checked")
+			}
+
+			for _, command := range commands {
+				if reason, expected := whyNotRun(command); expected {
+					t.Logf("not run: %s", reason)
+					continue
+				}
+				status, answer := svc.run(t, command)
+				short := command
+				if len(short) > 110 {
+					short = short[:110] + "…"
+				}
+
+				switch {
+				case status == 0:
+					t.Errorf("no answer at all:\n  %s", short)
+				case status >= 500:
+					t.Errorf("answered %d:\n  %s\n  %s", status, short, strings.TrimSpace(answer))
+				case status == 404 || status == 405:
+					t.Errorf("answered %d — the README shows a route the example does not serve:\n  %s", status, short)
+				}
+			}
+		})
+	}
+}

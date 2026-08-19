@@ -72,3 +72,25 @@ func lookupPath(values map[string]interface{}, path string) (interface{}, bool) 
 	}
 	return current, true
 }
+
+// IsWriteOperation reports whether an operation names a write.
+//
+// Which of a connector's abilities to use cannot be decided by which interface
+// it happens to satisfy first: a database satisfies both, so a step naming
+// INSERT was dispatched as a read — the branch that writes was unreachable for
+// every connector that can also read, which is every database. A step could not
+// write at all, and said nothing about it: the insert quietly became a select,
+// and the id the next step wanted was never there.
+//
+// The saga executor already decided this way. This is the same list, in one
+// place, so the two cannot come apart.
+func IsWriteOperation(operation string) bool {
+	switch strings.ToUpper(strings.TrimSpace(operation)) {
+	case "INSERT", "UPDATE", "DELETE", "UPSERT",
+		"INSERT_ONE", "UPDATE_ONE", "DELETE_ONE",
+		"INSERT_MANY", "UPDATE_MANY", "DELETE_MANY",
+		"PUBLISH", "WRITE", "SEND":
+		return true
+	}
+	return false
+}

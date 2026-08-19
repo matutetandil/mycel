@@ -1,5 +1,6 @@
--- Setup script for the QUERY method example
--- Run: sqlite3 ./data/app.db < setup.sql
+-- The products the QUERY searches over.
+--
+-- Applied with `mycel migrate --config .` before starting.
 
 CREATE TABLE IF NOT EXISTS products (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

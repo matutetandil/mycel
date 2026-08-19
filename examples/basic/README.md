@@ -21,7 +21,7 @@ cd examples/basic
 
 # Create the users table. Nothing creates it for you, and every command
 # below fails without it.
-sqlite3 ./data/app.db < setup.sql
+mycel migrate --config .
 
 mycel start --config .
 ```
@@ -125,8 +125,9 @@ basic/
 ├── types/
 │   └── user.mycel  # User input validation schema
 ├── data/
-│   └── app.db  # SQLite database file (created automatically)
-└── setup.sql   # Initial database schema
+│   └── app.db  # SQLite database file (created by the migration)
+└── migrations/
+    └── 001_create_users.sql  # The users table
 ```
 
 ## Configuration Explained
