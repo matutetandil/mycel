@@ -936,6 +936,39 @@ func (r *Runtime) printStartupWarnings() {
 		r.logger.Warn("no authentication configured in production",
 			"suggestion", "consider adding an auth block to secure your endpoints")
 	}
+
+	// And the one that undoes TLS while looking like it configures it.
+	//
+	// insecure_skip_verify does not relax certificate checking, it turns it
+	// off: the connection is still encrypted and anyone who can answer for the
+	// address can read it. It is the setting people reach for to get past a
+	// self-signed certificate in development and the one they forget to take
+	// out, and nothing said a word about it in production.
+	for _, cfg := range r.config.Connectors {
+		if !skipsCertificateVerification(cfg.Properties) {
+			continue
+		}
+		r.logger.Warn("certificate verification is turned off",
+			"connector", cfg.Name,
+			"environment", r.environment,
+			"detail", "the connection is encrypted and unauthenticated: anything that can answer for the address can read it",
+			"suggestion", "name the certificate authority with ca_cert instead")
+	}
+}
+
+// skipsCertificateVerification reports whether a connector's tls block turns
+// verification off, whichever way it spells it.
+func skipsCertificateVerification(props map[string]interface{}) bool {
+	tls, ok := props["tls"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	for _, name := range []string{"insecure_skip_verify", "skip_verify", "insecure"} {
+		if enabled, ok := tls[name].(bool); ok && enabled {
+			return true
+		}
+	}
+	return false
 }
 
 // InitForTrace partially initializes the runtime for trace mode.
