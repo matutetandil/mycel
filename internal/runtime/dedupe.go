@@ -40,6 +40,7 @@ import (
 
 	"github.com/matutetandil/mycel/v2/internal/flow"
 	msync "github.com/matutetandil/mycel/v2/internal/sync"
+	"github.com/matutetandil/mycel/v2/internal/trace"
 	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
@@ -111,6 +112,23 @@ func (h *FlowHandler) dedupeAwareWrite(
 		Wait:    true,
 	}
 
+	// The stage is announced around the whole decision, so a trace shows the
+	// comparison and its verdict, and a breakpoint on dedupe stops before the
+	// fingerprint is looked up rather than never.
+	return trace.RecordStage(ctx, trace.StageDedupe, key, input, func() (interface{}, error) {
+		return h.dedupeDecide(ctx, lockCfg, lockKey, storageKey, key, fp, ttl, cfg, write)
+	})
+}
+
+func (h *FlowHandler) dedupeDecide(
+	ctx context.Context,
+	lockCfg *msync.FlowLockConfig,
+	lockKey, storageKey, key string,
+	fp []byte,
+	ttl time.Duration,
+	cfg *flow.DedupeConfig,
+	write func() (interface{}, error),
+) (interface{}, error) {
 	return h.SyncManager.ExecuteWithLock(ctx, lockCfg, lockKey, func() (interface{}, error) {
 		// Phase A: GET stored, compare.
 		stored, found, getErr := h.DedupeCache.Get(ctx, storageKey)

@@ -262,3 +262,45 @@ func BlockDirectories() map[string]string {
 	}
 	return out
 }
+
+// pipelineStages is the order a flow's stages run in.
+//
+// Measured against a running service rather than written from the diagram: the
+// three lists that described this — the trace package's constants, the debug
+// adapter's line numbers and the editor's gutter — disagreed with each other
+// and with the runtime, which is how a stage came to be offered that execution
+// never reaches and another to be reached that was never offered.
+//
+// dedupe is placed at the point it decides, which is before the write it gates;
+// a trace shows it closing after the write because it wraps it.
+var pipelineStages = []string{
+	"input",
+	"sanitize",
+	"filter",
+	"accept",
+	"validate_input",
+	"step",
+	"enrich",
+	"transform",
+	"dedupe",
+	"read",
+	"write",
+	"response",
+	"validate_output",
+}
+
+// PipelineStages returns the stages of a flow in the order they run.
+func PipelineStages() []string {
+	return append([]string(nil), pipelineStages...)
+}
+
+// StageOrder returns a stage's position in the pipeline, and whether it is a
+// stage at all.
+func StageOrder(stage string) (int, bool) {
+	for i, s := range pipelineStages {
+		if s == stage {
+			return i, true
+		}
+	}
+	return 0, false
+}

@@ -11,6 +11,8 @@ package dap
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/matutetandil/mycel/v2/pkg/schema"
 )
 
 // Message is the base DAP message.
@@ -192,19 +194,19 @@ type Capabilities struct {
 // DAP uses line numbers for breakpoints. We map pipeline stages to virtual line numbers.
 
 // StageLines maps pipeline stages to virtual line numbers for DAP breakpoints.
-var StageLines = map[string]int{
-	"input":           1,
-	"sanitize":        2,
-	"filter":          3,
-	"dedupe":          4,
-	"validate_input":  5,
-	"enrich":          6,
-	"transform":       7,
-	"step":            8,
-	"validate_output": 9,
-	"read":            10,
-	"write":           11,
-}
+//
+// Derived from the one ordered list of stages rather than written out again:
+// the hand-written copy had fallen behind, and accept — a stage a flow really
+// pauses at — had no line, which resolves to line zero and so to no breakpoint
+// at all.
+var StageLines = func() map[string]int {
+	stages := schema.PipelineStages()
+	m := make(map[string]int, len(stages))
+	for i, stage := range stages {
+		m[stage] = i + 1
+	}
+	return m
+}()
 
 // LineToStage maps virtual line numbers back to stage names.
 var LineToStage = func() map[int]string {

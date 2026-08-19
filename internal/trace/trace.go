@@ -31,6 +31,7 @@ const (
 	StageTransform   Stage = "transform"
 	StageStep        Stage = "step"
 	StageValidateOut Stage = "validate_output"
+	StageResponse    Stage = "response"
 	StageRead        Stage = "read"
 	StageWrite       Stage = "write"
 	StageCacheHit    Stage = "cache_hit"

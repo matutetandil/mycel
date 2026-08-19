@@ -35,6 +35,18 @@ func TestEveryMethodTheEditorOffersCanBeDispatched(t *testing.T) {
 	}
 }
 
+func TestTheEditorAndTheRuntimeAgreeOnWhatReads(t *testing.T) {
+	// The editor names the destination stage from this answer — "read" or
+	// "write" — and the runtime records the stage it actually reaches. Two
+	// answers means a breakpoint offered at one and reached at the other.
+	for _, method := range ide.HTTPMethods() {
+		if ide.IsReadMethod(method) != (Operation{Method: method}).IsRead() {
+			t.Errorf("the editor says %s reads: %v; the runtime says %v",
+				method, ide.IsReadMethod(method), (Operation{Method: method}).IsRead())
+		}
+	}
+}
+
 func TestTheSafeMethodsAreReads(t *testing.T) {
 	// HEAD and OPTIONS are safe (RFC 9110 §9.2.1): serving one must never
 	// reach the write path, which dispatched them as INSERT.

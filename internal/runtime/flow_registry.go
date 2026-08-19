@@ -1973,10 +1973,17 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 
 	// Apply response transform if configured
 	if len(h.Config.Response) > 0 {
-		result, err = h.applyResponseTransform(ctx, input, result)
-		if err != nil {
-			return nil, fmt.Errorf("response transform error: %w", err)
+		// Announced like the other stages: the editor offers a breakpoint on
+		// the response block, and shaping the answer is the last thing a flow
+		// does — the one place worth stopping at when what came back is not
+		// what was expected.
+		shaped, respErr := trace.RecordStage(ctx, trace.StageResponse, "", result, func() (interface{}, error) {
+			return h.applyResponseTransform(ctx, input, result)
+		})
+		if respErr != nil {
+			return nil, fmt.Errorf("response transform error: %w", respErr)
 		}
+		result = shaped
 	}
 
 	// Check the answer against the contract the flow declares for it.
@@ -3075,6 +3082,26 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 		return make(map[string]interface{}), nil
 	}
 
+	// Announced, because a phase that runs without saying so cannot be traced
+	// and cannot be stopped at. The stage was named in the trace package, given
+	// a line by the debug adapter and offered as a breakpoint by the editor,
+	// and nothing ever emitted it: a breakpoint on it waited forever, and a
+	// trace of a flow with steps did not show them running.
+	out, err := trace.RecordStage(ctx, trace.StageStep, "", input, func() (interface{}, error) {
+		return h.executeStepsCore(ctx, input)
+	})
+	if err != nil {
+		return nil, err
+	}
+	results, _ := out.(map[string]interface{})
+	if results == nil {
+		results = make(map[string]interface{})
+	}
+	return results, nil
+}
+
+func (h *FlowHandler) executeStepsCore(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
+
 	// Initialize CEL transformer if needed (for evaluating step params and conditions)
 	if h.Transformer == nil {
 		var err error
@@ -3363,6 +3390,21 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 	if len(enrichments) == 0 {
 		return make(map[string]interface{}), nil
 	}
+
+	out, err := trace.RecordStage(ctx, trace.StageEnrich, "", input, func() (interface{}, error) {
+		return h.executeEnrichmentsCore(ctx, input, enrichments)
+	})
+	if err != nil {
+		return nil, err
+	}
+	enrichedOut, _ := out.(map[string]interface{})
+	if enrichedOut == nil {
+		enrichedOut = make(map[string]interface{})
+	}
+	return enrichedOut, nil
+}
+
+func (h *FlowHandler) executeEnrichmentsCore(ctx context.Context, input map[string]interface{}, enrichments []*flow.EnrichConfig) (map[string]interface{}, error) {
 
 	enriched := make(map[string]interface{})
 

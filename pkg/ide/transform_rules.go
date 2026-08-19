@@ -1,5 +1,12 @@
 package ide
 
+import (
+	"sort"
+	"strings"
+
+	"github.com/matutetandil/mycel/v2/pkg/schema"
+)
+
 // TransformRule represents an ordered transform rule for breakpoint placement.
 type TransformRule struct {
 	Index      int    `json:"index"`
@@ -158,14 +165,54 @@ func (e *Engine) FlowStages(flowName string) []string {
 	}
 
 	if hasBlock["to"] {
-		stages = append(stages, "write")
+		// A flow that reads pauses at "read", not at "write" — the destination
+		// stage is named for what the flow does with it. Offering "write" for
+		// a GET meant the breakpoint the gutter showed at the `to` block was
+		// one execution never reached.
+		stages = append(stages, destinationStage(flowBlock))
 	}
 
 	if hasBlock["response"] {
 		stages = append(stages, "response")
 	}
 
+	// One ordering, the one the runtime runs: the list was built in the order
+	// the blocks happened to be checked, which put validate_output before the
+	// write it validates and dedupe before the validation it follows.
+	sort.SliceStable(stages, func(i, j int) bool {
+		a, aok := schema.StageOrder(stages[i])
+		b, bok := schema.StageOrder(stages[j])
+		if !aok || !bok {
+			return false
+		}
+		return a < b
+	})
+
 	return stages
+}
+
+// destinationStage is the stage a flow pauses at when it reaches its
+// destination: reading or writing, according to the operation it serves.
+func destinationStage(flowBlock *Block) string {
+	for _, child := range flowBlock.Children {
+		if child.Type != "from" {
+			continue
+		}
+		operation := child.GetAttr("operation")
+		if operation == "" {
+			break
+		}
+		// Either form: "GET /orders" or a bare "GET".
+		method := operation
+		if space := strings.IndexByte(operation, ' '); space > 0 {
+			method = operation[:space]
+		}
+		if IsReadMethod(method) {
+			return "read"
+		}
+		break
+	}
+	return "write"
 }
 
 // BreakpointLocation represents a single position where a breakpoint can be set.
