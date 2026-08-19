@@ -260,3 +260,106 @@ func captureStdout(t *testing.T, fn func()) string {
 	os.Stdout = previous
 	return <-done
 }
+
+// Everything that is wrong, in one run.
+//
+// The checks grew one at a time, each returning as soon as it found something,
+// so a configuration wrong in five ways reported the first kind, was fixed,
+// and reported the next on the following run. That is the experience each
+// check avoids inside itself — every duration at once, every duplicate at once
+// — and they recreated it between them.
+func TestEveryKindOfProblemIsReportedInOneRun(t *testing.T) {
+	withConfigDir(t, project(t, map[string]string{"config.mycel": `
+service {
+  name = "orders"
+}
+
+connector "api" {
+  type = "rest"
+  port = 18392
+}
+
+flow "get_user" {
+  from {
+    connector = "api"
+    operation = "GET /users/:id"
+  }
+
+  cache {
+    storage = "a_cache_nobody_declared"
+    ttl     = "5 minutes"
+  }
+
+  step "one" {
+    connector = "api"
+    on_error  = "ignore"
+  }
+
+  step "one" {
+    connector = "api"
+  }
+
+  validate {
+    input = "no_such_type"
+  }
+}
+`}))
+
+	err := runValidate(nil, nil)
+	if err == nil {
+		t.Fatal("a configuration wrong in five ways was accepted")
+	}
+
+	// The summary names each kind, so somebody reading only the last line
+	// knows how much is ahead of them.
+	for _, kind := range []string{
+		"duration", "step", "type reference", "duplicate name", "connector reference",
+	} {
+		if !strings.Contains(err.Error(), kind) {
+			t.Errorf("the summary does not mention %s errors: %v", kind, err)
+		}
+	}
+}
+
+func TestOneKindOfProblemStillReadsAsOne(t *testing.T) {
+	// The ordinary case: nothing about reporting everything should make a
+	// single mistake harder to read.
+	withConfigDir(t, project(t, map[string]string{"config.mycel": `
+service {
+  name = "orders"
+}
+
+connector "api" {
+  type = "rest"
+  port = 18393
+}
+
+connector "memcache" {
+  type   = "cache"
+  driver = "memory"
+}
+
+flow "get_user" {
+  from {
+    connector = "api"
+    operation = "GET /users/:id"
+  }
+  cache {
+    storage = "memcache"
+    ttl     = "5 minutes"
+  }
+}
+`}))
+
+	err := runValidate(nil, nil)
+	if err == nil {
+		t.Fatal("accepted")
+	}
+	if !strings.Contains(err.Error(), "1 duration error(s)") {
+		t.Errorf("the summary does not read as one problem: %v", err)
+	}
+	// And nothing else is claimed alongside it.
+	if strings.Contains(err.Error(), ",") {
+		t.Errorf("a single problem was summarised as several: %v", err)
+	}
+}

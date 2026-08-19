@@ -253,49 +253,18 @@ func New(opts Options) (*Runtime, error) {
 		return nil, fmt.Errorf("failed to parse configuration: %w", err)
 	}
 
-	// Check each flow's "from" block against its source connector's schema,
-	// so a missing required parameter fails here instead of surfacing later
-	// as a confusing runtime error.
-	if errs := ValidateFlowSchemas(config, schemaReg); len(errs) > 0 {
+	// Everything that is wrong, rather than the first thing.
+	//
+	// Each of these used to return on its own, so a configuration with a bad
+	// duration and a broken connector reference reported the duration, was
+	// fixed, and reported the reference on the next start — which on a
+	// deployment is a whole cycle per mistake. `mycel validate` reports them
+	// together and so does this, from the same list, so the two cannot come to
+	// disagree about what is checked.
+	if errs := ValidateAll(config, schemaReg); len(errs) > 0 {
 		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
 
-	if errs := ValidateAuthHooks(config); len(errs) > 0 {
-		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
-	}
-
-	if errs := ValidateFlowDurations(config); len(errs) > 0 {
-		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
-	}
-
-	if errs := ValidateConnectorReferences(config); len(errs) > 0 {
-		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
-	}
-
-	if errs := ValidateUniqueInnerNames(config); len(errs) > 0 {
-		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
-	}
-
-	if errs := ValidateValidatorReferences(config); len(errs) > 0 {
-		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
-	}
-
-	if errs := ValidateTypeReferences(config); len(errs) > 0 {
-		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
-	}
-
-	if errs := ValidateAspectFlowReferences(config); len(errs) > 0 {
-		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
-	}
-
-	if errs := ValidateStepErrorHandling(config); len(errs) > 0 {
-		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
-	}
-
-	// And each connector's settings against the words that connector accepts.
-	if errs := ValidateConnectorSchemas(config, schemaReg); len(errs) > 0 {
-		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
-	}
 
 	// Attributes that parse but do nothing. Not fatal — they are inert, and
 	// failing here would break configs that work today — but the whole point

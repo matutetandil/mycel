@@ -569,114 +569,38 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
-	// Check every flow's "from" block against its source connector's schema
-	if errs := runtime.ValidateFlowSchemas(config, schemaReg); len(errs) > 0 {
-		fmt.Printf("\n✗ Configuration is invalid:\n\n")
-		for _, e := range errs {
-			fmt.Printf("    - %s\n", e)
+	// Every check, then every error — rather than the first group that has
+	// one.
+	//
+	// The list lives in the runtime and is the same one `mycel start` runs, so
+	// the two cannot come to disagree: a configuration that passes here and
+	// then refuses to start is worse than either outcome on its own.
+	var problems []error
+	counts := map[string]int{}
+	var kinds []string
+	for _, check := range runtime.Checks(config, schemaReg) {
+		if len(check.Errors) == 0 {
+			continue
 		}
-		fmt.Println()
-		return fmt.Errorf("validation failed: %d flow error(s)", len(errs))
+		if counts[check.Kind] == 0 {
+			kinds = append(kinds, check.Kind)
+		}
+		counts[check.Kind] += len(check.Errors)
+		problems = append(problems, check.Errors...)
 	}
 
-	// A duration that cannot be read is discarded at the point of use, so a
-	// cache that meant to last five minutes lasts however long the connector
-	// defaults to.
-	if errs := runtime.ValidateFlowDurations(config); len(errs) > 0 {
+	if len(problems) > 0 {
 		fmt.Printf("\n✗ Configuration is invalid:\n\n")
-		for _, e := range errs {
+		for _, e := range problems {
 			fmt.Printf("    - %s\n", e)
 		}
 		fmt.Println()
-		return fmt.Errorf("validation failed: %d duration error(s)", len(errs))
-	}
 
-	// A step's on_error: three words are implemented and anything else fails
-	// the flow, which is the opposite of what most of them read as.
-	if errs := runtime.ValidateStepErrorHandling(config); len(errs) > 0 {
-		fmt.Printf("\n✗ Configuration is invalid:\n\n")
-		for _, e := range errs {
-			fmt.Printf("    - %s\n", e)
+		parts := make([]string, 0, len(kinds))
+		for _, kind := range kinds {
+			parts = append(parts, fmt.Sprintf("%d %s error(s)", counts[kind], kind))
 		}
-		fmt.Println()
-		return fmt.Errorf("validation failed: %d step error(s)", len(errs))
-	}
-
-	// A type a flow validates against, and a flow an aspect invokes: the first
-	// is a 500 on the first request, the second a warning per message and an
-	// aspect that does nothing.
-	if errs := runtime.ValidateTypeReferences(config); len(errs) > 0 {
-		fmt.Printf("\n✗ Configuration is invalid:\n\n")
-		for _, e := range errs {
-			fmt.Printf("    - %s\n", e)
-		}
-		fmt.Println()
-		return fmt.Errorf("validation failed: %d type reference error(s)", len(errs))
-	}
-	if errs := runtime.ValidateAspectFlowReferences(config); len(errs) > 0 {
-		fmt.Printf("\n✗ Configuration is invalid:\n\n")
-		for _, e := range errs {
-			fmt.Printf("    - %s\n", e)
-		}
-		fmt.Println()
-		return fmt.Errorf("validation failed: %d aspect flow reference error(s)", len(errs))
-	}
-
-	// A validator a type names but nothing declares is not a failure at run
-	// time: the rule is simply skipped, so the field goes unvalidated.
-	if errs := runtime.ValidateValidatorReferences(config); len(errs) > 0 {
-		fmt.Printf("\n✗ Configuration is invalid:\n\n")
-		for _, e := range errs {
-			fmt.Printf("    - %s\n", e)
-		}
-		fmt.Println()
-		return fmt.Errorf("validation failed: %d validator reference error(s)", len(errs))
-	}
-
-	// And names repeated inside a flow, where something is keyed by them: the
-	// second silently overwrites the first.
-	if errs := runtime.ValidateUniqueInnerNames(config); len(errs) > 0 {
-		fmt.Printf("\n✗ Configuration is invalid:\n\n")
-		for _, e := range errs {
-			fmt.Printf("    - %s\n", e)
-		}
-		fmt.Println()
-		return fmt.Errorf("validation failed: %d duplicate name(s)", len(errs))
-	}
-
-	// A connector named by a block other than from/to was checked by nobody:
-	// depending on the block it was refused, or failed on the first request,
-	// or silently did nothing at all for ever.
-	if errs := runtime.ValidateConnectorReferences(config); len(errs) > 0 {
-		fmt.Printf("\n✗ Configuration is invalid:\n\n")
-		for _, e := range errs {
-			fmt.Printf("    - %s\n", e)
-		}
-		fmt.Println()
-		return fmt.Errorf("validation failed: %d connector reference error(s)", len(errs))
-	}
-
-	// A hook naming a flow that does not exist would otherwise surface as a
-	// line in a log during whatever the hook was meant to catch.
-	if errs := runtime.ValidateAuthHooks(config); len(errs) > 0 {
-		fmt.Printf("\n✗ Configuration is invalid:\n\n")
-		for _, e := range errs {
-			fmt.Printf("    - %s\n", e)
-		}
-		fmt.Println()
-		return fmt.Errorf("validation failed: %d auth hook error(s)", len(errs))
-	}
-
-	// And each connector's settings against the words that connector accepts,
-	// so a misspelt auth type is caught here rather than by whoever wonders
-	// why every request comes back unauthorised.
-	if errs := runtime.ValidateConnectorSchemas(config, schemaReg); len(errs) > 0 {
-		fmt.Printf("\n✗ Configuration is invalid:\n\n")
-		for _, e := range errs {
-			fmt.Printf("    - %s\n", e)
-		}
-		fmt.Println()
-		return fmt.Errorf("validation failed: %d connector error(s)", len(errs))
+		return fmt.Errorf("validation failed: %s", strings.Join(parts, ", "))
 	}
 
 	// Aspects are checked with the same registry startup uses, so a config
