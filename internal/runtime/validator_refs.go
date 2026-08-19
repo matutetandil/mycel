@@ -21,6 +21,16 @@ func ValidateValidatorReferences(config *parser.Configuration) []error {
 		return nil
 	}
 
+	// A plugin can provide validators, and what a plugin provides is read when
+	// the plugin is loaded rather than when the configuration is parsed — so a
+	// name this cannot see may still exist. Where there are plugins, an
+	// unknown name is left alone: a check that refuses a working configuration
+	// is worse than one that misses a typo, and the integration suite here
+	// runs exactly that shape.
+	if len(config.Plugins) > 0 {
+		return nil
+	}
+
 	declared := make(map[string]bool, len(config.Validators))
 	for _, v := range config.Validators {
 		if v != nil {

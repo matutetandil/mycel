@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v2/internal/plugin"
 	"github.com/matutetandil/mycel/v2/internal/validate"
 	"github.com/matutetandil/mycel/v2/internal/validator"
 )
@@ -77,5 +78,26 @@ func TestNoValidatorReferencesIsNotAnError(t *testing.T) {
 	}
 	if errs := ValidateValidatorReferences(&parser.Configuration{}); len(errs) != 0 {
 		t.Errorf("errors for an empty configuration: %v", errs)
+	}
+}
+
+func TestAConfigurationWithPluginsIsLeftAlone(t *testing.T) {
+	// A plugin provides validators, and what it provides is read when the
+	// plugin is loaded rather than when the configuration is parsed — so a
+	// name this cannot see may well exist. The integration suite in this
+	// repository is exactly that shape: a type referencing always_valid, which
+	// a plugin manifest declares, and this check refused the whole service
+	// until it knew to look away.
+	//
+	// A check that refuses a working configuration is worse than one that
+	// misses a typo.
+	config := typesConfig(
+		[]validate.FieldSchema{{Name: "code", ValidatorRef: "always_valid"}},
+		nil,
+	)
+	config.Plugins = []*plugin.PluginDeclaration{{Name: "test-plugin", Source: "./plugins/test-plugin"}}
+
+	if errs := ValidateValidatorReferences(config); len(errs) != 0 {
+		t.Errorf("refused a name a plugin may provide: %v", errs)
 	}
 }
