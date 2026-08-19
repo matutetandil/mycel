@@ -101,7 +101,7 @@ func (c *Connector) Health(ctx context.Context) error {
 }
 
 // Read reads an object from S3 and returns its contents.
-func (c *Connector) Read(ctx context.Context, query *connector.Query) ([]map[string]interface{}, error) {
+func (c *Connector) readObject(ctx context.Context, query *connector.Query) ([]map[string]interface{}, error) {
 	if c.client == nil {
 		if err := c.Connect(ctx); err != nil {
 			return nil, err
@@ -135,7 +135,7 @@ func (c *Connector) Read(ctx context.Context, query *connector.Query) ([]map[str
 }
 
 // Write writes content to an S3 object.
-func (c *Connector) Write(ctx context.Context, data *connector.Data) (map[string]interface{}, error) {
+func (c *Connector) writeObject(ctx context.Context, data *connector.Data) (map[string]interface{}, error) {
 	if c.client == nil {
 		if err := c.Connect(ctx); err != nil {
 			return nil, err
@@ -596,4 +596,26 @@ func (c *Connector) presignPut(ctx context.Context, input map[string]interface{}
 		"method":  result.Method,
 		"expires": expires.String(),
 	}, nil
+}
+
+// Read and Write below are the flow-facing pair — the shapes connector.Reader
+// and connector.Writer require. Without them a flow naming this connector as a
+// destination was refused, though the documentation shows one.
+
+// Read returns an object's contents as rows.
+func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector.Result, error) {
+	rows, err := c.readObject(ctx, &query)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{Rows: rows, Affected: int64(len(rows))}, nil
+}
+
+// Write stores the payload as an object and reports what it wrote.
+func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	written, err := c.writeObject(ctx, data)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{Affected: 1, Metadata: written}, nil
 }

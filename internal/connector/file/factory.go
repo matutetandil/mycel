@@ -2,6 +2,8 @@ package file
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
@@ -32,7 +34,7 @@ func (f *Factory) Create(ctx context.Context, config *connector.Config) (connect
 		Format:      getString(config.Properties, "format", "json"),
 		Watch:       getBool(config.Properties, "watch", false),
 		CreateDirs:  getBool(config.Properties, "create_dirs", true),
-		Permissions: uint32(getInt(config.Properties, "permissions", 0644)),
+		Permissions: filePermissions(config.Properties, 0o644),
 	}
 
 	if interval := getString(config.Properties, "watch_interval", ""); interval != "" {
@@ -86,4 +88,42 @@ func getInt(props map[string]interface{}, key string, defaultVal int) int {
 // to the default.
 func getBool(props map[string]interface{}, key string, defaultVal bool) bool {
 	return connector.BoolFromProps(props, key, defaultVal)
+}
+
+// filePermissions reads the mode, which is octal.
+//
+// A file mode is written the way chmod takes it — 0644, or 644 — and it was
+// read as a decimal number and handed to the operating system as one. So
+// `permissions = "0644"`, which is what the documentation shows and what the
+// files example wrote, created every file as mode 0o1204: --w----r--, which
+// nothing can read back. The default in code was a Go octal literal and so was
+// right, which is why this only bit configurations that set it.
+func filePermissions(props map[string]interface{}, defaultMode uint32) uint32 {
+	raw, ok := props["permissions"]
+	if !ok || raw == nil {
+		return defaultMode
+	}
+
+	var digits string
+	switch v := raw.(type) {
+	case string:
+		digits = strings.TrimSpace(v)
+	case int:
+		digits = strconv.Itoa(v)
+	case int64:
+		digits = strconv.FormatInt(v, 10)
+	case float64:
+		digits = strconv.FormatInt(int64(v), 10)
+	default:
+		return defaultMode
+	}
+	if digits == "" {
+		return defaultMode
+	}
+
+	mode, err := strconv.ParseUint(strings.TrimPrefix(digits, "0o"), 8, 32)
+	if err != nil {
+		return defaultMode
+	}
+	return uint32(mode)
 }
