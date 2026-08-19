@@ -280,6 +280,14 @@ func New(opts Options) (*Runtime, error) {
 		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
 
+	if errs := ValidateTypeReferences(config); len(errs) > 0 {
+		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
+	}
+
+	if errs := ValidateAspectFlowReferences(config); len(errs) > 0 {
+		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
+	}
+
 	// And each connector's settings against the words that connector accepts.
 	if errs := ValidateConnectorSchemas(config, schemaReg); len(errs) > 0 {
 		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
