@@ -70,7 +70,14 @@ func TestTheBrowsersQuestionBeforeTheRealRequest(t *testing.T) {
 		handled = true
 	}))
 
-	answer := request(handler, http.MethodOptions, "https://shop.example.test")
+	// The header a browser always sends with a preflight, and which nothing
+	// else sends — it is what separates the browser's question from an OPTIONS
+	// request meant for a flow that serves OPTIONS.
+	ask := httptest.NewRequest(http.MethodOptions, "/orders", nil)
+	ask.Header.Set("Origin", "https://shop.example.test")
+	ask.Header.Set("Access-Control-Request-Method", "POST")
+	answer := httptest.NewRecorder()
+	handler.ServeHTTP(answer, ask)
 
 	if answer.Code != http.StatusOK {
 		t.Errorf("preflight answered %d", answer.Code)

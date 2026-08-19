@@ -661,7 +661,7 @@ func (c *Connector) corsMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 			// Handle preflight
-			if r.Method == "OPTIONS" {
+			if isPreflight(r) {
 				w.WriteHeader(http.StatusOK)
 				return
 			}
@@ -670,10 +670,10 @@ func (c *Connector) corsMiddleware(next http.Handler) http.Handler {
 			origin := r.Header.Get("Origin")
 			if origin != "" {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, QUERY, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, QUERY, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-				if r.Method == "OPTIONS" {
+				if isPreflight(r) {
 					w.WriteHeader(http.StatusOK)
 					return
 				}
@@ -682,6 +682,17 @@ func (c *Connector) corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isPreflight reports whether this is a CORS preflight rather than an OPTIONS
+// request meant for a flow.
+//
+// A preflight is an OPTIONS carrying Access-Control-Request-Method; the browser
+// always sends it. Answering every OPTIONS as preflight made a flow that serves
+// OPTIONS unreachable whenever CORS was configured — it was registered, it
+// appeared in the banner, and the middleware replied before it was ever asked.
+func isPreflight(r *http.Request) bool {
+	return r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != ""
 }
 
 // isOriginAllowed checks if the origin is allowed by CORS config.

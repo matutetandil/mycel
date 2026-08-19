@@ -1949,14 +1949,17 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 			// Try just reader or writer based on operation
 			result, err = h.handleSimpleRequest(ctx, input)
 		} else {
-			switch operation.Method {
-			case "GET", "QUERY":
+			// Read methods are asked once, here, rather than listed again:
+			// the list and IsRead had already drifted apart, and a method in
+			// one and not the other is answered with a 500.
+			switch {
+			case operation.IsRead():
 				result, err = h.handleRead(ctx, input, dest)
-			case "POST":
+			case operation.Method == "POST":
 				result, err = h.handleCreate(ctx, input, dest)
-			case "PUT", "PATCH":
+			case operation.Method == "PUT", operation.Method == "PATCH":
 				result, err = h.handleUpdate(ctx, input, dest)
-			case "DELETE":
+			case operation.Method == "DELETE":
 				result, err = h.handleDelete(ctx, input, dest)
 			default:
 				return nil, fmt.Errorf("unsupported operation: %s", operation.Method)
@@ -2893,8 +2896,20 @@ type Operation struct {
 // IsRead reports whether the operation has read semantics. QUERY (RFC 10008)
 // is a safe, idempotent method that carries its query in the request body —
 // it shares GET's read path, response shaping, and caching behavior.
+//
+// HEAD and OPTIONS are safe methods too (RFC 9110 §9.2.1), and a flow may
+// serve either: the editor offers both, and the router registers them like any
+// other. Without them here they fell through to the write path and were
+// dispatched as INSERT, so `operation = "HEAD /items"` — a plausible thing to
+// write, and offered by completion — answered 500 to every request and would
+// have written had the payload suited the table. Go's server drops the body of
+// a HEAD response itself, which is the rest of what HEAD means.
 func (o Operation) IsRead() bool {
-	return o.Method == "GET" || o.Method == "QUERY"
+	switch o.Method {
+	case "GET", "QUERY", "HEAD", "OPTIONS":
+		return true
+	}
+	return false
 }
 
 // destMethodIsQuery reports whether a flow destination targets the HTTP QUERY
