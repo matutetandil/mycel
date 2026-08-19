@@ -383,6 +383,12 @@ if command -v go > /dev/null 2>&1; then
   # stand up, so the whole CDC path below the decoding only runs here.
   run_go_tests "cdc against postgres logical replication" \
     ./internal/connector/cdc/ 'ChangesToARealTable|StreamPicksUpWhereItLeftOff'
+
+  # The examples that want a broker or a database server, started and driven the
+  # way their READMEs say to. The self-contained ones run in the ordinary test
+  # suite; these are the rest, and nothing had ever run them.
+  run_go_tests "examples that need infrastructure" \
+    ./internal/examples/ 'TestTheExamplesThatNeedInfrastructureWorkWhenFollowed'
 fi
 
 # Step 5: Summary

@@ -72,7 +72,7 @@ type service struct {
 
 // start copies the example, moves every port it declares to one that is free,
 // applies its migrations and runs it.
-func start(t *testing.T, example string) *service {
+func start(t *testing.T, example string, environment ...string) *service {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -103,16 +103,7 @@ func start(t *testing.T, example string) *service {
 		if readErr != nil {
 			return nil
 		}
-		rewritten := portInConfig.ReplaceAllStringFunc(string(source), func(match string) string {
-			parts := portInConfig.FindStringSubmatch(match)
-			declared, _ := strconv.Atoi(parts[2])
-			moved, seen := svc.ports[declared]
-			if !seen {
-				moved = freePort(t)
-				svc.ports[declared] = moved
-			}
-			return parts[1] + strconv.Itoa(moved)
-		})
+		rewritten := movePorts(t, string(source), svc.ports)
 		_ = os.WriteFile(path, []byte(rewritten), 0o644)
 		return nil
 	})
@@ -126,6 +117,7 @@ func start(t *testing.T, example string) *service {
 		}
 		migrate := exec.Command(mycelBinary, args...)
 		migrate.Dir = dir
+		migrate.Env = append(os.Environ(), environment...)
 		if out, err := migrate.CombinedOutput(); err != nil {
 			t.Fatalf("%s: migrate: %v: %s", example, err, out)
 		}
@@ -139,6 +131,7 @@ func start(t *testing.T, example string) *service {
 
 	run := exec.Command(mycelBinary, "start", "--config", ".")
 	run.Dir = dir
+	run.Env = append(os.Environ(), environment...)
 	run.Stdout = logFile
 	run.Stderr = logFile
 	if err := run.Start(); err != nil {
@@ -152,6 +145,82 @@ func start(t *testing.T, example string) *service {
 
 	svc.waitUntilListening(t, example)
 	return svc
+}
+
+// listens names the connector types whose port is one the service binds. A
+// port belonging to anything else is somewhere to connect to — a database, a
+// broker — and moving it points the example at nothing.
+var listens = map[string]bool{
+	"rest":      true,
+	"websocket": true,
+	"sse":       true,
+}
+
+// movePorts rewrites the ports the service will listen on, and leaves alone the
+// ports it will connect to.
+func movePorts(t *testing.T, source string, moved map[int]int) string {
+	t.Helper()
+
+	var out strings.Builder
+	remaining := source
+
+	for {
+		start := strings.Index(remaining, "connector \"")
+		if start < 0 {
+			out.WriteString(remaining)
+			break
+		}
+		open := strings.Index(remaining[start:], "{")
+		if open < 0 {
+			out.WriteString(remaining)
+			break
+		}
+		open += start
+
+		depth, end := 0, -1
+		for i := open; i < len(remaining); i++ {
+			switch remaining[i] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					end = i + 1
+				}
+			}
+			if end >= 0 {
+				break
+			}
+		}
+		if end < 0 {
+			out.WriteString(remaining)
+			break
+		}
+
+		block := remaining[start:end]
+		out.WriteString(remaining[:start])
+
+		kind := ""
+		if m := regexp.MustCompile(`type\s*=\s*"([a-z]+)"`).FindStringSubmatch(block); m != nil {
+			kind = m[1]
+		}
+		if listens[kind] {
+			block = portInConfig.ReplaceAllStringFunc(block, func(match string) string {
+				parts := portInConfig.FindStringSubmatch(match)
+				declared, _ := strconv.Atoi(parts[2])
+				to, seen := moved[declared]
+				if !seen {
+					to = freePort(t)
+					moved[declared] = to
+				}
+				return parts[1] + strconv.Itoa(to)
+			})
+		}
+		out.WriteString(block)
+		remaining = remaining[end:]
+	}
+
+	return out.String()
 }
 
 // moveAdminPort gives this copy an admin port of its own.
@@ -371,6 +440,20 @@ var cannotBeRunHere = map[string]string{
 	`/products/enrich`: "the enrichment step calls a legacy SOAP service at a host that does not exist, which its README says",
 }
 
+// routeMissing reports whether the answer means there is nothing at that
+// address, rather than a flow deciding to refuse.
+//
+// A README may deliberately show a request being turned away — asking for an
+// order that is not there, to demonstrate a custom error — and that is a 404
+// the example produced on purpose. What is not on purpose is the router
+// answering because no flow claims the path, which it does in Go's own words.
+func routeMissing(status int, answer string) bool {
+	if status == 405 {
+		return true
+	}
+	return status == 404 && strings.Contains(answer, "404 page not found")
+}
+
 // whyNotRun reports whether a command is one the harness deliberately leaves
 // alone, and why.
 func whyNotRun(command string) (string, bool) {
@@ -423,7 +506,7 @@ func TestTheExamplesWorkWhenFollowed(t *testing.T) {
 					t.Errorf("no answer at all:\n  %s", short)
 				case status >= 500:
 					t.Errorf("answered %d:\n  %s\n  %s", status, short, strings.TrimSpace(answer))
-				case status == 404 || status == 405:
+				case routeMissing(status, answer):
 					t.Errorf("answered %d — the README shows a route the example does not serve:\n  %s", status, short)
 				}
 			}

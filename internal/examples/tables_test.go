@@ -229,3 +229,66 @@ func tablesCreated(t *testing.T, dir string) map[string]bool {
 
 	return created
 }
+
+// A migration has to be written for the driver the example uses.
+//
+// SQLite spells an auto-assigned key AUTOINCREMENT and Postgres does not know
+// the word: a schema written for the wrong one is refused by `mycel migrate`
+// with a syntax error, which is only found by running it against a real server.
+// Two examples had that, and the migration for one of them was written in this
+// week's work.
+func TestAMigrationMatchesTheDriverItIsFor(t *testing.T) {
+	entries, err := os.ReadDir(repoPath("examples"))
+	if err != nil {
+		t.Fatalf("reading examples: %v", err)
+	}
+
+	// Spellings only one dialect accepts.
+	sqliteOnly := regexp.MustCompile(`(?i)\bAUTOINCREMENT\b`)
+	postgresOnly := regexp.MustCompile(`(?i)\b(SERIAL|BIGSERIAL|TIMESTAMPTZ)\b`)
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		example := entry.Name()
+
+		migrations, _ := filepath.Glob(repoPath("examples", example, "migrations", "**", "*.sql"))
+		flat, _ := filepath.Glob(repoPath("examples", example, "migrations", "*.sql"))
+		migrations = append(migrations, flat...)
+		if len(migrations) == 0 {
+			continue
+		}
+
+		t.Run(example, func(t *testing.T) {
+			config, err := parser.NewHCLParser().Parse(context.Background(), repoPath("examples", example))
+			if err != nil {
+				t.Skipf("does not parse on its own: %v", err)
+			}
+
+			drivers := map[string]bool{}
+			for _, conn := range config.Connectors {
+				if conn.Type == "database" && sqlDrivers[strings.ToLower(conn.Driver)] {
+					drivers[strings.ToLower(conn.Driver)] = true
+				}
+			}
+
+			for _, path := range migrations {
+				content, readErr := os.ReadFile(path)
+				if readErr != nil {
+					continue
+				}
+				sql := string(content)
+				name := filepath.Base(path)
+
+				if sqliteOnly.MatchString(sql) && !drivers["sqlite"] {
+					t.Errorf("%s is written for SQLite and the example has no SQLite connector; "+
+						"`mycel migrate` refuses it with a syntax error", name)
+				}
+				if postgresOnly.MatchString(sql) && !drivers["postgres"] {
+					t.Errorf("%s is written for Postgres and the example has no Postgres connector", name)
+				}
+			}
+		})
+	}
+}

@@ -169,10 +169,14 @@ Returns order data with available enrichment fields. Missing fields from skipped
 
 ### Test rate limiting
 
+The example serves `POST /orders`, `POST /payments`, `GET /orders/:id` and
+`GET /orders/:id/details` — a GET on `/orders` is not one of them, and answers
+405 rather than showing you a rate limit.
+
 ```bash
 # Rapid-fire requests to trigger rate limit
 for i in $(seq 1 200); do
-  curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/orders
+  curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/orders/1
 done
 ```
 
