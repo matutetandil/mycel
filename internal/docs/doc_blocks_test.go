@@ -31,9 +31,29 @@ import (
 // deliberately — pages showing what a broken configuration looks like — and
 // anything that joins them is drift, which fails this test on the spot.
 func TestTheDocumentationParses(t *testing.T) {
-	blocks := collectHCLBlocks(t, "../../docs")
-	if len(blocks) < 400 {
-		t.Fatalf("only %d blocks found, so the walk is not reaching the documentation", len(blocks))
+	// The guide, the README somebody lands on first, and the README beside
+	// every example — all three are places to copy from, and the last two were
+	// as unchecked as the first.
+	var blocks []docBlock
+	for _, root := range []string{"../../docs", "../../examples"} {
+		blocks = append(blocks, collectHCLBlocks(t, root)...)
+	}
+	blocks = append(blocks, collectHCLBlocks(t, "../../README.md")...)
+
+	// A floor rather than a count: the number grows as pages are written, and
+	// a walk that quietly stops reaching one of the three roots would
+	// otherwise pass by testing nothing.
+	if len(blocks) < 600 {
+		t.Fatalf("only %d blocks found, so the walk is not reaching everything", len(blocks))
+	}
+	roots := map[string]bool{}
+	for _, b := range blocks {
+		roots[strings.SplitN(b.file, "/", 2)[0]] = true
+	}
+	for _, want := range []string{"docs", "examples", "README.md"} {
+		if !roots[want] {
+			t.Errorf("no blocks found under %s", want)
+		}
 	}
 
 	var (
@@ -172,7 +192,7 @@ func collectHCLBlocks(t *testing.T, root string) []docBlock {
 			return readErr
 		}
 
-		rel := "docs" + strings.TrimPrefix(path, root)
+		rel := strings.TrimPrefix(path, "../../")
 		lines := strings.Split(string(body), "\n")
 		inBlock, start := false, 0
 		var current []string

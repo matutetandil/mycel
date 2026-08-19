@@ -322,8 +322,14 @@ connector "sf" {
 }
 
 flow "sync_accounts" {
-  from { connector.api = "POST /accounts" }
-  to   { connector.sf  = "accounts" }
+  from {
+    connector = "api"
+    operation = "POST /accounts"
+  }
+  to {
+    connector = "sf"
+    target    = "accounts"
+  }
 }
 ```
 

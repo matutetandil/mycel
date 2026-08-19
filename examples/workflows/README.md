@@ -168,9 +168,9 @@ Enable in `config.mycel` to persist workflow state across restarts:
 ```hcl
 service {
   workflow {
-    storage     = "db"
-    connector   = "postgres"    # Reuse an existing database connector
-    auto_create = true          # Auto-create workflow tables
+    storage     = "db"          # The connector workflows are kept in
+    table       = "mycel_workflows"
+    auto_create = true          # Create the table if it is not there
   }
 }
 ```

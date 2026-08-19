@@ -81,12 +81,13 @@ connector "minio" {
   type   = "file"
   driver = "s3"
 
-  bucket           = env("MINIO_BUCKET")
-  endpoint         = env("MINIO_ENDPOINT")
-  access_key       = env("MINIO_ACCESS_KEY")
-  secret_key       = env("MINIO_SECRET_KEY")
+  bucket         = env("MINIO_BUCKET")
+  # The scheme in the endpoint decides whether the connection is encrypted:
+  # http://... for a local MinIO, https://... for anything else.
+  endpoint       = env("MINIO_ENDPOINT", "http://localhost:9000")
+  access_key     = env("MINIO_ACCESS_KEY")
+  secret_key     = env("MINIO_SECRET_KEY")
   use_path_style = true
-  use_ssl          = false
 }
 ```
 
