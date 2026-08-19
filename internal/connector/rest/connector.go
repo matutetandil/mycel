@@ -44,8 +44,11 @@ type Connector struct {
 	defaultFormat string // default format for request/response ("json", "xml")
 	environment   string // runtime environment (development, staging, production)
 
-	mu         sync.Mutex
-	handlers   map[string]HandlerFunc
+	mu       sync.Mutex
+	handlers map[string]HandlerFunc
+	// formats holds the codec a flow declared for its operation, keyed the same
+	// way as handlers.
+	formats    map[string]string
 	pathParams map[string][]string // maps path pattern to param names
 
 	// started is atomic rather than guarded by mu, because Health reads it
@@ -116,6 +119,23 @@ func (c *Connector) Health(ctx context.Context) error {
 // Operation format: "METHOD /path" e.g., "GET /users", "POST /users", "GET /users/:id"
 // Multiple flows can register for the same operation (fan-out): the first handler
 // returns the HTTP response, additional handlers run concurrently as fire-and-forget.
+// SetOperationFormat records the format a flow declared for one operation, so
+// that the request is decoded and the answer encoded in it.
+//
+// The runtime already put the format on the context it hands the flow, but the
+// request is read and the response written against the HTTP request's own
+// context, which never saw it — so `format = "xml"` on a REST flow decoded
+// whatever Content-Type said and answered in JSON regardless. The format
+// example advertised an XML endpoint that returned JSON.
+func (c *Connector) SetOperationFormat(operation, format string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.formats == nil {
+		c.formats = make(map[string]string)
+	}
+	c.formats[operation] = format
+}
+
 func (c *Connector) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -219,6 +239,7 @@ func (c *Connector) Start(ctx context.Context) error {
 func (c *Connector) setupRoutes() {
 	// Group handlers by path to handle multiple methods
 	pathHandlers := make(map[string]map[string]HandlerFunc)
+	pathFormats := make(map[string]map[string]string)
 
 	for operation, handler := range c.handlers {
 		method, origPath := parseOperation(operation)
@@ -236,16 +257,23 @@ func (c *Connector) setupRoutes() {
 			pathHandlers[path] = make(map[string]HandlerFunc)
 		}
 		pathHandlers[path][method] = handler
+		if format := c.formats[operation]; format != "" {
+			if _, ok := pathFormats[path]; !ok {
+				pathFormats[path] = make(map[string]string)
+			}
+			pathFormats[path][method] = format
+		}
 	}
 
 	// Register combined handlers for each path
 	registered := make(map[string]bool, len(pathHandlers))
 	for path, methods := range pathHandlers {
 		handlers := methods // capture for closure
+		formats := pathFormats[path]
 		paramNames := c.pathParams[path]
 		registered[path] = true
 		c.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			c.handleRequest(w, r, handlers, paramNames)
+			c.handleRequest(w, r, handlers, formats, paramNames)
 		})
 	}
 
@@ -289,9 +317,15 @@ func (c *Connector) setupRoutes() {
 }
 
 // handleRequest processes an HTTP request.
-func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handlers map[string]HandlerFunc, paramNames []string) {
+func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handlers map[string]HandlerFunc, formats map[string]string, paramNames []string) {
 	start := time.Now()
 	path := r.URL.Path
+
+	// The flow's declared format, put where the request decoding and the
+	// response encoding both look for it.
+	if format := formats[r.Method]; format != "" {
+		r = r.WithContext(codec.WithFormat(r.Context(), format))
+	}
 
 	// Track in-flight requests
 	if c.metrics != nil {

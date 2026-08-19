@@ -18,11 +18,23 @@ A REST endpoint triggers transitions:
 ```bash
 # Pay for order
 curl -X POST localhost:3000/orders/1/status \
+  -H 'Content-Type: application/json' \
   -d '{"event": "pay"}'
+# {"machine":"order_status","previous_state":"pending","current_state":"paid","event":"pay"}
 
 # Ship order (requires tracking number — guard)
 curl -X POST localhost:3000/orders/1/status \
+  -H 'Content-Type: application/json' \
   -d '{"event": "ship", "data": {"tracking_number": "TRK123"}}'
+```
+
+The `ship` transition runs an action against the `notifications` connector,
+which points at a service on port 6000 that this example does not include — so
+that second command answers with a connection error unless something is
+listening. Anything that accepts a POST will do:
+
+```bash
+python3 -m http.server 6000    # in another terminal
 ```
 
 ## Files
@@ -36,8 +48,16 @@ curl -X POST localhost:3000/orders/1/status \
 
 ## Running
 
+The database file is created where the service is started from, so run these
+from this directory.
+
 ```bash
-mycel start --config ./examples/state-machine
+cd examples/state-machine
+
+# Create the orders table, with one order to transition
+mycel migrate --config .
+
+mycel start --config .
 ```
 
 ## Features

@@ -1850,6 +1850,16 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 				requestHandler = func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
 					return origHandler(codec.WithFormat(ctx, fromFormat), input)
 				}
+				// The wrapper above serves the flow. The connector reads the
+				// request and writes the answer against the transport's own
+				// context, which the wrapper cannot reach, so it is told
+				// separately — without this a flow declaring xml answered in
+				// JSON.
+				if fr, ok := conn.(interface {
+					SetOperationFormat(operation, format string)
+				}); ok {
+					fr.SetOperationFormat(handler.Config.From.GetOperation(), fromFormat)
+				}
 			}
 
 			// If flow has a return type and connector supports typed args, use RegisterRouteWithArgs

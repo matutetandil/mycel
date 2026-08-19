@@ -144,3 +144,50 @@ flow "health_check" {
 #    }
 #
 # See docs/INTEGRATION-PATTERNS.md for full documentation.
+
+# =========================================
+# PATTERN 3: Cache Invalidation
+# =========================================
+# A write drops what it made stale. Without these the cached product survived
+# its own update, and the walkthrough in README.md — which is the whole
+# demonstration of invalidation — had nothing to call.
+
+flow "update_product" {
+  from {
+    connector = "api"
+    operation = "PUT /products/:id"
+  }
+
+  to {
+    connector = "db"
+    target    = "products"
+  }
+
+  after {
+    invalidate {
+      storage  = "memory_cache"
+      keys     = ["products:item"]
+      patterns = ["lists:products:*"]
+    }
+  }
+}
+
+flow "delete_product" {
+  from {
+    connector = "api"
+    operation = "DELETE /products/:id"
+  }
+
+  to {
+    connector = "db"
+    target    = "products"
+  }
+
+  after {
+    invalidate {
+      storage  = "memory_cache"
+      keys     = ["products:item"]
+      patterns = ["lists:products:*"]
+    }
+  }
+}

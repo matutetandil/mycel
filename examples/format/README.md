@@ -11,8 +11,16 @@ Demonstrates Mycel's multi-format I/O system. The same service handles JSON and 
 
 ## Quick Start
 
+The database file is created where the service is started from, so run these
+from this directory.
+
 ```bash
-mycel start --config ./examples/format
+cd examples/format
+
+# Create the products table
+mycel migrate --config .
+
+mycel start --config .
 ```
 
 ## Format Levels

@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 )
 
@@ -37,10 +38,52 @@ func (c *XMLCodec) Encode(v interface{}) ([]byte, error) {
 
 	var buf bytes.Buffer
 	buf.WriteString(xml.Header)
+
+	// A list at the top level needs wrapping: encoding each item under the root
+	// name produced one <root> per row, and a document with several roots is
+	// not XML — no parser will read it. The rows become children of a single
+	// root instead.
+	if items, ok := asSlice(v); ok {
+		buf.WriteString("<" + root + ">\n")
+		for _, item := range items {
+			if err := encodeElement(&buf, itemElement, item, "  "); err != nil {
+				return nil, err
+			}
+		}
+		buf.WriteString("</" + root + ">\n")
+		return buf.Bytes(), nil
+	}
+
 	if err := encodeElement(&buf, root, v, ""); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// itemElement names each entry of a list that has no name of its own.
+const itemElement = "item"
+
+// asSlice reports whether the value is a list, and returns its entries. Written
+// with reflection because what a flow hands back is a concrete type — a
+// database read answers []map[string]interface{}, not []interface{}.
+func asSlice(v interface{}) ([]interface{}, bool) {
+	if v == nil {
+		return nil, false
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Array:
+		// A byte string is a value, not a list of numbers.
+		if rv.Type().Elem().Kind() == reflect.Uint8 {
+			return nil, false
+		}
+		items := make([]interface{}, rv.Len())
+		for i := range items {
+			items[i] = rv.Index(i).Interface()
+		}
+		return items, true
+	}
+	return nil, false
 }
 
 // encodeElement writes a single XML element to the buffer.
@@ -112,6 +155,37 @@ func encodeElement(buf *bytes.Buffer, name string, v interface{}, indent string)
 		}
 
 	default:
+		// The two cases above are the shapes a decoded document has. What a
+		// flow hands back is whatever its source produced — a database read
+		// answers []map[string]interface{}, which matched neither and was
+		// written out with Go's default formatting, so a list of rows arrived
+		// as <root>[map[id:1 name:Widget]]</root>. Anything sliceable or
+		// mappable is walked rather than printed.
+		if rv := reflect.ValueOf(v); v != nil {
+			switch rv.Kind() {
+			case reflect.Slice, reflect.Array:
+				for i := 0; i < rv.Len(); i++ {
+					if err := encodeElement(buf, name, rv.Index(i).Interface(), indent); err != nil {
+						return err
+					}
+				}
+				return nil
+			case reflect.Map:
+				if rv.Type().Key().Kind() == reflect.String {
+					generic := make(map[string]interface{}, rv.Len())
+					for _, key := range rv.MapKeys() {
+						generic[key.String()] = rv.MapIndex(key).Interface()
+					}
+					return encodeElement(buf, name, generic, indent)
+				}
+			case reflect.Ptr, reflect.Interface:
+				if rv.IsNil() {
+					break
+				}
+				return encodeElement(buf, name, rv.Elem().Interface(), indent)
+			}
+		}
+
 		buf.WriteString(indent)
 		buf.WriteString("<")
 		buf.WriteString(name)
