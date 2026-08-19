@@ -6,11 +6,11 @@ Raw TCP server and client with pluggable codecs. Use it for low-level communicat
 
 ```hcl
 connector "tcp_server" {
-  type   = "tcp"
-  driver = "server"
-  host   = "0.0.0.0"
-  port   = 9000
-  codec  = "json"    # "json", "msgpack", "raw", "nestjs"
+  type     = "tcp"
+  mode     = "server"
+  host     = "0.0.0.0"
+  port     = 9000
+  protocol = "json"    # "json", "msgpack", "nestjs"
 }
 ```
 
@@ -18,11 +18,12 @@ connector "tcp_server" {
 
 ```hcl
 connector "tcp_client" {
-  type    = "tcp"
-  driver  = "client"
-  address = "localhost:9000"
-  codec   = "json"
-  timeout = "10s"
+  type            = "tcp"
+  mode            = "client"
+  host            = "localhost"
+  port            = 9000
+  protocol        = "json"
+  connect_timeout = "10s"
 }
 ```
 

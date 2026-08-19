@@ -31,7 +31,7 @@ connector "redis_cache" {
 
   pool {
     max_connections = 100
-    min_connections = 10
+    min_idle        = 10
   }
 }
 ```

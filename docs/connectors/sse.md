@@ -13,7 +13,7 @@ connector "sse" {
   heartbeat_interval = "30s"
 
   cors {
-    allowed_origins = ["https://app.example.com"]
+    origins = ["https://app.example.com"]
   }
 }
 ```
