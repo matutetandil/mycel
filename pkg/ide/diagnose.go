@@ -2,6 +2,7 @@ package ide
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/matutetandil/mycel/v2/pkg/schema"
 )
@@ -205,48 +206,8 @@ func validateBlockRefs(path string, b *Block, idx *ProjectIndex) []*Diagnostic {
 				continue
 			}
 
-			switch as.Ref {
-			case RefConnector:
-				if idx.Connectors[attr.ValueRaw] == nil {
-					diags = append(diags, &Diagnostic{
-						Severity: SeverityError,
-						Message:  fmt.Sprintf("undefined connector %q", attr.ValueRaw),
-						File:     path,
-						Range:    attr.ValRange,
-					})
-				}
-			case RefType:
-				typeName := attr.ValueRaw
-				// Handle "type.name" format
-				if len(typeName) > 5 && typeName[:5] == "type." {
-					typeName = typeName[5:]
-				}
-				if idx.Types[typeName] == nil {
-					diags = append(diags, &Diagnostic{
-						Severity: SeverityWarning,
-						Message:  fmt.Sprintf("undefined type %q", attr.ValueRaw),
-						File:     path,
-						Range:    attr.ValRange,
-					})
-				}
-			case RefTransform:
-				if idx.Transforms[attr.ValueRaw] == nil {
-					diags = append(diags, &Diagnostic{
-						Severity: SeverityWarning,
-						Message:  fmt.Sprintf("undefined transform %q", attr.ValueRaw),
-						File:     path,
-						Range:    attr.ValRange,
-					})
-				}
-			case RefFlow:
-				if idx.Flows[attr.ValueRaw] == nil {
-					diags = append(diags, &Diagnostic{
-						Severity: SeverityError,
-						Message:  fmt.Sprintf("undefined flow %q", attr.ValueRaw),
-						File:     path,
-						Range:    attr.ValRange,
-					})
-				}
+			if diag := checkReference(path, as.Ref, attr, idx); diag != nil {
+				diags = append(diags, diag)
 			}
 		}
 	}
@@ -256,6 +217,61 @@ func validateBlockRefs(path string, b *Block, idx *ProjectIndex) []*Diagnostic {
 	}
 
 	return diags
+}
+
+// referenceKinds says, for every kind of reference the schema can mark, which
+// top-level block declares its target and how a missing one reads.
+//
+// A table rather than a switch, so that a kind added to the schema and not
+// handled here fails a test instead of being passed over in silence — which is
+// what happened to validators, to named caches and to all ten reusable kinds:
+// `mycel validate` refuses `use = "lock.typo"` by name, and the editor said
+// nothing at all, while an undefined connector one line above drew a squiggle.
+//
+// The block type is also the prefix a reference may carry: both
+// `use = "lock.slow"` and `use = "slow"` resolve, because the parser strips a
+// leading "<kind>." before looking the name up.
+var referenceKinds = map[RefKind]struct {
+	blockType string
+	noun      string
+	severity  Severity
+}{
+	RefConnector:     {"connector", "connector", SeverityError},
+	RefFlow:          {"flow", "flow", SeverityError},
+	RefType:          {"type", "type", SeverityWarning},
+	RefTransform:     {"transform", "transform", SeverityWarning},
+	RefValidator:     {"validator", "validator", SeverityWarning},
+	RefCache:         {"cache", "cache", SeverityWarning},
+	RefStateMachine:  {"state_machine", "state machine", SeverityWarning},
+	RefDedupe:        {"dedupe", "dedupe block", SeverityWarning},
+	RefRetry:         {"retry", "retry block", SeverityWarning},
+	RefLock:          {"lock", "lock block", SeverityWarning},
+	RefSemaphore:     {"semaphore", "semaphore block", SeverityWarning},
+	RefSequenceGuard: {"sequence_guard", "sequence_guard block", SeverityWarning},
+	RefCoordinate:    {"coordinate", "coordinate block", SeverityWarning},
+	RefTransaction:   {"transaction", "transaction block", SeverityWarning},
+	RefErrorHandling: {"error_handling", "error_handling block", SeverityWarning},
+	RefAccept:        {"accept", "accept block", SeverityWarning},
+	RefResponse:      {"response", "response block", SeverityWarning},
+}
+
+// checkReference reports a name whose target no block declares.
+func checkReference(path string, kind RefKind, attr *Attribute, idx *ProjectIndex) *Diagnostic {
+	rule, known := referenceKinds[kind]
+	if !known {
+		return nil
+	}
+
+	name := strings.TrimPrefix(attr.ValueRaw, rule.blockType+".")
+	if idx.lookupEntity(rule.blockType, name) != nil {
+		return nil
+	}
+	return &Diagnostic{
+		Severity: rule.severity,
+		Message:  fmt.Sprintf("undefined %s %q", rule.noun, attr.ValueRaw),
+		File:     path,
+		Range:    attr.ValRange,
+	}
 }
 
 // validateDuplicates checks for duplicate names within this file against the project.

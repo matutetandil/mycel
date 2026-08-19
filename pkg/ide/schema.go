@@ -26,6 +26,18 @@ const (
 	RefValidator    = schema.RefValidator
 	RefFlow         = schema.RefFlow
 	RefStateMachine = schema.RefStateMachine
+
+	// The reusable inline-block kinds (v2.6): use = "<kind>.<name>".
+	RefDedupe        = schema.RefDedupe
+	RefRetry         = schema.RefRetry
+	RefLock          = schema.RefLock
+	RefSemaphore     = schema.RefSemaphore
+	RefSequenceGuard = schema.RefSequenceGuard
+	RefCoordinate    = schema.RefCoordinate
+	RefTransaction   = schema.RefTransaction
+	RefErrorHandling = schema.RefErrorHandling
+	RefAccept        = schema.RefAccept
+	RefResponse      = schema.RefResponse
 )
 
 // BlockSchema is an alias for schema.Block.
