@@ -27,9 +27,9 @@ import (
 // A first run over the whole tree found 551 blocks, of which 134 are snippets
 // that were never meant to stand alone and 49 of the rest did not parse.
 //
-// The ones still to fix are listed below by file and line. The list only
-// shrinks: a block that starts failing and is not in it fails this test, which
-// is the point — the backlog is visible and cannot grow quietly.
+// That backlog is empty now. What is left is five blocks that do not parse
+// deliberately — pages showing what a broken configuration looks like — and
+// anything that joins them is drift, which fails this test on the spot.
 func TestTheDocumentationParses(t *testing.T) {
 	blocks := collectHCLBlocks(t, "../../docs")
 	if len(blocks) < 400 {
@@ -40,7 +40,9 @@ func TestTheDocumentationParses(t *testing.T) {
 		unexpected []string
 		fixed      []string
 	)
+	seen := make(map[string]bool, len(blocks))
 	for _, b := range blocks {
+		seen[b.key()] = true
 		if b.isFragment() {
 			continue
 		}
@@ -54,14 +56,14 @@ func TestTheDocumentationParses(t *testing.T) {
 		// Keyed by what the block says rather than where it sits: a line
 		// number moves every time anything above it is edited, which would
 		// make this list wrong after every fix rather than after every
-		// regression. Editing a known-bad block changes its key, which is
+		// regression. Editing one of these blocks changes its key, which is
 		// right — it has to be looked at again.
 		where := fmt.Sprintf("%s:%d", b.file, b.line)
-		known := knownBad[b.key()]
+		deliberate := deliberatelyWrong[b.key()]
 		switch {
-		case err != "" && !known:
+		case err != "" && !deliberate:
 			unexpected = append(unexpected, fmt.Sprintf("%s  (%s)\n      %s", where, b.key(), firstLine(err)))
-		case err == "" && known:
+		case err == "" && deliberate:
 			fixed = append(fixed, fmt.Sprintf("%s  (%s)", where, b.key()))
 		}
 	}
@@ -71,50 +73,41 @@ func TestTheDocumentationParses(t *testing.T) {
 		t.Errorf("these documentation blocks do not parse, so somebody copying them gets an error:\n  %s",
 			strings.Join(unexpected, "\n  "))
 	}
+	// An entry pointing at no block at all: the block was edited, so its key
+	// changed, and the old one would otherwise sit in the list for ever
+	// looking like outstanding work.
+	var stale []string
+	for key := range deliberatelyWrong {
+		if !seen[key] {
+			stale = append(stale, key)
+		}
+	}
+	if len(stale) > 0 {
+		sort.Strings(stale)
+		t.Errorf("these are marked as deliberately wrong and match no block in the documentation — "+
+			"the block was edited or removed, so take them out:\n  %s", strings.Join(stale, "\n  "))
+	}
+
 	if len(fixed) > 0 {
 		sort.Strings(fixed)
-		t.Errorf("these are listed as known-bad and parse now — take them out of knownBad:\n  %s",
+		t.Errorf("these are marked as deliberately wrong and parse now — take them out:\n  %s",
 			strings.Join(fixed, "\n  "))
 	}
 }
 
-// knownBad is the backlog: documentation blocks that do not parse yet, by file
-// and the line the block starts on. Three of them are in the troubleshooting
-// guide on purpose — that page shows what a broken configuration looks like —
-// and are marked so.
-var knownBad = map[string]bool{
-	// Deliberately broken: the troubleshooting guide shows the mistake first.
+// deliberatelyWrong is what does not parse on purpose, and nothing else.
+//
+// It started at forty-nine entries and these five are what is left: pages that
+// show a broken configuration deliberately. Anything that joins them is drift.
+var deliberatelyWrong = map[string]bool{
+	// The troubleshooting guide leads with the symptom; the input and output
+	// page shows the spelling HCL rejects next to the one it takes.
 	"2273da7a31ed": true, // docs/guides/troubleshooting.md:69
 	"769fdafae6a9": true, // docs/guides/troubleshooting.md:81
 	"65092ab9c49e": true, // docs/guides/troubleshooting.md:192
 
-	// The backlog: an attribute the parser does not take, a block with no
-	// type, a shape it refuses outright. Each is a page somebody can copy
-	// from and get an error.
-	"bea3901b5421": true, // docs/connectors/cache.md:62
-	"630adf399eb0": true, // docs/connectors/database.md:113
-	"b0803e3ee203": true, // docs/connectors/elasticsearch.md:46
-	"48ca9802d493": true, // docs/connectors/grpc.md:66
-	"ed7ae624487f": true, // docs/core-concepts/environments.md:74
 	"a1e45ce65ec3": true, // docs/core-concepts/input-and-output.md:173
 	"9a0983401947": true, // docs/core-concepts/input-and-output.md:69
-	"89008aaee0ca": true, // docs/guides/batch-processing.md:249
-	"1f3ebbc8b9c2": true, // docs/guides/error-handling.md:582
-	"d0c24687d120": true, // docs/guides/notifications.md:134
-	"be43f568dcff": true, // docs/guides/notifications.md:164
-	"3cb966e12419": true, // docs/guides/troubleshooting.md:520
-	"c8b0aa13d094": true, // docs/guides/troubleshooting.md:529
-	"11acd078849e": true, // docs/guides/use-cases.md:1138
-	"f19f2a2478ce": true, // docs/guides/use-cases.md:1496
-	"bc40419a076d": true, // docs/guides/use-cases.md:2112
-	"7f555de48e47": true, // docs/guides/use-cases.md:2167
-	"b67908fb7ba1": true, // docs/guides/use-cases.md:382
-	"8856e065440f": true, // docs/guides/use-cases.md:40
-	"6a299f9fd08c": true, // docs/guides/use-cases.md:457
-	"f1788423f678": true, // docs/guides/use-cases.md:659
-	"24b42cfd4ce6": true, // docs/reference/configuration.md:1140
-	"0600184a9afa": true, // docs/reference/configuration.md:1263
-	"de2efe11502e": true, // docs/reference/configuration.md:157
 }
 
 type docBlock struct {

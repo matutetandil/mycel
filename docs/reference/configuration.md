@@ -171,8 +171,12 @@ connector "db" {
   }
 
   operation "find_by_email" {
-    query  = "SELECT * FROM users WHERE email = $1"
-    params = [{ name = "email", type = "string", required = true }]
+    query = "SELECT * FROM users WHERE email = :email"
+
+    param "email" {
+      type     = "string"
+      required = true
+    }
   }
 }
 ```
@@ -1141,7 +1145,7 @@ aspect "NAME" {
   when = "after"         # "before", "after", "around", "on_error"
   on   = ["create_*", "update_*"]  # Flow name patterns (glob syntax)
 
-  condition = "result.status == 'ok'"  # Optional CEL condition
+  if = "output.status == 'ok'"     # Optional CEL condition
 
   action {
     connector = "audit_db"          # Target connector (mutually exclusive with "flow")
@@ -1261,11 +1265,12 @@ Input sanitization configuration:
 
 ```hcl
 security {
-  max_input_size = 2097152   # 2 MB (default: 1 MB)
-  max_depth      = 20        # Nesting depth (default: 10)
-  max_string_len = 100000    # Per-string limit (default: 50000)
+  max_input_length = 2097152   # 2 MB for a whole payload
+  max_field_length = 131072    # per field
+  max_field_depth  = 20        # how deeply a payload may nest
 
   sanitizer "NAME" {
+    source     = "wasm"
     wasm       = "./wasm/sanitizer.wasm"
     entrypoint = "sanitize"
     apply_to   = ["flows/api/*"]

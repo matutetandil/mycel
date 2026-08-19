@@ -133,9 +133,10 @@ flow "send_otp_sms" {
 ```hcl
 # FCM (Firebase Cloud Messaging)
 connector "push_fcm" {
-  type             = "push"
-  provider         = "fcm"
-  credentials_file = "./firebase-credentials.json"
+  type                 = "push"
+  driver               = "fcm"
+  service_account_json = env("FCM_SERVICE_ACCOUNT", "./firebase-credentials.json")
+  project_id           = "my-firebase-project"
 }
 
 flow "send_push" {
@@ -163,12 +164,14 @@ flow "send_push" {
 ```hcl
 connector "external_webhook" {
   type   = "webhook"
+  mode   = "client"
   url    = env("WEBHOOK_URL")
   method = "POST"
-  headers = {
-    "X-Webhook-Secret" = env("WEBHOOK_SECRET")
-    "Content-Type"     = "application/json"
-  }
+
+  # Outgoing calls are signed rather than carrying a shared header: the
+  # receiver checks the signature against the same secret.
+  secret           = env("WEBHOOK_SECRET")
+  signature_header = "X-Webhook-Signature"
 }
 
 flow "notify_external_system" {

@@ -597,6 +597,7 @@ aspect "magento_rate_limit" {
   on   = ["magento_*"]
 
   rate_limit {
+    key                 = "'magento_api'"   # what the limit is counted per
     requests_per_second = 10
     burst               = 20
   }
@@ -616,9 +617,10 @@ flow "magento_create_product" {
     timeout   = "30s"
     on_error  = "fail"
 
+    # A dotted name on the left is a parse error: nesting comes from the
+    # expression, not from the attribute name.
     transform {
-      product.sku  = "input.payload.sku"
-      product.name = "input.payload.name"
+      product = "{'sku': input.payload.sku, 'name': input.payload.name}"
     }
   }
 

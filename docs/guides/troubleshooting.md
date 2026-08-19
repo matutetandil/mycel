@@ -518,17 +518,24 @@ flow "get_product" {
 1. Set cache limits:
    ```hcl
    connector "cache" {
-     type     = "cache"
-     driver   = "memory"
-     max_size = 10000  # Max entries
+     type      = "cache"
+     driver    = "memory"
+     max_items = 10000  # Max entries
    }
    ```
 
 2. Set connection pool limits:
    ```hcl
    connector "db" {
-     pool_size     = 10
-     max_idle_time = "5m"
+     type     = "database"
+     driver   = "postgres"
+     host     = env("DB_HOST")
+     database = "myapp"
+
+     pool {
+       max = 10
+       min = 2
+     }
    }
    ```
 

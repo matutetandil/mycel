@@ -55,7 +55,7 @@ connector "db" {
 
 connector "slack" {
   type    = "slack"
-  webhook = env("SLACK_WEBHOOK_URL")
+  webhook_url = env("SLACK_WEBHOOK_URL")
 }
 ```
 
@@ -396,10 +396,9 @@ connector "db" {
 }
 
 connector "rabbit" {
-  type     = "mq"
-  driver   = "rabbitmq"
-  url      = env("RABBITMQ_URL")
-  exchange = "events"
+  type   = "mq"
+  driver = "rabbitmq"
+  url    = env("RABBITMQ_URL")
 }
 ```
 
@@ -472,7 +471,7 @@ connector "db" {
 
 connector "slack_alerts" {
   type    = "slack"
-  webhook = env("SLACK_ALERTS_WEBHOOK")
+  webhook_url = env("SLACK_ALERTS_WEBHOOK")
 }
 ```
 
@@ -668,8 +667,8 @@ connector "internal_api" {
 }
 
 connector "discord" {
-  type    = "discord"
-  webhook = env("DISCORD_WEBHOOK_URL")
+  type        = "discord"
+  webhook_url = env("DISCORD_WEBHOOK_URL")
 }
 ```
 
@@ -1148,7 +1147,7 @@ connector "db" {
 
 connector "search" {
   type = "elasticsearch"
-  urls = [env("ELASTICSEARCH_URL")]
+  url  = env("ELASTICSEARCH_URL")
 }
 ```
 
@@ -1507,7 +1506,7 @@ connector "pg_cdc" {
 
 connector "search" {
   type = "elasticsearch"
-  urls = [env("ELASTICSEARCH_URL")]
+  url  = env("ELASTICSEARCH_URL")
 }
 
 connector "rabbit" {
@@ -2110,8 +2109,14 @@ connector "redis_cache" {
 
 ```hcl
 flow "process_payment" {
-  from { connector.api = "POST /payments" }
-  to   { connector.db  = "payments" }
+  from {
+    connector = "api"
+    operation = "POST /payments"
+  }
+  to {
+    connector = "db"
+    target    = "payments"
+  }
 
   idempotency {
     storage = "redis_cache"
@@ -2165,8 +2170,14 @@ connector "redis_cache" {
 
 ```hcl
 flow "export_report" {
-  from { connector.api = "POST /reports/export" }
-  to   { connector.db  = "SELECT * FROM orders WHERE date >= :start_date" }
+  from {
+    connector = "api"
+    operation = "POST /reports/export"
+  }
+  to {
+    connector = "db"
+    target    = "SELECT * FROM orders WHERE date >= :start_date"
+  }
 
   async {
     storage = "redis_cache"
