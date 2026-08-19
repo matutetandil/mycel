@@ -9,8 +9,6 @@ CREATE TABLE IF NOT EXISTS users (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Insert some sample data
-INSERT OR IGNORE INTO users (email, name) VALUES
-    ('john@example.com', 'John Doe'),
-    ('jane@example.com', 'Jane Smith'),
-    ('bob@example.com', 'Bob Johnson');
+-- No sample rows: the walkthrough in README.md creates the first user itself,
+-- and seeding john@example.com made the very first command it shows fail on
+-- the unique index.

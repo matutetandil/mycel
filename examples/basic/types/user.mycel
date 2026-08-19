@@ -1,7 +1,21 @@
 # User type definition
+#
+# `id` is assigned by the database and `age` is not asked for at sign-up, so
+# neither can be required of a request that creates a user — every field is
+# required unless it says otherwise.
 type "user" {
-  id    = number
-  email = string
-  name  = string
-  age   = number
+  id = number({
+    required = false
+  })
+  email = string({
+    format = "email"
+  })
+  name = string({
+    min_length = 1
+  })
+  age = number({
+    required = false
+    min      = 0
+    max      = 150
+  })
 }
