@@ -70,6 +70,18 @@ Examples:
 var addListTypes bool
 
 // runAddConnector writes connectors/<name>.mycel.
+// declarationPath is where a declaration of this kind belongs, taken from the
+// same map an editor reads — so the directory this command writes to and the
+// one an editor expects cannot come apart, which they had: state machines were
+// written to a directory the editor did not know about.
+func declarationPath(blockType, name string) string {
+	dir := schema.DirectoryFor(blockType)
+	if dir == "" {
+		return name + ".mycel"
+	}
+	return filepath.Join(dir, name+".mycel")
+}
+
 func runAddConnector(cmd *cobra.Command, args []string) error {
 	reg := runtime.NewSchemaRegistry()
 
@@ -106,7 +118,7 @@ func runAddConnector(cmd *cobra.Command, args []string) error {
 	}
 
 	body := renderConnector(name, addType, addDriver, provider.ConnectorSchema())
-	return writeDeclaration(filepath.Join("connectors", name+".mycel"), body)
+	return writeDeclaration(declarationPath("connector", name), body)
 }
 
 // runAddFlow writes flows/<name>.mycel.
@@ -130,7 +142,7 @@ func runAddFlow(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return writeDeclaration(filepath.Join("flows", name+".mycel"),
+	return writeDeclaration(declarationPath("flow", name),
 		renderFlow(name, addFrom, addTo, addOperation, addTarget))
 }
 
@@ -486,7 +498,7 @@ func runAddAspect(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return writeDeclaration(filepath.Join("aspects", name+".mycel"),
+	return writeDeclaration(declarationPath("aspect", name),
 		renderAspect(name, addOn, addWhen, blk))
 }
 
@@ -686,7 +698,7 @@ func runAddType(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return writeDeclaration(filepath.Join("types", name+".mycel"), renderType(name, fields))
+	return writeDeclaration(declarationPath("type", name), renderType(name, fields))
 }
 
 // typeField is one parsed `name:type[:format]` spec.

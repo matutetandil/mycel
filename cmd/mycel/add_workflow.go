@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -62,7 +61,7 @@ func runAddSaga(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return writeDeclaration(filepath.Join("sagas", name+".mycel"),
+	return writeDeclaration(declarationPath("saga", name),
 		renderSaga(name, addSagaFrom, splitList(addSagaSteps), schema.SagaSchema()))
 }
 
@@ -158,7 +157,7 @@ func runAddStateMachine(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("initial state %q is not in --states (%s)", initial, strings.Join(states, ", "))
 	}
 
-	return writeDeclaration(filepath.Join("state_machines", name+".mycel"),
+	return writeDeclaration(declarationPath("state_machine", name),
 		renderStateMachine(name, initial, states, schema.StateMachineSchema()))
 }
 
@@ -247,7 +246,7 @@ func runAddValidator(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("a %s validator needs its rule: pass %s", vType, carrier.flag)
 	}
 
-	return writeDeclaration(filepath.Join("validators", name+".mycel"),
+	return writeDeclaration(declarationPath("validator", name),
 		renderValidator(name, vType, carrier.value, blk))
 }
 
@@ -293,7 +292,7 @@ func runAddTransform(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return writeDeclaration(filepath.Join("transforms", name+".mycel"),
+	return writeDeclaration(declarationPath("transform", name),
 		renderTransform(name, splitList(addTransformFields), schema.TransformSchema()))
 }
 
