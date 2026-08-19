@@ -19,12 +19,17 @@ Demonstrates scheduled (cron) flows running alongside a REST API in a single Myc
 
 ## Quick Start
 
-```bash
-# From the repository root
-mycel start --config ./examples/scheduled
+The database file is created where the service is started from, so run these
+from this directory.
 
-# Or with Docker
-docker run -v $(pwd)/examples/scheduled:/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
+```bash
+cd examples/scheduled
+
+# Create the tables. Nothing creates them for you, and every endpoint
+# answers 500 without them.
+mycel migrate --config .
+
+mycel start --config .
 ```
 
 ## Verify It Works

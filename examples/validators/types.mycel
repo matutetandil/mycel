@@ -1,30 +1,58 @@
 // Type Definitions with Custom Validators
-// Shows how to reference validators in type definitions.
+//
+// The validators declared alongside this file are applied here: a type field
+// names one with `validator`, and the constraints go inside the parentheses.
+// Without that the validators are declared and never run, which is what this
+// example used to show — the usage was in a comment.
 
 type "user" {
-  id       = number
-  username = string
-  email    = string
-  password = string
-  age      = number
-  phone    = string
-  status   = string
+  // Assigned by the flow's transform, so it cannot be required of a request.
+  id = number({
+    required = false
+  })
+
+  username = string({
+    validator = "username"
+  })
+
+  email = string({
+    validator = "email"
+  })
+
+  password = string({
+    validator = "strong_password"
+  })
+
+  age = number({
+    validator = "adult_age"
+  })
+
+  phone = string({
+    validator = "phone_ar"
+  })
+
+  // Set to 'pending' by the transform, so a request does not supply it. The
+  // validator still applies to anything that does.
+  status = string({
+    required  = false
+    validator = "valid_status"
+  })
 }
 
 type "product" {
-  id    = number
-  name  = string
-  slug  = string
-  price = number
-}
+  id = number({
+    required = false
+  })
 
-// Referencing a validator from a type. The attribute is `validator`, and the
-// constraints go inside the parentheses:
-//
-// type "user" {
-//   email    = string({ validator = "email" })
-//   password = string({ validator = "strong_password" })
-//   age      = number({ validator = "adult_age" })
-//   phone    = string({ validator = "phone_ar" })
-//   status   = string({ validator = "valid_status" })
-// }
+  name = string({
+    min_length = 1
+  })
+
+  slug = string({
+    validator = "slug"
+  })
+
+  price = number({
+    validator = "positive_number"
+  })
+}

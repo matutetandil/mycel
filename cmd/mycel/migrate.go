@@ -200,6 +200,15 @@ func getMigrationDB() (*sql.DB, string, string, error) {
 		return nil, "", "", fmt.Errorf("no database connector found in configuration")
 	}
 
+	// Auto-detection means one, as the flag's help says. With several, the
+	// first one declared was migrated silently — and which one is first is an
+	// accident of file order, so the tables could land in a database nobody
+	// meant to touch.
+	if migrateConnector == "" && len(names) > 1 {
+		return nil, "", "", fmt.Errorf("the configuration has %d database connectors (%s); name the one to migrate with --connector",
+			len(names), strings.Join(names, ", "))
+	}
+
 	driver := chosen.Driver
 	if driver == "" {
 		driver, _ = chosen.Properties["driver"].(string)

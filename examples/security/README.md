@@ -22,7 +22,12 @@ Every request passes through the sanitization pipeline before reaching your flow
 ## Quick Start
 
 ```bash
-mycel start --config ./examples/security
+cd examples/security
+
+# Create the users table
+mycel migrate --config .
+
+mycel start --config .
 ```
 
 ## Testing the Protections

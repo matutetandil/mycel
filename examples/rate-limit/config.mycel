@@ -42,5 +42,8 @@ connector "api" {
 connector "db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"
+  # A file, not ":memory:": each connection in the pool gets its own private
+  # in-memory database, so a row written by one request is not there for the
+  # next, and the table created by `mycel migrate` is not there at all.
+  database = "./data/rate_limit_demo.db"
 }

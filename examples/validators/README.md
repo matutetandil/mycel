@@ -141,8 +141,13 @@ If validation fails, the flow returns a 400 error with the validator's message.
 ## Running
 
 ```bash
+cd examples/validators
+
+# Create the users table
+mycel migrate --config .
+
 # Start the service
-mycel start --config ./examples/validators
+mycel start --config .
 
 # Test email validation
 curl -X POST http://localhost:3000/users \
