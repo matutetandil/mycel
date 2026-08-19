@@ -1994,9 +1994,15 @@ func (r *Runtime) registerEntityResolvers(connectorName string, conn connector.C
 				"connector", connectorName,
 			)
 		} else {
-			r.logger.Debug("no entity resolver found for type (register a flow with entity attribute)",
+			// A type carrying _key is one this subgraph tells the gateway it
+			// can resolve by reference. Without a resolver the gateway routes
+			// those lookups here and gets nothing back, which reads as a null
+			// in the composed graph rather than as an error anywhere — and
+			// this was said at debug level, which is off.
+			r.logger.Warn("a federated type has a key and nothing to resolve it with",
 				"type", typeName,
 				"connector", connectorName,
+				"hint", fmt.Sprintf("give a flow entity = %q, or a returns of %q", typeName, typeName),
 			)
 		}
 	}
