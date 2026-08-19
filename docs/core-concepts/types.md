@@ -175,7 +175,7 @@ validator "cuit_validator" {
 
 type "company" {
   name = string({ required = true })
-  cuit = string({ validate = "cuit_validator" })
+  cuit = string({ validator = "cuit_validator" })
 }
 ```
 

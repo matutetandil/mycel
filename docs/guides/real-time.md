@@ -147,14 +147,21 @@ CDC streams database changes as flow events using PostgreSQL's logical replicati
 
 ```hcl
 connector "cdc" {
-  type              = "cdc"
-  driver            = "postgres"
-  connection_string = env("PG_REPLICATION_URL")
-  tables            = ["orders", "products", "users"]
+  type        = "cdc"
+  driver      = "postgres"
+  host        = env("PG_HOST", "localhost")
+  port        = 5432
+  database    = env("PG_DATABASE")
+  user        = env("PG_REPLICATION_USER")
+  password    = env("PG_REPLICATION_PASSWORD")
+  slot_name   = "mycel_slot"
+  publication = "mycel_pub"
 }
 ```
 
-The connection string must be for a user with replication privileges.
+The user must have the REPLICATION privilege, and the server `wal_level = logical`.
+Which tables are followed is decided by the publication, and by each flow's
+operation — `orders.*` below reads every change to one table.
 
 ### React to Any Change on a Table
 
@@ -227,10 +234,9 @@ connector "gql" {
   port = 4000
 
   subscriptions {
-    enabled   = true
-    transport = "websocket"
-    path      = "/graphql/ws"
-    keepalive = "30s"
+    enabled             = true
+    path                = "/graphql/ws"
+    keep_alive_interval = "30s"
   }
 }
 ```

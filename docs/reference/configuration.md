@@ -190,9 +190,10 @@ connector "gql" {
   playground_path = "/graphql/playground"
   introspection  = true
 
+  # One or the other: a file, or generated from the type blocks. Naming both
+  # is refused, and naming neither leaves the server with no schema at all.
   schema {
-    path          = "./schema.graphql"
-    auto_generate = true              # Auto-generate from type blocks
+    path = "./schema.graphql"
   }
 
   federation {
@@ -201,10 +202,9 @@ connector "gql" {
   }
 
   subscriptions {
-    enabled   = true
-    transport = "websocket"
-    path      = "/graphql/ws"
-    keepalive = "30s"
+    enabled             = true
+    path                = "/graphql/ws"
+    keep_alive_interval = "30s"
   }
 
   cors {
@@ -498,10 +498,15 @@ connector "sse" {
 
 ```hcl
 connector "cdc" {
-  type              = "cdc"
-  driver            = "postgres"
-  connection_string = env("PG_REPLICATION_URL")
-  tables            = ["orders", "products"]
+  type        = "cdc"
+  driver      = "postgres"
+  host        = env("PG_HOST", "localhost")
+  port        = 5432
+  database    = env("PG_DATABASE")
+  user        = env("PG_REPLICATION_USER")
+  password    = env("PG_REPLICATION_PASSWORD")
+  slot_name   = "mycel_slot"
+  publication = "mycel_pub"
 }
 ```
 
@@ -509,10 +514,10 @@ connector "cdc" {
 
 ```hcl
 connector "es" {
-  type      = "elasticsearch"
-  addresses = ["http://localhost:9200"]
-  username  = env("ES_USER")
-  password  = env("ES_PASSWORD")
+  type     = "elasticsearch"
+  url      = "http://localhost:9200"
+  username = env("ES_USER")
+  password = env("ES_PASSWORD")
 }
 ```
 
@@ -521,12 +526,11 @@ connector "es" {
 ```hcl
 # Client
 connector "soap_service" {
-  type        = "soap"
-  driver      = "client"
-  endpoint    = "http://legacy.example.com/service"
-  soap_action = "urn:operation"
-  namespace   = "http://example.com/ns"
-  version     = "1.1"             # "1.1" or "1.2"
+  type         = "soap"
+  driver       = "client"
+  endpoint     = "http://legacy.example.com/service"
+  namespace    = "http://example.com/ns"
+  soap_version = "1.1"            # "1.1" or "1.2"
 
   auth {
     type     = "basic"
@@ -535,15 +539,14 @@ connector "soap_service" {
   }
 }
 
-# Server
+# Server. A connector is a client when it names an endpoint and a server when
+# it names a port; naming both is refused.
 connector "soap_server" {
-  type       = "soap"
-  driver     = "server"
-  port       = 8080
-  path       = "/service"
-  namespace  = "http://example.com/ns"
-  wsdl_path  = "/service?wsdl"   # WSDL endpoint path
-  version    = "1.1"
+  type         = "soap"
+  driver       = "server"
+  port         = 8080
+  namespace    = "http://example.com/ns"
+  soap_version = "1.1"
 }
 ```
 

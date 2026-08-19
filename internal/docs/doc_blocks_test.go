@@ -4,6 +4,8 @@ package docs
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,13 +51,18 @@ func TestTheDocumentationParses(t *testing.T) {
 			continue
 		}
 
+		// Keyed by what the block says rather than where it sits: a line
+		// number moves every time anything above it is edited, which would
+		// make this list wrong after every fix rather than after every
+		// regression. Editing a known-bad block changes its key, which is
+		// right — it has to be looked at again.
 		where := fmt.Sprintf("%s:%d", b.file, b.line)
-		known := knownBad[where]
+		known := knownBad[b.key()]
 		switch {
 		case err != "" && !known:
-			unexpected = append(unexpected, fmt.Sprintf("%s\n      %s", where, firstLine(err)))
+			unexpected = append(unexpected, fmt.Sprintf("%s  (%s)\n      %s", where, b.key(), firstLine(err)))
 		case err == "" && known:
-			fixed = append(fixed, where)
+			fixed = append(fixed, fmt.Sprintf("%s  (%s)", where, b.key()))
 		}
 	}
 
@@ -77,56 +84,50 @@ func TestTheDocumentationParses(t *testing.T) {
 // and are marked so.
 var knownBad = map[string]bool{
 	// Deliberately broken: the troubleshooting guide shows the mistake first.
-	"docs/guides/troubleshooting.md:69":  true,
-	"docs/guides/troubleshooting.md:81":  true,
-	"docs/guides/troubleshooting.md:192": true,
+	"2273da7a31ed": true, // docs/guides/troubleshooting.md:69
+	"769fdafae6a9": true, // docs/guides/troubleshooting.md:81
+	"65092ab9c49e": true, // docs/guides/troubleshooting.md:192
 
-	// An attribute the parser does not take.
-	"docs/connectors/cache.md:62":          true,
-	"docs/connectors/graphql.md:8":         true,
-	"docs/guides/batch-processing.md:249":  true,
-	"docs/guides/notifications.md:134":     true,
-	"docs/guides/notifications.md:164":     true,
-	"docs/guides/real-time.md:149":         true,
-	"docs/guides/real-time.md:225":         true,
-	"docs/guides/troubleshooting.md:520":   true,
-	"docs/guides/troubleshooting.md:529":   true,
-	"docs/guides/use-cases.md:40":          true,
-	"docs/guides/use-cases.md:382":         true,
-	"docs/guides/use-cases.md:457":         true,
-	"docs/guides/use-cases.md:659":         true,
-	"docs/guides/use-cases.md:1138":        true,
-	"docs/guides/use-cases.md:1496":        true,
-	"docs/reference/configuration.md:157":  true,
-	"docs/reference/configuration.md:183":  true,
-	"docs/reference/configuration.md:500":  true,
-	"docs/reference/configuration.md:511":  true,
-	"docs/reference/configuration.md:522":  true,
-	"docs/reference/configuration.md:1137": true,
-	"docs/reference/configuration.md:1260": true,
-
-	// A CEL expression written without quotes.
-
-	// `validate` where the constraint is `validator`.
-	"docs/core-concepts/types.md:170": true,
-	"docs/guides/extending.md:47":     true,
-
-	// A connector with no type, or another shape the parser refuses outright.
-	"docs/connectors/database.md:113":            true,
-	"docs/connectors/elasticsearch.md:46":        true,
-	"docs/connectors/grpc.md:66":                 true,
-	"docs/core-concepts/environments.md:74":      true,
-	"docs/core-concepts/input-and-output.md:69":  true,
-	"docs/core-concepts/input-and-output.md:173": true,
-	"docs/guides/error-handling.md:582":          true,
-	"docs/guides/use-cases.md:2112":              true,
-	"docs/guides/use-cases.md:2167":              true,
+	// The backlog: an attribute the parser does not take, a block with no
+	// type, a shape it refuses outright. Each is a page somebody can copy
+	// from and get an error.
+	"bea3901b5421": true, // docs/connectors/cache.md:62
+	"630adf399eb0": true, // docs/connectors/database.md:113
+	"b0803e3ee203": true, // docs/connectors/elasticsearch.md:46
+	"48ca9802d493": true, // docs/connectors/grpc.md:66
+	"ed7ae624487f": true, // docs/core-concepts/environments.md:74
+	"a1e45ce65ec3": true, // docs/core-concepts/input-and-output.md:173
+	"9a0983401947": true, // docs/core-concepts/input-and-output.md:69
+	"89008aaee0ca": true, // docs/guides/batch-processing.md:249
+	"1f3ebbc8b9c2": true, // docs/guides/error-handling.md:582
+	"d0c24687d120": true, // docs/guides/notifications.md:134
+	"be43f568dcff": true, // docs/guides/notifications.md:164
+	"3cb966e12419": true, // docs/guides/troubleshooting.md:520
+	"c8b0aa13d094": true, // docs/guides/troubleshooting.md:529
+	"11acd078849e": true, // docs/guides/use-cases.md:1138
+	"f19f2a2478ce": true, // docs/guides/use-cases.md:1496
+	"bc40419a076d": true, // docs/guides/use-cases.md:2112
+	"7f555de48e47": true, // docs/guides/use-cases.md:2167
+	"b67908fb7ba1": true, // docs/guides/use-cases.md:382
+	"8856e065440f": true, // docs/guides/use-cases.md:40
+	"6a299f9fd08c": true, // docs/guides/use-cases.md:457
+	"f1788423f678": true, // docs/guides/use-cases.md:659
+	"24b42cfd4ce6": true, // docs/reference/configuration.md:1140
+	"0600184a9afa": true, // docs/reference/configuration.md:1263
+	"de2efe11502e": true, // docs/reference/configuration.md:157
 }
 
 type docBlock struct {
 	file string
 	line int
 	body string
+}
+
+// key identifies a block by what it says, so the backlog survives an edit
+// anywhere else in the page.
+func (b docBlock) key() string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(b.body)))
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 // isFragment reports whether a block was never meant to stand alone: a snippet

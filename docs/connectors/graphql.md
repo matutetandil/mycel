@@ -19,10 +19,9 @@ connector "api" {
 
   # Optional: subscriptions
   subscriptions {
-    enabled   = true
-    transport = "websocket"
-    path      = "/graphql/ws"
-    keepalive = "30s"
+    enabled             = true
+    path                = "/graphql/ws"
+    keep_alive_interval = "30s"
   }
 
   # Optional: federation (auto-enabled, override version if needed)
