@@ -282,7 +282,26 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 		decls = filtered
 	}
 
-	// Delete lock file to force fresh resolution
+	// The lock file has to go for versions to be resolved afresh — but it is
+	// also the only record of what this deployment is pinned to, and an update
+	// that fails writes no new one: LoadAll stops at the first plugin it
+	// cannot load and saves nothing. So removing it up front meant a failed
+	// update left no lock file at all, and the next start floated every plugin
+	// to whatever resolved that day. Kept aside and put back on failure.
+	previous, readErr := os.ReadFile(lockFilePath())
+	hadLockFile := readErr == nil
+
+	restoreLockFile := func() {
+		if !hadLockFile {
+			return
+		}
+		if err := os.WriteFile(lockFilePath(), previous, 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "could not put the previous plugins.lock back: %v\n", err)
+			return
+		}
+		fmt.Println("The previous plugins.lock was kept, so what runs now has not changed.")
+	}
+
 	os.Remove(lockFilePath())
 
 	logger := createLogger()
@@ -290,6 +309,7 @@ func runPluginUpdate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Updating %d plugin(s)...\n", len(decls))
 	if err := reg.LoadAll(context.Background(), decls); err != nil {
+		restoreLockFile()
 		return fmt.Errorf("update failed: %w", err)
 	}
 
