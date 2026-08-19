@@ -39,6 +39,12 @@ type Parser interface {
 
 // Configuration holds all parsed configuration.
 type Configuration struct {
+	// UnsetEnv are env("NAME") calls with no default whose variable is not
+	// set, from every block rather than only connectors. They resolve to an
+	// empty string, so what follows is a service that starts wrong or refuses
+	// to start naming something other than the variable.
+	UnsetEnv []UnsetEnvVar
+
 	// Connectors are all connector configurations.
 	Connectors []*connector.Config
 
@@ -213,6 +219,7 @@ func NewConfiguration() *Configuration {
 
 // Merge merges another configuration into this one.
 func (c *Configuration) Merge(other *Configuration) {
+	c.UnsetEnv = append(c.UnsetEnv, other.UnsetEnv...)
 	c.Connectors = append(c.Connectors, other.Connectors...)
 	c.Flows = append(c.Flows, other.Flows...)
 	c.Types = append(c.Types, other.Types...)
@@ -516,6 +523,12 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 
 	// Process each block type
 	for _, block := range content.Blocks {
+		// Every block reads env() the same way, so every block is walked for
+		// the calls that resolve to nothing. Connectors keep their own copy as
+		// well, which is what lets a failed registration name the variable
+		// behind it.
+		config.UnsetEnv = append(config.UnsetEnv, CollectUnsetEnv(describeBlock(block), block.Body)...)
+
 		// Reusable inline blocks (dedupe, retry, lock, ...) are dispatched
 		// through the registry so this loop never grows per kind.
 		if kind, ok := reusableKindByName[block.Type]; ok {

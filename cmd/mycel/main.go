@@ -16,7 +16,6 @@ import (
 	"go.uber.org/automaxprocs/maxprocs"
 	"golang.org/x/mod/module"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
 	graphqlconn "github.com/matutetandil/mycel/v2/internal/connector/graphql"
 	"github.com/matutetandil/mycel/v2/internal/envdefaults"
 	"github.com/matutetandil/mycel/v2/internal/export/asyncapi"
@@ -590,6 +589,12 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(problems) > 0 {
+		// Before the errors, not after: an env() that resolved to nothing is
+		// often why one of them is there. `connector "db": needs "url" or
+		// "user"` on a file that says user = env("DB_USER") reads as a
+		// configuration mistake until you know the variable is unset.
+		printMissingEnvWarnings(config.UnsetEnv)
+
 		fmt.Printf("\n✗ Configuration is invalid:\n\n")
 		for _, e := range problems {
 			fmt.Printf("    - %s\n", e)
@@ -623,7 +628,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	// legitimately runs in CI, where production variables are absent. But the
 	// config alone cannot tell you that an attribute silently resolved to "",
 	// so report them rather than letting the run look entirely clean.
-	printMissingEnvWarnings(config.Connectors)
+	printMissingEnvWarnings(config.UnsetEnv)
 
 	// Layout advice. Authoring-time only — it never reaches `mycel start`,
 	// where an opinion about file organisation would be noise on a restart.
@@ -696,22 +701,24 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// printMissingEnvWarnings reports env() references that resolved to an empty
-// string because the variable is unset. The parser already collected these per
-// connector for the startup hint; surfacing them here means `mycel validate`
-// stops looking clean on a config that cannot actually start.
-func printMissingEnvWarnings(connectors []*connector.Config) {
-	type ref struct{ conn, attr string }
+// printMissingEnvWarnings reports every env() call that resolves to nothing.
+//
+// Every block, not only connectors. The connector version came first because a
+// connector that cannot start reports a generic "requires X" and the variable
+// behind it was the missing piece — but every block reads env() the same way
+// and none of the others said anything, so an unset signing secret in an auth
+// block produced a service refusing to start over something that named neither
+// the variable nor the file.
+func printMissingEnvWarnings(unset []parser.UnsetEnvVar) {
+	type ref struct{ block, attr string }
 	byVar := map[string][]ref{}
 	var order []string
 
-	for _, c := range connectors {
-		for _, m := range c.MissingEnv {
-			if _, seen := byVar[m.Name]; !seen {
-				order = append(order, m.Name)
-			}
-			byVar[m.Name] = append(byVar[m.Name], ref{c.Name, m.Attr})
+	for _, u := range unset {
+		if _, seen := byVar[u.Name]; !seen {
+			order = append(order, u.Name)
 		}
+		byVar[u.Name] = append(byVar[u.Name], ref{u.Block, u.Attr})
 	}
 	if len(order) == 0 {
 		return
@@ -720,7 +727,7 @@ func printMissingEnvWarnings(connectors []*connector.Config) {
 	fmt.Printf("\n⚠ Unset environment variables (%d):\n\n", len(order))
 	for _, name := range order {
 		for _, r := range byVar[name] {
-			fmt.Printf("    - %s → connector %q (%s) resolves to \"\"\n", name, r.conn, r.attr)
+			fmt.Printf("    - %s → %s (%s) resolves to \"\"\n", name, r.block, r.attr)
 		}
 	}
 	fmt.Printf("\n  These are only a warning here: validate does not need the deployment\n")
