@@ -18,7 +18,9 @@ connector "postgres" {
   password = env("PG_PASSWORD", "secret")
   database = env("PG_DATABASE", "app")
 
-  pool_size = 20
+  pool {
+    max = 20
+  }
 }
 
 # ============================================

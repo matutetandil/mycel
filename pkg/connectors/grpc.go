@@ -8,6 +8,9 @@ type GRPCSchema struct{}
 func (GRPCSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			// Both are read by the factory and were described by nothing, so
+			// completions and `mycel add` did not know they existed.
+			{Name: "timeout", Doc: "How long a call may take", Type: schema.TypeDuration},
 			{Name: "host", Doc: "gRPC server hostname", Type: schema.TypeString},
 			{Name: "port", Doc: "gRPC server port", Type: schema.TypeNumber},
 			{Name: "proto_path", Doc: "Path to .proto file or directory", Type: schema.TypeString},
@@ -20,6 +23,12 @@ func (GRPCSchema) ConnectorSchema() schema.Block {
 			{Name: "wait_for_ready", Doc: "Queue calls until the connection is ready instead of failing fast (client)", Type: schema.TypeBool},
 		},
 		Children: []schema.Block{
+			// Read by the factory and described by nothing until now, so
+			// completions and `mycel add` did not know it existed.
+			{Type: "keep_alive", Doc: "Keep the connection open between calls", Attrs: []schema.Attr{
+				{Name: "time", Doc: "How often to ping an idle connection", Type: schema.TypeDuration},
+				{Name: "timeout", Doc: "How long to wait for the answer to a ping", Type: schema.TypeDuration},
+			}},
 			{Type: "tls", Doc: "TLS/SSL settings. Writing the block enables TLS; set enabled = false to turn it off without removing it", Attrs: []schema.Attr{
 				{Name: "enabled", Doc: "Enable TLS (default true when the block is present)", Type: schema.TypeBool},
 				{Name: "cert", Doc: "Certificate file this connector presents: its own when it is a server, the client certificate for mutual TLS", Type: schema.TypeString},

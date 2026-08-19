@@ -743,6 +743,11 @@ func (r *Runtime) Start(ctx context.Context) error {
 	// Print startup warnings for production environment
 	r.printStartupWarnings()
 
+	// And, in every environment, the settings a connector was given and does
+	// not read: those are the same mistake on a laptop as in production, and
+	// the symptom is a default quietly standing in for what was written.
+	r.warnAboutUnreadAttributes(r.schemaRegistry)
+
 	r.logger.Info("starting service",
 		"service", serviceName,
 		"version", serviceVersion,

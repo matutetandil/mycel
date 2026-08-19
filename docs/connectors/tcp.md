@@ -7,7 +7,7 @@ Raw TCP server and client with pluggable codecs. Use it for low-level communicat
 ```hcl
 connector "tcp_server" {
   type     = "tcp"
-  mode     = "server"
+  driver   = "server"
   host     = "0.0.0.0"
   port     = 9000
   protocol = "json"    # "json", "msgpack", "nestjs"
@@ -19,7 +19,7 @@ connector "tcp_server" {
 ```hcl
 connector "tcp_client" {
   type            = "tcp"
-  mode            = "client"
+  driver          = "client"
   host            = "localhost"
   port            = 9000
   protocol        = "json"
