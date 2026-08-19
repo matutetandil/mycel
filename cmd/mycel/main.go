@@ -591,6 +591,17 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("validation failed: %d duration error(s)", len(errs))
 	}
 
+	// A step's on_error: three words are implemented and anything else fails
+	// the flow, which is the opposite of what most of them read as.
+	if errs := runtime.ValidateStepErrorHandling(config); len(errs) > 0 {
+		fmt.Printf("\n✗ Configuration is invalid:\n\n")
+		for _, e := range errs {
+			fmt.Printf("    - %s\n", e)
+		}
+		fmt.Println()
+		return fmt.Errorf("validation failed: %d step error(s)", len(errs))
+	}
+
 	// A type a flow validates against, and a flow an aspect invokes: the first
 	// is a 500 on the first request, the second a warning per message and an
 	// aspect that does nothing.
