@@ -72,7 +72,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Find migration files
-	migrationsDir := filepath.Join(configDir, "migrations")
+	migrationsDir := migrationsDirFor(connName)
 	files, err := findMigrationFiles(migrationsDir)
 	if err != nil {
 		return fmt.Errorf("failed to read migrations directory: %w", err)
@@ -142,7 +142,7 @@ func runMigrateStatus(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get applied migrations: %w", err)
 	}
 
-	migrationsDir := filepath.Join(configDir, "migrations")
+	migrationsDir := migrationsDirFor(connName)
 	files, err := findMigrationFiles(migrationsDir)
 	if err != nil {
 		return fmt.Errorf("failed to read migrations directory: %w", err)
@@ -163,6 +163,26 @@ func runMigrateStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// migrationsDirFor returns the directory holding a connector's migrations.
+//
+// A configuration may declare more than one database — a service and its audit
+// trail, a read model beside a write model — and each needs its own tables. A
+// single flat directory can only serve one of them: applied to the second, it
+// creates the first one's tables there too. So a per-connector directory wins
+// when it exists, and the flat one remains the answer for the ordinary case of
+// a single database.
+//
+//	migrations/            <- one database
+//	migrations/audit_db/   <- this connector's, when there are several
+func migrationsDirFor(connName string) string {
+	base := filepath.Join(configDir, "migrations")
+	perConnector := filepath.Join(base, connName)
+	if info, err := os.Stat(perConnector); err == nil && info.IsDir() {
+		return perConnector
+	}
+	return base
 }
 
 // getMigrationDB parses the configuration, finds the database connector, and

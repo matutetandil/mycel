@@ -32,8 +32,13 @@ flow "create_product" {
     connector = "api"
     operation = "POST /products"
   }
+  # A transform replaces the payload with what it names, so the fields coming
+  # from the request are carried over explicitly. Naming only id and created_at
+  # wrote a row with no name and no price.
   transform {
     id         = "uuid()"
+    name       = "input.name"
+    price      = "input.price"
     created_at = "now()"
   }
   to {
@@ -49,6 +54,9 @@ flow "update_product" {
     operation = "PUT /products/:id"
   }
   transform {
+    id         = "input.id"
+    name       = "input.name"
+    price      = "input.price"
     updated_at = "now()"
   }
   to {
