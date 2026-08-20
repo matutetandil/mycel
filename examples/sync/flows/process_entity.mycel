@@ -46,6 +46,6 @@ flow "process_entity" {
 
   to {
     connector = "postgres"
-    operation = "entities"
+    target    = "entities"
   }
 }

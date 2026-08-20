@@ -14,7 +14,7 @@ flow "list_users" {
   # This SELECT goes to a replica (round-robin)
   to {
     connector = "postgres"
-    operation = "SELECT * FROM users ORDER BY created_at DESC LIMIT 100"
+    query     = "SELECT * FROM users ORDER BY created_at DESC LIMIT 100"
   }
 }
 
@@ -27,7 +27,7 @@ flow "get_user" {
 
   to {
     connector = "postgres"
-    operation = "SELECT * FROM users WHERE id = :id"
+    query     = "SELECT * FROM users WHERE id = :id"
   }
 }
 
@@ -41,7 +41,7 @@ flow "create_user" {
   # This INSERT goes to primary
   to {
     connector = "postgres"
-    operation = "INSERT INTO users (name, email) VALUES (:name, :email) RETURNING *"
+    query     = "INSERT INTO users (name, email) VALUES (:name, :email) RETURNING *"
   }
 }
 
@@ -54,7 +54,7 @@ flow "update_user" {
   # UPDATE goes to primary
   to {
     connector = "postgres"
-    operation = "UPDATE users SET name = :name, email = :email WHERE id = :id RETURNING *"
+    query     = "UPDATE users SET name = :name, email = :email WHERE id = :id RETURNING *"
   }
 }
 
@@ -67,7 +67,7 @@ flow "delete_user" {
   # DELETE goes to primary
   to {
     connector = "postgres"
-    operation = "DELETE FROM users WHERE id = :id"
+    query     = "DELETE FROM users WHERE id = :id"
   }
 }
 
@@ -84,7 +84,7 @@ flow "list_orders" {
   # SELECT goes to MySQL replica
   to {
     connector = "mysql"
-    operation = "SELECT * FROM orders ORDER BY created_at DESC"
+    query     = "SELECT * FROM orders ORDER BY created_at DESC"
   }
 }
 
@@ -97,6 +97,6 @@ flow "create_order" {
   # INSERT goes to MySQL primary
   to {
     connector = "mysql"
-    operation = "INSERT INTO orders (user_id, total) VALUES (:user_id, :total)"
+    query     = "INSERT INTO orders (user_id, total) VALUES (:user_id, :total)"
   }
 }

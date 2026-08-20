@@ -138,7 +138,14 @@ func dbSourceSchema() *schema.Block {
 
 func dbTargetSchema() *schema.Block {
 	return &schema.Block{
-		Open: true,
+		// Open, because a destination carries connector-specific parameters
+		// this does not enumerate — so a misspelt attribute is swept up and
+		// ignored rather than refused. What can still be said is that a
+		// destination has to name what it writes to: without a table or a
+		// query there is nothing to write, and `targt = "users"` produced a
+		// SQL syntax error at the first request rather than a word at startup.
+		Open:          true,
+		RequiredOneOf: [][]string{{"target", "query"}},
 		Attrs: []schema.Attr{
 			{Name: "target", Doc: "Table name", Type: schema.TypeString},
 			{Name: "query", Doc: "Raw SQL query", Type: schema.TypeString},

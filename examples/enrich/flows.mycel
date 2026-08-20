@@ -14,7 +14,7 @@ flow "get_product" {
 
   to {
     connector = "products_db"
-    operation = "products"
+    target    = "products"
   }
 }
 
@@ -43,7 +43,7 @@ flow "get_product_with_price" {
 
   to {
     connector = "products_db"
-    operation = "products"
+    target    = "products"
   }
 }
 
@@ -80,7 +80,7 @@ flow "get_product_full" {
 
   to {
     connector = "products_db"
-    operation = "products"
+    target    = "products"
   }
 }
 
@@ -109,6 +109,6 @@ flow "get_product_reusable" {
 
   to {
     connector = "products_db"
-    operation = "products"
+    target    = "products"
   }
 }
