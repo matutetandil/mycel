@@ -1,7 +1,9 @@
 package examples
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	amqp "github.com/rabbitmq/amqp091-go"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -124,6 +127,10 @@ func rabbitEnv(t *testing.T) []string {
 	}
 	password, _ := u.User.Password()
 	return []string{
+		// The whole address as well as its parts: an example writes whichever
+		// its connector reads, and one that asks for RABBITMQ_URL was starting
+		// against the default localhost rather than against this broker.
+		"RABBITMQ_URL=" + u.String(),
 		"RABBITMQ_HOST=" + u.Hostname(),
 		"RABBITMQ_PORT=" + u.Port(),
 		"RABBITMQ_USER=" + u.User.Username(),
@@ -283,7 +290,11 @@ func downstreamEnv(t *testing.T, names ...string) []string {
 		// captures an id out of it, an enrichment that reads a price or a
 		// stock level. A stand-in service, not a mock of any one of them.
 		_, _ = w.Write([]byte(`{"status":"ok","id":"stub-1","reservation_id":"res-1",` +
-			`"price":29.99,"currency":"USD","tax_rate":0.21,"available":42,"reserved":3}`))
+			`"price":29.99,"currency":"USD","tax_rate":0.21,"available":42,"reserved":3,` +
+			// The names the profiles example normalises from, since each
+			// profile reads a different upstream's spelling of the same thing.
+			`"entity_id":"123","sku":"WIDGET-1",` +
+			`"prod_id":"123","product_code":"WIDGET-1","unit_price":"29.99","currency_code":"USD"}`))
 	}))
 	t.Cleanup(server.Close)
 
@@ -311,6 +322,88 @@ func callsFor(t *testing.T) []string {
 	callsMu.Lock()
 	defer callsMu.Unlock()
 	return append([]string(nil), calls[t.Name()]...)
+}
+
+// publish puts a message on a queue, for the examples whose flows are started
+// by one rather than by a request.
+//
+// A consumer example cannot be followed with curl, so none of them were being
+// run at all — and they are where the primitives worth checking live: the
+// deduplication, the sequence guard, the retry with its dead letter queue.
+func publish(t *testing.T, queue string, message map[string]interface{}) {
+	t.Helper()
+
+	conn, err := amqp.Dial(os.Getenv("MYCEL_TEST_RABBITMQ_URL"))
+	if err != nil {
+		t.Fatalf("connecting to the broker: %v", err)
+	}
+	defer conn.Close()
+
+	channel, err := conn.Channel()
+	if err != nil {
+		t.Fatalf("opening a channel: %v", err)
+	}
+	defer channel.Close()
+
+	// Declared here as well as by the service: since 2.0.0 Mycel does not
+	// create queues it does not own, so a publisher that assumes one exists
+	// has nowhere to put the message.
+	if _, err := channel.QueueDeclare(queue, true, false, false, false, nil); err != nil {
+		t.Fatalf("declaring %s: %v", queue, err)
+	}
+
+	body, err := json.Marshal(message)
+	if err != nil {
+		t.Fatalf("encoding the message: %v", err)
+	}
+	err = channel.PublishWithContext(context.Background(), "", queue, false, false,
+		amqp.Publishing{ContentType: "application/json", Body: body})
+	if err != nil {
+		t.Fatalf("publishing to %s: %v", queue, err)
+	}
+}
+
+// resetQueue empties a queue before a test publishes to it.
+//
+// A message that failed on an earlier run is still there, being retried, and
+// it is delivered before anything published now — so a run is judged on the
+// leftovers of the one before it.
+func resetQueue(t *testing.T, queue string) {
+	t.Helper()
+
+	conn, err := amqp.Dial(os.Getenv("MYCEL_TEST_RABBITMQ_URL"))
+	if err != nil {
+		t.Fatalf("connecting to the broker: %v", err)
+	}
+	defer conn.Close()
+
+	channel, err := conn.Channel()
+	if err != nil {
+		t.Fatalf("opening a channel: %v", err)
+	}
+	defer channel.Close()
+
+	if _, err := channel.QueueDeclare(queue, true, false, false, false, nil); err != nil {
+		t.Fatalf("declaring %s: %v", queue, err)
+	}
+	if _, err := channel.QueuePurge(queue, false); err != nil {
+		t.Fatalf("purging %s: %v", queue, err)
+	}
+}
+
+// waitForCalls gives a consumer time to do its work, since publishing returns
+// as soon as the broker has the message and the flow runs after that.
+func waitForCalls(t *testing.T, want int, within time.Duration) []string {
+	t.Helper()
+
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		if made := callsFor(t); len(made) >= want {
+			return made
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return callsFor(t)
 }
 
 func envOr(name, fallback string) string {
@@ -472,6 +565,112 @@ var needsInfrastructure = []infrastructure{
 		},
 	},
 	{
+		// Its profiles reach two upstreams it does not include; without them
+		// every request falls through the whole chain and fails.
+		example: "profiles",
+		env: func(t *testing.T) []string {
+			return downstreamEnv(t, "MAGENTO_URL", "LEGACY_URL")
+		},
+	},
+	{
+		// What the example promises, checked: the same content twice is one
+		// call downstream, and that call is expensive — avoiding it is the
+		// whole point of the dedupe block.
+		example: "dedupe",
+		needs:   []string{"MYCEL_TEST_RABBITMQ_URL"},
+		env: func(t *testing.T) []string {
+			// The queue belongs to the upstream publisher in a real
+			// deployment; here nobody else is going to create it.
+			env := append(rabbitEnv(t), downstreamEnv(t, "MAGENTO_URL")...)
+			return append(env, "QUEUE_CREATE_IF_MISSING=true")
+		},
+		then: func(t *testing.T, _ []string) {
+			update := func(job int) map[string]interface{} {
+				return map[string]interface{}{
+					"metadata": map[string]interface{}{
+						"headers": map[string]interface{}{
+							"elementType": "product",
+							"operation":   "update",
+						},
+					},
+					// The shape the flow projects from: it reads the price
+					// line and the attribute collection without a fallback,
+					// because a real update carries them.
+					"payload": map[string]interface{}{
+						"productItemId":    "SKU-1",
+						"productItemName":  "Widget",
+						"styleAssociation": "STYLE-1",
+						"jobId":            job,
+						"priceLine": map[string]interface{}{
+							"guestUSPrice": 10.0,
+							"tradeUSPrice": 8.0,
+						},
+						"dynamicAttributeCollection": []interface{}{
+							map[string]interface{}{"key": "ShowOnWebUSValue", "value": "1"},
+						},
+					},
+				}
+			}
+
+			resetQueue(t, "all.in.magento.q")
+			publish(t, "all.in.magento.q", update(1))
+			// A later job carrying identical content. The sequence guard lets
+			// it through — it is not out of order — and the dedupe block is
+			// what has to stop it.
+			publish(t, "all.in.magento.q", update(2))
+
+			made := waitForCalls(t, 2, 15*time.Second)
+			if len(made) == 0 {
+				t.Fatal("neither message reached the downstream service")
+			}
+			if len(made) > 1 {
+				t.Errorf("the same content was sent downstream %d times: %v", len(made), made)
+			}
+		},
+	},
+	{
+		// A consumer with nothing to curl: what it does is push each message
+		// to a backend, so a message is published and the backend is expected
+		// to hear about it.
+		example: "timeout-handling",
+		needs:   []string{"MYCEL_TEST_RABBITMQ_URL"},
+		env: func(t *testing.T) []string {
+			return append(rabbitEnv(t), downstreamEnv(t, "BACKEND_URL")...)
+		},
+		then: func(t *testing.T, _ []string) {
+			resetQueue(t, "items.push")
+			publish(t, "items.push", map[string]interface{}{
+				"sku":   "WIDGET-1",
+				"name":  "Widget",
+				"price": 29.99,
+			})
+
+			if made := waitForCalls(t, 1, 15*time.Second); len(made) == 0 {
+				t.Error("the message was published and the backend was never called")
+			}
+		},
+	},
+	{
+		example: "redis-pubsub",
+		needs:   []string{"MYCEL_TEST_REDIS_URL", "MYCEL_TEST_POSTGRES_DSN"},
+		env: func(t *testing.T) []string {
+			return append(redisEnv(t), postgresEnvFor(t, "redis-pubsub")...)
+		},
+	},
+	{
+		example: "sync",
+		needs:   []string{"MYCEL_TEST_REDIS_URL", "MYCEL_TEST_POSTGRES_DSN", "MYCEL_TEST_RABBITMQ_URL"},
+		env: func(t *testing.T) []string {
+			env := append(redisEnv(t), rabbitEnv(t)...)
+			return append(env, postgresEnvFor(t, "sync")...)
+		},
+	},
+	{
+		example: "integration",
+		needs:   []string{"MYCEL_TEST_RABBITMQ_URL"},
+		env:     rabbitEnv,
+	},
+	{
 		example: "workflows",
 		needs:   []string{"MYCEL_TEST_POSTGRES_DSN"},
 		env: func(t *testing.T) []string {
@@ -511,7 +710,9 @@ func TestTheExamplesThatNeedInfrastructureWorkWhenFollowed(t *testing.T) {
 			svc := start(t, want.example, environment...)
 
 			commands := svc.commands(t, want.example)
-			if len(commands) == 0 {
+			// A consumer example has nothing to curl: it is started by a
+			// message, which `then` publishes.
+			if len(commands) == 0 && want.then == nil {
 				t.Fatalf("no commands found in the README; this example is not being checked")
 			}
 

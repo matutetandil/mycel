@@ -7,8 +7,8 @@ service {
 connector "events" {
   type     = "mq"
   driver   = "redis"
-  host     = "localhost"
-  port     = 6379
+  host     = env("REDIS_HOST", "localhost")
+  port     = env("REDIS_PORT", "6379")
   channels = ["orders", "payments"]
 }
 
@@ -22,10 +22,11 @@ connector "api" {
 connector "db" {
   type     = "database"
   driver   = "postgres"
-  host     = "localhost"
-  database = "events"
-  user     = "admin"
-  password = env("DB_PASS")
+  host     = env("DB_HOST", "localhost")
+  port     = env("DB_PORT", "5432")
+  database = env("DB_NAME", "events")
+  user     = env("DB_USER", "admin")
+  password = env("DB_PASSWORD", "")
 }
 
 # Process order events from Redis

@@ -1,4 +1,7 @@
--- TCP Example Database Schema
+-- The users table the TCP and REST flows share.
+--
+-- Applied with `mycel migrate --config .` before starting; without it the
+-- service starts and answers 500 to every request.
 
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,

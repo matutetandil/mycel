@@ -112,8 +112,31 @@ Parameters support the following attributes:
 # Validate the configuration
 mycel validate --config=./examples/named-operations
 
-# Start the service (requires database setup)
+# Create the table the operations read and write
+mycel migrate --config=./examples/named-operations
+
 mycel start --config=./examples/named-operations
+```
+
+## Try It
+
+The routes are the ones the named operations declare — a flow refers to
+`list_users`, and the connector says that means `GET /users`:
+
+```bash
+curl http://localhost:8080/users
+
+curl http://localhost:8080/users/1
+
+curl -X POST http://localhost:8080/users \
+  -H "Content-Type: application/json" \
+  -d '{"email":"new@example.com","name":"New Person"}'
+
+curl -X PUT http://localhost:8080/users/1 \
+  -H "Content-Type: application/json" \
+  -d '{"email":"john@example.com","name":"John Renamed"}'
+
+curl -X DELETE http://localhost:8080/users/2
 ```
 
 ## Supported Connector Types

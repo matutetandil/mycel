@@ -23,7 +23,7 @@ connector "pricing" {
   profile "magento" {
     type     = "http"
     driver   = "client"
-    base_url = "http://localhost:8080/api"
+    base_url = env("MAGENTO_URL", "http://localhost:8080/api")
 
     auth {
       type  = "bearer"
@@ -60,7 +60,7 @@ connector "pricing" {
   profile "legacy" {
     type     = "http"
     driver   = "client"
-    base_url = "http://localhost:9090/legacy"
+    base_url = env("LEGACY_URL", "http://localhost:9090/legacy")
 
     # Transform legacy format to normalized format
     transform {

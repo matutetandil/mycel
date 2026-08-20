@@ -1,5 +1,6 @@
--- Setup script for the named-operations example database
--- Run: sqlite3 ./data/app.db < setup.sql
+-- The users table the named operations read and write.
+--
+-- Applied with `mycel migrate --config .` before starting.
 
 CREATE TABLE IF NOT EXISTS users (
     id         TEXT PRIMARY KEY,

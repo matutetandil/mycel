@@ -3,6 +3,7 @@
 package examples
 
 import (
+	"net/http"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -507,6 +508,20 @@ func (s *service) run(t *testing.T, command string) (int, string) {
 	t.Helper()
 
 	body := filepath.Join(s.dir, "body.out")
+
+	// A stream is not a request that finishes. `curl -N` on a server-sent
+	// events endpoint stays open until somebody hangs up, so curl is stopped
+	// on a short timer — and it never gets to report a status, which read as
+	// "no answer at all" and kept every streaming example out of the harness.
+	//
+	// What a stream can be judged on is how it opened, so the headers are kept
+	// and the status read from them. A silent stream is not a broken one: this
+	// example sends nothing until an event is published or its heartbeat comes
+	// round, and a client is told it is connected by the headers.
+	if strings.Contains(command, "curl -N") {
+		return s.runStream(t, command)
+	}
+
 	probe := strings.Replace(command, "curl ",
 		fmt.Sprintf("curl -s -o %s -w '%%{http_code}' --max-time 15 ", body), 1)
 
@@ -521,6 +536,43 @@ func (s *service) run(t *testing.T, command string) (int, string) {
 	return status, string(answer)
 }
 
+// runStream opens a streaming endpoint, holds it briefly and reports how it
+// answered, from the response headers rather than from a body that may never
+// come. A stream that is working still has to be a stream: the content type is
+// checked with the status, since an endpoint that answers 200 with HTML is not
+// serving events.
+func (s *service) runStream(t *testing.T, command string) (int, string) {
+	t.Helper()
+
+	headers := filepath.Join(s.dir, "headers.out")
+	probe := strings.Replace(command, "curl ",
+		fmt.Sprintf("curl -s -D %s -o /dev/null --max-time 4 ", headers), 1)
+
+	cmd := exec.Command("bash", "-c", probe)
+	cmd.Dir = s.dir
+	_ = cmd.Run() // it is stopped by the timer, which is the expected ending
+
+	dumped, err := os.ReadFile(headers)
+	if err != nil || len(dumped) == 0 {
+		return 0, ""
+	}
+
+	first, rest, _ := strings.Cut(string(dumped), "\n")
+	fields := strings.Fields(first)
+	if len(fields) < 2 {
+		return 0, ""
+	}
+	status, _ := strconv.Atoi(fields[1])
+
+	if status == http.StatusOK && !strings.Contains(strings.ToLower(rest), "text/event-stream") {
+		// Reported as a failure rather than returned alongside a 200, which
+		// the caller has no reason to look inside.
+		return http.StatusInternalServerError,
+			"the stream opened without a text/event-stream content type"
+	}
+	return status, ""
+}
+
 // selfContained lists the examples that need nothing but Mycel — no broker, no
 // database server, no external service. They are the ones a reader is most
 // likely to start with, and every one of them was broken.
@@ -529,6 +581,9 @@ var selfContained = []string{
 	"exec",
 	"graphql",
 	"mocks",
+	"named-operations",
+	"sse",
+	"tcp",
 	"graphql-optimization",
 	"graphql-subscription-client",
 	"basic",
