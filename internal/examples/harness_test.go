@@ -3,6 +3,7 @@
 package examples
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -431,6 +432,7 @@ func (s *service) run(t *testing.T, command string) (int, string) {
 // likely to start with, and every one of them was broken.
 var selfContained = []string{
 	"aspects",
+	"graphql",
 	"basic",
 	"cache",
 	"files",
@@ -452,6 +454,30 @@ var selfContained = []string{
 var cannotBeRunHere = map[string]string{
 	`-d '{"event": "ship", "data": {"tracking_number": "TRK123"}}'`: "the ship transition calls a notification service on port 6000 that the example does not include, which its README says",
 	`/products/enrich`: "the enrichment step calls a legacy SOAP service at a host that does not exist, which its README says",
+}
+
+// refusedInTheBody reports an answer that failed while saying 200.
+//
+// GraphQL puts its errors in the body: a query naming a field that does not
+// exist, or a resolver that blew up, comes back 200 with an `errors` array. So
+// a check that reads the status alone passes an example whose every query is
+// refused — which is what this harness did for the federation example until
+// somebody ran it by hand and read the answers.
+func refusedInTheBody(answer string) string {
+	trimmed := strings.TrimSpace(answer)
+	if !strings.HasPrefix(trimmed, "{") || !strings.Contains(trimmed, `"errors"`) {
+		return ""
+	}
+
+	var body struct {
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &body); err != nil || len(body.Errors) == 0 {
+		return ""
+	}
+	return body.Errors[0].Message
 }
 
 // routeMissing reports whether the answer means there is nothing at that
@@ -522,6 +548,10 @@ func TestTheExamplesWorkWhenFollowed(t *testing.T) {
 					t.Errorf("answered %d:\n  %s\n  %s", status, short, strings.TrimSpace(answer))
 				case routeMissing(status, answer):
 					t.Errorf("answered %d — the README shows a route the example does not serve:\n  %s", status, short)
+				default:
+					if refused := refusedInTheBody(answer); refused != "" {
+						t.Errorf("answered %d and refused in the body:\n  %s\n  %s", status, short, refused)
+					}
 				}
 			}
 		})

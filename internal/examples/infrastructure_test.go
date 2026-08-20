@@ -364,6 +364,10 @@ func TestTheExamplesThatNeedInfrastructureWorkWhenFollowed(t *testing.T) {
 					t.Errorf("answered %d:\n  %s\n  %s", status, short, strings.TrimSpace(answer))
 				case routeMissing(status, answer):
 					t.Errorf("answered %d — the README shows a route the example does not serve:\n  %s", status, short)
+				default:
+					if refused := refusedInTheBody(answer); refused != "" {
+						t.Errorf("answered %d and refused in the body:\n  %s\n  %s", status, short, refused)
+					}
 				}
 			}
 		})

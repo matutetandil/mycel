@@ -22,7 +22,7 @@ func argsFor(t *testing.T, params ...map[string]interface{}) map[string]*ArgDef 
 	}
 
 	byName := make(map[string]*ArgDef)
-	for _, arg := range inferArgsFromFlow(cfg) {
+	for _, arg := range inferArgsFromFlow(cfg, nil) {
 		byName[arg.Name] = arg
 	}
 	return byName
@@ -112,9 +112,9 @@ func TestTheArgumentsComeOutInTheSameOrderEveryTime(t *testing.T) {
 		}}},
 	}
 
-	first := names(inferArgsFromFlow(cfg))
+	first := names(inferArgsFromFlow(cfg, nil))
 	for i := 0; i < 20; i++ {
-		if got := names(inferArgsFromFlow(cfg)); !equal(got, first) {
+		if got := names(inferArgsFromFlow(cfg, nil)); !equal(got, first) {
 			t.Fatalf("the arguments came out as %v and then %v", first, got)
 		}
 	}
@@ -126,7 +126,7 @@ func TestAMutationWithNothingToInferTakesATypedInput(t *testing.T) {
 		Returns: "user",
 		From:    &flow.FromConfig{Connector: "graphql", ConnectorParams: map[string]interface{}{"operation": "Mutation.createUser"}},
 	}
-	args := inferArgsFromFlow(cfg)
+	args := inferArgsFromFlow(cfg, nil)
 	if len(args) != 1 || args[0].Name != "input" || args[0].Type != "user" {
 		t.Errorf("arguments = %+v, want a single typed input", args)
 	}

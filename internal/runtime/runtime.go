@@ -1865,7 +1865,7 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 
 			// If flow has a return type and connector supports typed args, use RegisterRouteWithArgs
 			if hasArgsSupport && handler.Config.Returns != "" {
-				args := inferArgsFromFlow(handler.Config)
+				args := inferArgsFromFlow(handler.Config, r.types)
 				routerWithArgs.RegisterRouteWithArgs(
 					handler.Config.From.GetOperation(),
 					requestHandler,
@@ -2053,7 +2053,7 @@ func (r *Runtime) registerEntityResolvers(connectorName string, conn connector.C
 // For mutations with a returns type and no step-inferred args, it automatically
 // creates a typed input argument using the returns type (e.g., returns = "user"
 // generates input: UserInput instead of input: JSON).
-func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
+func inferArgsFromFlow(cfg *flow.Config, types map[string]*validate.TypeSchema) []*ArgDef {
 	args := make(map[string]*ArgDef) // Use map to deduplicate
 
 	// Extract from step params
@@ -2104,6 +2104,18 @@ func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
 				Name: "input",
 				Type: returnsType,
 			}}
+		}
+	}
+
+	// An argument's type, where the flow says enough to know it: a field of the
+	// type the flow returns, named the same. Everything was published as String
+	// otherwise, so `user(id: 1)` — the example's own query, against an integer
+	// column — was refused: "Expected type String, found 1".
+	if declared := types[strings.TrimSuffix(strings.TrimSuffix(cfg.Returns, "[]"), "!")]; declared != nil {
+		for _, field := range declared.Fields {
+			if arg := args[field.Name]; arg != nil && field.Type != "" {
+				arg.Type = field.Type
+			}
 		}
 	}
 
