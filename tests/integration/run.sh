@@ -84,6 +84,7 @@ PORT_DEFS=(
   PORT_MINIO:39000
   PORT_KAFKA:29092
   PORT_ES:39200
+  PORT_REDIS:36379
 )
 
 echo "Checking ports..."
@@ -343,6 +344,7 @@ if command -v go > /dev/null 2>&1; then
         MYCEL_TEST_S3_ENDPOINT="http://127.0.0.1:${PORT_MINIO}" \
         MYCEL_TEST_KAFKA_BROKERS="localhost:${PORT_KAFKA}" \
         MYCEL_TEST_ELASTICSEARCH_URL="http://127.0.0.1:${PORT_ES}" \
+        MYCEL_TEST_REDIS_URL="redis://127.0.0.1:${PORT_REDIS}" \
         go test "$pkg" -run "$pattern" -count=1 -v 2>&1); then
       if echo "$out" | grep -q -- "--- SKIP"; then
         echo "  ✗ $label skipped itself"
