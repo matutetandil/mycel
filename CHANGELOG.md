@@ -60,6 +60,14 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **A read flow's `transform` reached nothing.** On a GET it was applied neither to the request nor to the answer: it parsed, the editor offered it, the documentation names it as what `to` sees, and it did nothing. A flow's transform feeds whatever the flow has left to say — writing, the row; reading with a query of its own, that query's named parameters; reading a table by name, the answer. The middle case was sent unbound, which Postgres reports as a syntax error at `":"` and SQLite as a missing argument, neither naming the flow or the transform.
+
+- **An `enrich` block on a read flow never called anything.** Enrichment ran only on the write paths, so the most natural place for one — read the product, add the price — fetched nothing and the fields it was to supply were absent. The enrich example, which is entirely read flows, could not do what it is about.
+
+- **Writing the auth `endpoints` block turned every endpoint off.** It was parsed into an otherwise empty configuration, and an endpoint left nil is never routed — so the one thing the block is usually written for, moving the prefix, took login, register, refresh, me and the other twelve off the service, which then started and reported the auth system as initialised.
+
+- **A step whose lookup found nothing left an empty list**, so every later `step.user.name` indexed a list with a string, and that is what the caller was told: `unsupported index type 'string' in list`, naming neither the step nor the empty result. Nothing found is now nothing, and a step that declares a `default` gets it.
+
 - **A cache key could not use the interpolation the feature was built for.** `key = "user:${input.id}"` — what the guide shows, what `interpolateKey` exists to replace, and what an aspect's cache key already accepted — was refused inside a flow with "Variables may not be used here": HCL saw the `${...}` first and tried to resolve `input` as a variable it does not have. Two blocks called cache behaved differently. Keys, `invalidate_on`, and an `invalidate` block's `keys` and `patterns` are read as the templates they are now.
 
 - **With mocking on, a connector that serves never started.** The wrapper offers the ordinary connector surface and nothing else, so the runtime's check for something it can start stopped matching — and the banner still said "listening", because that line is printed from the configuration. A service with mocks enabled came up, printed its routes and refused every request. Connectors that serve are left unwrapped now: mocking replaces what a connector answers when asked, and one that serves is not asked.
