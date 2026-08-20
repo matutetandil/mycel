@@ -2595,13 +2595,26 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 
 	// For GraphQL and gRPC operations, return the created object instead of {id, affected}
 	// This allows mutations like `createUser(input: {...}) { id email name }` to work
-	if (isGraphQLOperation(h.Config.From.GetOperation()) || h.SourceType == "grpc") && result.LastID != 0 {
+	//
+	// Read back by the id the flow assigned when there is one. It used to use
+	// only the driver's last insert id, which for a table keyed by anything
+	// other than an autoincrementing integer is the row's position — so a
+	// mutation whose flow generates its own key read back nothing and GraphQL
+	// answered "Cannot return null for non-nullable field User.email" for a
+	// record that had just been written.
+	writtenID, hasWrittenID := payload["id"]
+	if (isGraphQLOperation(h.Config.From.GetOperation()) || h.SourceType == "grpc") &&
+		(result.LastID != 0 || hasWrittenID) {
 		// Try to read back the created record
 		if reader, ok := dest.(connector.Reader); ok {
+			readBy := interface{}(result.LastID)
+			if hasWrittenID && writtenID != nil {
+				readBy = writtenID
+			}
 			query := connector.Query{
 				Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 				Operation: "SELECT",
-				Filters:   map[string]interface{}{"id": result.LastID},
+				Filters:   map[string]interface{}{"id": readBy},
 			}
 			readResult, err := meteredRead(ctx, reader, query)
 			if err == nil && len(readResult.Rows) > 0 {

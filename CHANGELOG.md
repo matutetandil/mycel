@@ -60,6 +60,10 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **A GraphQL mutation returning `Boolean` always said `false`.** `deleteUser(id: ID!): Boolean!` is served by a flow whose result is `{"affected": 1}`, and nothing turned that into a boolean — so a row was deleted and the caller was told it was not. It now answers whether the write happened.
+
+- **A GraphQL mutation could not return the record it created** when the flow assigned its own key. The read-back used the driver's last insert id, which for a table keyed by anything but an autoincrementing integer is the row's position, so it found nothing and GraphQL answered "Cannot return null for non-nullable field User.email" for a record that had just been written.
+
 - **A sqlite connector with no `database` opened a file nobody named.** An empty value became `./data/mycel.db`, so a connector whose attribute was misspelled — `path` instead of `database`, which the integration-patterns guide showed and two tests in this repository copied — opened a database holding none of your tables, and every request answered "no such table" for as long as the service ran. The schema had always said the attribute is required and `mycel migrate` had always refused without it; only startup invented something.
 
 - **A read flow with steps silently ignored its destination.** It answers out of its steps, so a `to` block was neither read nor written and nothing said so — the use-cases guide had a recipe built on the opposite belief that answered "no such key" for every field it meant to fill. The runtime now names those flows at startup and points at `enrich`, which reads first and adds to what came back.

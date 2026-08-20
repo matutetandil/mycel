@@ -101,7 +101,7 @@ func CreateOptimizedResolverWithOptions(handler HandlerFunc, opts ResolverOption
 			// Prune result to only include requested fields
 			converted = pruner.Prune(converted, fields)
 
-			return converted, nil
+			return asReturnType(p, converted), nil
 		}, nil
 	}
 }
@@ -135,7 +135,7 @@ func CreateResolverWithOptions(handler HandlerFunc, opts ResolverOptions) graphq
 				converted = unwrapSingleResult(converted)
 			}
 
-			return converted, nil
+			return asReturnType(p, converted), nil
 		}, nil
 	}
 }
@@ -191,7 +191,7 @@ func CreateSmartResolver(handler HandlerFunc) graphql.FieldResolveFn {
 			// Prune result to only include requested fields (safety net)
 			converted = pruner.Prune(converted, fields)
 
-			return converted, nil
+			return asReturnType(p, converted), nil
 		}, nil
 	}
 }
@@ -437,4 +437,50 @@ func BuildDataResponse(data interface{}) *GraphQLResponse {
 	return &GraphQLResponse{
 		Data: data,
 	}
+}
+
+// asReturnType answers a Boolean field with whether the write happened.
+//
+// A mutation declared `deleteUser(id: ID!): Boolean!` is answered by a flow
+// whose result is `{"affected": 1}`, and nothing turned that into a boolean:
+// graphql-go coerced the map and the client was told `false` for a row that had
+// just been deleted. A caller checking the answer retries, or reports a failure
+// that did not happen.
+func asReturnType(p graphql.ResolveParams, converted interface{}) interface{} {
+	if p.Info.ReturnType == nil {
+		return converted
+	}
+	named := graphql.GetNullable(p.Info.ReturnType)
+	if scalar, ok := named.(*graphql.Scalar); !ok || scalar.Name() != "Boolean" {
+		return converted
+	}
+
+	switch value := converted.(type) {
+	case bool:
+		return value
+	case map[string]interface{}:
+		if affected, present := value["affected"]; present {
+			return affectedCount(affected) > 0
+		}
+		// A write that answered with the record rather than a count still
+		// happened.
+		return len(value) > 0
+	case nil:
+		return false
+	}
+	return converted
+}
+
+func affectedCount(value interface{}) int64 {
+	switch n := value.(type) {
+	case int:
+		return int64(n)
+	case int32:
+		return int64(n)
+	case int64:
+		return n
+	case float64:
+		return int64(n)
+	}
+	return 0
 }

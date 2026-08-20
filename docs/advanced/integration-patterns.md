@@ -64,6 +64,20 @@ connector "db" {
 }
 ```
 
+```sql
+-- migrations/001_create_users.sql
+CREATE TABLE IF NOT EXISTS users (
+    id         TEXT PRIMARY KEY,
+    email      TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    created_at TEXT
+);
+```
+
+The columns are named as a database names them and the schema below exposes
+them as GraphQL does — `created_at` here, `createdAt` there. Mycel translates
+between the two, so neither has to give up its convention.
+
 ```graphql
 # schema.graphql
 type User {
@@ -120,6 +134,10 @@ flow "create_user" {
     operation = "Mutation.createUser"
   }
   transform {
+    # The mutation returns `User!`, so the record has to be findable after it
+    # is written — which means the flow assigns the key rather than leaving it
+    # to the database.
+    id         = "uuid()"
     email      = "lower(input.email)"
     name       = "input.name"
     created_at = "now()"
@@ -146,6 +164,7 @@ flow "delete_user" {
 
 ```bash
 # Start service
+mycel migrate --config .
 mycel start --config .
 
 # Query all users

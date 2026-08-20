@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matutetandil/mycel/v2/internal/connector"
 	"github.com/matutetandil/mycel/v2/internal/flow"
 )
 
@@ -238,4 +239,72 @@ func TestAWriteWithNoFieldsIsRefusedByName(t *testing.T) {
 	if dest.writes != 0 {
 		t.Errorf("the destination was written to %d times", dest.writes)
 	}
+}
+
+// A GraphQL mutation returns the record it created, found by the id the flow
+// assigned.
+//
+// The read-back used only the driver's last insert id, which for a table keyed
+// by anything but an autoincrementing integer is the row's position — so a
+// mutation whose flow generates its own key read back nothing, and GraphQL
+// answered "Cannot return null for non-nullable field User.email" for a record
+// that had just been written.
+func TestAGraphQLMutationReadsBackByTheIdItAssigned(t *testing.T) {
+	created := map[string]interface{}{"id": "u-uuid", "email": "john@example.com"}
+	dest := &recordingReadWriter{rows: []map[string]interface{}{created}}
+
+	h := &FlowHandler{
+		Config: &flow.Config{
+			Name: "create_user",
+			From: &flow.FromConfig{
+				Connector:       "api",
+				ConnectorParams: map[string]interface{}{"operation": "Mutation.createUser"},
+			},
+			Transform: &flow.TransformConfig{
+				Mappings: map[string]string{"id": "'u-uuid'", "email": "input.email"},
+				Order:    []string{"id", "email"},
+			},
+			To: &flow.ToConfig{
+				Connector:       "db",
+				ConnectorParams: map[string]interface{}{"target": "users"},
+			},
+		},
+		Dest:       dest,
+		SourceType: "graphql",
+	}
+
+	result, err := h.executeFlowCoreInternal(context.Background(),
+		map[string]interface{}{"email": "john@example.com"})
+	if err != nil {
+		t.Fatalf("mutation failed: %v", err)
+	}
+	row, ok := result.(map[string]interface{})
+	if !ok || row["email"] != "john@example.com" {
+		t.Fatalf("the mutation answered %#v, want the created record", result)
+	}
+	if got := dest.readFilters["id"]; got != "u-uuid" {
+		t.Errorf("read back by %#v, want the id the flow assigned", got)
+	}
+}
+
+// recordingReadWriter keeps the filters it was read with.
+type recordingReadWriter struct {
+	rows        []map[string]interface{}
+	readFilters map[string]interface{}
+}
+
+func (c *recordingReadWriter) Name() string                      { return "db" }
+func (c *recordingReadWriter) Type() string                      { return "database" }
+func (c *recordingReadWriter) Connect(ctx context.Context) error { return nil }
+func (c *recordingReadWriter) Close(ctx context.Context) error   { return nil }
+func (c *recordingReadWriter) Health(ctx context.Context) error  { return nil }
+
+func (c *recordingReadWriter) Read(_ context.Context, q connector.Query) (*connector.Result, error) {
+	c.readFilters = q.Filters
+	return &connector.Result{Rows: c.rows}, nil
+}
+
+func (c *recordingReadWriter) Write(_ context.Context, _ *connector.Data) (*connector.Result, error) {
+	// A text primary key, so what the driver reports is the row's position.
+	return &connector.Result{Affected: 1, LastID: 7}, nil
 }
