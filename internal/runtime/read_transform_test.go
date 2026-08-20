@@ -114,3 +114,40 @@ func TestAReadFlowWithoutATransformIsUnchanged(t *testing.T) {
 		t.Errorf("filters = %#v, want none", dest.lastQuery.Filters)
 	}
 }
+
+// A destination named by table builds its criteria from the request, and is
+// deliberately not given the computed fields: adding filters to reads that work
+// today would be a change nobody asked for. Shaping the answer is what the
+// response block is for.
+func TestComputedFieldsDoNotBecomeFiltersOnATableRead(t *testing.T) {
+	dest := &mockQueryReader{name: "db", rows: []map[string]interface{}{{"id": 7}}}
+	h := &FlowHandler{
+		Config: &flow.Config{
+			Name: "get_user",
+			From: &flow.FromConfig{
+				Connector:       "api",
+				ConnectorParams: map[string]interface{}{"operation": "GET /users/:id"},
+			},
+			Transform: &flow.TransformConfig{
+				Mappings: map[string]string{"note": "'audit'"},
+				Order:    []string{"note"},
+			},
+			To: &flow.ToConfig{
+				Connector:       "db",
+				ConnectorParams: map[string]interface{}{"target": "users"},
+			},
+		},
+		Dest:       dest,
+		SourceType: "rest",
+	}
+
+	if _, err := h.executeFlowCoreInternal(context.Background(), map[string]interface{}{"id": 7}); err != nil {
+		t.Fatalf("read flow failed: %v", err)
+	}
+	if _, present := dest.lastQuery.Filters["note"]; present {
+		t.Errorf("a computed field became a filter: %#v", dest.lastQuery.Filters)
+	}
+	if got := dest.lastQuery.Filters["id"]; got != 7 {
+		t.Errorf("the path parameter reached the driver as %#v, want 7", got)
+	}
+}

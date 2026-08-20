@@ -2194,8 +2194,16 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 	//
 	// The computed fields are laid over the request rather than replacing it,
 	// so the path parameters of `GET /users/:id` are still there for a flow
-	// that also transforms, and a read flow with no transform is unchanged.
-	if h.Config.Transform != nil && len(h.Config.Transform.Mappings) > 0 {
+	// that also transforms.
+	//
+	// Only a destination that spells its own query out is served this way. A
+	// destination named by table or collection builds its criteria from the
+	// request, and feeding it computed fields would silently add filters to
+	// reads that work today. Shaping what comes back is the `response` block's
+	// job, and a read flow whose transform is written against the answer
+	// rather than the request is still not served by either — see the enrich
+	// example, whose enrichments do not run on a read at all.
+	if h.Config.To.GetQuery() != "" && h.Config.Transform != nil && len(h.Config.Transform.Mappings) > 0 {
 		computed, err := h.applyTransforms(ctx, input)
 		if err != nil {
 			return nil, fmt.Errorf("transform error: %w", err)

@@ -7,7 +7,7 @@ connector "api" {
 # Downstream the flows write to. Swap for any real target.
 connector "downstream" {
   type     = "http"
-  base_url = "http://localhost:9000"
+  base_url = env("DOWNSTREAM_URL", "http://localhost:9000")
 }
 
 # Cache backing the dedupe fingerprints (memory keeps the demo self-contained;

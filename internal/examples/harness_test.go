@@ -540,7 +540,6 @@ var selfContained = []string{
 	"rate-limit",
 	"scheduled",
 	"security",
-	"state-machine",
 	"transactional-write",
 	"validators",
 	"websocket",
@@ -551,7 +550,6 @@ var selfContained = []string{
 // decision with a reason written down, not an oversight — and the README says
 // the same thing to whoever is reading it.
 var cannotBeRunHere = map[string]string{
-	`-d '{"event": "ship", "data": {"tracking_number": "TRK123"}}'`: "the ship transition calls a notification service on port 6000 that the example does not include, which its README says",
 	`/products/enrich`: "the enrichment step calls a legacy SOAP service at a host that does not exist, which its README says",
 }
 

@@ -12,24 +12,29 @@ connector "api" {
 }
 
 # Main database (orders, products)
+# The ten database connectors below are ten names for one file: they stand in
+# for separate services, which is what the steps in these flows are reaching
+# out to. A file rather than ":memory:", where each connection in the pool gets
+# its own and nothing written by one request is there for the next.
+
 connector "db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"
+  database = env("DB_PATH", "./data/steps_demo.db")
 }
 
 # External pricing service (simulated as same database for demo)
 connector "pricing_db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"
+  database = env("DB_PATH", "./data/steps_demo.db")
 }
 
 # Inventory service (simulated as same database for demo)
 connector "inventory_db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"
+  database = env("DB_PATH", "./data/steps_demo.db")
 }
 
 # The rest of the sources the flows below read from and write to.
@@ -42,43 +47,43 @@ connector "inventory_db" {
 connector "product_db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"
+  database = env("DB_PATH", "./data/steps_demo.db")
 }
 
 connector "reviews_db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"
+  database = env("DB_PATH", "./data/steps_demo.db")
 }
 
 connector "orders_db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"
+  database = env("DB_PATH", "./data/steps_demo.db")
 }
 
 connector "billing_db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"
+  database = env("DB_PATH", "./data/steps_demo.db")
 }
 
 connector "payments_db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"
+  database = env("DB_PATH", "./data/steps_demo.db")
 }
 
 connector "audit_db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"
+  database = env("DB_PATH", "./data/steps_demo.db")
 }
 
 connector "analytics_db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"
+  database = env("DB_PATH", "./data/steps_demo.db")
 }
 
 # Where the fan-out and the notifications go.

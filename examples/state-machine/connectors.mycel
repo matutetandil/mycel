@@ -14,5 +14,5 @@ connector "orders_db" {
 
 connector "notifications" {
   type    = "http"
-  base_url = "http://localhost:6000"
+  base_url = env("NOTIFICATIONS_URL", "http://localhost:6000")
 }

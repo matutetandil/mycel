@@ -6,20 +6,23 @@ connector "api" {
 connector "orders_db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"
+  # A file, not ":memory:": each connection in the pool gets its own in-memory
+  # database, so the order written by step one is not there for the step that
+  # compensates it.
+  database = env("DB_PATH", "./data/orders.db")
 }
 
 connector "payments_api" {
   type    = "http"
-  base_url = "http://localhost:4000"
+  base_url = env("PAYMENTS_URL", "http://localhost:4000")
 }
 
 connector "inventory_api" {
   type    = "http"
-  base_url = "http://localhost:5000"
+  base_url = env("INVENTORY_URL", "http://localhost:5000")
 }
 
 connector "notifications" {
   type    = "http"
-  base_url = "http://localhost:6000"
+  base_url = env("NOTIFICATIONS_URL", "http://localhost:6000")
 }

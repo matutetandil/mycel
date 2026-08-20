@@ -2,10 +2,14 @@ package examples
 
 import (
 	"database/sql"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +36,9 @@ type infrastructure struct {
 	needs []string
 	// env is what the example reads, built from the runner's variables.
 	env func(t *testing.T) []string
+	// then runs once the README's commands have been followed, for what a
+	// status code cannot say: which services the flows actually called.
+	then func(t *testing.T, calls []string)
 }
 
 func dsn(t *testing.T, name string) *url.URL {
@@ -205,6 +212,20 @@ func freshMySQL(t *testing.T, example string) (host, port, user, password, name 
 	return host, port, user, password, name
 }
 
+func redisEnv(t *testing.T) []string {
+	t.Helper()
+	url := os.Getenv("MYCEL_TEST_REDIS_URL")
+	if url == "" {
+		return nil
+	}
+	host, port, _ := strings.Cut(strings.TrimPrefix(url, "redis://"), ":")
+	return []string{
+		"REDIS_URL=" + url,
+		"REDIS_HOST=" + host,
+		"REDIS_PORT=" + port,
+	}
+}
+
 func elasticsearchEnv(t *testing.T) []string {
 	t.Helper()
 	url := os.Getenv("MYCEL_TEST_ELASTICSEARCH_URL")
@@ -235,6 +256,58 @@ func minioEnv(t *testing.T) []string {
 		"MINIO_ACCESS_KEY=" + envOr("MYCEL_TEST_S3_ACCESS_KEY", "minioadmin"),
 		"MINIO_SECRET_KEY=" + envOr("MYCEL_TEST_S3_SECRET_KEY", "minioadmin"),
 	}
+}
+
+// downstreamEnv stands a service up in front of the examples that call one.
+//
+// Several examples write to an HTTP service they do not include — a payment
+// API, an inventory API, a notification service. Their addresses used to be
+// written into the configuration, which both left a reader unable to point the
+// example at their own service and left this harness unable to run the flows
+// at all: the interesting part of a saga is what it does when a step answers,
+// and nothing was answering. The addresses now come from the environment, so
+// what answers here is a server that accepts anything and says so.
+//
+// It records what it was sent, which is what makes an assertion about a
+// compensating call possible rather than only an assertion about a status.
+func downstreamEnv(t *testing.T, names ...string) []string {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		recordCall(t, r.Method+" "+r.URL.Path+" "+string(body))
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// Enough of an answer for a step that captures a field out of it.
+		_, _ = w.Write([]byte(`{"status":"ok","id":"stub-1","reservation_id":"res-1"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	env := make([]string, 0, len(names))
+	for _, name := range names {
+		env = append(env, name+"="+server.URL)
+	}
+	return env
+}
+
+// What the stub was asked for, per test, since the tests run one at a time but
+// a package-level slice would still carry one example's calls into the next.
+var (
+	callsMu sync.Mutex
+	calls   = map[string][]string{}
+)
+
+func recordCall(t *testing.T, call string) {
+	callsMu.Lock()
+	defer callsMu.Unlock()
+	calls[t.Name()] = append(calls[t.Name()], call)
+}
+
+func callsFor(t *testing.T) []string {
+	callsMu.Lock()
+	defer callsMu.Unlock()
+	return append([]string(nil), calls[t.Name()]...)
 }
 
 func envOr(name, fallback string) string {
@@ -274,6 +347,39 @@ var needsInfrastructure = []infrastructure{
 		example: "batch",
 		needs:   []string{"MYCEL_TEST_ELASTICSEARCH_URL"},
 		env:     elasticsearchEnv,
+	},
+	{
+		// It writes to a downstream service it does not include, so one is
+		// stood up here: without it every flow in the example fails on a
+		// refused connection and none of the reusable blocks it exists to
+		// demonstrate — the dedupe, the retry, the named transform — is ever
+		// exercised.
+		example: "reusable-blocks",
+		needs:   []string{"MYCEL_TEST_REDIS_URL"},
+		env: func(t *testing.T) []string {
+			return append(redisEnv(t), downstreamEnv(t, "DOWNSTREAM_URL")...)
+		},
+	},
+	{
+		example: "steps",
+		needs:   []string{"MYCEL_TEST_REDIS_URL", "MYCEL_TEST_RABBITMQ_URL"},
+		env: func(t *testing.T) []string {
+			return append(redisEnv(t), rabbitEnv(t)...)
+		},
+	},
+	{
+		example: "auth",
+		needs:   []string{"MYCEL_TEST_POSTGRES_DSN"},
+		env: func(t *testing.T) []string {
+			return postgresEnvFor(t, "auth")
+		},
+	},
+	{
+		example: "dynamic-api-key",
+		needs:   []string{"MYCEL_TEST_POSTGRES_DSN"},
+		env: func(t *testing.T) []string {
+			return postgresEnvFor(t, "dynamic-api-key")
+		},
 	},
 	{
 		example: "mongodb",
@@ -319,6 +425,33 @@ var needsInfrastructure = []infrastructure{
 				"MYSQL_REPLICA_HOST=" + host,
 				"MYSQL_REPLICA_PORT=" + port,
 			}
+		},
+	},
+	{
+		// The three services a saga calls — payments, inventory, shipping —
+		// are not part of the example, so nothing ever ran it. With something
+		// answering, the part worth checking runs: a step that succeeds, and
+		// the compensation that undoes it when a later one does not.
+		example: "saga",
+		env: func(t *testing.T) []string {
+			return downstreamEnv(t, "PAYMENTS_URL", "INVENTORY_URL", "NOTIFICATIONS_URL")
+		},
+		then: func(t *testing.T, calls []string) {
+			// A saga that answers 200 having called nothing is a saga that did
+			// not run, and the status alone cannot tell the difference.
+			for _, want := range []string{"POST /reserve", "POST /charges"} {
+				if !calledSomething(calls, want) {
+					t.Errorf("the saga answered but never called %s; it made %v", want, calls)
+				}
+			}
+		},
+	},
+	{
+		// Its ship transition notifies a service the example does not include;
+		// the harness used to skip that command for exactly that reason.
+		example: "state-machine",
+		env: func(t *testing.T) []string {
+			return downstreamEnv(t, "NOTIFICATIONS_URL")
 		},
 	},
 	{
@@ -389,6 +522,21 @@ func TestTheExamplesThatNeedInfrastructureWorkWhenFollowed(t *testing.T) {
 					}
 				}
 			}
+
+			if want.then != nil {
+				want.then(t, callsFor(t))
+			}
 		})
 	}
+}
+
+// calledSomething reports whether any call matches, since what a stub records
+// is a method, a path and a body on one line.
+func calledSomething(calls []string, want string) bool {
+	for _, call := range calls {
+		if strings.Contains(call, want) {
+			return true
+		}
+	}
+	return false
 }
