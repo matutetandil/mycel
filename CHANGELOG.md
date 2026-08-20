@@ -62,6 +62,12 @@ behaviour was what you wanted:
 
 - **A cache key could not use the interpolation the feature was built for.** `key = "user:${input.id}"` — what the guide shows, what `interpolateKey` exists to replace, and what an aspect's cache key already accepted — was refused inside a flow with "Variables may not be used here": HCL saw the `${...}` first and tried to resolve `input` as a variable it does not have. Two blocks called cache behaved differently. Keys, `invalidate_on`, and an `invalidate` block's `keys` and `patterns` are read as the templates they are now.
 
+- **The GraphQL field-selection optimisation asked for columns that were not columns.** The rewritten query was built from every top-level field, including the ones carrying a selection — `orders { id total user { name } }` asks for a user, not a column called user — so the database refused the query the optimisation had just improved: "no such column: user". Only fields with nothing selected inside them name a column now.
+
+- **`id` was a field type nothing agreed on.** The GraphQL converter has mapped it since it was written, publishing it as `ID`; the schema's list of field types never named it and validation refused it as unknown. So a type using it built a schema and could not be validated against.
+
+- **The graphql-optimization example's third feature described batching Mycel does not do.** A field of an object type cannot have a flow — only `Query`, `Mutation` and `Subscription` can — so there is no per-row resolver, no N+1 and nothing to batch, which is why the dataloader package was removed. The example declared two nested entities nothing could fill, and its README compared query counts before and after a batching that never happened.
+
 - **An inferred GraphQL argument was always published as a String.** The name was all that was read, so `user(id: 1)` against an integer column was refused with "Expected type String, found 1". Where a flow says what it returns, a field of that type with the same name now says what the argument is.
 
 - **A GraphQL field published no arguments when its flow named them in the destination's query.** `query = "... WHERE sku = :sku"` names the parameter there and nowhere else, and only a step's params were read — so `product(sku: "ABC-123")` was answered "Unknown argument sku". Whether a mutation takes a typed input object is still decided by what its steps gave, so a mutation naming its columns as placeholders does not lose the input object it declares.
