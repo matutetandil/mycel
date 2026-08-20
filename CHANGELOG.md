@@ -62,6 +62,10 @@ behaviour was what you wanted:
 
 - **A cache key could not use the interpolation the feature was built for.** `key = "user:${input.id}"` — what the guide shows, what `interpolateKey` exists to replace, and what an aspect's cache key already accepted — was refused inside a flow with "Variables may not be used here": HCL saw the `${...}` first and tried to resolve `input` as a variable it does not have. Two blocks called cache behaved differently. Keys, `invalidate_on`, and an `invalidate` block's `keys` and `patterns` are read as the templates they are now.
 
+- **A database destination that names neither a table nor a query is refused.** A `to` block accepts whatever it is given — the parser sweeps what it does not know into a bag the connector reads by name — so `targt = "users"` passed `mycel validate`, appeared in the banner with an empty destination, and answered the first request with a SQL syntax error. Four examples in this repository named neither: three wrote raw SQL under `operation` and one a table name, and all four produced malformed SQL at the first request.
+
+- **The push reference documented `device_token` for a connector that reads `token`**, so a notification written from it had no addressee — and listed one payload field of the eleven the connector reads.
+
 - **Four connector settings were documented under names nothing accepts.** The tcp page listed `codec` for a connector that reads `protocol` (and `raw` among its wire formats, which is not one), and `address` for a client — which the parser refuses outright, while the page's own examples use host and port. The cache pool's `min_connections` is `min_idle`, and the SSE cors block's `allowed_origins` is `origins`. Every attribute a connector's page lists is now checked against the schema, the connector's source and the parser.
 
 - **The S3 connector could not read or write from a step.** Its page lists both first, and `Call` — which is what a step reaches — handled neither: they existed only through the Reader and Writer interfaces, so they worked as a flow's source or destination and answered "unknown operation" from a step, while the file connector answered both.
