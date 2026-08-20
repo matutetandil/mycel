@@ -72,6 +72,10 @@ func CreateOptimizedResolverWithOptions(handler HandlerFunc, opts ResolverOption
 		// Add requested fields info to input for use in transforms/steps
 		input["__requested_fields"] = fields.ListFlat()
 		input["__requested_top_fields"] = fields.List()
+		// The ones that name a column: a field with a selection inside it is
+		// another entity, and asking a database for it is asking for a column
+		// that does not exist.
+		input["__requested_columns"] = fields.Leaves()
 
 		thunk := startResolution(ctx, p, input, handler)
 
@@ -157,6 +161,10 @@ func CreateSmartResolver(handler HandlerFunc) graphql.FieldResolveFn {
 		// Add requested fields info to input for use in transforms/steps
 		input["__requested_fields"] = fields.ListFlat()
 		input["__requested_top_fields"] = fields.List()
+		// The ones that name a column: a field with a selection inside it is
+		// another entity, and asking a database for it is asking for a column
+		// that does not exist.
+		input["__requested_columns"] = fields.Leaves()
 
 		// Start the work and hand back a thunk. Every sibling registers before
 		// any of them is asked for its value, so the flows overlap instead of

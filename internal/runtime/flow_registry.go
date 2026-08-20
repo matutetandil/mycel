@@ -2190,7 +2190,7 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 
 	// GraphQL Query Optimization: Extract requested fields from input
 	// These fields are injected by the GraphQL resolver when field analysis is enabled
-	if topFields := optimizer.TopFieldsFromInput(input); len(topFields) > 0 {
+	if topFields := optimizer.ColumnsFromInput(input); len(topFields) > 0 {
 		// Convert GraphQL camelCase field names to snake_case column names
 		columns := make([]string, len(topFields))
 		for i, f := range topFields {
@@ -2376,14 +2376,28 @@ func (h *FlowHandler) handleSubscriptionPublish(ctx context.Context, input map[s
 
 // isInternalField checks if a key is an internal field used for query optimization.
 func isInternalField(key string) bool {
-	return key == "__requested_fields" || key == "__requested_top_fields"
+	return key == "__requested_fields" || key == "__requested_top_fields" ||
+		key == "__requested_columns"
+}
+
+// stripInternalFields removes what the GraphQL resolver added for the flow's
+// own use, so none of it reaches a connector as data.
+//
+// Each place that needed this listed the names itself, and adding one meant
+// remembering all of them: a new field went into two of the three, and the
+// third handed a []string to the database driver as a query parameter —
+// "unsupported type []string". One list, asked in one way.
+func stripInternalFields(input map[string]interface{}) {
+	for key := range input {
+		if isInternalField(key) {
+			delete(input, key)
+		}
+	}
 }
 
 // handleCreate handles POST requests.
 func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interface{}, dest connector.Writer) (interface{}, error) {
-	// Remove internal GraphQL optimization fields from input
-	delete(input, "__requested_fields")
-	delete(input, "__requested_top_fields")
+	stripInternalFields(input)
 
 	// Apply transforms if configured
 	payload, err := h.applyTransforms(ctx, input)
@@ -2489,9 +2503,7 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 		delete(input, "id")
 	}
 
-	// Remove internal GraphQL optimization fields from input
-	delete(input, "__requested_fields")
-	delete(input, "__requested_top_fields")
+	stripInternalFields(input)
 
 	// Apply transforms if configured
 	payload, err := h.applyTransforms(ctx, input)

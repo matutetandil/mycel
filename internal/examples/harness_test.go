@@ -69,6 +69,9 @@ type service struct {
 	dir   string
 	ports map[int]int // the port written in the example → the one it listens on
 	log   string
+
+	// graphQL is where the example serves GraphQL, when it serves any.
+	graphQL int
 }
 
 // start copies the example, moves every port it declares to one that is free,
@@ -104,7 +107,10 @@ func start(t *testing.T, example string, environment ...string) *service {
 		if readErr != nil {
 			return nil
 		}
-		rewritten := movePorts(t, string(source), svc.ports)
+		rewritten, graphQL := movePorts(t, string(source), svc.ports)
+		if graphQL != 0 {
+			svc.graphQL = graphQL
+		}
 		_ = os.WriteFile(path, []byte(rewritten), 0o644)
 		return nil
 	})
@@ -169,9 +175,10 @@ var listensWhenServing = map[string]bool{
 
 // movePorts rewrites the ports the service will listen on, and leaves alone the
 // ports it will connect to.
-func movePorts(t *testing.T, source string, moved map[int]int) string {
+func movePorts(t *testing.T, source string, moved map[int]int) (string, int) {
 	t.Helper()
 
+	graphQL := 0
 	var out strings.Builder
 	remaining := source
 
@@ -228,6 +235,9 @@ func movePorts(t *testing.T, source string, moved map[int]int) string {
 					to = freePort(t)
 					moved[declared] = to
 				}
+				if kind == "graphql" {
+					graphQL = to
+				}
 				return parts[1] + strconv.Itoa(to)
 			})
 		}
@@ -235,7 +245,7 @@ func movePorts(t *testing.T, source string, moved map[int]int) string {
 		remaining = remaining[end:]
 	}
 
-	return out.String()
+	return out.String(), graphQL
 }
 
 // moveAdminPort gives this copy an admin port of its own.
@@ -408,6 +418,90 @@ func statements(block string) []string {
 	return out
 }
 
+// graphQLQueries returns the queries an example's README shows in graphql
+// blocks, as commands posting each one.
+//
+// A GraphQL example demonstrates itself with queries meant for a playground
+// rather than with curl, so a harness reading only curl lines checks nothing at
+// all in the examples where the whole point is the query.
+func (s *service) graphQLQueries(t *testing.T, example string) []string {
+	t.Helper()
+
+	if s.graphQL == 0 {
+		return nil
+	}
+
+	readme, err := os.ReadFile(repoPath("examples", example, "README.md"))
+	if err != nil {
+		return nil
+	}
+
+	var out []string
+	for _, block := range graphQLBlock.FindAllStringSubmatch(string(readme), -1) {
+		var lines []string
+		for _, line := range strings.Split(block[1], "\n") {
+			if trimmed := strings.TrimSpace(line); trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			lines = append(lines, line)
+		}
+		if len(lines) == 0 {
+			continue
+		}
+
+		// A block showing several queries one after another is an
+		// illustration — GraphQL refuses it ("This anonymous operation must be
+		// the only defined operation"), and refusing it back would be reading
+		// the documentation as if it were a script.
+		if operationsIn(lines) != 1 {
+			continue
+		}
+
+		// A parameterised query needs values the README does not attach, so
+		// running it would only ever produce "Variable $id of required type
+		// ID! was not provided" — which says nothing about the example.
+		if strings.Contains(lines[0], "$") {
+			continue
+		}
+
+		body, err := json.Marshal(map[string]string{"query": strings.Join(lines, "\n")})
+		if err != nil {
+			continue
+		}
+		out = append(out, fmt.Sprintf(
+			`curl -X POST http://127.0.0.1:%d/graphql -H 'Content-Type: application/json' -d %s`,
+			s.graphQL, shellQuote(string(body))))
+	}
+	return out
+}
+
+// operationsIn counts the operations a block defines, by the braces that close
+// them at the top level.
+func operationsIn(lines []string) int {
+	depth, operations := 0, 0
+	for _, line := range lines {
+		for _, c := range line {
+			switch c {
+			case '{':
+				if depth == 0 {
+					operations++
+				}
+				depth++
+			case '}':
+				depth--
+			}
+		}
+	}
+	return operations
+}
+
+var graphQLBlock = regexp.MustCompile("(?s)```graphql\n(.*?)```")
+
+// shellQuote wraps a value so a shell hands it over unchanged.
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
 // run executes one command and reports the status it was answered with.
 func (s *service) run(t *testing.T, command string) (int, string) {
 	t.Helper()
@@ -433,6 +527,8 @@ func (s *service) run(t *testing.T, command string) (int, string) {
 var selfContained = []string{
 	"aspects",
 	"graphql",
+	"graphql-optimization",
+	"graphql-subscription-client",
 	"basic",
 	"cache",
 	"files",
@@ -525,7 +621,7 @@ func TestTheExamplesWorkWhenFollowed(t *testing.T) {
 			t.Parallel()
 
 			svc := start(t, example)
-			commands := svc.commands(t, example)
+			commands := append(svc.commands(t, example), svc.graphQLQueries(t, example)...)
 			if len(commands) == 0 {
 				t.Fatalf("no commands found in the README; this example is not being checked")
 			}

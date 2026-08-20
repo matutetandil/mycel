@@ -1,5 +1,10 @@
--- Database setup for GraphQL Optimization Demo
--- Run: sqlite3 demo.db < setup.sql
+-- The tables and rows the optimisation demo reads.
+--
+-- Applied with `mycel migrate --config . --connector db` before starting. The
+-- four connectors in this example are four names for one file: they stand in
+-- for separate services, so only one of them has to be migrated. The database file
+-- used to be committed alongside this, which meant the two could drift and
+-- the example depended on the binary rather than on its own SQL.
 
 -- Users table
 CREATE TABLE IF NOT EXISTS users (

@@ -642,7 +642,11 @@ func TypeSchema() Block {
 
 // FieldTypes are the value types a type field may declare.
 func FieldTypes() []string {
-	return []string{"string", "number", "boolean", "array", "object"}
+	// "id" is an identifier: GraphQL publishes it as ID, which accepts a
+	// number or a string. The GraphQL converter has mapped it since it was
+	// written, and this list did not name it — so it was a type that worked
+	// and that nothing offered or documented.
+	return []string{"string", "number", "boolean", "id", "array", "object"}
 }
 
 // StringFormats are the values the `format` constraint accepts.

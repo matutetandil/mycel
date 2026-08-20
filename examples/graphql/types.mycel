@@ -7,9 +7,9 @@ type "User" {
   _shareable   = true
   _description = "A user entity in the federated graph"
 
-  # The column is an integer, and the type is what decides how an argument is
-  # published: `user(id: 1)` is refused when this says string.
-  id    = number
+  # `id` is its own type: it publishes as GraphQL's ID, which accepts both a
+  # number and a string, so `user(id: 1)` and `$id: ID!` both work.
+  id    = id
   email = string
   name  = string
 

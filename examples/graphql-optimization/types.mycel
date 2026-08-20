@@ -37,9 +37,12 @@ type "Order" {
   status    = string
   createdAt = string
 
-  # Nested types - would cause N+1 without DataLoader
-  user    = User
-  product = Product
+  # No nested entities here: a field of an object type cannot have a flow, so
+  # nothing would ever fill one in and every query asking for it is answered
+  # "Cannot return null for non-nullable field Order.user". What an order needs
+  # about its user is fetched by the flow that serves the query.
+  # user    = User
+  # product = Product
 }
 
 # Price type (from pricing service)
