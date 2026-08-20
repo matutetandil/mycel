@@ -701,6 +701,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	// before connecting: the dispatch shape is worth knowing even when the
 	// broker is down and startup is about to fail.
 	r.reportDispatch(r.logger, r.schemaRegistry)
+	reportIgnoredDestinations(r.logger, r.config.Flows)
 
 	// Propagate service version to health responses
 	r.health.SetServiceVersion(serviceVersion)

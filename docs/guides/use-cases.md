@@ -47,7 +47,7 @@ connector "db" {
   type     = "database"
   driver   = "postgres"
   host     = env("DB_HOST")
-  port     = 5432
+  port     = env("DB_PORT", "5432")
   database = "myapp"
   user     = env("DB_USER")
   password = env("DB_PASS")
@@ -621,24 +621,35 @@ flow "get_user_with_weather" {
     target    = "users"
   }
 
-  step "weather" {
+  # Runs after the read, so the row is what `input` holds: the city it fetches
+  # the weather for is the user's.
+  enrich "weather" {
     connector = "weather_api"
     operation = "GET /current.json"
     params {
-      key = env("WEATHER_API_KEY")
-      q   = "output.city"
+      key = "env('WEATHER_API_KEY')"
+      q   = "input.city"
     }
   }
 
-  response {
-    name    = "output.name"
-    email   = "output.email"
-    city    = "output.city"
-    weather = "step.weather.current.condition.text"
-    temp_c  = "step.weather.current.temp_c"
+  transform {
+    name    = "input.name"
+    email   = "input.email"
+    city    = "input.city"
+    weather = "enriched.weather.current.condition.text"
+    temp_c  = "enriched.weather.current.temp_c"
   }
 }
 ```
+
+`enrich` rather than `step`: a step is how a flow gathers from several places
+*instead of* reading a destination, so a read flow with steps never reads its
+`to` — and the request is answered out of the steps alone. An enrichment is the
+other thing: read first, then add to what came back.
+
+Every value in `params` is a CEL expression, which is why the key is quoted
+twice. `key = env("WEATHER_API_KEY")` would put the key itself where an
+expression is expected, and CEL would try to resolve it as a name.
 
 **Test:**
 
@@ -646,7 +657,9 @@ flow "get_user_with_weather" {
 curl http://localhost:3000/users/abc-123/dashboard
 ```
 
-Returns the user from the database plus live weather data for their city.
+```json
+[{"name":"Ada","email":"ada@example.com","city":"Wellington","weather":"Partly cloudy","temp_c":17}]
+```
 
 ---
 
