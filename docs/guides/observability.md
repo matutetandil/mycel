@@ -280,23 +280,19 @@ Response:
 ```json
 {
   "status": "healthy",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "version": "1.0.0",
-  "uptime": "2h30m15s",
+  "timestamp": "2026-08-20T22:17:55Z",
+  "version": "2.18.0",
+  "service_version": "1.0.0",
+  "uptime": "5s",
   "components": [
-    {
-      "name": "postgres",
-      "status": "healthy",
-      "latency": "5ms"
-    },
-    {
-      "name": "redis",
-      "status": "healthy",
-      "latency": "1ms"
-    }
+    {"name": "postgres", "status": "healthy", "latency": "5ms"},
+    {"name": "redis", "status": "healthy", "latency": "1ms"}
   ]
 }
 ```
+
+`version` is Mycel's; `service_version` is the one the `service` block
+declares. One component per connector, named as the configuration names it.
 
 ### Liveness Probe (`/health/live`)
 
@@ -310,9 +306,10 @@ Response:
 ```json
 {
   "status": "healthy",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "version": "1.0.0",
-  "uptime": "2h30m15s"
+  "timestamp": "2026-08-20T22:17:55Z",
+  "version": "2.18.0",
+  "service_version": "1.0.0",
+  "uptime": "5s"
 }
 ```
 
@@ -324,11 +321,18 @@ Checks if service is ready to receive traffic (all connectors healthy).
 curl http://localhost:3000/health/ready
 ```
 
-Response (healthy):
+Response (healthy) — the components are here too, since what makes a service
+ready is that they are:
+
 ```json
 {
   "status": "healthy",
-  "timestamp": "2024-01-15T10:30:00Z"
+  "timestamp": "2026-08-20T22:17:55Z",
+  "version": "2.18.0",
+  "service_version": "1.0.0",
+  "components": [
+    {"name": "postgres", "status": "healthy", "latency": "5ms"}
+  ]
 }
 ```
 
