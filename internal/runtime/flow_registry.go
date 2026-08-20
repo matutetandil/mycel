@@ -1933,7 +1933,11 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	// declared and echoed the request back, headers and all. A flow that does
 	// have a destination already runs its steps on the way to writing.
 	if len(h.Config.Steps) > 0 && (operation.IsRead() || h.Dest == nil) {
-		result, err = h.handleStepsFlow(ctx, input)
+		var gathered map[string]interface{}
+		result, gathered, err = h.handleStepsFlow(ctx, input)
+		// What the steps gathered travels with the request, so the response
+		// block can be shaped out of them.
+		ctx = withStepResults(ctx, gathered)
 	} else if len(h.Config.MultiTo) > 0 && !operation.IsRead() {
 		// Check for multi-destination writes
 		result, err = h.handleMultiDestWrite(ctx, input, operation)
@@ -2299,11 +2303,11 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 
 // handleStepsFlow handles flows with steps where data comes from step execution + transform.
 // This is used for orchestration flows where data is aggregated from multiple sources.
-func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]interface{}) (interface{}, map[string]interface{}, error) {
 	// Execute all steps and collect results
 	stepResults, err := h.executeSteps(ctx, input)
 	if err != nil {
-		return nil, fmt.Errorf("step execution failed: %w", err)
+		return nil, nil, fmt.Errorf("step execution failed: %w", err)
 	}
 
 	// If no transform is configured, return the result of the step written
@@ -2314,10 +2318,10 @@ func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]inte
 	if h.Config.Transform == nil || len(h.Config.Transform.Mappings) == 0 {
 		for _, step := range h.Config.Steps {
 			if result, ok := stepResults[step.Name]; ok {
-				return result, nil
+				return result, stepResults, nil
 			}
 		}
-		return nil, nil
+		return nil, stepResults, nil
 	}
 
 	// Build transform rules from mappings
@@ -2328,17 +2332,17 @@ func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]inte
 	if celTransformer == nil {
 		celTransformer, err = transform.NewCELTransformer()
 		if err != nil {
-			return nil, fmt.Errorf("failed to create transformer: %w", err)
+			return nil, stepResults, fmt.Errorf("failed to create transformer: %w", err)
 		}
 	}
 
 	// Apply transform with step results (no enriched data for steps-only flows)
 	transformResult, err := celTransformer.TransformWithSteps(ctx, input, nil, stepResults, rules)
 	if err != nil {
-		return nil, fmt.Errorf("transform failed: %w", err)
+		return nil, stepResults, fmt.Errorf("transform failed: %w", err)
 	}
 
-	return transformResult, nil
+	return transformResult, stepResults, nil
 }
 
 // isGraphQLOperation checks if an operation string is a GraphQL operation.
@@ -2395,6 +2399,22 @@ func stripInternalFields(input map[string]interface{}) {
 	}
 }
 
+// identifiers returns what a connector may recognise the record by. The
+// payload is what is written; this is how the destination is asked to file it.
+func identifiers(input map[string]interface{}) map[string]interface{} {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]interface{}, len(input))
+	for key, value := range input {
+		if isInternalField(key) || key == "headers" {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
 // handleCreate handles POST requests.
 func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interface{}, dest connector.Writer) (interface{}, error) {
 	stripInternalFields(input)
@@ -2412,6 +2432,11 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 		Operation: "INSERT",
 		Payload:   flow.WrapPayload(payload, h.Config.To.Envelope),
+		// What the message carried, for a connector that identifies the record
+		// by something in it: Elasticsearch takes the document id this way, and
+		// with no filters at all it could only ever write to an id of its own
+		// invention — so `index` could not put a document where a flow said.
+		Filters: identifiers(input),
 	}
 
 	// Override operation if specified in to block config
@@ -3628,6 +3653,24 @@ func (h *FlowHandler) executeEnrichmentsCore(ctx context.Context, input map[stri
 }
 
 // applyTransforms applies configured transformations to the input data.
+// stepResultsKey carries what a flow's steps gathered to whoever shapes its
+// answer.
+type stepResultsKey struct{}
+
+// withStepResults returns a context carrying what the steps produced.
+func withStepResults(ctx context.Context, results map[string]interface{}) context.Context {
+	if len(results) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, stepResultsKey{}, results)
+}
+
+// stepResultsFrom returns what the flow's steps gathered, or nothing.
+func stepResultsFrom(ctx context.Context) map[string]interface{} {
+	results, _ := ctx.Value(stepResultsKey{}).(map[string]interface{})
+	return results
+}
+
 // applyResponseTransform applies response transformation rules to the result.
 // Available variables: input (original request), output (destination result).
 func (h *FlowHandler) applyResponseTransform(ctx context.Context, input map[string]interface{}, result interface{}) (interface{}, error) {
@@ -3654,7 +3697,7 @@ func (h *FlowHandler) applyResponseTransform(ctx context.Context, input map[stri
 		output["items"] = v
 	}
 
-	transformed, err := h.Transformer.TransformResponse(ctx, input, output, rules)
+	transformed, err := h.Transformer.TransformResponseWithSteps(ctx, input, output, stepResultsFrom(ctx), rules)
 	if err != nil {
 		return nil, err
 	}

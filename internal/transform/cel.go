@@ -1332,11 +1332,26 @@ func buildErrorDetails(failure error) map[string]interface{} {
 // input = original request data, output = destination result (pre-filled).
 // In CEL expressions: input.* references request, output.* references destination result.
 func (t *CELTransformer) TransformResponse(ctx context.Context, input map[string]interface{}, output map[string]interface{}, rules []Rule) (map[string]interface{}, error) {
+	return t.TransformResponseWithSteps(ctx, input, output, nil, rules)
+}
+
+// TransformResponseWithSteps is TransformResponse with what the flow's steps
+// gathered, reachable as step.<name>.
+//
+// A flow that gathers with steps shapes its answer out of them, and a response
+// could see only input and output — so a response naming a step was refused
+// with "no such attribute(s): step", including in the example whose search
+// flow is one step and a response.
+func (t *CELTransformer) TransformResponseWithSteps(ctx context.Context, input map[string]interface{}, output map[string]interface{}, steps map[string]interface{}, rules []Rule) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
 
+	if steps == nil {
+		steps = map[string]interface{}{}
+	}
 	activation := map[string]interface{}{
 		"input":  input,
 		"output": output,
+		"step":   steps,
 		"ctx":    make(map[string]interface{}),
 		"auth":   identity.Activation(ctx),
 	}

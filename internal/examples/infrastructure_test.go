@@ -205,6 +205,15 @@ func freshMySQL(t *testing.T, example string) (host, port, user, password, name 
 	return host, port, user, password, name
 }
 
+func elasticsearchEnv(t *testing.T) []string {
+	t.Helper()
+	url := os.Getenv("MYCEL_TEST_ELASTICSEARCH_URL")
+	if url == "" {
+		return nil
+	}
+	return []string{"ELASTICSEARCH_URL=" + url}
+}
+
 func mongoEnv(t *testing.T) []string {
 	t.Helper()
 	uri := os.Getenv("MYCEL_TEST_MONGO_URI")
@@ -255,6 +264,16 @@ var needsInfrastructure = []infrastructure{
 		example: "graphql-federation",
 		needs:   []string{"MYCEL_TEST_RABBITMQ_URL"},
 		env:     rabbitEnv,
+	},
+	{
+		example: "elasticsearch",
+		needs:   []string{"MYCEL_TEST_ELASTICSEARCH_URL"},
+		env:     elasticsearchEnv,
+	},
+	{
+		example: "batch",
+		needs:   []string{"MYCEL_TEST_ELASTICSEARCH_URL"},
+		env:     elasticsearchEnv,
 	},
 	{
 		example: "mongodb",

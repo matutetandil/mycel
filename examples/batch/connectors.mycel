@@ -17,6 +17,6 @@ connector "new_db" {
 
 connector "es" {
   type  = "elasticsearch"
-  nodes = ["http://localhost:9200"]
+  nodes = [env("ELASTICSEARCH_URL", "http://localhost:9200")]
   index = "products"
 }

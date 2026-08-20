@@ -249,6 +249,10 @@ services:
   # ==========================================================================
   elasticsearch:
     image: elasticsearch:8.12.0
+    # Published so a test on the host can reach it, as the other stores are:
+    # the examples that use Elasticsearch are started from outside the network.
+    ports:
+      - "${PORT_ES:-39200}:9200"
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"

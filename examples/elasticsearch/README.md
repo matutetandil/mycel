@@ -31,12 +31,14 @@ mycel start --config ./examples/elasticsearch
 
 ## Test
 
-Index a product:
+Index a product. The `id` is what the rest of this walkthrough refers to;
+without one Elasticsearch makes up its own and the update below has nothing to
+update.
 
 ```bash
 curl -X POST http://localhost:3000/products \
   -H "Content-Type: application/json" \
-  -d '{"name": "Wireless Mouse", "description": "Ergonomic wireless mouse", "price": 29.99}'
+  -d '{"id": "abc123", "name": "Wireless Mouse", "description": "Ergonomic wireless mouse", "price": 29.99}'
 ```
 
 Search by keyword:
