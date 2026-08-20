@@ -249,6 +249,43 @@ func (c *Connector) Call(ctx context.Context, operation string, input map[string
 	}
 
 	switch operation {
+	// read and write are what the page lists first, and they were handled only
+	// through the Reader and Writer interfaces — so they worked as a flow's
+	// source or destination and not from a step, where a connector is asked by
+	// name. The file connector answers both here; this one answered "unknown
+	// operation".
+	case "read":
+		key, _ := input["key"].(string)
+		if key == "" {
+			key, _ = input["path"].(string)
+		}
+		format, _ := input["format"].(string)
+		rows, err := c.readObject(ctx, &connector.Query{
+			Target: key,
+			Params: map[string]interface{}{"format": format},
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) == 1 {
+			return rows[0], nil
+		}
+		return rows, nil
+
+	case "write":
+		key, _ := input["key"].(string)
+		if key == "" {
+			key, _ = input["path"].(string)
+		}
+		format, _ := input["format"].(string)
+		return c.writeObject(ctx, &connector.Data{
+			Target: key,
+			Params: map[string]interface{}{
+				"content": input["content"],
+				"format":  format,
+			},
+		})
+
 	case "exists":
 		return c.exists(ctx, input)
 	case "head", "stat":

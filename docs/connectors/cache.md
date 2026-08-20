@@ -48,13 +48,22 @@ connector "redis_cache" {
 | `pool.max_connections` | int | `100` | Max pool size |
 | `pool.min_connections` | int | `10` | Min pool size |
 
-## Operations
+## How a cache is used
 
-| Operation | Direction | Description |
-|-----------|-----------|-------------|
-| `get` | read | Read a cached value by key |
-| `set` | write | Write a value with optional TTL |
-| `delete` | write | Remove a cached key |
+A cache connector is not a flow's source or destination — a flow naming one in
+`to` is answered "destination connector does not support required operation".
+It is somewhere other blocks keep things, and it is named by them:
+
+| Written in | What it does |
+|------------|--------------|
+| [`cache { storage = "..." }`](../core-concepts/flows.md) on a flow | Answers a repeated read without going to the destination |
+| [`after { invalidate { storage = "..." } }`](../core-concepts/flows.md) | Drops what a write made stale |
+| [`dedupe { cache = "..." }`](../core-concepts/flows.md) | Holds the fingerprints that decide whether a message was already handled |
+| [`idempotency { storage = "..." }`](../guides/resilience.md) | Remembers the answer already given to a request |
+| An aspect's `cache` block | The same, applied by flow name rather than written into each flow |
+
+Reading and writing entries directly — a get, a set, a delete of your own — is
+not something a flow can ask for.
 
 ## Example
 
