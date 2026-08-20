@@ -60,6 +60,8 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **A read flow with steps silently ignored its destination.** It answers out of its steps, so a `to` block was neither read nor written and nothing said so — the use-cases guide had a recipe built on the opposite belief that answered "no such key" for every field it meant to fill. The runtime now names those flows at startup and points at `enrich`, which reads first and adds to what came back.
+
 - **`??` produced CEL that does not compile whenever a comma shared its expression.** Neither rewriter looked inside brackets, so `input.missing ?? join(input.tags, ",")` became `coalesce(input.missing, join(input.tags) : join(input.tags), ",")` — a syntax error at startup pointing at text nobody wrote. `join`, `replace`, `substring`, `pick` and `default` all take two arguments, so the shape is common.
 
 - **`default()` did not work for the case it exists for.** CEL evaluates a function's arguments before calling it, so `default(input.description, '')` on a request carrying no description failed with "no such key: description" before `default` was reached — the documented way to give an optional field a value, failing on the optional field. It is guarded with `has()` now, the same way `??` already was.
