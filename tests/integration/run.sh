@@ -389,6 +389,12 @@ if command -v go > /dev/null 2>&1; then
   # suite; these are the rest, and nothing had ever run them.
   run_go_tests "examples that need infrastructure" \
     ./internal/examples/ 'TestTheExamplesThatNeedInfrastructureWorkWhenFollowed'
+
+  # The CDC example has no commands to run — it is a source. So the row is
+  # written to the database it watches and the event it should have become is
+  # looked for.
+  run_go_tests "the cdc example turns a change into an event" \
+    ./internal/examples/ 'TestTheCDCExampleTurnsAChangeIntoAnEvent'
 fi
 
 # Step 5: Summary

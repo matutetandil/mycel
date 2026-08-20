@@ -9,8 +9,10 @@ connector "pg_cdc" {
   user     = env("DB_USER", "replication_user")
   password = env("DB_PASSWORD")
 
-  slot_name   = "mycel_slot"
-  publication = "mycel_pub"
+  # A slot holds WAL until this service confirms it, so a second service
+  # watching the same database needs a slot of its own.
+  slot_name   = env("CDC_SLOT", "mycel_slot")
+  publication = env("CDC_PUBLICATION", "mycel_pub")
 }
 
 # REST API to expose endpoints

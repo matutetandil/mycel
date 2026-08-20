@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -124,16 +125,84 @@ func rabbitEnv(t *testing.T) []string {
 	}
 }
 
+// address returns the host and port a variable points at, whatever shape it is
+// written in.
+//
+// A Postgres or AMQP address is a URL and a MySQL one is not:
+// user:password@tcp(host:port)/database. Reading the second as a URL gives no
+// host at all, so the check for "is anything answering there" always said no —
+// and the read-replicas example skipped itself in a run where MySQL was up.
 func address(t *testing.T, name string) string {
 	t.Helper()
-	u := dsn(t, name)
-	if u == nil {
+
+	raw := os.Getenv(name)
+	if raw == "" {
 		return ""
 	}
-	if u.Host != "" {
+
+	if open := strings.Index(raw, "tcp("); open >= 0 {
+		rest := raw[open+len("tcp("):]
+		if close := strings.Index(rest, ")"); close > 0 {
+			return rest[:close]
+		}
+	}
+
+	if u := dsn(t, name); u != nil && u.Host != "" {
 		return u.Host
 	}
-	return os.Getenv(name)
+	return ""
+}
+
+// freshMySQL makes a database of this example's own, for the same reason the
+// Postgres one does: the server remembers which migrations it has applied.
+func freshMySQL(t *testing.T, example string) (host, port, user, password, name string) {
+	t.Helper()
+
+	dsn := os.Getenv("MYCEL_TEST_MYSQL_DSN")
+	if dsn == "" {
+		return "", "", "", "", ""
+	}
+
+	// user:password@tcp(host:port)/database?...
+	at := strings.Index(dsn, "@tcp(")
+	if at < 0 {
+		t.Fatalf("MYCEL_TEST_MYSQL_DSN is not the shape this expects: %s", dsn)
+	}
+	credentials := dsn[:at]
+	user, password, _ = strings.Cut(credentials, ":")
+	rest := dsn[at+len("@tcp("):]
+	address, _, _ := strings.Cut(rest, ")")
+	host, port, _ = strings.Cut(address, ":")
+
+	// The database written in the address, used as it is if a new one cannot
+	// be made.
+	existing := ""
+	if slash := strings.Index(rest, ")/"); slash >= 0 {
+		existing, _, _ = strings.Cut(rest[slash+2:], "?")
+	}
+
+	admin, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatalf("connecting to MySQL: %v", err)
+	}
+
+	// A database of this example's own, for the same reason the Postgres one
+	// has: the server remembers which migrations it has applied. An account
+	// that may not create one is not an error — the migrations say IF NOT
+	// EXISTS, so the shared database serves, with whatever earlier runs left
+	// in it.
+	name = "example_" + strings.NewReplacer("-", "_", ".", "_").Replace(example)
+	if _, err := admin.Exec("CREATE DATABASE IF NOT EXISTS " + name); err != nil {
+		t.Logf("using %s: this account may not create a database (%v)", existing, err)
+		_ = admin.Close()
+		return host, port, user, password, existing
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec("DROP DATABASE IF EXISTS " + name)
+		_ = admin.Close()
+	})
+
+	return host, port, user, password, name
 }
 
 func mongoEnv(t *testing.T) []string {
@@ -188,6 +257,42 @@ var needsInfrastructure = []infrastructure{
 		example: "s3",
 		needs:   []string{"MYCEL_TEST_S3_ENDPOINT"},
 		env:     minioEnv,
+	},
+	{
+		example: "read-replicas",
+		needs:   []string{"MYCEL_TEST_POSTGRES_DSN", "MYCEL_TEST_MYSQL_DSN"},
+		env: func(t *testing.T) []string {
+			pg := freshPostgres(t, "read-replicas")
+			if pg == nil {
+				return nil
+			}
+			pgPassword, _ := pg.User.Password()
+
+			host, port, user, password, name := freshMySQL(t, "read-replicas")
+			if name == "" {
+				return nil
+			}
+
+			// The replica points at the same server: what is being checked is
+			// that a configuration declaring replicas loads and answers, not
+			// that somebody set up replication.
+			return []string{
+				"PG_PRIMARY_HOST=" + pg.Hostname(),
+				"PG_PORT=" + pg.Port(),
+				"PG_USER=" + pg.User.Username(),
+				"PG_PASSWORD=" + pgPassword,
+				"PG_DATABASE=" + strings.TrimPrefix(pg.Path, "/"),
+				"PG_REPLICA_HOST=" + pg.Hostname(),
+				"PG_REPLICA_PORT=" + pg.Port(),
+				"MYSQL_PRIMARY_HOST=" + host,
+				"MYSQL_PORT=" + port,
+				"MYSQL_USER=" + user,
+				"MYSQL_PASSWORD=" + password,
+				"MYSQL_DATABASE=" + name,
+				"MYSQL_REPLICA_HOST=" + host,
+				"MYSQL_REPLICA_PORT=" + port,
+			}
+		},
 	},
 	{
 		example: "workflows",

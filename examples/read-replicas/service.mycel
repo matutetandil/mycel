@@ -18,6 +18,17 @@ connector "postgres" {
   password = env("PG_PASSWORD", "secret")
   database = env("PG_DATABASE", "app")
 
+  # What the example is named after, and what it was missing: without these a
+  # SELECT goes to the primary like everything else, however many comments say
+  # otherwise. Each replica is tried round-robin; one that cannot be reached is
+  # skipped rather than stopping the service.
+  use_replicas = true
+
+  replicas {
+    host = env("PG_REPLICA_HOST", "pg-replica-1")
+    port = env("PG_REPLICA_PORT", "5432")
+  }
+
   pool {
     max = 20
   }
@@ -34,6 +45,13 @@ connector "mysql" {
   user     = env("MYSQL_USER", "mycel")
   password = env("MYSQL_PASSWORD", "secret")
   database = env("MYSQL_DATABASE", "app")
+
+  use_replicas = true
+
+  replicas {
+    host = env("MYSQL_REPLICA_HOST", "mysql-replica-1")
+    port = env("MYSQL_REPLICA_PORT", "3306")
+  }
 }
 
 # REST API
