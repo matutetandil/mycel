@@ -2181,6 +2181,35 @@ func (h *FlowHandler) executeBatch(ctx context.Context, input map[string]interfa
 
 // handleRead handles GET requests.
 func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface{}, dest connector.Reader) (interface{}, error) {
+	// What the flow computed is part of what it asks for.
+	//
+	// The transform block ran on every write path and on no read path at all:
+	// on a GET it was applied neither to the request nor to the answer, so it
+	// was parsed, offered by the editor, documented as the thing `to` sees —
+	// and dead. A flow reading `SELECT ... WHERE id = :user_id` from a
+	// transform that computed user_id sent the query with the parameter
+	// unbound, which Postgres reports as a syntax error at ":" and SQLite as a
+	// missing argument: neither names the flow, and nothing suggests the
+	// transform never ran.
+	//
+	// The computed fields are laid over the request rather than replacing it,
+	// so the path parameters of `GET /users/:id` are still there for a flow
+	// that also transforms, and a read flow with no transform is unchanged.
+	if h.Config.Transform != nil && len(h.Config.Transform.Mappings) > 0 {
+		computed, err := h.applyTransforms(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("transform error: %w", err)
+		}
+		merged := make(map[string]interface{}, len(input)+len(computed))
+		for key, val := range input {
+			merged[key] = val
+		}
+		for key, val := range computed {
+			merged[key] = val
+		}
+		input = merged
+	}
+
 	query := connector.Query{
 		Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 		Operation: "SELECT",

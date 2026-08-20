@@ -11,7 +11,9 @@ connector "postgres" {
   type     = "database"
   driver   = "postgres"
   host     = env("POSTGRES_HOST", "localhost")
-  port     = 5432
+  # From the environment like the host, so this can point at a database that
+  # is not on the default port.
+  port     = env("POSTGRES_PORT", "5432")
   database = env("POSTGRES_DB", "mycel")
   user     = env("POSTGRES_USER", "mycel")
   password = env("POSTGRES_PASSWORD", "mycel")

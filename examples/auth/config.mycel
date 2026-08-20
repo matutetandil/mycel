@@ -15,7 +15,9 @@ connector "postgres" {
   type     = "database"
   driver   = "postgres"
   host     = env("DB_HOST", "localhost")
-  port     = 5432
+  # From the environment like the rest of the connection: a fixed port cannot
+  # be pointed at a database that is somewhere else.
+  port     = env("DB_PORT", "5432")
   database = env("DB_NAME", "auth")
   user     = env("DB_USER", "postgres")
   password = env("DB_PASSWORD", "postgres")
@@ -40,6 +42,10 @@ connector "api" {
 # falls back to the preset's defaults.
 auth {
   preset = "standard"
+
+  # Where this service is reached at. A provider sends users back here after
+  # they sign in, so declaring providers without it is refused at startup.
+  base_url = env("BASE_URL", "http://localhost:3000")
 
   # Where users (and the audit log) live. Omit this block to use the
   # built-in in-memory stores, handy for local experimentation.

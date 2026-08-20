@@ -12,7 +12,9 @@ connector "keys_db" {
   type     = "database"
   driver   = "postgres"
   host     = env("DB_HOST", "localhost")
-  port     = 5432
+  # From the environment like the rest of the connection: a fixed port cannot
+  # be pointed at a database that is somewhere else.
+  port     = env("DB_PORT", "5432")
   user     = env("DB_USER", "mycel")
   password = env("DB_PASSWORD", "secret")
   database = env("DB_NAME", "api_keys")

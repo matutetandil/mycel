@@ -1047,7 +1047,14 @@ func (p *HCLParser) parseAuthAccountLinkingBlock(block *hcl.Block) (*auth.Accoun
 }
 
 func (p *HCLParser) parseAuthEndpointsBlock(block *hcl.Block) (*auth.EndpointsConfig, error) {
-	config := &auth.EndpointsConfig{}
+	// Start from the defaults, so that naming one endpoint does not silence the
+	// rest. Writing the block at all used to leave every endpoint nil, and a
+	// nil endpoint is a disabled one: `endpoints { prefix = "/auth" }` — the
+	// form the documentation shows for moving the prefix, and the only thing
+	// the auth example wrote — turned off login, register, refresh, me and the
+	// other thirteen. Overriding one is still an override, and turning one off
+	// is still `enabled = false` inside its own block.
+	config := auth.DefaultEndpointsConfig()
 
 	content, diags := block.Body.Content(&hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
