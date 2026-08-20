@@ -279,8 +279,11 @@ func downstreamEnv(t *testing.T, names ...string) []string {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		// Enough of an answer for a step that captures a field out of it.
-		_, _ = w.Write([]byte(`{"status":"ok","id":"stub-1","reservation_id":"res-1"}`))
+		// Enough of an answer for whatever the example asks it: a step that
+		// captures an id out of it, an enrichment that reads a price or a
+		// stock level. A stand-in service, not a mock of any one of them.
+		_, _ = w.Write([]byte(`{"status":"ok","id":"stub-1","reservation_id":"res-1",` +
+			`"price":29.99,"currency":"USD","tax_rate":0.21,"available":42,"reserved":3}`))
 	}))
 	t.Cleanup(server.Close)
 
@@ -452,6 +455,20 @@ var needsInfrastructure = []infrastructure{
 		example: "state-machine",
 		env: func(t *testing.T) []string {
 			return downstreamEnv(t, "NOTIFICATIONS_URL")
+		},
+	},
+	{
+		// Its two enrichment services are not part of it, so nothing ever ran
+		// the flows — which is how `enrich` on a read came to do nothing at
+		// all without anyone noticing.
+		example: "enrich",
+		env: func(t *testing.T) []string {
+			return downstreamEnv(t, "PRICING_URL", "INVENTORY_URL")
+		},
+		then: func(t *testing.T, calls []string) {
+			if !calledSomething(calls, "/price") {
+				t.Errorf("the flows answered but nothing asked the pricing service; the calls were %v", calls)
+			}
 		},
 	},
 	{

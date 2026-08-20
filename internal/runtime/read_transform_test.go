@@ -151,3 +151,54 @@ func TestComputedFieldsDoNotBecomeFiltersOnATableRead(t *testing.T) {
 		t.Errorf("the path parameter reached the driver as %#v, want 7", got)
 	}
 }
+
+// Reading a table by name, there is nothing left to ask for, so what the
+// transform describes is the answer.
+//
+// This is how every read flow in the examples is written and none of them
+// worked: the transform was ignored, and with it the enrich blocks that fetch
+// the price or the stock level the answer is being shaped to include.
+func TestATableReadIsShapedByItsTransform(t *testing.T) {
+	dest := &mockQueryReader{
+		name: "db",
+		rows: []map[string]interface{}{{"id": 7, "name": "Widget", "internal_cost": 3}},
+	}
+	h := &FlowHandler{
+		Config: &flow.Config{
+			Name: "get_product",
+			From: &flow.FromConfig{
+				Connector:       "api",
+				ConnectorParams: map[string]interface{}{"operation": "GET /products/:id"},
+			},
+			Transform: &flow.TransformConfig{
+				Mappings: map[string]string{"id": "input.id", "label": "input.name"},
+				Order:    []string{"id", "label"},
+			},
+			To: &flow.ToConfig{
+				Connector:       "db",
+				ConnectorParams: map[string]interface{}{"target": "products"},
+			},
+		},
+		Dest:       dest,
+		SourceType: "rest",
+	}
+
+	result, err := h.executeFlowCoreInternal(context.Background(), map[string]interface{}{"id": 7})
+	if err != nil {
+		t.Fatalf("read flow failed: %v", err)
+	}
+
+	rows, ok := result.([]interface{})
+	if !ok || len(rows) != 1 {
+		t.Fatalf("result = %#v, want one shaped row", result)
+	}
+	row, _ := rows[0].(map[string]interface{})
+	if row["label"] != "Widget" {
+		t.Errorf("label = %#v; the transform reads a column of the row", row["label"])
+	}
+	// What the transform did not name is not in the answer, which is the point
+	// of shaping it.
+	if _, leaked := row["internal_cost"]; leaked {
+		t.Errorf("a column the transform never named came back: %#v", row)
+	}
+}

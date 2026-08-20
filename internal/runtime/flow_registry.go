@@ -2335,7 +2335,61 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 		return nil, readErr
 	}
 
-	return readResult, nil
+	return h.shapeReadResult(ctx, input, readResult)
+}
+
+// shapeReadResult applies a read flow's enrichments and transform to what came
+// back.
+//
+// A flow's transform feeds whatever the flow has left to say. Writing, that is
+// the row. Reading with a query of its own, the query's parameters, which is
+// handled above. Reading a table by name there is nothing left to ask for, so
+// what the transform describes is the answer — which is how every read flow in
+// the examples is written, and none of them worked: the transform was ignored,
+// and with it the `enrich` blocks that fetch the price or the stock level a
+// read is being shaped to include. `enrich` on a read flow, which is the most
+// natural place for it, never called anything at all.
+//
+// The row is laid over the request, so a transform can read a path parameter
+// that is not a column as well as the columns. A list is shaped row by row.
+func (h *FlowHandler) shapeReadResult(ctx context.Context, input map[string]interface{}, readResult interface{}) (interface{}, error) {
+	shaping := h.Config.To.GetQuery() == "" &&
+		((h.Config.Transform != nil && len(h.Config.Transform.Mappings) > 0) || len(h.Config.Enrichments) > 0)
+	if !shaping {
+		return readResult, nil
+	}
+
+	shape := func(row map[string]interface{}) (interface{}, error) {
+		merged := make(map[string]interface{}, len(input)+len(row))
+		for key, val := range input {
+			merged[key] = val
+		}
+		for key, val := range row {
+			merged[key] = val
+		}
+		return h.applyTransforms(ctx, merged)
+	}
+
+	switch rows := readResult.(type) {
+	case []map[string]interface{}:
+		shaped := make([]interface{}, 0, len(rows))
+		for _, row := range rows {
+			one, err := shape(row)
+			if err != nil {
+				return nil, fmt.Errorf("transform error: %w", err)
+			}
+			shaped = append(shaped, one)
+		}
+		return shaped, nil
+	case map[string]interface{}:
+		one, err := shape(rows)
+		if err != nil {
+			return nil, fmt.Errorf("transform error: %w", err)
+		}
+		return one, nil
+	default:
+		return readResult, nil
+	}
 }
 
 // handleStepsFlow handles flows with steps where data comes from step execution + transform.

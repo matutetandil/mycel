@@ -526,7 +526,6 @@ func (s *service) run(t *testing.T, command string) (int, string) {
 // likely to start with, and every one of them was broken.
 var selfContained = []string{
 	"aspects",
-	"enrich",
 	"exec",
 	"graphql",
 	"mocks",
