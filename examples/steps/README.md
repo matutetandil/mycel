@@ -59,7 +59,7 @@ step "pricing" {
   connector = "pricing_service"
   operation = "GET /prices"
   params    = { product_id = "input.product_id" }
-  when      = "input.include_prices == true"  # Only execute if condition is true
+  when      = "input.include_prices == \"true\""  # Only execute if condition is true
   on_error  = "default"
   default   = { price = 0 }
 }

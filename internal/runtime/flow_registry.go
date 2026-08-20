@@ -3438,12 +3438,7 @@ func (h *FlowHandler) executeStepsCore(ctx context.Context, input map[string]int
 					}
 					return nil, fmt.Errorf("step %s: query failed: %w", step.Name, err)
 				}
-				// Return single row if only one result
-				if len(readResult.Rows) == 1 {
-					result = readResult.Rows[0]
-				} else {
-					result = readResult.Rows
-				}
+				result = stepRows(step, readResult.Rows)
 			}
 		} else if step.GetOperation() != "" {
 			// HTTP/REST or other operation-based connector
@@ -3500,11 +3495,7 @@ func (h *FlowHandler) executeStepsCore(ctx context.Context, input map[string]int
 					}
 					return nil, fmt.Errorf("step %s: read failed: %w", step.Name, err)
 				}
-				if len(readResult.Rows) == 1 {
-					result = readResult.Rows[0]
-				} else {
-					result = readResult.Rows
-				}
+				result = stepRows(step, readResult.Rows)
 			} else if writer, ok := conn.(connector.Writer); ok {
 				// For Writer interface (INSERT, UPDATE, DELETE)
 				data := &connector.Data{
@@ -3574,6 +3565,32 @@ func (h *FlowHandler) executeStepsCore(ctx context.Context, input map[string]int
 	}
 
 	return stepResults, nil
+}
+
+// stepRows is what a step read leaves behind for the steps after it.
+//
+// One row is that row, so `step.user.name` reads a field. Several are the list.
+// None used to be the empty list, which is where this went wrong: every later
+// reference to `step.user.name` then indexed a list with a string, and CEL says
+// so in those words — "unsupported index type 'string' in list" — naming
+// neither the step nor the fact that its query matched nothing. A lookup that
+// finds no row is a common thing for a flow to have to handle, and it read like
+// a bug in the expression.
+//
+// So nothing found is nothing, and a step that declares a `default` gets it,
+// which is what a default is for.
+func stepRows(step *flow.StepConfig, rows []map[string]interface{}) interface{} {
+	switch {
+	case len(rows) == 1:
+		return rows[0]
+	case len(rows) == 0:
+		if step.Default != nil {
+			return step.Default
+		}
+		return nil
+	default:
+		return rows
+	}
 }
 
 // analyzeNeededSteps determines which steps are needed based on requested fields.

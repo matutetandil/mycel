@@ -80,6 +80,8 @@ flow "get_product" {
   step "reviews" {
     connector = "reviews_api"
     operation = "GET /reviews/${input.id}"
+    # A JSON body field. Sent as `?include_reviews=true` it would be the
+    # string "true" instead — see Input and Output.
     when      = "input.include_reviews == true"
   }
 

@@ -829,6 +829,8 @@ step "NAME" {
   params    = [input.id]
   body      = { key = "value" }
   format    = "json"
+  # From a JSON body this is a boolean. From a query string it is the text
+  # "true" — see Input and Output.
   when      = "input.include_details == true"
   timeout   = "5s"
   on_error  = "skip"

@@ -21,19 +21,34 @@ CREATE TABLE IF NOT EXISTS customers (
 );
 
 CREATE TABLE IF NOT EXISTS products (
-    id    INTEGER PRIMARY KEY AUTOINCREMENT,
-    name  TEXT,
-    price REAL,
-    stock INTEGER DEFAULT 0
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT,
+    -- Read by get_product_details, which shapes it into its answer.
+    description TEXT,
+    price       REAL,
+    stock       INTEGER DEFAULT 0
 );
 
+-- The columns create_order writes, which is every field its transform builds.
+-- A destination named by table is written field by field, so a transform that
+-- computes a field the table does not have fails the whole write.
 CREATE TABLE IF NOT EXISTS orders (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id    INTEGER,
-    product_id INTEGER,
-    status     TEXT DEFAULT 'pending',
-    total      REAL,
-    created_at TEXT
+    -- Text, because the README asks for order "ord-123": an order identifier
+    -- is rarely a counter, and a flow that looks one up by the id in the path
+    -- has to be able to find it.
+    id           TEXT PRIMARY KEY,
+    user_id      INTEGER,
+    user_email   TEXT,
+    product_id   INTEGER,
+    product_name TEXT,
+    quantity     INTEGER,
+    unit_price   REAL,
+    tax_rate     REAL,
+    subtotal     REAL,
+    tax          REAL,
+    status       TEXT DEFAULT 'pending',
+    total        REAL,
+    created_at   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS order_items (
@@ -174,3 +189,27 @@ CREATE TABLE IF NOT EXISTS audit_log (
     detail     TEXT,
     created_at TEXT
 );
+
+
+-- The rows the README's commands ask for. A tour of what a step can do is a
+-- tour of lookups, and a lookup against an empty table returns nothing: every
+-- reference to a field of that step then fails, which reads like a mistake in
+-- the expression rather than an empty database.
+INSERT OR IGNORE INTO users (id, name, email, created_at)
+VALUES (1, 'Ada Lovelace', 'ada@example.com', '2026-01-01T00:00:00Z');
+
+INSERT OR IGNORE INTO customers (id, name, email, tier)
+VALUES (1, 'Ada Lovelace', 'ada@example.com', 'gold');
+
+INSERT OR IGNORE INTO products (id, name, description, price, stock)
+VALUES (100, 'Widget', 'A widget, for widgeting', 29.99, 42);
+
+-- The pricing and inventory services of this example are two more tables.
+INSERT OR IGNORE INTO prices (product_id, price, currency, discount, tax_rate)
+VALUES (100, 29.99, 'USD', 0.0, 0.21);
+
+INSERT OR IGNORE INTO inventory (product_id, available, reserved, warehouse)
+VALUES (100, 42, 3, 'main');
+
+INSERT OR IGNORE INTO orders (id, user_id, product_id, status, total, created_at)
+VALUES ('ord-123', 1, 100, 'confirmed', 59.98, '2026-01-02T00:00:00Z');
