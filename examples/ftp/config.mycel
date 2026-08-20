@@ -7,8 +7,8 @@ service {
 connector "partner_sftp" {
   type      = "ftp"
   protocol  = "sftp"
-  host      = "sftp.partner.com"
-  port      = 22
+  host      = env("SFTP_HOST", "sftp.partner.com")
+  port      = env("SFTP_PORT", "22")
   username  = env("SFTP_USER")
   password  = env("SFTP_PASS")
   base_path = "/incoming"
@@ -24,10 +24,11 @@ connector "api" {
 connector "db" {
   type     = "database"
   driver   = "postgres"
-  host     = "localhost"
-  database = "files"
-  user     = "admin"
-  password = env("DB_PASS")
+  host     = env("DB_HOST", "localhost")
+  port     = env("DB_PORT", "5432")
+  database = env("DB_NAME", "files")
+  user     = env("DB_USER", "admin")
+  password = env("DB_PASSWORD", "")
 }
 
 # List files on the SFTP server

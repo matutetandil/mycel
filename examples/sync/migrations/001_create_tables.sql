@@ -1,4 +1,8 @@
--- Initialize database for sync example
+-- The tables the sync flows write to.
+--
+-- Applied with `mycel migrate --config .` before starting. It used to be an
+-- init.sql the reader had to feed to psql, which the docker-compose here does
+-- and nothing else did.
 
 -- Payments table (for lock example)
 CREATE TABLE IF NOT EXISTS payments (

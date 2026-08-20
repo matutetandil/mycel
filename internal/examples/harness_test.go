@@ -58,6 +58,8 @@ func freePort(t *testing.T) int {
 var (
 	portInConfig  = regexp.MustCompile(`(?m)^(\s*(?:admin_)?port\s*=\s*)(\d+)`)
 	portInCommand = regexp.MustCompile(`(localhost|127\.0\.0\.1):(\d+)`)
+	// port = env("API_PORT", 3000), with or without quotes around the default.
+	portFromEnv = regexp.MustCompile(`(?m)^(\s*(?:admin_)?port\s*=\s*)env\(\s*"([A-Z_]+)"\s*,\s*"?(\d+)"?\s*\)`)
 	fencedBlock   = regexp.MustCompile("(?s)```[a-zA-Z]*\n(.*?)```")
 	lineJoin      = regexp.MustCompile(`\\\n\s*`)
 	// A placeholder standing in for a value the reader is meant to supply,
@@ -231,6 +233,30 @@ func movePorts(t *testing.T, source string, moved map[int]int) (string, int) {
 			block = portInConfig.ReplaceAllStringFunc(block, func(match string) string {
 				parts := portInConfig.FindStringSubmatch(match)
 				declared, _ := strconv.Atoi(parts[2])
+				to, seen := moved[declared]
+				if !seen {
+					to = freePort(t)
+					moved[declared] = to
+				}
+				if kind == "graphql" {
+					graphQL = to
+				}
+				return parts[1] + strconv.Itoa(to)
+			})
+
+			// And the ports written as env("API_PORT", 3000), which are just
+			// as much ports this service listens on and were left where they
+			// were: the rule above only matches a literal. So the example
+			// bound its default, the README's commands were not moved with it,
+			// and the requests landed on whatever else was there — reported as
+			// a route the example does not serve.
+			//
+			// After the literal rule rather than before it, since this one
+			// produces a literal and would otherwise be moved a second time,
+			// to a port nothing is listening on.
+			block = portFromEnv.ReplaceAllStringFunc(block, func(match string) string {
+				parts := portFromEnv.FindStringSubmatch(match)
+				declared, _ := strconv.Atoi(parts[3])
 				to, seen := moved[declared]
 				if !seen {
 					to = freePort(t)

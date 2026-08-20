@@ -132,6 +132,11 @@ func rabbitEnv(t *testing.T) []string {
 		// against the default localhost rather than against this broker.
 		"RABBITMQ_URL=" + u.String(),
 		"RABBITMQ_HOST=" + u.Hostname(),
+		// Both spellings, because the examples do not agree on one.
+		"RABBIT_HOST=" + u.Hostname(),
+		"RABBIT_PORT=" + u.Port(),
+		"RABBIT_USER=" + u.User.Username(),
+		"RABBIT_PASS=" + password,
 		"RABBITMQ_PORT=" + u.Port(),
 		"RABBITMQ_USER=" + u.User.Username(),
 		"RABBITMQ_PASS=" + password,
@@ -651,6 +656,8 @@ var needsInfrastructure = []infrastructure{
 		},
 	},
 	{
+		// Publishing through the service puts the event on the channel that
+		// the other flow is subscribed to, so one request exercises both.
 		example: "redis-pubsub",
 		needs:   []string{"MYCEL_TEST_REDIS_URL", "MYCEL_TEST_POSTGRES_DSN"},
 		env: func(t *testing.T) []string {
@@ -666,7 +673,9 @@ var needsInfrastructure = []infrastructure{
 		},
 	},
 	{
-		example: "integration",
+		// A directory of five services rather than one; the README's request
+		// is against the first of them.
+		example: "integration/rest-to-rabbit",
 		needs:   []string{"MYCEL_TEST_RABBITMQ_URL"},
 		env:     rabbitEnv,
 	},
