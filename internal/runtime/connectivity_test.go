@@ -37,7 +37,7 @@ service { name = "t" }
 connector "local_sqlite" {
   type   = "database"
   driver = "sqlite"
-  path   = "`+dbPath+`"
+  database = "`+dbPath+`"
 }
 `)
 
@@ -124,7 +124,7 @@ service { name = "t" }
 connector "zeta_ok" {
   type   = "database"
   driver = "sqlite"
-  path   = "`+dbPath+`"
+  database = "`+dbPath+`"
 }
 
 connector "alpha_broken" {

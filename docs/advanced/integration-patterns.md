@@ -60,7 +60,7 @@ connector "api" {
 connector "db" {
   type   = "database"
   driver = "sqlite"
-  path   = "./data/users.db"
+  database = "./data/users.db"
 }
 ```
 
@@ -631,7 +631,7 @@ connector "order_events" {
 connector "db" {
   type   = "database"
   driver = "sqlite"
-  path   = "./data/orders.db"
+  database = "./data/orders.db"
 }
 ```
 
@@ -763,7 +763,7 @@ connector "events" {
 connector "db" {
   type   = "database"
   driver = "sqlite"
-  path   = "./data/orders.db"
+  database = "./data/orders.db"
 }
 ```
 
@@ -916,7 +916,7 @@ connector "api" {
 connector "db" {
   type   = "database"
   driver = "sqlite"  # or "postgres"
-  path   = "./data/orders.db"
+  database = "./data/orders.db"
 }
 ```
 
