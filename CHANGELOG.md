@@ -62,6 +62,8 @@ behaviour was what you wanted:
 
 - **A cache key could not use the interpolation the feature was built for.** `key = "user:${input.id}"` — what the guide shows, what `interpolateKey` exists to replace, and what an aspect's cache key already accepted — was refused inside a flow with "Variables may not be used here": HCL saw the `${...}` first and tried to resolve `input` as a variable it does not have. Two blocks called cache behaved differently. Keys, `invalidate_on`, and an `invalidate` block's `keys` and `patterns` are read as the templates they are now.
 
+- **An inferred GraphQL argument was always published as a String.** The name was all that was read, so `user(id: 1)` against an integer column was refused with "Expected type String, found 1". Where a flow says what it returns, a field of that type with the same name now says what the argument is.
+
 - **A GraphQL field published no arguments when its flow named them in the destination's query.** `query = "... WHERE sku = :sku"` names the parameter there and nowhere else, and only a step's params were read — so `product(sku: "ABC-123")` was answered "Unknown argument sku". Whether a mutation takes a typed input object is still decided by what its steps gave, so a mutation naming its columns as placeholders does not lose the input object it declares.
 
 - **`INSERT ... RETURNING` ran on SQLite and its rows were discarded.** The question "does this statement return rows" looked only at the first word, while the branch it guards exists for RETURNING clauses — Postgres asked it properly, so the same statement behaved differently on the two drivers. It is how a mutation answers with the row it made.
