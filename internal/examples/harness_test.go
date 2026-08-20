@@ -81,10 +81,17 @@ type service struct {
 // applies its migrations and runs it.
 func start(t *testing.T, example string, environment ...string) *service {
 	t.Helper()
+	return startDir(t, repoPath("examples", example), example, environment...)
+}
+
+// startDir is start over any directory, so that a service assembled from a
+// documentation page runs the same way an example does.
+func startDir(t *testing.T, source, label string, environment ...string) *service {
+	t.Helper()
 
 	dir := t.TempDir()
-	if out, err := exec.Command("cp", "-R", repoPath("examples", example)+"/.", dir).CombinedOutput(); err != nil {
-		t.Fatalf("copying %s: %v: %s", example, err, out)
+	if out, err := exec.Command("cp", "-R", source+"/.", dir).CombinedOutput(); err != nil {
+		t.Fatalf("copying %s: %v: %s", label, err, out)
 	}
 	// A database left behind by somebody's local run is not what a reader has.
 	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -129,7 +136,7 @@ func start(t *testing.T, example string, environment ...string) *service {
 		migrate.Dir = dir
 		migrate.Env = append(os.Environ(), environment...)
 		if out, err := migrate.CombinedOutput(); err != nil {
-			t.Fatalf("%s: migrate: %v: %s", example, err, out)
+			t.Fatalf("%s: migrate: %v: %s", label, err, out)
 		}
 	}
 
@@ -145,7 +152,7 @@ func start(t *testing.T, example string, environment ...string) *service {
 	run.Stdout = logFile
 	run.Stderr = logFile
 	if err := run.Start(); err != nil {
-		t.Fatalf("%s: starting: %v", example, err)
+		t.Fatalf("%s: starting: %v", label, err)
 	}
 	t.Cleanup(func() {
 		_ = run.Process.Kill()
@@ -153,7 +160,7 @@ func start(t *testing.T, example string, environment ...string) *service {
 		_ = logFile.Close()
 	})
 
-	svc.waitUntilListening(t, example)
+	svc.waitUntilListening(t, label)
 	return svc
 }
 
@@ -383,9 +390,17 @@ func stripANSI(s string) string { return ansi.ReplaceAllString(s, "") }
 func (s *service) commands(t *testing.T, example string) []string {
 	t.Helper()
 
-	readme, err := os.ReadFile(repoPath("examples", example, "README.md"))
+	return s.commandsIn(t, repoPath("examples", example, "README.md"), example)
+}
+
+// commandsIn reads the commands out of any page, so a documentation page is
+// followed the same way a README is.
+func (s *service) commandsIn(t *testing.T, path, label string) []string {
+	t.Helper()
+
+	readme, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("%s has no README: %v", example, err)
+		t.Fatalf("%s has no README: %v", label, err)
 	}
 
 	var out []string

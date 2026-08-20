@@ -2519,6 +2519,18 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 	// Remove meta fields that should not be written to destination
 	delete(payload, "headers")
 
+	// Nothing to write is worth saying so.
+	//
+	// An empty payload became `INSERT INTO items () VALUES ()`, and what came
+	// back was the driver's opinion of it — `SQL logic error: near ")"` — for
+	// a request that simply carried no fields. That is an ordinary mistake
+	// (an empty body, a transform that produced nothing) and the message named
+	// neither the flow nor the reason.
+	if len(payload) == 0 && h.Config.To.GetQuery() == "" && h.Config.To.Transaction == nil {
+		return nil, fmt.Errorf("flow %q has nothing to write: the request carried no fields%s",
+			h.Config.Name, transformHint(h.Config))
+	}
+
 	data := &connector.Data{
 		Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 		Operation: "INSERT",
@@ -2603,11 +2615,35 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		return result.Metadata, nil
 	}
 
-	// Default: return insert metadata
+	// Default: return insert metadata.
+	//
+	// The id the flow assigned wins over the one the driver reports. A flow
+	// that generates its own key — `id = "uuid()"`, which is the first thing
+	// the quick start teaches — was answered with the row's position in the
+	// table instead: `{"affected":1,"id":1}` for a record whose id is a uuid,
+	// so a caller that created something and then fetched it by the id it was
+	// given looked up a record that does not exist.
+	assigned := result.LastID
+	if written, ok := payload["id"]; ok && written != nil {
+		return map[string]interface{}{
+			"id":       written,
+			"affected": result.Affected,
+		}, nil
+	}
 	return map[string]interface{}{
-		"id":       result.LastID,
+		"id":       assigned,
 		"affected": result.Affected,
 	}, nil
+}
+
+// transformHint points at the transform when there is one, since an empty
+// payload from a flow that shapes its writes is a different mistake from an
+// empty request body.
+func transformHint(cfg *flow.Config) string {
+	if cfg.Transform != nil && len(cfg.Transform.Mappings) > 0 {
+		return " and the transform produced no fields"
+	}
+	return ""
 }
 
 // handleUpdate handles PUT/PATCH requests.

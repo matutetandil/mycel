@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/matutetandil/mycel/v2/internal/flow"
@@ -200,5 +201,41 @@ func TestATableReadIsShapedByItsTransform(t *testing.T) {
 	// of shaping it.
 	if _, leaked := row["internal_cost"]; leaked {
 		t.Errorf("a column the transform never named came back: %#v", row)
+	}
+}
+
+// A write with nothing in it says so.
+//
+// An empty payload became `INSERT INTO items () VALUES ()` and what came back
+// was the driver's opinion of that — `SQL logic error: near ")"` — for a
+// request that simply carried no fields. An empty body and a transform that
+// produced nothing are both ordinary mistakes, and neither was named.
+func TestAWriteWithNoFieldsIsRefusedByName(t *testing.T) {
+	dest := &mockQueryReadWriter{name: "db"}
+	h := &FlowHandler{
+		Config: &flow.Config{
+			Name: "create_item",
+			From: &flow.FromConfig{
+				Connector:       "api",
+				ConnectorParams: map[string]interface{}{"operation": "POST /items"},
+			},
+			To: &flow.ToConfig{
+				Connector:       "db",
+				ConnectorParams: map[string]interface{}{"target": "items"},
+			},
+		},
+		Dest:       dest,
+		SourceType: "rest",
+	}
+
+	_, err := h.executeFlowCoreInternal(context.Background(), map[string]interface{}{})
+	if err == nil {
+		t.Fatal("an empty request was written")
+	}
+	if !strings.Contains(err.Error(), "create_item") || !strings.Contains(err.Error(), "nothing to write") {
+		t.Errorf("the refusal reads %q; it should name the flow and the reason", err)
+	}
+	if dest.writes != 0 {
+		t.Errorf("the destination was written to %d times", dest.writes)
 	}
 }

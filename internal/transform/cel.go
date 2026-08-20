@@ -919,7 +919,7 @@ func (t *CELTransformer) Compile(expr string) (cel.Program, error) {
 	}
 	t.mu.RUnlock()
 
-	rewritten := RewriteCoalesce(expr)
+	rewritten := RewriteDefault(RewriteCoalesce(expr))
 
 	// Parse and check the expression
 	ast, issues := t.env.Compile(rewritten)

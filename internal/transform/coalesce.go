@@ -212,6 +212,17 @@ func splitTopLevel(s string, sep byte) []string {
 			i = skipString(s, i)
 			continue
 		}
+		// A separator inside brackets is not a top-level one. Without this,
+		// the comma in `join(input.tags, ",")` split the call in half, and
+		// every `??` sharing an expression with a two-argument call was
+		// rewritten into CEL that does not compile — `coalesce(input.x,
+		// join(input.tags) : join(input.tags), ",")`.
+		if close := matchingClose(c); close != 0 {
+			if j := findClose(s, i, c, close); j >= 0 {
+				i = j + 1
+				continue
+			}
+		}
 		if c == sep {
 			segments = append(segments, s[start:i])
 			start = i + 1
@@ -280,6 +291,15 @@ func findTopLevelCoalesce(s string) []int {
 		if c == '\'' || c == '"' {
 			i = skipString(s, i)
 			continue
+		}
+		// Likewise: what is inside brackets has already been folded by the
+		// recursion, and splitting an argument list at an operator that
+		// belongs to one of its arguments produces nonsense.
+		if close := matchingClose(c); close != 0 {
+			if j := findClose(s, i, c, close); j >= 0 {
+				i = j + 1
+				continue
+			}
 		}
 		if c == '?' && s[i+1] == '?' {
 			positions = append(positions, i)

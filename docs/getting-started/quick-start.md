@@ -81,7 +81,7 @@ flow "create_item" {
   }
   to {
     connector = "db"
-    target    = "INSERT items"
+    target    = "items"
   }
 }
 
@@ -92,10 +92,30 @@ flow "get_item" {
   }
   to {
     connector = "db"
-    target    = "items WHERE id = :id"
+    target    = "items"
   }
 }
 ```
+
+All three name the same `target` — the table. What each does with it comes from
+the request: `GET` reads, `POST` writes, and the `:id` in a path becomes the
+value the read filters on. You write the SQL yourself only when you want
+something the shape of the request does not say; `query` is the attribute for
+that.
+
+### `migrations/001_create_items.sql` — the table
+
+```sql
+CREATE TABLE IF NOT EXISTS items (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    description TEXT,
+    created_at  TEXT
+);
+```
+
+Mycel does not invent tables: a flow writing to `items` needs `items` to exist.
+Every `.sql` under `migrations/` is applied, in name order, by `mycel migrate`.
 
 ## Step 2: Run Your Service
 
@@ -109,25 +129,40 @@ docker run -v $(pwd):/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
 
 ```bash
 go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
+
+mycel migrate
 mycel start
 ```
+
+Run both from the service directory: a relative `database` path is relative to
+where the process starts, so migrating from one directory and starting from
+another creates the table beside the wrong file.
 
 You should see:
 
 ```
-  __  __                  _
- |  \/  |_   _  ___ ___  | |
- | |\/| | | | |/ __/ _ \ | |
- | |  | | |_| | (_|  __/ | |
- |_|  |_|\__, |\___\___| |_|
-         |___/
+    ███╗   ███╗██╗   ██╗ ██████╗███████╗██╗
+    ████╗ ████║╚██╗ ██╔╝██╔════╝██╔════╝██║
+    ██╔████╔██║ ╚████╔╝ ██║     █████╗  ██║
+    ██║╚██╔╝██║  ╚██╔╝  ██║     ██╔══╝  ██║
+    ██║ ╚═╝ ██║   ██║   ╚██████╗███████╗███████╗
+    ╚═╝     ╚═╝   ╚═╝    ╚═════╝╚══════╝╚══════╝
+    Declarative Microservice Runtime v2.18.0
 
- Declarative Microservice Framework
+    Service: my-first-api v1.0.0
+    Environment: development
+    Port: 3000
 
-INFO  Starting service: my-first-api
-INFO  Loaded 2 connectors
-INFO  Registered 3 flows
-INFO  REST server listening on :3000
+    Connectors:
+    ✓ api (rest) listening on :3000
+    ✓ db (database) → ./data.db
+
+    Flows:
+    ✓ list_items: GET /items → items
+    ✓ create_item: POST /items → items
+    ✓ get_item: GET /items/:id → items
+
+    ✓ Ready! Press Ctrl+C to stop.
 ```
 
 ## Step 3: Test Your API
@@ -141,9 +176,10 @@ curl -X POST http://localhost:3000/items \
   -d '{"name": "My first item", "description": "Created with Mycel!"}'
 ```
 
-Response:
+Response — what a write answers with is what it did, not the row back:
+
 ```json
-{"id":1,"name":"My first item","description":"Created with Mycel!"}
+{"affected":1,"id":1}
 ```
 
 ```bash
@@ -153,7 +189,7 @@ curl http://localhost:3000/items
 
 Response:
 ```json
-[{"id":1,"name":"My first item","description":"Created with Mycel!"}]
+[{"id":1,"name":"My first item","description":"Created with Mycel!","created_at":null}]
 ```
 
 ```bash
@@ -161,11 +197,17 @@ Response:
 curl http://localhost:3000/items/1
 ```
 
+A read answers with rows, so this one comes back as a list of one:
+
+```json
+[{"id":1,"name":"My first item","description":"Created with Mycel!","created_at":null}]
+```
+
 You just created a REST API with a database backend without writing any code.
 
 ## Step 4: Add Data Transformation
 
-Add automatic UUIDs and timestamps. Update `flows.mycel`:
+Stamp every item with the time it arrived. Update `flows.mycel`:
 
 ```hcl
 flow "create_item" {
@@ -175,7 +217,6 @@ flow "create_item" {
   }
 
   transform {
-    id          = "uuid()"
     name        = "input.name"
     description = "input.description"
     created_at  = "now()"
@@ -183,10 +224,18 @@ flow "create_item" {
 
   to {
     connector = "db"
-    target    = "INSERT items"
+    target    = "items"
   }
 }
 ```
+
+A transform decides what is written: only the fields it names reach the table,
+so a request may carry anything and the row is what you said it is.
+
+To assign the key yourself rather than letting the database count, add
+`id = "uuid()"`. The column then has to be `TEXT PRIMARY KEY` instead of an
+autoincrementing integer, which is one more migration — and the write answers
+with whichever id ended up on the row.
 
 Two variables appear here that nothing declared. `input` is the data that arrived — for a REST source, the request body, path and query parameters, all flat. The field name on the left of each line is what gets written out. See [Input and Output](../core-concepts/input-and-output.md) for the full picture.
 
@@ -195,17 +244,18 @@ Test it:
 ```bash
 curl -X POST http://localhost:3000/items \
   -H "Content-Type: application/json" \
-  -d '{"name": "With UUID", "description": "Auto-generated ID"}'
+  -d '{"name": "Stamped", "description": "Has a created_at"}'
 ```
 
 Response:
 ```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "name": "With UUID",
-  "description": "Auto-generated ID",
-  "created_at": "2024-01-15T10:30:00Z"
-}
+{"affected":1,"id":3}
+```
+
+And the row now carries the timestamp:
+
+```json
+[{"id":3,"name":"Stamped","description":"Has a created_at","created_at":"2026-08-20T22:06:15Z"}]
 ```
 
 ## Step 5: Add Input Validation
@@ -240,7 +290,6 @@ flow "create_item" {
   }
 
   transform {
-    id          = "uuid()"
     name        = "input.name"
     description = "default(input.description, '')"
     created_at  = "now()"
@@ -248,7 +297,7 @@ flow "create_item" {
 
   to {
     connector = "db"
-    target    = "INSERT items"
+    target    = "items"
   }
 }
 ```
@@ -261,13 +310,14 @@ curl -X POST http://localhost:3000/items \
   -d '{}'
 ```
 
-Response:
+Answered `400 Bad Request`:
+
 ```json
-{
-  "error": "validation failed",
-  "details": {"name": "required field missing"}
-}
+{"error":"validation error on 'name': field is required"}
 ```
+
+`description` is optional, so a request without one is accepted —
+`default(input.description, '')` is what supplies the value the column gets.
 
 ## What's Next
 
@@ -278,7 +328,7 @@ connector "db" {
   type     = "database"
   driver   = "postgres"
   host     = env("DB_HOST", "localhost")
-  port     = 5432
+  port     = env("DB_PORT", "5432")
   database = "myapp"
   user     = env("DB_USER", "postgres")
   password = env("DB_PASSWORD", "")
