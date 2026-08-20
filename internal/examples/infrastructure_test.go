@@ -249,6 +249,14 @@ var needsInfrastructure = []infrastructure{
 		},
 	},
 	{
+		// A subgraph: it serves GraphQL on its own port and publishes what
+		// changes to a queue. The router that would compose it with others is
+		// somebody else's process.
+		example: "graphql-federation",
+		needs:   []string{"MYCEL_TEST_RABBITMQ_URL"},
+		env:     rabbitEnv,
+	},
+	{
 		example: "mongodb",
 		needs:   []string{"MYCEL_TEST_MONGO_URI"},
 		env:     mongoEnv,

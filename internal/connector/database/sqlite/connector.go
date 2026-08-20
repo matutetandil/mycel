@@ -209,12 +209,19 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	}, nil
 }
 
-// isSelectQuery checks if a SQL query is a SELECT statement.
+// isSelectQuery reports whether a statement returns rows.
+//
+// A write with RETURNING does, which is how a flow asks for the row it just
+// made — and this looked only at the first word, so those rows were fetched
+// and thrown away and the flow answered {affected, id}. The caller's own
+// comment says the branch is for RETURNING clauses. Postgres asks the question
+// this way; SQLite did not, so the same statement behaved differently on the
+// two drivers.
 func isSelectQuery(sql string) bool {
-	// Trim whitespace and check first word
-	trimmed := strings.TrimSpace(sql)
-	upper := strings.ToUpper(trimmed)
-	return strings.HasPrefix(upper, "SELECT") || strings.HasPrefix(upper, "WITH")
+	upper := strings.ToUpper(strings.TrimSpace(sql))
+	return strings.HasPrefix(upper, "SELECT") ||
+		strings.HasPrefix(upper, "WITH") ||
+		strings.Contains(upper, "RETURNING")
 }
 
 // executeQueryWithResults executes a query that returns rows (for raw SQL SELECT or RETURNING).

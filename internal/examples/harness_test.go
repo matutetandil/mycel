@@ -156,6 +156,16 @@ var listens = map[string]bool{
 	"sse":       true,
 }
 
+// listensWhenServing names the types that bind a port only when they are the
+// server: the same connector is a client with the same attribute names, and
+// moving a client's port sends it nowhere.
+var listensWhenServing = map[string]bool{
+	"graphql": true,
+	"grpc":    true,
+	"tcp":     true,
+	"soap":    true,
+}
+
 // movePorts rewrites the ports the service will listen on, and leaves alone the
 // ports it will connect to.
 func movePorts(t *testing.T, source string, moved map[int]int) string {
@@ -204,7 +214,11 @@ func movePorts(t *testing.T, source string, moved map[int]int) string {
 		if m := regexp.MustCompile(`type\s*=\s*"([a-z]+)"`).FindStringSubmatch(block); m != nil {
 			kind = m[1]
 		}
-		if listens[kind] {
+		serving := listens[kind]
+		if listensWhenServing[kind] && regexp.MustCompile(`driver\s*=\s*"server"`).MatchString(block) {
+			serving = true
+		}
+		if serving {
 			block = portInConfig.ReplaceAllStringFunc(block, func(match string) string {
 				parts := portInConfig.FindStringSubmatch(match)
 				declared, _ := strconv.Atoi(parts[2])

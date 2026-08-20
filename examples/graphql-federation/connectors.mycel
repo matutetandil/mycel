@@ -31,7 +31,10 @@ connector "db" {
   type   = "database"
   driver = "sqlite"
 
-  database = ":memory:"
+  # A file, not ":memory:": each connection in the pool gets its own private
+  # in-memory database, so what a migration creates is not there when a query
+  # arrives.
+  database = env("DB_PATH", "./data/federation.db")
 }
 
 # RabbitMQ for event-driven subscriptions

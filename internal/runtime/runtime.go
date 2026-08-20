@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	goruntime "runtime"
 	"sort"
 	"strings"
@@ -2062,12 +2063,41 @@ func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
 		}
 	}
 
+	// Whether a mutation takes a typed input object is decided by what the
+	// steps gave, before anything is read from the destination: a mutation
+	// whose destination names its columns as :placeholders would otherwise
+	// publish one argument per column and lose the `input` object it declares.
+	inferredFromSteps := len(args)
+
+	// And from the destination's own query.
+	//
+	// A GraphQL query flow that fetches with `query = "... WHERE sku = :sku"`
+	// named its parameter there and nowhere else, and only a step's params
+	// were read — so the field was published taking no arguments at all, and
+	// asking for `product(sku: "ABC-123")`, which is what the example's README
+	// shows, was answered "Unknown argument sku".
+	for _, to := range destinations(cfg) {
+		for _, name := range namedParameters(to.GetQuery()) {
+			if args[name] == nil {
+				args[name] = &ArgDef{
+					Name:        name,
+					Type:        "string",
+					Required:    false,
+					Description: fmt.Sprintf("Argument %s (inferred from the destination query)", name),
+				}
+			}
+		}
+		for _, value := range to.GetQueryFilter() {
+			extractInputArgs(value, args)
+		}
+	}
+
 	// For mutations with a custom returns type and no step-inferred args,
 	// use the returns type as a typed input argument.
 	// This generates typed input objects (e.g., returns = "user" → input: userInput)
 	// instead of generic JSON. Scalar types are excluded since they don't map
 	// to meaningful input objects.
-	if len(args) == 0 && cfg.Returns != "" && strings.HasPrefix(cfg.From.GetOperation(), "Mutation.") {
+	if inferredFromSteps == 0 && cfg.Returns != "" && strings.HasPrefix(cfg.From.GetOperation(), "Mutation.") {
 		returnsType := strings.TrimSuffix(strings.TrimSuffix(cfg.Returns, "[]"), "!")
 		if !isScalarReturnType(returnsType) {
 			return []*ArgDef{{
@@ -2102,6 +2132,30 @@ func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
 // input.last, input.limit ?? 25 — published no argument, and a client sending
 // one was told it did not exist. Every occurrence is taken now, wherever in the
 // expression it appears.
+// destinations returns every destination a flow writes to or reads from.
+func destinations(cfg *flow.Config) []*flow.ToConfig {
+	var out []*flow.ToConfig
+	if cfg.To != nil {
+		out = append(out, cfg.To)
+	}
+	out = append(out, cfg.MultiTo...)
+	return out
+}
+
+// namedParameters returns the :name placeholders a statement carries.
+var namedParameter = regexp.MustCompile(`:([a-zA-Z_][a-zA-Z0-9_]*)`)
+
+func namedParameters(query string) []string {
+	if query == "" {
+		return nil
+	}
+	var out []string
+	for _, match := range namedParameter.FindAllStringSubmatch(query, -1) {
+		out = append(out, match[1])
+	}
+	return out
+}
+
 func extractInputArgs(value interface{}, args map[string]*ArgDef) {
 	switch v := value.(type) {
 	case string:
