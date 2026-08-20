@@ -178,3 +178,65 @@ func TestEveryOperationAConnectorsPageListsIsImplemented(t *testing.T) {
 		})
 	}
 }
+
+// And the other way: an operation a connector answers to and its page never
+// mentions.
+//
+// Less damaging than a promise nothing keeps — nobody is misled, they simply
+// never find it — but it is the same drift, and it hides real capability. The
+// S3 connector signs links, copies and moves objects and reports their size,
+// and its page listed four operations out of nine.
+//
+// Only the connectors whose operations are a switch on a name are read this
+// way; the rest dispatch on an HTTP method or a topic, where there is no list
+// to compare.
+var switchedOperations = map[string][]string{
+	"s3":         {"s3"},
+	"filesystem": {"file"},
+}
+
+var caseLabel = regexp.MustCompile(`(?m)^\s*case\s+((?:"[a-z_]+"(?:,\s*)?)+):`)
+
+func TestEveryOperationAConnectorAnswersToIsOnItsPage(t *testing.T) {
+	for page, dirs := range switchedOperations {
+		t.Run(page, func(t *testing.T) {
+			source := sourceOf(t, dirs)
+			if !strings.Contains(source, "func (c *Connector) Call(") {
+				t.Skip("has no operation switch")
+			}
+
+			// The labels of the switch inside Call.
+			call := source[strings.Index(source, "func (c *Connector) Call("):]
+			if end := strings.Index(call, "\n}\n"); end > 0 {
+				call = call[:end]
+			}
+
+			answered := map[string]bool{}
+			for _, match := range caseLabel.FindAllStringSubmatch(call, -1) {
+				for _, name := range strings.Split(match[1], ",") {
+					answered[strings.Trim(strings.TrimSpace(name), `"`)] = true
+				}
+			}
+			if len(answered) == 0 {
+				t.Fatal("no operations found in Call; this test is checking nothing")
+			}
+
+			listed := map[string]bool{}
+			for _, name := range operationsListed(t, filepath.Join("..", "..", "docs", "connectors", page+".md")) {
+				listed[name] = true
+			}
+
+			var undocumented []string
+			for name := range answered {
+				if !listed[name] {
+					undocumented = append(undocumented, name)
+				}
+			}
+			sort.Strings(undocumented)
+
+			for _, name := range undocumented {
+				t.Errorf("the connector answers to %q and its page does not mention it", name)
+			}
+		})
+	}
+}

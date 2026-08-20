@@ -34,8 +34,7 @@ connector "tcp_client" {
 | `driver` | string | — | `server` or `client` |
 | `host` | string | `"0.0.0.0"` | Bind address (server) |
 | `port` | int | — | Listen port (server) |
-| `address` | string | — | Target address (client) |
-| `codec` | string | `"json"` | Wire format: `json`, `msgpack`, `raw`, `nestjs` |
+| `protocol` | string | `"json"` | Wire format: `json`, `msgpack`, `nestjs` |
 
 `msgpack` is MessagePack as the specification defines it, so the peer can be
 anything that implements it. Before 2.19.0 it encoded JSON under that name:

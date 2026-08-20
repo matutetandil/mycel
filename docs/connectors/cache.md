@@ -46,7 +46,7 @@ connector "redis_cache" {
 | `prefix` | string | — | Prefix for all keys |
 | `default_ttl` | duration | — | Default time-to-live for entries |
 | `pool.max_connections` | int | `100` | Max pool size |
-| `pool.min_connections` | int | `10` | Min pool size |
+| `pool.min_idle` | int | `10` | Connections kept open when idle |
 
 ## How a cache is used
 

@@ -24,7 +24,7 @@ connector "sse" {
 | `host` | string | `"0.0.0.0"` | Bind address |
 | `path` | string | `"/events"` | SSE endpoint path |
 | `heartbeat_interval` | duration | `"30s"` | Keepalive comment interval |
-| `cors.allowed_origins` | list | — | Allowed CORS origins |
+| `cors.origins` | list | — | Allowed CORS origins |
 
 ## Operations
 
