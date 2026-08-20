@@ -60,6 +60,14 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **`??` produced CEL that does not compile whenever a comma shared its expression.** Neither rewriter looked inside brackets, so `input.missing ?? join(input.tags, ",")` became `coalesce(input.missing, join(input.tags) : join(input.tags), ",")` — a syntax error at startup pointing at text nobody wrote. `join`, `replace`, `substring`, `pick` and `default` all take two arguments, so the shape is common.
+
+- **`default()` did not work for the case it exists for.** CEL evaluates a function's arguments before calling it, so `default(input.description, '')` on a request carrying no description failed with "no such key: description" before `default` was reached — the documented way to give an optional field a value, failing on the optional field. It is guarded with `has()` now, the same way `??` already was.
+
+- **A write with an empty payload became `INSERT INTO items () VALUES ()`**, and the answer was the driver's opinion of that — `SQL logic error: near ")"` — for a request that simply carried no fields. It is refused by name now, saying whether the request was empty or the transform produced nothing.
+
+- **A write answered with the row's position in the table rather than the id the flow assigned.** A flow generating its own key — `id = "uuid()"`, which is the first thing the quick start teaches — answered `{"affected":1,"id":1}` for a record whose id is a uuid, so a caller that created something and fetched it by the id it was given looked up a record that does not exist.
+
 - **A read flow's `transform` reached nothing.** On a GET it was applied neither to the request nor to the answer: it parsed, the editor offered it, the documentation names it as what `to` sees, and it did nothing. A flow's transform feeds whatever the flow has left to say — writing, the row; reading with a query of its own, that query's named parameters; reading a table by name, the answer. The middle case was sent unbound, which Postgres reports as a syntax error at `":"` and SQLite as a missing argument, neither naming the flow or the transform.
 
 - **An `enrich` block on a read flow never called anything.** Enrichment ran only on the write paths, so the most natural place for one — read the product, add the price — fetched nothing and the fields it was to supply were absent. The enrich example, which is entirely read flows, could not do what it is about.
