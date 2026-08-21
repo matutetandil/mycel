@@ -253,6 +253,10 @@ func New(opts Options) (*Runtime, error) {
 		return nil, fmt.Errorf("failed to parse configuration: %w", err)
 	}
 
+	// The constants, before any flow is registered: a transformer is built as
+	// each flow is wired, and every one of them has to see the same values.
+	transform.SetDefaultConstants(config.Constants)
+
 	// Check each flow's "from" block against its source connector's schema,
 	// so a missing required parameter fails here instead of surfacing later
 	// as a confusing runtime error.
@@ -2573,6 +2577,7 @@ func (r *Runtime) hotReloadSwitch(ctx context.Context) error {
 	newResolver := connector.NewOperationResolver()
 
 	// Update runtime state
+	transform.SetDefaultConstants(newConfig.Constants)
 	r.config = newConfig
 	r.connectors = newRegistry
 	r.operationResolver = newResolver

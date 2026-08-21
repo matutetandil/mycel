@@ -309,7 +309,9 @@ func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, e
 	}
 
 	// Capture all connector-specific attributes from the remaining body.
-	extractDynamicAttrs(remain, ctx, from.ConnectorParams)
+	if err := extractDynamicAttrs(remain, ctx, from.ConnectorParams); err != nil {
+		return nil, fmt.Errorf("from block: %w", err)
+	}
 
 	// Check for filter as string attribute (legacy syntax)
 	if attr, ok := content.Attributes["filter"]; ok {
@@ -632,7 +634,9 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 	}
 
 	// Capture all connector-specific attributes from the remaining body.
-	extractDynamicAttrs(remain, ctx, to.ConnectorParams)
+	if err := extractDynamicAttrs(remain, ctx, to.ConnectorParams); err != nil {
+		return nil, fmt.Errorf("to block: %w", err)
+	}
 
 	if to.Connector == "" {
 		return nil, fmt.Errorf("to block must specify a connector")
@@ -744,7 +748,9 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 	}
 
 	// Capture all connector-specific attributes from the remaining body.
-	extractDynamicAttrs(remain, ctx, step.ConnectorParams)
+	if err := extractDynamicAttrs(remain, ctx, step.ConnectorParams); err != nil {
+		return nil, fmt.Errorf("step: %w", err)
+	}
 
 	return step, nil
 }
@@ -851,7 +857,9 @@ func parseEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.EnrichConfi
 	}
 
 	// Capture all connector-specific attributes from the remaining body.
-	extractDynamicAttrs(remain, ctx, enrich.ConnectorParams)
+	if err := extractDynamicAttrs(remain, ctx, enrich.ConnectorParams); err != nil {
+		return nil, fmt.Errorf("enrich block: %w", err)
+	}
 
 	return enrich, nil
 }
@@ -1919,26 +1927,36 @@ func parseTransformEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfo
 // extractDynamicAttrs extracts unknown attributes from a remaining HCL body into a map.
 // Safely handles bodies that contain both attributes and blocks (JustAttributes would fail).
 // Used to capture connector-specific parameters that aren't in the known schema.
-func extractDynamicAttrs(body hcl.Body, ctx *hcl.EvalContext, dest map[string]interface{}) {
+// extractDynamicAttrs reads the attributes a connector will interpret.
+//
+// An attribute whose expression cannot be evaluated is reported rather than
+// dropped. It used to be dropped, silently, which meant a typo in an `env(`
+// call or a reference to something that does not exist took the whole
+// attribute with it — a `to` block left with no query at all, and a flow that
+// reads the entire table because the WHERE clause evaporated at parse time.
+func extractDynamicAttrs(body hcl.Body, ctx *hcl.EvalContext, dest map[string]interface{}) error {
 	attrs, diags := body.JustAttributes()
 	if diags.HasErrors() {
 		// Body has blocks — extract via hclsyntax if possible
 		if syntaxBody, ok := body.(*hclsyntax.Body); ok {
 			for name, attr := range syntaxBody.Attributes {
 				val, valDiags := attr.Expr.Value(ctx)
-				if !valDiags.HasErrors() {
-					dest[name] = ctyValueToInterface(val)
+				if valDiags.HasErrors() {
+					return fmt.Errorf("%s: %s", name, valDiags.Error())
 				}
+				dest[name] = ctyValueToInterface(val)
 			}
 		}
-		return
+		return nil
 	}
 	for name, attr := range attrs {
 		val, valDiags := attr.Expr.Value(ctx)
-		if !valDiags.HasErrors() {
-			dest[name] = ctyValueToInterface(val)
+		if valDiags.HasErrors() {
+			return fmt.Errorf("%s: %s", name, valDiags.Error())
 		}
+		dest[name] = ctyValueToInterface(val)
 	}
+	return nil
 }
 
 // ctyValueToMap converts a cty.Value to map[string]interface{}.

@@ -17,8 +17,16 @@ flow "enrich_product" {
   # The connector already has format = "xml", but you can also set it per step
   step "get_legacy_info" {
     connector = "soap_api"
-    operation = "GET /products/${step.save.id}/details"
+    operation = "GET /products/details"
     format    = "xml"
+
+    # The id travels as a parameter, not spliced into the path: ${...} is HCL's
+    # interpolation, evaluated when the file is read, and `step` is a CEL
+    # variable that only exists while a message is being handled. Written that
+    # way the attribute cannot be evaluated at all.
+    params = {
+      id = "step.save.id"
+    }
   }
 
   # Step 3: Merge and return as JSON (default)

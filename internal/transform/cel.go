@@ -24,6 +24,10 @@ import (
 type CELTransformer struct {
 	env *cel.Env
 
+	// constants declared by const blocks, available to every expression as
+	// `const.<name>`. Empty when the configuration declares none.
+	constants map[string]interface{}
+
 	// Cache compiled programs for reuse
 	mu       sync.RWMutex
 	programs map[string]cel.Program
@@ -48,8 +52,9 @@ func NewCELTransformerWithOptions(additionalOptions ...cel.EnvOption) (*CELTrans
 	}
 
 	return &CELTransformer{
-		env:      env,
-		programs: make(map[string]cel.Program),
+		constants: defaultConstantsSnapshot(),
+		env:       env,
+		programs:  make(map[string]cel.Program),
 	}, nil
 }
 
@@ -64,6 +69,11 @@ func baseCELOptions() []cel.EnvOption {
 		ext.Sets(),     // sets.contains, sets.equivalent, sets.intersects
 
 		// Input variable - the request data
+		// Values a constants block declared. Always in scope, empty when nothing
+		// declared any, so an expression naming a constant that does not exist
+		// says "no such key" rather than refusing to compile.
+		cel.Variable("constants", cel.MapType(cel.StringType, cel.DynType)),
+
 		cel.Variable("input", cel.MapType(cel.StringType, cel.DynType)),
 
 		// Output variable - for referencing already-set output fields
@@ -957,7 +967,7 @@ func (t *CELTransformer) Evaluate(ctx context.Context, expr string, input map[st
 	}
 
 	// Evaluate
-	result, _, err := prog.Eval(activation)
+	result, _, err := t.eval(prog, activation)
 	if err != nil {
 		return nil, fmt.Errorf("CEL eval error: %w", err)
 	}
@@ -979,7 +989,7 @@ func (t *CELTransformer) EvaluateWith(ctx context.Context, expr string, activati
 	if err != nil {
 		return nil, err
 	}
-	result, _, err := prog.Eval(activation)
+	result, _, err := t.eval(prog, activation)
 	if err != nil {
 		return nil, fmt.Errorf("CEL eval error: %w", err)
 	}
@@ -1018,7 +1028,7 @@ func (t *CELTransformer) Transform(ctx context.Context, input map[string]interfa
 		}
 
 		// Evaluate with current activation (output grows with each rule)
-		result, _, err := prog.Eval(activation)
+		result, _, err := t.eval(prog, activation)
 		if err != nil {
 			if hook != nil {
 				hook.AfterRule(ctx, i, rule, nil, err)
@@ -1136,7 +1146,7 @@ func (t *CELTransformer) EvaluateExpression(ctx context.Context, input map[strin
 	}
 
 	// Evaluate
-	result, _, err := prog.Eval(activation)
+	result, _, err := t.eval(prog, activation)
 	if err != nil {
 		return nil, fmt.Errorf("CEL eval error: %w", err)
 	}
@@ -1193,7 +1203,7 @@ func (t *CELTransformer) EvaluateExpressionWithOutput(ctx context.Context, input
 		}
 	}
 
-	result, _, err := prog.Eval(activation)
+	result, _, err := t.eval(prog, activation)
 	if err != nil {
 		return nil, fmt.Errorf("CEL eval error: %w", err)
 	}
@@ -1256,7 +1266,7 @@ func (t *CELTransformer) EvaluateExpressionWithSteps(ctx context.Context, input 
 	}
 
 	// Evaluate
-	result, _, err := prog.Eval(activation)
+	result, _, err := t.eval(prog, activation)
 	if err != nil {
 		return nil, fmt.Errorf("CEL eval error: %w", err)
 	}
@@ -1303,7 +1313,7 @@ func (t *CELTransformer) TransformOnError(ctx context.Context, input map[string]
 			return nil, fmt.Errorf("failed to compile expression for %q: %w", rule.Target, err)
 		}
 
-		value, _, err := prog.Eval(activation)
+		value, _, err := t.eval(prog, activation)
 		if err != nil {
 			return nil, fmt.Errorf("failed to evaluate expression for %q: %w", rule.Target, err)
 		}
@@ -1358,7 +1368,7 @@ func (t *CELTransformer) TransformResponse(ctx context.Context, input map[string
 			return nil, fmt.Errorf("failed to compile expression for '%s': %w", rule.Target, err)
 		}
 
-		val, _, err := prog.Eval(activation)
+		val, _, err := t.eval(prog, activation)
 		if err != nil {
 			if hook != nil {
 				hook.AfterRule(ctx, i, rule, nil, err)
@@ -1422,7 +1432,7 @@ func (t *CELTransformer) TransformWithContext(ctx context.Context, input map[str
 		}
 
 		// Evaluate with current activation (output grows with each rule)
-		result, _, err := prog.Eval(activation)
+		result, _, err := t.eval(prog, activation)
 		if err != nil {
 			if hook != nil {
 				hook.AfterRule(ctx, i, rule, nil, err)
@@ -1478,7 +1488,7 @@ func (t *CELTransformer) EvaluateCondition(ctx context.Context, data map[string]
 	}
 
 	// Evaluate
-	result, _, err := prog.Eval(activation)
+	result, _, err := t.eval(prog, activation)
 	if err != nil {
 		return false, fmt.Errorf("CEL condition eval error: %w", err)
 	}
@@ -1570,4 +1580,62 @@ func getRequestedTopFields(inputVal ref.Val) ref.Val {
 	}
 
 	return fieldsVal
+}
+
+// eval runs a compiled expression with the constants in scope.
+//
+// Every evaluation in this package goes through here, which is what makes
+// `constants.batch_size` mean the same thing in a transform, a filter, a dedupe
+// fingerprint and a `when` — the alternative was adding the same key to nine
+// activations and finding out later which one was missed.
+func (t *CELTransformer) eval(prog cel.Program, activation map[string]interface{}) (ref.Val, *cel.EvalDetails, error) {
+	if activation != nil {
+		if _, present := activation["constants"]; !present {
+			activation["constants"] = t.constantsOrEmpty()
+		}
+	}
+	return prog.Eval(activation)
+}
+
+// constantsOrEmpty is what `constants` holds when nothing declared any: an empty
+// map rather than nothing at all, so an expression naming a constant that does
+// not exist says "no such key" instead of failing to compile against an
+// undeclared reference.
+func (t *CELTransformer) constantsOrEmpty() map[string]interface{} {
+	if t.constants == nil {
+		return map[string]interface{}{}
+	}
+	return t.constants
+}
+
+// SetConstants gives one transformer the values a configuration's constants
+// blocks declared.
+func (t *CELTransformer) SetConstants(constants map[string]interface{}) {
+	t.constants = constants
+}
+
+// The constants every transformer built from here on is given.
+//
+// A service has one set of them — they are read once, when the configuration
+// is — and transformers are built in a dozen places as flows are registered.
+// Handing them over here rather than threading them through every constructor
+// is the difference between one line and twelve, and twelve is where one gets
+// missed and a single `when` expression silently has no constants in scope.
+var (
+	defaultConstantsMu sync.RWMutex
+	defaultConstants   map[string]interface{}
+)
+
+// SetDefaultConstants records what constants blocks declared, before any flow
+// is registered.
+func SetDefaultConstants(values map[string]interface{}) {
+	defaultConstantsMu.Lock()
+	defer defaultConstantsMu.Unlock()
+	defaultConstants = values
+}
+
+func defaultConstantsSnapshot() map[string]interface{} {
+	defaultConstantsMu.RLock()
+	defer defaultConstantsMu.RUnlock()
+	return defaultConstants
 }
