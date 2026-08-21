@@ -16,8 +16,8 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	amqp "github.com/rabbitmq/amqp091-go"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 // The examples that want a broker or a database server, started against one.

@@ -45,6 +45,12 @@ type Configuration struct {
 	// to start naming something other than the variable.
 	UnsetEnv []UnsetEnvVar
 
+	// Constants are the values constants blocks declared, by name. They are
+	// resolved when the configuration is read, and the runtime hands them to
+	// CEL so that `constants.x` means the same thing in an expression as it
+	// does in an HCL attribute.
+	Constants map[string]interface{}
+
 	// Connectors are all connector configurations.
 	Connectors []*connector.Config
 
@@ -381,6 +387,7 @@ func (c *Configuration) ValidateUniqueNames() error {
 type HCLParser struct {
 	hclParser *hclparse.Parser
 	evalCtx   *hcl.EvalContext
+	constants *Constants
 	registry  *schema.Registry
 }
 
@@ -456,6 +463,14 @@ func isPluginManifest(path string) bool {
 func (p *HCLParser) Parse(ctx context.Context, configDir string) (*Configuration, error) {
 	config := NewConfiguration()
 
+	// The constants first, out of every file, before anything that might use
+	// one is evaluated. A file may refer to a constant another file declares,
+	// and nothing else in Mycel depends on the order files are walked in.
+	if err := p.readConstants(configDir); err != nil {
+		return nil, err
+	}
+	config.Constants = p.constants.Go
+
 	// Walk directory and find all .mycel files
 	err := filepath.Walk(configDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -522,7 +537,19 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 		return nil, fmt.Errorf("HCL parse error: %s", diags.Error())
 	}
 
+	// A file parsed on its own carries its own constants. Parse() has already
+	// read every file's by the time it gets here, and reading them twice is
+	// refused as a duplicate — so this only runs when nothing has.
+	if p.constants == nil {
+		p.constants = newConstants()
+		if err := collectConstants(p.constants, file.Body, p.evalCtx, path); err != nil {
+			return nil, err
+		}
+		p.applyConstants()
+	}
+
 	config := NewConfiguration()
+	config.Constants = p.constants.Go
 
 	// Decode the body into our schema
 	content, diags := file.Body.Content(rootSchema())
@@ -682,6 +709,7 @@ func rootSchema() *hcl.BodySchema {
 			{Type: "plugin", LabelNames: []string{"name"}},
 			{Type: "saga", LabelNames: []string{"name"}},
 			{Type: "state_machine", LabelNames: []string{"name"}},
+			{Type: "constants"},
 			{Type: "service"},
 			{Type: "mocks"},
 			{Type: "auth"},

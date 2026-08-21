@@ -1458,7 +1458,10 @@ flow "get_product_detail" {
   # Step 2: Get inventory from external service
   step "inventory" {
     connector = "inventory_api"
-    operation = "GET /stock/${step.product.sku}"
+    operation = "GET /stock/:sku"
+    params {
+      sku = "step.product.sku"
+    }
     timeout   = "3s"
     on_error  = "default"
     default   = { available = 0, warehouse = "unknown" }
@@ -1467,7 +1470,10 @@ flow "get_product_detail" {
   # Step 3: Get reviews (optional, skip on error)
   step "reviews" {
     connector = "reviews_api"
-    operation = "GET /reviews?product_id=${step.product.id}"
+    operation = "GET /reviews?product_id=:id"
+    params {
+      id = "step.product.id"
+    }
     timeout   = "2s"
     on_error  = "skip"
     default   = []

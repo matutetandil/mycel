@@ -54,7 +54,9 @@ flow "download_invoice" {
   step "invoice" {
     connector = "db"
     query     = "SELECT * FROM invoices WHERE id = ?"
-    params    = [input.id]
+    params {
+      id = "input.id"
+    }
   }
 
   transform {

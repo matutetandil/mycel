@@ -174,7 +174,10 @@ flow "get_order_details" {
   # Optional — use default values if pricing service is down
   step "pricing" {
     connector = "pricing_api"
-    operation = "GET /prices/${step.order.product_id}"
+    operation = "GET /prices/:product_id"
+    params {
+      product_id = "step.order.product_id"
+    }
     timeout   = "5s"
     on_error  = "default"
     default   = { price = 0, currency = "USD" }
@@ -183,7 +186,10 @@ flow "get_order_details" {
   # Optional — skip entirely if fraud service is unavailable
   step "fraud_check" {
     connector = "fraud_api"
-    operation = "GET /score/${step.order.user_id}"
+    operation = "GET /score/:user_id"
+    params {
+      user_id = "step.order.user_id"
+    }
     timeout   = "3s"
     on_error  = "skip"
   }
@@ -626,7 +632,10 @@ flow "magento_create_product" {
 
   step "assign_category" {
     connector = "magento_api"
-    operation = "POST /rest/V1/categories/${input.payload.category_id}/products"
+    operation = "POST /rest/V1/categories/:category_id/products"
+    params {
+      category_id = "input.payload.category_id"
+    }
     timeout   = "10s"
     on_error  = "skip"
   }

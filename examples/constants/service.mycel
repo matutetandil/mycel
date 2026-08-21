@@ -1,0 +1,15 @@
+service {
+  name    = "constants-demo"
+  version = "1.0.0"
+}
+
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = env("DB_PATH", "./data/catalogue.db")
+}

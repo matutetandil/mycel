@@ -3,10 +3,10 @@
 package examples
 
 import (
-	"net/http"
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -91,8 +91,8 @@ var (
 	portInCommand = regexp.MustCompile(`(localhost|127\.0\.0\.1):(\d+)`)
 	// port = env("API_PORT", 3000), with or without quotes around the default.
 	portFromEnv = regexp.MustCompile(`(?m)^(\s*(?:admin_)?port\s*=\s*)env\(\s*"([A-Z_]+)"\s*,\s*"?(\d+)"?\s*\)`)
-	fencedBlock   = regexp.MustCompile("(?s)```[a-zA-Z]*\n(.*?)```")
-	lineJoin      = regexp.MustCompile(`\\\n\s*`)
+	fencedBlock = regexp.MustCompile("(?s)```[a-zA-Z]*\n(.*?)```")
+	lineJoin    = regexp.MustCompile(`\\\n\s*`)
 	// A placeholder standing in for a value the reader is meant to supply,
 	// inside the URL: /files/{id}/download, /orders/<uuid>.
 	urlPlaceholder = regexp.MustCompile(`https?://[^\s'"]*[{<][a-zA-Z_]+[}>]`)
@@ -667,6 +667,7 @@ var selfContained = []string{
 	"graphql-subscription-client",
 	"basic",
 	"cache",
+	"constants",
 	"files",
 	"format",
 	"plugin",

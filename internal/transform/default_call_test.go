@@ -8,7 +8,7 @@ import (
 // default() has to work for the case it exists for.
 //
 // CEL evaluates a function's arguments before calling it, so
-// `default(input.description, '')` on a request carrying no description failed
+// `default(input.description, ”)` on a request carrying no description failed
 // with "no such key: description" before default was ever reached — the
 // documented way to give an optional field a value, failing on the optional
 // field. The quick start reaches for it at exactly that moment.

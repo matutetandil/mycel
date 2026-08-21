@@ -1,8 +1,8 @@
 package sqlite
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"

@@ -79,8 +79,10 @@ flow "reserve_inventory" {
 
   step "current" {
     connector = "db"
-    query     = "SELECT stock FROM products WHERE id = ?"
-    params    = [input.product_id]
+    query     = "SELECT stock FROM products WHERE id = :product_id"
+    params {
+      product_id = "input.product_id"
+    }
   }
 
   transform {
@@ -201,8 +203,10 @@ flow "create_item" {
   # Check if parent already exists in DB
   step "check_parent" {
     connector = "db"
-    query     = "SELECT entity_id FROM products WHERE sku = ?"
-    params    = [input.parent_sku]
+    query     = "SELECT entity_id FROM products WHERE sku = :parent_sku"
+    params {
+      parent_sku = "input.parent_sku"
+    }
     on_error  = "default"
     default   = []
   }
@@ -352,7 +356,7 @@ coordinate {
   # Skip waiting if parent already exists in DB
   preflight {
     connector = "db"
-    query     = "SELECT entity_id FROM products WHERE sku = ?"
+    query     = "SELECT entity_id FROM products WHERE sku = :parent_sku"
     params    = { sku = "input.parent_sku" }
     if_exists = "pass"
   }

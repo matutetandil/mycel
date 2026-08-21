@@ -413,7 +413,10 @@ flow "get_user" {
 
   enrich "user" {
     connector = "users_rest"
-    operation = "GET /users/${input.id}"
+    operation = "GET /users/:id"
+    params {
+      id = "input.id"
+    }
   }
 
   transform {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"time"
 
@@ -695,6 +696,17 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	for _, tr := range config.Transforms {
 		if tr != nil {
 			fmt.Printf("  Transform: %s (%d mappings)\n", tr.Name, len(tr.Mappings))
+		}
+	}
+	if len(config.Constants) > 0 {
+		names := make([]string, 0, len(config.Constants))
+		for name := range config.Constants {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		fmt.Printf("  Constants: %d\n", len(names))
+		for _, name := range names {
+			fmt.Printf("    - %s = %v\n", name, config.Constants[name])
 		}
 	}
 

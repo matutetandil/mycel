@@ -1,0 +1,52 @@
+// Read by HCL: the limit is part of the query before the service starts.
+flow "list_items" {
+  from {
+    connector = "api"
+    operation = "GET /items"
+  }
+
+  to {
+    connector = "db"
+    query     = "SELECT sku, name, total FROM items ORDER BY sku LIMIT ${constants.page_size}"
+  }
+}
+
+// Read by CEL: the same list, checked per request.
+flow "create_item" {
+  from {
+    connector = "api"
+    operation = "POST /items"
+  }
+
+  accept {
+    when      = "!(input.sku in constants.skus_to_skip)"
+    on_reject = "reject"
+  }
+
+  transform {
+    sku    = "input.sku"
+    name   = "input.name"
+    total  = "input.total"
+    region = "constants.region"
+    // A constant in an ordinary expression, beside the fields from the request.
+    large  = "input.total > constants.large_order_total"
+  }
+
+  to {
+    connector = "db"
+    target    = "items"
+  }
+}
+
+// And in a second query, which is the point: the list lives in one place.
+flow "count_skipped" {
+  from {
+    connector = "api"
+    operation = "GET /items/skipped"
+  }
+
+  to {
+    connector = "db"
+    query     = "SELECT count(*) AS skipped FROM items WHERE sku IN ('${constants.skus_to_skip[0]}', '${constants.skus_to_skip[1]}', '${constants.skus_to_skip[2]}')"
+  }
+}

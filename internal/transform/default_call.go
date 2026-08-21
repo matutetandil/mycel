@@ -8,7 +8,7 @@ import "strings"
 // `default()` is the documented way to give an optional field a value — the
 // quick start reaches for it at the moment it introduces an optional field —
 // and it did not work for the case it exists for. CEL evaluates a function's
-// arguments before calling it, so `default(input.description, '')` on a
+// arguments before calling it, so `default(input.description, ”)` on a
 // request that carries no description fails with "no such key: description"
 // before `default` is ever reached. A reader following the page got a 500 from
 // the very request the page is demonstrating.

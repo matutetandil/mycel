@@ -19,6 +19,7 @@ func BuiltinRootSchemas() []Block {
 		SecuritySchema(),
 		MocksSchema(),
 		CacheDefSchema(),
+		ConstantsSchema(),
 	}
 }
 
@@ -1111,6 +1112,20 @@ func MockConnectorsSchema() Block {
 	return Block{
 		Type: "connectors",
 		Doc:  "Per-connector mock settings, keyed by connector name: db = { latency = \"50ms\" }",
+		Open: true,
+	}
+}
+
+// ConstantsSchema is the block that declares values used in more than one
+// place.
+//
+// Open, because the names are the author's: a constants block holds whatever
+// that configuration needs twice. What it may not hold is a nested block —
+// these are values, not configuration.
+func ConstantsSchema() Block {
+	return Block{
+		Type: "constants",
+		Doc:  "Values declared once and referred to as constants.<name>, in HCL attributes and in CEL expressions alike",
 		Open: true,
 	}
 }

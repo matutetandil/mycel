@@ -68,6 +68,7 @@ nav:
       - Connectors: core-concepts/connectors.md
       - Flows: core-concepts/flows.md
       - Input and Output: core-concepts/input-and-output.md
+      - Constants: core-concepts/constants.md
       - Reusable Blocks: core-concepts/reusable-blocks.md
       - Transforms: core-concepts/transforms.md
       - Types: core-concepts/types.md

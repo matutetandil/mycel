@@ -48,7 +48,11 @@ flow "send_to_room" {
   }
   to {
     connector = "ws"
-    operation = "room:${input.channel_id}"
+    operation = "send_to_room"
+    # Which room, worked out per message. `target` is resolved against the
+    # message; ${...} here would be HCL's interpolation, evaluated when the
+    # file is read, and `input` does not exist then.
+    target    = "input.channel_id"
   }
 }
 ```

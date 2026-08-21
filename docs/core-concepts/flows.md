@@ -667,13 +667,18 @@ flow "get_order_detail" {
   step "order" {
     connector = "db"
     operation = "query"
-    query     = "SELECT * FROM orders WHERE id = ?"
-    params    = [input.id]
+    query     = "SELECT * FROM orders WHERE id = :id"
+    params {
+      id = "input.id"
+    }
   }
 
   step "customer" {
     connector = "customers_api"
-    operation = "GET /customers/${step.order.customer_id}"
+    operation = "GET /customers/:customer_id"
+    params {
+      customer_id = "step.order.customer_id"
+    }
     when      = "step.order.customer_id != ''"  # Skip if no customer
     on_error  = "skip"
     default   = {}

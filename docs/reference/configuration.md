@@ -12,6 +12,7 @@ Complete HCL syntax reference for all Mycel block types. Every block is document
     - [cache](#cache-block) · [after](#after-block) · [dedupe](#dedupe-block) · [idempotency](#idempotency-block) · [async](#async-block)
     - [error_handling](#error_handling-block) · [lock](#lock-block) · [semaphore](#semaphore-block) · [coordinate](#coordinate-block) · [sequence_guard](#sequence_guard-block)
     - [batch](#batch-block) · [state_transition](#state_transition-block)
+- [constants](#constants)
 - [type](#type)
 - [transform](#transform)
 - [cache (named)](#cache-named)
@@ -1172,6 +1173,36 @@ type "NAME" {
 | `shareable = true` | `@shareable` on field |
 | `inaccessible = true` | `@inaccessible` |
 | `override = "subgraph"` | `@override(from: "subgraph")` |
+
+---
+
+## constants
+
+Values declared once and referred to by name from anywhere in the
+configuration:
+
+```hcl
+constants {
+  skus_to_skip = ["SKU-1", "SKU-2"]
+  page_size    = 500
+  region       = env("REGION", "us")
+}
+```
+
+| Holds | Read as |
+|-------|---------|
+| Strings, numbers, booleans, lists, maps, `env()` calls — anything settled when the configuration is read | `constants.<name>` |
+
+The same name works on both sides of the line: `${constants.page_size}` in an
+attribute, which HCL folds in as the file is read, and `constants.page_size`
+inside a CEL expression, which is evaluated per message.
+
+A constant is not computed from a message — that is what a
+[transform](../core-concepts/transforms.md) is for. Any `.mycel` file may
+declare them, and they are read before anything else, so a flow may use one
+that a later file declares. The same name twice is refused, naming both files.
+
+See [Constants](../core-concepts/constants.md).
 
 ---
 

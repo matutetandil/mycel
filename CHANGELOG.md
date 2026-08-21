@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`constants` blocks.** A value declared once and referred to by name from anywhere in the configuration — a list of SKUs a queue consumer skips, a page size four queries share, a region read from the environment:
+
+  ```hcl
+  constants {
+    skus_to_skip = ["SKU-1", "SKU-2"]
+    page_size    = 500
+    region       = env("REGION", "us")
+  }
+  ```
+
+  `constants.page_size` reads the same in a `query`, which HCL evaluates when the configuration is read, and in a `filter`, which CEL evaluates per message. Which of the two you are writing for is not something you have to know: a constant that resolved in one and not the other would be worse than having none, because the failure is per-expression and nothing announces it.
+
+  They hold literals — strings, numbers, lists, maps, `env()` calls — read once, when the configuration is. A value worked out from a message is what a transform is for. Declaring the same name twice is refused, naming both files, rather than letting the order files are walked in decide.
+
+  `mycel add constants --value page_size=500` writes one, and `mycel validate` lists what it found.
+
+  The name is `constants` rather than `const` because `const` and `var` are both reserved identifiers in CEL: an expression naming either does not compile, whatever the environment declares.
+
 ### Breaking
 
 Every one of these is a setting that was written, documented, and did nothing.
@@ -61,6 +81,8 @@ behaviour was what you wanted:
 - **Auth hooks run flows.** The `hooks` block was listed in the parser's block schema and never read into the configuration: `Config.Hooks` was nil however much was written in it, and nothing would have looked at it anyway — so a service asking to be told about a suspicious sign-in was told nothing, silently, which is the worst way for a security feature to be absent. A hook now names a flow, the way an aspect does, and the event arrives under `auth`: `before_login`, `after_login`, `after_register`, `on_failed_login`, `on_suspicious_activity`, `before_password_change`, `after_password_change`. A `condition` in CEL narrows when it runs. `on_error = "fail"` lets a `before_` hook refuse the thing it is attached to, and writing it on an `after_` hook is refused at startup rather than pretending it could undo one. A hook naming a flow nothing declares is refused by `mycel validate`.
 
 ### Fixed
+
+- **A step could not address a REST API by path.** `GET /customers/:id` was concatenated as written and every parameter went to the query string or the body, so fetching /customers/42 could not be expressed — which is why the documentation had invented `"GET /customers/${step.order.customer_id}"` in eight places: HCL interpolation of a CEL variable, which does not exist when the configuration is read, so the attribute could not be evaluated and the step ended up with no operation at all. Path parameters are filled from `params` now, in both spellings, and the one that names a segment is spent there rather than repeated in the query string.
 
 - **An FTP or SFTP connector refused the runtime's own words for a read and a write.** A flow that does not name an operation gets `SELECT` on a read and `INSERT` on a write, because that is where the defaults come from — so fetching a file or uploading one from an ordinary flow was answered "unknown read operation: SELECT", which names nothing anybody wrote.
 

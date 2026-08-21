@@ -86,7 +86,7 @@ func TestTheQuickStartWorksWhenFollowed(t *testing.T) {
 //
 // That second half is what `default()` is for, and it did not work for the
 // case it exists for: CEL evaluates a function's arguments before calling it,
-// so `default(input.description, '')` on a request with no description failed
+// so `default(input.description, ”)` on a request with no description failed
 // before default was reached.
 func TestTheQuickStartsValidationRefusesAndAccepts(t *testing.T) {
 	if testing.Short() {
@@ -220,4 +220,3 @@ func replaceFlow(config, name, replacement string) string {
 	}
 	return config[:open] + replacement + config[end:]
 }
-
