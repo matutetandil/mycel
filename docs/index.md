@@ -32,6 +32,8 @@ The foundational building blocks of every Mycel service.
 |----------|-------------|
 | [Connectors](core-concepts/connectors.md) | Bidirectional adapters: REST, database, queues, gRPC, WebSocket, file, and more |
 | [Flows](core-concepts/flows.md) | The unit of work — wiring connectors together with transforms, validation, caching, and error handling |
+| [Input and Output](core-concepts/input-and-output.md) | What `input.*` holds for each source connector, and how `output` is built |
+| [Constants](core-concepts/constants.md) | Values declared once and read as `constants.<name>` from HCL attributes and CEL expressions alike |
 | [Reusable Blocks](core-concepts/reusable-blocks.md) | Declare `dedupe`, `retry`, `lock`, `accept`, `response` and friends once by name, reference them from many flows with `use = "<kind>.<name>"` |
 | [Transforms](core-concepts/transforms.md) | CEL-based data transformations and the complete built-in function reference |
 | [Types](core-concepts/types.md) | Schema validation with field constraints, custom validators, and federation directives |

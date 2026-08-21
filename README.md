@@ -10,27 +10,25 @@
 
 Point Mycel at the things you want to connect — an API, a database, a queue, a gRPC service, a file store — and it runs the microservice that moves data between them. The plumbing every service repeats (HTTP server, connection pools, marshalling, retries, reconnection) is Mycel's job. The only logic you ever write is your service's own — a transform, a validation rule — and only when it actually needs it. You describe it in [HCL2](https://github.com/hashicorp/hcl) config files; Mycel runs it as a real, production-ready microservice. Pure Go, a single binary, standard protocols on the wire — from the outside, indistinguishable from one you'd hand-write.
 
+📖 **[Full documentation](https://matutetandil.github.io/mycel/)** · 🚀 **[Quick Start](docs/getting-started/quick-start.md)** · 🧩 **[Examples](examples/)**
+
 ## How It Works
 
-Mycel is a single binary runtime. The same binary runs every service — only the configuration changes.
+Mycel is a single binary. The same binary runs every service — only the configuration changes.
 
-Mycel has two core building blocks: **connectors** and **flows**. Everything else builds on top of them.
-
-A **connector** is anything Mycel can talk to — a database, a REST API, a message queue, a gRPC service, a file system. Every connector is bidirectional: it can be a **source** (receives data that triggers a flow) or a **target** (destination where a flow writes data).
-
-A **flow** wires two connectors together, moving data from one to the other:
+There are two core building blocks. A **connector** is anything Mycel can talk to — a database, a REST API, a message queue, a gRPC service, a file system — and every connector is bidirectional: it can be a **source** (receives data that triggers a flow) or a **target** (where a flow writes). A **flow** wires two connectors together:
 
 ```
 Connector (source) ──→ Flow ──→ Connector (target)
 ```
 
-On top of this, you can add [transforms](docs/core-concepts/transforms.md) (reshape data), [types](docs/core-concepts/types.md) (validate schemas), [steps](docs/guides/multi-step-flows.md) (multi-step orchestration), [sagas](docs/guides/sagas.md) (distributed transactions), [auth](docs/guides/auth.md), [aspects](docs/core-concepts/aspects.md), [security](docs/guides/security.md), and [more](#features). But every feature ultimately serves the same pattern: data enters through a connector, optionally gets transformed, and exits through another connector.
+Everything else builds on top: [transforms](docs/core-concepts/transforms.md) reshape data, [types](docs/core-concepts/types.md) validate it, [steps](docs/guides/multi-step-flows.md) orchestrate, [sagas](docs/guides/sagas.md) compensate, [aspects](docs/core-concepts/aspects.md) cut across. But every feature serves the same pattern: data enters through a connector, optionally gets transformed, and exits through another.
 
-Every Mycel service automatically includes health checks (`/health`, `/health/live`, `/health/ready`), Prometheus metrics (`/metrics`), and hot reload — no configuration needed. Change a `.mycel` file and the service reloads with zero downtime.
+Every Mycel service gets health checks (`/health`, `/health/live`, `/health/ready`), Prometheus metrics (`/metrics`), OpenTelemetry tracing and hot reload with no configuration. Change a `.mycel` file and the service reloads with zero downtime.
 
 That's the whole model. Everything else is configuration.
 
-**Want to write your first flow?** [Flow Anatomy](docs/core-concepts/flows.md#flow-anatomy) lists every block a flow can contain and what each one is for, in the order they run. For the bare syntax of every block in the language, see the [HCL Syntax Reference](docs/reference/configuration.md).
+> **Writing your first flow?** [Flow Anatomy](docs/core-concepts/flows.md#flow-anatomy) lists every block a flow can contain, in the order they run.
 
 ## Quick Start
 
@@ -40,7 +38,7 @@ Create a directory with three `.mycel` files — that's your entire microservice
 mkdir orders-intake && cd orders-intake
 ```
 
-**`config.mycel`** — Name and version your service:
+**`config.mycel`** — name and version your service:
 ```hcl
 service {
   name    = "orders-intake"
@@ -48,7 +46,7 @@ service {
 }
 ```
 
-**`connectors.mycel`** — Define what your service talks to:
+**`connectors.mycel`** — define what your service talks to:
 ```hcl
 connector "api" {
   type = "rest"
@@ -62,7 +60,7 @@ connector "db" {
 }
 ```
 
-**`flows.mycel`** — Wire them together. An order arrives over HTTP, gets reshaped in flight, and lands in the database:
+**`flows.mycel`** — wire them together. An order arrives over HTTP, gets reshaped in flight, and lands in the database:
 ```hcl
 flow "create_order" {
   from {
@@ -124,19 +122,22 @@ curl http://localhost:3000/orders
 
 That's an HTTP intake service — validation-ready transforms and a database write — with no plumbing of your own to maintain. The flow is the stable part; the edges are pluggable. Swap the `from` to a RabbitMQ queue and the same flow becomes a durable event consumer. Swap the `to` to another REST API and it's a protocol bridge. You changed what connects to what; Mycel rebuilt the machinery underneath.
 
-> See the [Quick Start Guide](docs/getting-started/quick-start.md) for a complete tutorial, or explore the [full documentation](#documentation).
+Prefer to start from a generated skeleton? `mycel init my-service` writes the same three files for you.
 
-## Purpose
+> See the [Quick Start Guide](docs/getting-started/quick-start.md) for the complete tutorial.
 
-- **What:** An open-source runtime that reads HCL configuration and runs it as a microservice. Same binary, different config = different service.
-- **Why:** Most microservice code is plumbing — routing, database queries, data transformations, protocol translation, error handling, retries. It's the same patterns repeated across every service, in every team, in every company. Mycel extracts that into configuration so teams can focus on what's actually unique to their service.
-- **Who:** Backend teams building microservices of any kind — APIs, integrations, event processors, protocol bridges — who'd rather declare the service than rewrite its plumbing.
+## Why
+
+Most microservice code is plumbing — routing, database queries, data transformations, protocol translation, error handling, retries. The same patterns repeated across every service, in every team, in every company. Mycel extracts that into configuration so teams can focus on what's actually unique to their service.
+
+It's for backend teams building microservices of any kind — APIs, integrations, event processors, protocol bridges — who'd rather declare the service than rewrite its plumbing.
 
 ## Features
 
-The simple case is trivial — connect A to B, like above. The list below is the complexity that's *there when you need it*: a transform, a lock, a cache, a saga, a circuit breaker, a new protocol. Each one is a block of configuration you declare inside a flow, never machinery you have to build. You don't need any of it to start; you reach for it the day your service does.
+The simple case is trivial — connect A to B, like above. What follows is the complexity that's *there when you need it*: a transform, a lock, a cache, a saga, a circuit breaker, a new protocol. Each one is a block of configuration you declare inside a flow, never machinery you have to build. You don't need any of it to start; you reach for it the day your service does.
 
-### Connectors — the systems you wire together
+<details>
+<summary><b>Connectors</b> — the systems you wire together</summary>
 
 The A's and B's of any flow. Use any as a source, a target, or both.
 
@@ -164,20 +165,26 @@ The A's and B's of any flow. Use any as a source, a target, or both.
 | [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
 | [FTP / SFTP](examples/ftp) | Remote file transfer (FTP, FTPS, SFTP with key auth) ([docs](docs/connectors/ftp.md)) |
 | [Notifications](examples/notifications) | Email, Slack, Discord, SMS, Push, Webhook ([docs](docs/guides/notifications.md)) |
+| [PDF](docs/connectors/pdf.md) | Render a flow's result as a PDF document |
 
-### Shaping & validating data
+</details>
 
-What happens to the payload between `from` and `to`.
+<details>
+<summary><b>Shaping & validating data</b> — what happens to the payload between <code>from</code> and <code>to</code></summary>
 
 | Capability | Description |
 |------------|-------------|
+| [Transforms](docs/core-concepts/transforms.md) | Reshape the payload with CEL expressions — inline in a flow or declared once and reused |
+| [Types](docs/core-concepts/types.md) | Schema validation with field constraints, applied to a flow's input or output |
+| [Constants](docs/core-concepts/constants.md) | Declare a value once — a list, a map, a number — and use it from every flow, on both the HCL and the CEL side ([example](examples/constants)) |
 | [Format Declarations](examples/format) | Multi-format support (JSON, XML) at connector, flow, and step level ([docs](docs/guides/format-system.md)) |
 | [Data Enrichment](examples/enrich) | Combine data from multiple sources |
 | [Validators](examples/validators) | Regex, CEL, and custom validation rules ([docs](docs/guides/extending.md#validators)) |
 
-### Orchestration & flow control
+</details>
 
-For when one `from → to` isn't enough: multiple steps, routing, reuse, long-running work.
+<details>
+<summary><b>Orchestration & flow control</b> — for when one <code>from → to</code> isn't enough</summary>
 
 | Capability | Description |
 |------------|-------------|
@@ -194,9 +201,10 @@ For when one `from → to` isn't enough: multiple steps, routing, reuse, long-ru
 | [Scheduled Jobs](examples/scheduled) | Cron expressions and interval-based flow triggers |
 | [Aspects (AOP)](examples/aspects) | Cross-cutting concerns (audit, metrics, alerting) applied across flows by name pattern ([docs](docs/core-concepts/aspects.md)) |
 
-### Reliability & performance
+</details>
 
-What keeps the service standing when a downstream misbehaves or traffic spikes.
+<details>
+<summary><b>Reliability & performance</b> — what keeps the service standing when a downstream misbehaves</summary>
 
 | Capability | Description |
 |------------|-------------|
@@ -208,7 +216,10 @@ What keeps the service standing when a downstream misbehaves or traffic spikes.
 | [Read Replicas](examples/read-replicas) | Route reads to replica databases |
 | [Cache (Memory / Redis)](examples/cache) | In-memory and Redis caching ([docs](docs/guides/caching.md)) |
 
-### Security & auth
+</details>
+
+<details>
+<summary><b>Security & auth</b></summary>
 
 | Capability | Description |
 |------------|-------------|
@@ -216,220 +227,106 @@ What keeps the service standing when a downstream misbehaves or traffic spikes.
 | [OAuth (Social Login)](examples/oauth) | Declarative social login: Google, GitHub, Apple, OIDC, custom ([docs](docs/connectors/oauth.md)) |
 | [Security](examples/security) | Secure-by-default input sanitization, XXE/injection protection, WASM sanitizers ([docs](docs/guides/security.md)) |
 
-### Extending Mycel
+</details>
 
-When a connector or transform doesn't express what you need, drop down to your own code — and only that code.
+<details>
+<summary><b>Extending Mycel</b> — when a connector or transform doesn't express what you need</summary>
+
+Drop down to your own code — and only that code.
 
 | Capability | Description |
 |------------|-------------|
 | [WASM](examples/wasm-functions) | Custom functions and validators via WebAssembly ([docs](docs/advanced/wasm.md)) |
-| [Plugins](examples/plugin) | Extend Mycel with WASM plugins ([docs](docs/advanced/plugins.md)) |
+| [Plugins](examples/plugin) | Connectors, validators and sanitizers distributed as WASM modules — declare `plugin "name" { source = "github.com/…" }` and use them like built-ins; auto-installed on `mycel start` ([docs](docs/advanced/plugins.md)) |
 | [Exec](examples/exec) | Execute shell commands from flows |
 | [Mocks](examples/mocks) | Mock data for development and testing ([docs](docs/guides/extending.md#mocks)) |
 
-### Built in — no config needed
+</details>
 
-Every Mycel service gets these for free.
+<details>
+<summary><b>Built in</b> — every service gets these with no config</summary>
 
 | Capability | Description |
 |------------|-------------|
-| Hot Reload | Apply HCL changes without restart |
-| Health Checks / Prometheus | `/health`, `/metrics` endpoints |
+| Hot Reload | Apply `.mycel` changes without restart |
+| Health Checks / Prometheus | `/health`, `/health/live`, `/health/ready`, `/metrics` |
+| [OpenTelemetry Tracing](docs/guides/observability.md) | Opt-in OTLP traces: a span per flow, context propagated in and out over HTTP and MQ headers, `trace_id` in the logs |
 | [Debugging](docs/guides/debugging.md) | Trace flows, interactive breakpoints, dry-run, IDE integration (VS Code, IntelliJ, Neovim) |
 
-## Debugging
-
-Mycel has a built-in debugging toolkit for tracing data through your flows — no log statements needed.
-
-```bash
-# See what a flow does, step by step
-mycel trace get_users
-
-# Simulate a write without touching the database
-mycel trace create_user --input '{"email":"test@x.com"}' --dry-run
-
-# Interactive breakpoints — pause at each pipeline stage
-mycel trace create_user --input '{"email":"test@x.com"}' --breakpoints
-
-# Pause only at specific stages
-mycel trace create_user --input '{"email":"test@x.com"}' --break-at=transform,write
-
-# IDE debugging (VS Code, IntelliJ, Neovim) via DAP
-mycel trace create_user --input '{"email":"test@x.com"}' --dap=4711
-
-# Per-request pipeline logging in a running service
-mycel start --verbose-flow
-```
-
-All debug features are **development-only** — automatically disabled in staging/production with zero overhead.
-
-**Incoming payload logging.** To see the raw payload entering a flow — regardless of source connector, and in any environment including production — set `MYCEL_PAYLOAD_SHOW=true` together with `MYCEL_LOG_LEVEL=debug`. It logs the payload on entry (before sanitization/validation) at the single choke-point every request passes through, so it works for queues, HTTP, TCP, etc. Off by default (payloads may carry PII/secrets); `MYCEL_PAYLOAD_SIZE` caps the logged size (default `4k`, e.g. `512`/`4k`/`1m`).
-
-```bash
-MYCEL_LOG_LEVEL=debug MYCEL_PAYLOAD_SHOW=true mycel start
-# DBG incoming payload flow=create_user source=api payload={"name":"Ada","email":"..."}
-```
-
-**Profiling (`pprof`).** For diagnosing a live process — goroutine leaks, heap growth, CPU hotspots — set `MYCEL_PPROF=true` to mount the Go `net/http/pprof` endpoints under `/debug/pprof/` on the admin server (`:9090`). It's off by default and safe to enable in any environment, including production: the admin port is internal (reach it with `kubectl port-forward`). Then:
-
-```bash
-# Full goroutine dump (what reveals a leak)
-curl 'http://localhost:9090/debug/pprof/goroutine?debug=2'
-# Or interactively
-go tool pprof http://localhost:9090/debug/pprof/goroutine
-```
-
-See the [Debugging Guide](docs/guides/debugging.md) for full documentation including IDE setup.
+</details>
 
 ## CLI
 
 ```bash
-mycel start [--config=<path>] [--env=<env>] [--log-level=<level>] [--log-format=<format>] [--hot-reload] [--verbose-flow]
-mycel validate [--config=<path>]
-mycel check [--config=<path>]
+mycel init [name]                  # scaffold a new service
+mycel start [--env] [--hot-reload] [--verbose-flow] [--log-level] [--config]
+mycel validate [--config]          # check the configuration without running it
+mycel check [--config]             # connect to every configured system and report
+mycel migrate [--connector]        # apply SQL migrations   (also: migrate status)
 mycel version
 
-mycel trace <flow-name> [--input=<json>] [--params=<k=v>] [--dry-run] [--breakpoints] [--break-at=<stages>] [--dap=<port>] [--list]
+mycel add connector|flow|aspect|type|constants|transform|validator|saga|state-machine
 
-mycel plugin install [name]
-mycel plugin list
-mycel plugin remove <name>
-mycel plugin update [name]
+mycel trace <flow> [--input=<json>] [--dry-run] [--breakpoints] [--break-at=<stages>] [--dap=<port>]
+
+mycel export openapi|asyncapi|graphql-schema
+mycel plugin install|list|remove|update
 ```
 
-Environment: `MYCEL_ENV` (default: development), `MYCEL_LOG_LEVEL` (default: info), `MYCEL_LOG_FORMAT` (default: text), `MYCEL_PPROF` (default: off — mounts `pprof` on the admin server when truthy), `MYCEL_PAYLOAD_SHOW` (default: off — logs incoming flow payloads at debug level) with `MYCEL_PAYLOAD_SIZE` (default: `4k`). Flags take precedence.
+Every command is documented in the [CLI Reference](docs/reference/cli.md). Environment: `MYCEL_ENV`, `MYCEL_LOG_LEVEL`, `MYCEL_LOG_FORMAT`, `MYCEL_PPROF`, `MYCEL_PAYLOAD_SHOW`/`MYCEL_PAYLOAD_SIZE`, `MYCEL_TRACING`. Flags take precedence.
 
-See the [Debugging Guide](docs/guides/debugging.md) for `mycel trace` usage and examples.
+## Debugging
 
-## Plugins
+Mycel traces data through your flows without log statements — step by step, as a dry run, or paused at a breakpoint:
 
-Plugins extend Mycel with additional connectors, validators, and sanitizers via WASM. Declare them in your config and they work like built-in features — no extra wiring needed.
-
-**Declare the plugin:**
-```hcl
-plugin "salesforce" {
-  source  = "github.com/acme/mycel-salesforce"
-  version = "^1.0"
-}
+```bash
+mycel trace create_user --input '{"email":"test@x.com"}' --dry-run
+mycel trace create_user --input '{"email":"test@x.com"}' --break-at=transform,write
+mycel start --verbose-flow
 ```
 
-**Use it like any built-in connector:**
-```hcl
-connector "sf" {
-  type         = "salesforce"
-  instance_url = env("SF_URL")
-  api_key      = env("SF_KEY")
-}
+These are development-only and disabled outside it. Two switches work anywhere, production included: `MYCEL_PAYLOAD_SHOW=true` (with `MYCEL_LOG_LEVEL=debug`) logs the raw payload entering any flow, whatever the source connector; `MYCEL_PPROF=true` mounts Go's `pprof` on the internal admin port for a live goroutine or heap dump. Both are off by default.
 
-flow "sync_accounts" {
-  from {
-    connector = "api"
-    operation = "POST /accounts"
-  }
-  to {
-    connector = "sf"
-    target    = "accounts"
-  }
-}
-```
-
-Plugin validators and sanitizers are also available immediately after declaration — use them in type definitions or security rules just like native ones.
-
-Plugins are auto-installed on `mycel start`. Sources: local paths (`./plugins/my-plugin`), GitHub, GitLab, Bitbucket, or any git URL. Versions use semver constraints (`^1.0`, `~2.0`, `>= 1.0, < 3.0`). Cache stored in `mycel_plugins/`.
-
-See the [plugin example](examples/plugin) for a complete walkthrough.
+See the [Debugging Guide](docs/guides/debugging.md) for IDE setup and the full toolkit.
 
 ## Installation
 
-**Docker (recommended):**
 ```bash
-# From GitHub Container Registry
+# Docker
 docker run -v $(pwd):/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
 
-# Or from Docker Hub
-docker run -v $(pwd):/etc/mycel -p 3000:3000 mdenda/mycel
-```
+# Homebrew
+brew install matutetandil/tap/mycel
 
-**Go:**
-```bash
+# Install script (Linux/macOS, amd64/arm64)
+curl -fsSL https://raw.githubusercontent.com/matutetandil/mycel/main/install.sh | sh
+
+# Kubernetes
+helm install my-api oci://ghcr.io/matutetandil/charts/mycel
+
+# Go
 go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
 ```
 
-**Kubernetes (Helm):**
-```bash
-helm install my-api oci://ghcr.io/matutetandil/charts/mycel
-```
+Every release also publishes `.deb`, `.rpm` and `.apk` packages (with a systemd unit) and plain tarballs — see [Installation](docs/getting-started/installation.md), or [helm/mycel/README.md](helm/mycel/README.md) for the chart's values, autoscaling and ingress.
 
-See [helm/mycel/README.md](helm/mycel/README.md) for full Helm documentation including values, autoscaling, and ingress configuration.
-
-**Requirements:** Docker (recommended) or Go 1.24+ (for building from source).
+**Requirements:** Docker, or Go 1.25+ to build from source.
 
 ## Documentation
 
-Full documentation is at [docs/index.md](docs/index.md). Quick links:
+Everything is at **[matutetandil.github.io/mycel](https://matutetandil.github.io/mycel/)** — the same pages live under [`docs/`](docs/index.md). The ones worth bookmarking:
 
-**Getting Started**
-- [Introduction](docs/getting-started/introduction.md) — What Mycel is and how it works
-- [Installation](docs/getting-started/installation.md) — Docker, Go binary, Helm
-- [Quick Start](docs/getting-started/quick-start.md) — First service in 5 minutes
+- [Quick Start](docs/getting-started/quick-start.md) — first service in 5 minutes
+- [Flows](docs/core-concepts/flows.md) — every block a flow can contain, in the order they run
+- [Input & Output](docs/core-concepts/input-and-output.md) — what `input.*` holds per connector, and how `output` is built
+- [HCL Syntax Reference](docs/reference/configuration.md) — every block type and attribute
+- [CEL Functions](docs/reference/cel-functions.md) — all built-in transform functions
+- [Error Handling](docs/guides/error-handling.md) · [Resilience](docs/guides/resilience.md) — retry, DLQ, circuit breaker, what survives a crash
+- [Auth](docs/guides/auth.md) · [Security](docs/guides/security.md) — JWT, MFA, SSO, sanitization
+- [Architecture](docs/architecture.md) — why HCL, why CEL, why WASM, why Go
+- [Roadmap](docs/ROADMAP.md) — implementation status and what's next
 
-**Core Concepts**
-- [Connectors](docs/core-concepts/connectors.md) — All connector types
-- [Flows](docs/core-concepts/flows.md) — Complete flow reference, starting with [Flow Anatomy](docs/core-concepts/flows.md#flow-anatomy): every block a flow can contain
-- [Reusable Blocks](docs/core-concepts/reusable-blocks.md) — Declare `dedupe`, `retry`, `lock` and friends once, reference them from many flows
-- [Transforms](docs/core-concepts/transforms.md) — CEL functions and expressions
-- [Types](docs/core-concepts/types.md) — Schema validation and field constraints
-- [Aspects](docs/core-concepts/aspects.md) — Cross-cutting concerns (AOP) applied across flows by pattern
-- [Environments](docs/core-concepts/environments.md) — Environment variables and overlays
-
-**Guides**
-- [Error Handling](docs/guides/error-handling.md) — Retry, DLQ, circuit breaker, fallback
-- [Resilience & Failure Recovery](docs/guides/resilience.md) — Availability vs durability, broker redelivery, sync vs async ingestion, idempotency
-- [Auth](docs/guides/auth.md) — JWT, MFA, SSO
-- [Security](docs/guides/security.md) — Sanitization, XXE protection, WASM sanitizers
-- [Real-Time](docs/guides/real-time.md) — WebSocket, SSE, CDC, GraphQL subscriptions
-- [Sagas & State Machines](docs/guides/sagas.md) — Distributed transactions, entity lifecycle, long-running workflows
-- [Notifications](docs/guides/notifications.md) — Email, Slack, Discord, SMS, push, webhook
-- [Caching](docs/guides/caching.md) — In-memory and Redis caching
-- [Synchronization](docs/guides/synchronization.md) — Distributed locks and semaphores
-- [Batch Processing](docs/guides/batch-processing.md) — ETL and data migrations
-- [Extending Mycel](docs/guides/extending.md) — Validators, WASM functions, mocks, plugins
-
-**Reference**
-- [HCL Syntax Reference](docs/reference/configuration.md) — Every block type and attribute
-- [Source Properties](docs/reference/source-properties.md) — What `operation` means per connector, and the `input.*` variables it gives you
-- [Destination Properties](docs/reference/destination-properties.md) — What `target`, `operation` and `query` mean per connector
-- [CEL Functions](docs/reference/cel-functions.md) — All built-in transform functions
-- [CLI Reference](docs/reference/cli.md) — All commands and flags
-- [API Endpoints](docs/reference/api-endpoints.md) — Health, metrics, workflow, auth endpoints
-
-**Deployment**
-- [Docker](docs/deployment/docker.md) — Docker run and Docker Compose
-- [Kubernetes](docs/deployment/kubernetes.md) — Helm chart and manual deployment
-- [Production Guide](docs/deployment/production.md) — Security checklist and monitoring
-
-**Advanced**
-- [GraphQL Federation](docs/advanced/federation.md) — Federated subgraphs, entities, gateway setup
-- [WASM](docs/advanced/wasm.md) — Building WASM modules in 6 languages
-- [Plugins](docs/advanced/plugins.md) — Extending Mycel with WASM plugins
-- [Integration Patterns](docs/advanced/integration-patterns.md) — Protocol bridges, CDC pipelines, saga orchestration
-
-**Project**
-- [Architecture](docs/architecture.md) — Design decisions: why HCL, why CEL, why WASM, why Go
-- [Roadmap](docs/ROADMAP.md) — Implementation status and future plans
-- [Connector Catalog](docs/connectors/) — Individual documentation for every connector type
-
-## More Examples
-
-Variants and integration patterns beyond the individual features above:
-
-| Example | Description |
-|---------|-------------|
-| [s3](examples/s3) | AWS S3 / MinIO (variant of Files) |
-| [redis-cluster](examples/redis-cluster) | Redis cluster setup (variant of Cache) |
-| [dynamic-api-key](examples/dynamic-api-key) | Dynamic API key auth (variant of Auth) |
-| [wasm-validator](examples/wasm-validator) | WASM validators (variant of WASM) |
-| [integration](examples/integration) | Multi-connector integration patterns |
+Every connector has its own page under [`docs/connectors/`](docs/connectors/), and [`examples/`](examples/) has a runnable project per feature.
 
 ## Support
 
