@@ -14,6 +14,13 @@ flow "create_user" {
     input = "type.user"
   }
 
+  # The elements are named as SOAP names them and the columns as a database
+  # does. This is where the two meet.
+  transform {
+    email = "input.Email"
+    name  = "input.Name"
+  }
+
   to {
     connector = "sqlite"
     target    = "users"

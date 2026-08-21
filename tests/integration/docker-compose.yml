@@ -303,6 +303,10 @@ services:
   # ==========================================================================
   mosquitto:
     image: eclipse-mosquitto:2
+    # Published so the examples harness, which runs outside this network, can
+    # point the mqtt example at it.
+    ports:
+      - "${PORT_MQTT:-31883}:1883"
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
     healthcheck:
@@ -316,6 +320,8 @@ services:
   # ==========================================================================
   sftp:
     image: emberstack/sftp
+    ports:
+      - "${PORT_SFTP:-32222}:22"
     volumes:
       - ./sftp/sftp.json:/app/config/sftp.json:ro
 

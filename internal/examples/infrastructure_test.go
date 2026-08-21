@@ -166,6 +166,12 @@ func address(t *testing.T, name string) string {
 		}
 	}
 
+	// A bare host:port, which is how an SFTP server is named. Checked before
+	// the URL parse, which refuses one and stops the test.
+	if strings.Count(raw, ":") == 1 && !strings.Contains(raw, "/") {
+		return raw
+	}
+
 	if u := dsn(t, name); u != nil && u.Host != "" {
 		return u.Host
 	}
@@ -409,6 +415,35 @@ func waitForCalls(t *testing.T, want int, within time.Duration) []string {
 		time.Sleep(200 * time.Millisecond)
 	}
 	return callsFor(t)
+}
+
+func mqttEnv(t *testing.T) []string {
+	t.Helper()
+	broker := os.Getenv("MYCEL_TEST_MQTT_BROKER")
+	if broker == "" {
+		return nil
+	}
+	return []string{"MQTT_BROKER=" + broker}
+}
+
+func sftpEnv(t *testing.T) []string {
+	t.Helper()
+	addr := os.Getenv("MYCEL_TEST_SFTP_ADDR")
+	if addr == "" {
+		return nil
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatalf("MYCEL_TEST_SFTP_ADDR: %v", err)
+	}
+	return []string{
+		"SFTP_HOST=" + host,
+		"SFTP_PORT=" + port,
+		"SFTP_USER=" + envOr("MYCEL_TEST_SFTP_USER", "testuser"),
+		"SFTP_PASS=" + envOr("MYCEL_TEST_SFTP_PASS", "testpass"),
+		// The directory the test server gives that account.
+		"SFTP_PATH=" + envOr("MYCEL_TEST_SFTP_PATH", "/upload"),
+	}
 }
 
 func envOr(name, fallback string) string {
@@ -678,6 +713,20 @@ var needsInfrastructure = []infrastructure{
 		example: "integration/rest-to-rabbit",
 		needs:   []string{"MYCEL_TEST_RABBITMQ_URL"},
 		env:     rabbitEnv,
+	},
+	{
+		example: "mqtt",
+		needs:   []string{"MYCEL_TEST_MQTT_BROKER"},
+		env:     mqttEnv,
+	},
+	{
+		// It keeps what it fetches, so it needs the database as well as the
+		// file server.
+		example: "ftp",
+		needs:   []string{"MYCEL_TEST_SFTP_ADDR", "MYCEL_TEST_POSTGRES_DSN"},
+		env: func(t *testing.T) []string {
+			return append(sftpEnv(t), postgresEnvFor(t, "ftp")...)
+		},
 	},
 	{
 		example: "workflows",

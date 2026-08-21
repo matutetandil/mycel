@@ -44,12 +44,14 @@ docker run -d --rm -p 2222:22 -v "$PWD/outgoing:/home/demo/incoming" \
 
 ## Try It
 
+Put a file there first, then list the directory and fetch it back:
+
 ```bash
-curl http://localhost:3000/files
-
-curl http://localhost:3000/files/report.csv
-
 curl -X POST http://localhost:3000/files/upload \
   -H "Content-Type: application/json" \
   -d '{"filename":"result.csv","content":"id,total\n1,99\n"}'
+
+curl http://localhost:3000/files
+
+curl http://localhost:3000/files/result.csv
 ```

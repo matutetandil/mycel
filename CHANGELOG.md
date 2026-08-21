@@ -62,6 +62,8 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **An FTP or SFTP connector refused the runtime's own words for a read and a write.** A flow that does not name an operation gets `SELECT` on a read and `INSERT` on a write, because that is where the defaults come from — so fetching a file or uploading one from an ordinary flow was answered "unknown read operation: SELECT", which names nothing anybody wrote.
+
 - **A semaphore written the documented way was refused.** The reference page's example writes `limit = 10` and says in the next sentence that `limit` and `max_permits` are the same setting under two names. Only `max_permits` was accepted, so the example did not parse. The claim is true now.
 
 - **A Redis Pub/Sub connector ignored its `url`.** Every other Redis connector takes one and this driver read `host` and `port` only, so a connector written the documented way connected to localhost:6379 whatever the URL said, and said nothing about it.

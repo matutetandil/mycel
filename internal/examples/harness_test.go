@@ -264,8 +264,15 @@ func movePorts(t *testing.T, source string, moved map[int]int) (string, int) {
 			kind = m[1]
 		}
 		serving := listens[kind]
-		if listensWhenServing[kind] && regexp.MustCompile(`driver\s*=\s*"server"`).MatchString(block) {
-			serving = true
+		if listensWhenServing[kind] {
+			// A connector of these types is a client when it says so, and a
+			// server otherwise: the SOAP example writes no driver at all and
+			// binds a port, so asking for `driver = "server"` left its port
+			// where it was and the README's requests went to whatever else was
+			// on 8080.
+			if !regexp.MustCompile(`driver\s*=\s*"client"`).MatchString(block) {
+				serving = true
+			}
 		}
 		if serving {
 			block = portInConfig.ReplaceAllStringFunc(block, func(match string) string {
@@ -662,12 +669,16 @@ var selfContained = []string{
 	"cache",
 	"files",
 	"format",
+	"plugin",
 	"query-method",
 	"rate-limit",
 	"scheduled",
+	"soap",
 	"security",
 	"transactional-write",
 	"validators",
+	"wasm-functions",
+	"wasm-validator",
 	"websocket",
 }
 

@@ -46,7 +46,9 @@ lto = true
 
 ```rust
 use serde::Deserialize;
-use std::alloc::{alloc, dealloc, Layout};
+// Aliased, because this module exports functions called alloc and free for the
+// host to call: importing them under the same names does not compile.
+use std::alloc::{alloc as raw_alloc, dealloc as raw_dealloc, Layout};
 use std::slice;
 
 #[derive(Deserialize)]
@@ -57,8 +59,8 @@ struct Input {
 // Memory allocation for host
 #[no_mangle]
 pub extern "C" fn alloc(size: i32) -> *mut u8 {
-    let layout = Layout::from_size_align(size as usize, 1).unwrap();
-    unsafe { alloc(layout) }
+    let layout = Layout::from_size_align(size.max(1) as usize, 1).unwrap();
+    unsafe { raw_alloc(layout) }
 }
 
 #[no_mangle]
@@ -66,8 +68,8 @@ pub extern "C" fn free(ptr: *mut u8, size: i32) {
     if ptr.is_null() {
         return;
     }
-    let layout = Layout::from_size_align(size as usize, 1).unwrap();
-    unsafe { dealloc(ptr, layout) }
+    let layout = Layout::from_size_align(size.max(1) as usize, 1).unwrap();
+    unsafe { raw_dealloc(ptr, layout) }
 }
 
 /// Validate function - entry point called by Mycel
@@ -183,7 +185,31 @@ cargo build --target wasm32-unknown-unknown --release
 wasmtime run --invoke validate target/wasm32-unknown-unknown/release/cuit_validator.wasm
 
 # Use in Mycel
-mycel validate --config ./examples/wasm-validator
+mycel migrate --config ./examples/wasm-validator
+mycel start --config ./examples/wasm-validator
+```
+
+## Try It
+
+A valid CUIT is accepted:
+
+```bash
+curl -X POST http://localhost:3000/companies \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Acme SA","cuit":"30707429565","email":"hola@acme.com.ar"}'
+```
+
+One whose check digit does not add up is refused, with the message the
+validator declares:
+
+```bash
+curl -X POST http://localhost:3000/companies \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Acme SA","cuit":"30707429562","email":"hola@acme.com.ar"}'
+```
+
+```bash
+curl http://localhost:3000/companies
 ```
 
 ## Tips

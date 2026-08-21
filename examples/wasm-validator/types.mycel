@@ -1,12 +1,24 @@
 // Type definitions using WASM validators
+//
+// A field names the validator that checks it, the same way it would name a
+// regex or a CEL one — that a validator happens to be a WebAssembly module is
+// not something the type has to know. Without this the validators beside it
+// are declared and never run, which is what this example used to show.
 
 type "company" {
-  name  = string
-  cuit  = string
-  email = string
+  name = string({})
+
+  // Checked by the WASM module: eleven digits and a valid check digit.
+  cuit = string({
+    validator = "argentina_cuit"
+  })
+
+  email = string({
+    validator = "email"
+  })
 }
 
 type "employee" {
-  name = string
-  age  = number
+  name = string({})
+  age  = number({})
 }

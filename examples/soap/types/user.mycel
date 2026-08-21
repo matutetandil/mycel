@@ -1,6 +1,9 @@
-# User input validation schema
-# Fields declared in a type are required by default.
+# What a CreateUser request carries.
+#
+# The names are the ones the XML uses: a SOAP element is <Email>, and an
+# element's name is what arrives — nothing lowercases it on the way in. The
+# flow below maps them to the column names.
 type "user" {
-  email = string
-  name  = string
+  Email = string
+  Name  = string
 }

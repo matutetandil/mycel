@@ -14,6 +14,7 @@ A SOAP web service backed by SQLite, demonstrating Mycel's SOAP connector in ser
 
 ```bash
 # From the repository root
+mycel migrate --config ./examples/soap
 mycel start --config ./examples/soap
 
 # Or with Docker

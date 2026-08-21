@@ -14,7 +14,13 @@ WASM functions allow you to:
 Each WASM function must:
 1. Export `alloc(size: i32) -> *mut u8` for memory allocation
 2. Export `free(ptr: *mut u8, size: i32)` for memory deallocation
-3. Export the actual function(s) with signature: `fn(ptr: i32, len: i32) -> (ptr: i32, len: i32)`
+3. Export the actual function(s) with signature: `fn(ptr: i32, len: i32) -> i64`
+
+The answer is a pointer and a length packed into one 64-bit value —
+`(ptr as i64) << 32 | len as i64`. Returning a pair (`-> (i32, i32)`) looks
+tidier and does not work: on wasm32 a Rust function returning two values takes
+a hidden out-pointer, so what the module exports is a function of three
+parameters and the host, which passes two, cannot call it.
 
 ### Input JSON Format
 
@@ -44,7 +50,9 @@ Each WASM function must:
 
 ```rust
 use serde::{Deserialize, Serialize};
-use std::alloc::{alloc, dealloc, Layout};
+// Aliased, because this module exports functions called alloc and free for the
+// host to call: importing them under the same names does not compile.
+use std::alloc::{alloc as raw_alloc, dealloc as raw_dealloc, Layout};
 
 #[derive(Deserialize)]
 struct Input {
@@ -60,14 +68,14 @@ struct Output {
 // Memory allocation for host
 #[no_mangle]
 pub extern "C" fn alloc(size: i32) -> *mut u8 {
-    let layout = Layout::from_size_align(size as usize, 1).unwrap();
-    unsafe { alloc(layout) }
+    let layout = Layout::from_size_align(size.max(1) as usize, 1).unwrap();
+    unsafe { raw_alloc(layout) }
 }
 
 #[no_mangle]
 pub extern "C" fn free(ptr: *mut u8, size: i32) {
-    let layout = Layout::from_size_align(size as usize, 1).unwrap();
-    unsafe { dealloc(ptr, layout) }
+    let layout = Layout::from_size_align(size.max(1) as usize, 1).unwrap();
+    unsafe { raw_dealloc(ptr, layout) }
 }
 
 fn parse_input(ptr: *const u8, len: i32) -> Result<Input, String> {
@@ -75,21 +83,21 @@ fn parse_input(ptr: *const u8, len: i32) -> Result<Input, String> {
     serde_json::from_slice(slice).map_err(|e| e.to_string())
 }
 
-fn write_output(output: Output) -> (i32, i32) {
+fn write_output(output: Output) -> i64 {
     let json = serde_json::to_vec(&output).unwrap();
     let len = json.len() as i32;
     let ptr = alloc(len);
     unsafe {
         std::ptr::copy_nonoverlapping(json.as_ptr(), ptr, json.len());
     }
-    (ptr as i32, len)
+    ((ptr as i64) << 32) | (len as i64)
 }
 
 /// Calculate total price from array of items
 /// Input: { "args": [items] } where items = [{"price": f64, "quantity": i64}, ...]
 /// Output: { "result": total_price }
 #[no_mangle]
-pub extern "C" fn calculate_price(ptr: *const u8, len: i32) -> (i32, i32) {
+pub extern "C" fn calculate_price(ptr: *const u8, len: i32) -> i64 {
     let input = match parse_input(ptr, len) {
         Ok(v) => v,
         Err(e) => return write_output(Output { result: None, error: Some(e) }),
@@ -127,7 +135,7 @@ pub extern "C" fn calculate_price(ptr: *const u8, len: i32) -> (i32, i32) {
 /// Input: { "args": [price, discount_percent] }
 /// Output: { "result": discounted_price }
 #[no_mangle]
-pub extern "C" fn apply_discount(ptr: *const u8, len: i32) -> (i32, i32) {
+pub extern "C" fn apply_discount(ptr: *const u8, len: i32) -> i64 {
     let input = match parse_input(ptr, len) {
         Ok(v) => v,
         Err(e) => return write_output(Output { result: None, error: Some(e) }),
@@ -155,7 +163,7 @@ pub extern "C" fn apply_discount(ptr: *const u8, len: i32) -> (i32, i32) {
 /// Input: { "args": [price, country_code] }
 /// Output: { "result": tax_amount }
 #[no_mangle]
-pub extern "C" fn tax_for_country(ptr: *const u8, len: i32) -> (i32, i32) {
+pub extern "C" fn tax_for_country(ptr: *const u8, len: i32) -> i64 {
     let input = match parse_input(ptr, len) {
         Ok(v) => v,
         Err(e) => return write_output(Output { result: None, error: Some(e) }),
@@ -279,7 +287,8 @@ curl -X POST http://localhost:3000/checkout \
       {"name": "Gadget", "price": 24.99, "quantity": 1}
     ],
     "discount_percent": 10,
-    "shipping_country": "AR"
+    "shipping_country": "AR",
+    "email": "BUYER@example.com"
   }'
 ```
 
