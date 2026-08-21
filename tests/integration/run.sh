@@ -383,6 +383,8 @@ if command -v go > /dev/null 2>&1; then
     ./internal/connector/database/postgres/ 'PostgresRoundTrip|CastIsNotAParameter'
   run_go_tests "reading and writing against mysql" \
     ./internal/connector/database/mysql/ 'MySQLRoundTrip|WriteWithItsOwnSQL'
+  run_go_tests "a redis queue goes where its url says" \
+    ./internal/connector/mq/ 'RedisURLIsWhere'
   run_go_tests "files over sftp" \
     ./internal/connector/ftp/ 'FileGoesUp|PlainFile|DirectoryIsMade'
   run_go_tests "postgres read replicas" \

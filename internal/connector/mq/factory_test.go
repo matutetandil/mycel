@@ -2,321 +2,166 @@ package mq
 
 import (
 	"context"
+	"net"
 	"os"
-	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v2/internal/connector"
 )
 
-// TestRabbitMQConsumerDLQEndToEnd verifies the full pipeline: HCL parser →
-// connector.Config → buildRabbitMQConfig → rabbitmq.Config.Consumer.DLQ.
-// Guards against silent regressions where the parser accepts dlq{} but the
-// factory drops it before the connector ever sees it.
-func TestRabbitMQConsumerDLQEndToEnd(t *testing.T) {
-	hcl := `
-connector "rabbit" {
-  type   = "mq"
-  driver = "rabbitmq"
-  url    = "amqp://guest:guest@localhost:5672/"
+// Which configurations this factory answers to.
+//
+// The dispatch decides what a `type = "mq"` connector becomes, and an empty
+// driver means RabbitMQ — the default that every queue example relies on
+// without writing it.
+func TestWhichQueueConfigurationsAreSupported(t *testing.T) {
+	f := NewFactory(nil)
 
-  consumer {
-    queue    = "orders"
-    prefetch = 10
-    auto_ack = false
-    workers  = 5
-
-    dlq {
-      enabled      = true
-      max_retries  = 3
-      retry_delay  = "5s"
-      exchange     = "orders.dlx"
-      queue        = "orders.dlq"
-      routing_key  = "orders"
-      retry_header = "x-retry-count"
-    }
-  }
-}
-`
-	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "rabbit.mycel")
-	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
-		t.Fatalf("write temp file: %v", err)
-	}
-
-	p := parser.NewHCLParser()
-	cfg, err := p.ParseFile(context.Background(), tmpFile)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-	if len(cfg.Connectors) != 1 {
-		t.Fatalf("expected 1 connector, got %d", len(cfg.Connectors))
-	}
-
-	rmqCfg := buildRabbitMQConfig(cfg.Connectors[0])
-
-	if rmqCfg.Consumer == nil {
-		t.Fatalf("Consumer config not built")
-	}
-	if rmqCfg.Consumer.Prefetch != 10 {
-		t.Errorf("Consumer.Prefetch=%d, want 10", rmqCfg.Consumer.Prefetch)
-	}
-	if rmqCfg.Consumer.Concurrency != 5 {
-		t.Errorf("Consumer.Concurrency=%d, want 5 (from workers alias)", rmqCfg.Consumer.Concurrency)
-	}
-
-	if rmqCfg.Consumer.DLQ == nil {
-		t.Fatalf("Consumer.DLQ not built — parser may have accepted dlq{} but factory silently dropped it")
-	}
-	dlq := rmqCfg.Consumer.DLQ
-	if !dlq.Enabled {
-		t.Errorf("DLQ.Enabled=false, want true")
-	}
-	if dlq.MaxRetries != 3 {
-		t.Errorf("DLQ.MaxRetries=%d, want 3", dlq.MaxRetries)
-	}
-	if dlq.RetryDelay != 5*time.Second {
-		t.Errorf("DLQ.RetryDelay=%s, want 5s", dlq.RetryDelay)
-	}
-	if dlq.Exchange != "orders.dlx" {
-		t.Errorf("DLQ.Exchange=%q, want %q", dlq.Exchange, "orders.dlx")
-	}
-	if dlq.Queue != "orders.dlq" {
-		t.Errorf("DLQ.Queue=%q, want %q", dlq.Queue, "orders.dlq")
-	}
-	if dlq.RoutingKey != "orders" {
-		t.Errorf("DLQ.RoutingKey=%q, want %q", dlq.RoutingKey, "orders")
-	}
-	if dlq.RetryHeader != "x-retry-count" {
-		t.Errorf("DLQ.RetryHeader=%q, want %q", dlq.RetryHeader, "x-retry-count")
+	for _, c := range []struct {
+		connType string
+		driver   string
+		want     bool
+	}{
+		{"mq", "rabbitmq", true},
+		{"mq", "kafka", true},
+		{"mq", "redis", true},
+		{"mq", "", true},
+		{"mq", "sqs", false},
+		{"mq", "nats", false},
+		// The spelling the documentation used for years and the factory never
+		// accepted: `type = "queue"` parses and fails here.
+		{"queue", "rabbitmq", false},
+		{"database", "", false},
+	} {
+		if got := f.Supports(c.connType, c.driver); got != c.want {
+			t.Errorf("Supports(%q, %q) = %v, want %v", c.connType, c.driver, got, c.want)
+		}
 	}
 }
 
-// TestRabbitMQConsumerRetryCountShorthand verifies the existing retry_count
-// shorthand still works (workaround pre-fix and equivalent post-fix).
-func TestRabbitMQConsumerRetryCountShorthand(t *testing.T) {
-	hcl := `
-connector "rabbit" {
-  type   = "mq"
-  driver = "rabbitmq"
+func TestCreatingEachDriver(t *testing.T) {
+	f := NewFactory(nil)
+	ctx := context.Background()
 
-  consumer {
-    queue       = "orders"
-    retry_count = 7
-  }
-}
-`
-	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "rabbit.mycel")
-	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
-		t.Fatalf("write temp file: %v", err)
-	}
-
-	p := parser.NewHCLParser()
-	cfg, err := p.ParseFile(context.Background(), tmpFile)
-	if err != nil {
-		t.Fatalf("parse error: %v", err)
-	}
-
-	rmqCfg := buildRabbitMQConfig(cfg.Connectors[0])
-	if rmqCfg.Consumer == nil || rmqCfg.Consumer.DLQ == nil {
-		t.Fatalf("retry_count shorthand did not create DLQ config")
-	}
-	if !rmqCfg.Consumer.DLQ.Enabled {
-		t.Errorf("DLQ.Enabled=false, want true")
-	}
-	if rmqCfg.Consumer.DLQ.MaxRetries != 7 {
-		t.Errorf("DLQ.MaxRetries=%d, want 7", rmqCfg.Consumer.DLQ.MaxRetries)
-	}
-}
-
-// TestRabbitMQQueueCreateIfMissing covers all four ways to set the
-// create_if_missing flag introduced in v2.0.0, plus the default-false case
-// that is the breaking change.
-func TestRabbitMQQueueCreateIfMissing(t *testing.T) {
-	cases := []struct {
-		name             string
-		hcl              string
-		wantQueueFlag    bool
-		wantExchangeFlag bool
-		hasExchange      bool
+	for _, c := range []struct {
+		name string
+		cfg  *connector.Config
+		typ  string
 	}{
 		{
-			name: "consumer shorthand defaults to false (v2.0.0 strict default)",
-			hcl: `
-connector "rabbit" {
-  type   = "mq"
-  driver = "rabbitmq"
-  consumer { queue = "orders" }
-}`,
-			wantQueueFlag: false,
+			name: "rabbitmq",
+			cfg: &connector.Config{Name: "rabbit", Type: "mq", Driver: "rabbitmq",
+				Properties: map[string]interface{}{"host": "broker", "port": 5672, "username": "mycel"}},
+			typ: "mq",
 		},
 		{
-			name: "consumer shorthand with explicit create_if_missing = true",
-			hcl: `
-connector "rabbit" {
-  type   = "mq"
-  driver = "rabbitmq"
-  consumer {
-    queue             = "orders"
-    create_if_missing = true
-  }
-}`,
-			wantQueueFlag: true,
+			// No driver at all, which every example that writes only
+			// `type = "mq"` depends on.
+			name: "no driver named",
+			cfg: &connector.Config{Name: "rabbit", Type: "mq",
+				Properties: map[string]interface{}{"host": "broker"}},
+			typ: "mq",
 		},
 		{
-			name: "queue block with create_if_missing = true",
-			hcl: `
-connector "rabbit" {
-  type   = "mq"
-  driver = "rabbitmq"
-  queue {
-    name              = "orders"
-    durable           = true
-    create_if_missing = true
-  }
-  consumer { auto_ack = false }
-}`,
-			wantQueueFlag: true,
+			name: "kafka",
+			cfg: &connector.Config{Name: "events", Type: "mq", Driver: "kafka",
+				Properties: map[string]interface{}{
+					"brokers":  []interface{}{"one:9092", "two:9092"},
+					"group_id": "mycel",
+				}},
+			typ: "mq",
 		},
 		{
-			name: "exchange block with create_if_missing = true",
-			hcl: `
-connector "rabbit" {
-  type   = "mq"
-  driver = "rabbitmq"
-  exchange {
-    name              = "events"
-    type              = "topic"
-    create_if_missing = true
-  }
-  queue {
-    name              = "orders"
-    create_if_missing = true
-  }
-  consumer { auto_ack = false }
-}`,
-			wantQueueFlag:    true,
-			wantExchangeFlag: true,
-			hasExchange:      true,
+			name: "redis",
+			cfg: &connector.Config{Name: "events", Type: "mq", Driver: "redis",
+				Properties: map[string]interface{}{
+					"host":     "cache",
+					"channels": []interface{}{"orders", "payments"},
+				}},
+			typ: "mq",
 		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			tmpDir := t.TempDir()
-			tmpFile := filepath.Join(tmpDir, "rabbit.mycel")
-			if err := os.WriteFile(tmpFile, []byte(tc.hcl), 0644); err != nil {
-				t.Fatalf("write temp file: %v", err)
-			}
-
-			cfg, err := parser.NewHCLParser().ParseFile(context.Background(), tmpFile)
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			conn, err := f.Create(ctx, c.cfg)
 			if err != nil {
-				t.Fatalf("parse error: %v", err)
+				t.Fatalf("create: %v", err)
 			}
-
-			rmqCfg := buildRabbitMQConfig(cfg.Connectors[0])
-
-			if rmqCfg.Queue == nil {
-				t.Fatalf("Queue config not built")
+			if conn == nil {
+				t.Fatal("no connector came back")
 			}
-			if got := rmqCfg.Queue.CreateIfMissing; got != tc.wantQueueFlag {
-				t.Errorf("Queue.CreateIfMissing=%v, want %v", got, tc.wantQueueFlag)
+			if conn.Name() != c.cfg.Name {
+				t.Errorf("name = %q, want %q", conn.Name(), c.cfg.Name)
 			}
-
-			if tc.hasExchange {
-				if rmqCfg.Exchange == nil {
-					t.Fatalf("Exchange config not built")
-				}
-				if got := rmqCfg.Exchange.CreateIfMissing; got != tc.wantExchangeFlag {
-					t.Errorf("Exchange.CreateIfMissing=%v, want %v", got, tc.wantExchangeFlag)
-				}
+			if conn.Type() != c.typ {
+				t.Errorf("type = %q, want %q", conn.Type(), c.typ)
 			}
 		})
 	}
+
+	if _, err := f.Create(ctx, &connector.Config{Name: "x", Type: "mq", Driver: "sqs"}); err == nil {
+		t.Error("a driver this factory does not have was created anyway")
+	}
 }
 
-// TestRabbitMQDLQExternal verifies the external flag survives the parser →
-// factory pipeline. It carries no behaviour of its own in the factory, but a
-// silent drop here would put the startup warning back on every consumer whose
-// dead-letter topology is owned by ops.
-func TestRabbitMQDLQExternal(t *testing.T) {
-	hcl := `
-connector "rabbit" {
-  type   = "mq"
-  driver = "rabbitmq"
-
-  consumer {
-    queue = "magento.system.gallery.assets.in.q"
-
-    dlq {
-      enabled     = true
-      max_retries = 3
-      external    = true
-    }
-  }
-}
-`
-	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "rabbit.mycel")
-	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
-		t.Fatalf("write temp file: %v", err)
+// A Redis URL is honoured, which is the whole of the bug it was written for:
+// `url` was read by nothing, so a connector written the documented way went to
+// localhost:6379 whatever the URL said, and said nothing about it.
+//
+// Checked by connecting: a URL that is read reaches the server it names, and
+// the default it would otherwise have used is not where this one is.
+func TestARedisURLIsWhereTheConnectorGoes(t *testing.T) {
+	address := os.Getenv("MYCEL_TEST_REDIS_URL")
+	if address == "" {
+		address = "redis://127.0.0.1:36379"
+	}
+	host := strings.TrimPrefix(address, "redis://")
+	if !reachable(host) {
+		t.Skipf("no Redis at %s (the integration stack publishes one)", host)
+	}
+	if strings.HasSuffix(host, ":6379") {
+		t.Skip("this Redis is on the default port, so honouring the URL cannot be told apart from ignoring it")
 	}
 
-	p := parser.NewHCLParser()
-	cfg, err := p.ParseFile(context.Background(), tmpFile)
+	conn, err := NewFactory(nil).Create(context.Background(), &connector.Config{
+		Name: "events", Type: "mq", Driver: "redis",
+		Properties: map[string]interface{}{
+			"url":      address,
+			"channels": []interface{}{"orders"},
+		},
+	})
 	if err != nil {
-		t.Fatalf("parse error: %v", err)
+		t.Fatalf("create: %v", err)
 	}
 
-	dlq := buildRabbitMQConfig(cfg.Connectors[0]).Consumer.DLQ
-	if dlq == nil {
-		t.Fatalf("Consumer.DLQ not built")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := conn.Connect(ctx); err != nil {
+		t.Fatalf("the URL was not where the connector went: %v", err)
 	}
-	if !dlq.External {
-		t.Errorf("DLQ.External=false, want true")
+	_ = conn.Close(context.Background())
+}
+
+// And one that is not a URL is refused, naming the connector.
+func TestAMalformedRedisURLIsRefused(t *testing.T) {
+	_, err := NewFactory(nil).Create(context.Background(), &connector.Config{
+		Name: "events", Type: "mq", Driver: "redis",
+		Properties: map[string]interface{}{"url": "not a url at all"},
+	})
+	if err == nil {
+		t.Fatal("a connector was built from something that is not a URL")
 	}
-	// external must not disturb the rest of the DLQ config.
-	if !dlq.Enabled {
-		t.Errorf("DLQ.Enabled=false, want true")
-	}
-	if dlq.MaxRetries != 3 {
-		t.Errorf("DLQ.MaxRetries=%d, want 3", dlq.MaxRetries)
+	if !strings.Contains(err.Error(), "events") || !strings.Contains(err.Error(), "url") {
+		t.Errorf("the refusal reads %q; it should name the connector and the attribute", err)
 	}
 }
 
-// Omitting external must leave it false, so existing configs keep provisioning
-// and warning exactly as before.
-func TestRabbitMQDLQExternalDefaultsFalse(t *testing.T) {
-	hcl := `
-connector "rabbit" {
-  type   = "mq"
-  driver = "rabbitmq"
-
-  consumer {
-    queue = "orders"
-
-    dlq {
-      enabled     = true
-      max_retries = 3
-    }
-  }
-}
-`
-	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "rabbit.mycel")
-	if err := os.WriteFile(tmpFile, []byte(hcl), 0644); err != nil {
-		t.Fatalf("write temp file: %v", err)
-	}
-
-	p := parser.NewHCLParser()
-	cfg, err := p.ParseFile(context.Background(), tmpFile)
+func reachable(address string) bool {
+	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
 	if err != nil {
-		t.Fatalf("parse error: %v", err)
+		return false
 	}
-
-	if dlq := buildRabbitMQConfig(cfg.Connectors[0]).Consumer.DLQ; dlq.External {
-		t.Errorf("DLQ.External=true, want false when the attribute is omitted")
-	}
+	_ = conn.Close()
+	return true
 }
