@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/transform"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
 // mockReader implements connector.Reader for batch tests.

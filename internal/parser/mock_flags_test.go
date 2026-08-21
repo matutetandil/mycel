@@ -3,7 +3,7 @@ package parser
 import (
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/mock"
+	"github.com/matutetandil/mycel/v3/internal/mock"
 )
 
 // --mock and --no-mock decide which connectors answer from a file instead of

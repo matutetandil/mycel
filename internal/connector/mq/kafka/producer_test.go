@@ -18,8 +18,8 @@ import (
 
 	kafkago "github.com/segmentio/kafka-go"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/connector/mq/types"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector/mq/types"
 )
 
 // The producer, which is where durability is decided. acks is the setting that

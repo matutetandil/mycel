@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/auth"
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/auth"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/parser"
 )
 
 // What a service says about itself when it starts somewhere that matters.

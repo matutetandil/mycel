@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/parser"
 )
 
 // InertFlowAttrs reports flow attributes that parse cleanly and then do

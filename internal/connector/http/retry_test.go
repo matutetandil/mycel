@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // The retry policy is what a caller reaches for when a dependency falls over.

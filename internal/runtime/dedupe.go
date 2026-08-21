@@ -38,10 +38,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	msync "github.com/matutetandil/mycel/v2/internal/sync"
-	"github.com/matutetandil/mycel/v2/internal/trace"
-	"github.com/matutetandil/mycel/v2/internal/transform"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	msync "github.com/matutetandil/mycel/v3/internal/sync"
+	"github.com/matutetandil/mycel/v3/internal/trace"
+	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
 // dedupeAwareWrite is the integration entry point for the dedupe primitive.

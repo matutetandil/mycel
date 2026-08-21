@@ -13,7 +13,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql" // MySQL driver
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // ReplicaConfig holds configuration for a read replica.

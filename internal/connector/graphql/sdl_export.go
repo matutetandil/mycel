@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/validate"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/validate"
 )
 
 // ExportSDL renders the schema a configuration describes, without starting a

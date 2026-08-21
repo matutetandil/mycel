@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // Every attribute a documented flow block writes has to be one the flow schema

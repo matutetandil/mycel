@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/flow"
 	_ "modernc.org/sqlite"
 )
 

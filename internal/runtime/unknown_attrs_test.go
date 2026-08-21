@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/parser"
-	"github.com/matutetandil/mycel/v2/pkg/connectors"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/parser"
+	"github.com/matutetandil/mycel/v3/pkg/connectors"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // Settings a connector was given and does not read.

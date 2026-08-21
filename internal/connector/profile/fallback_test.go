@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // A profile list is how one logical connector stands in front of several

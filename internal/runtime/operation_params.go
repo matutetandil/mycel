@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/validate"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/validate"
 )
 
 // applyOperationParams fills in defaults and checks the constraints an

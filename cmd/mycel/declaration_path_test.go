@@ -3,8 +3,8 @@ package main
 import (
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/pkg/ide"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/pkg/ide"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // Where `mycel add` writes and where an editor expects to find it have to be

@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // Connector implements Elasticsearch operations via its REST API.

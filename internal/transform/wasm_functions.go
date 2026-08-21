@@ -4,7 +4,7 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
-	"github.com/matutetandil/mycel/v2/internal/functions"
+	"github.com/matutetandil/mycel/v3/internal/functions"
 )
 
 // WASMFunction represents a WASM function that can be registered in CEL.

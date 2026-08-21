@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/graphql/analyzer"
+	"github.com/matutetandil/mycel/v3/internal/graphql/analyzer"
 )
 
 func TestPrune_SimpleMap(t *testing.T) {

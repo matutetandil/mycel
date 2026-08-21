@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/connector/database/sqlite"
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/statemachine"
-	"github.com/matutetandil/mycel/v2/internal/transform"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector/database/sqlite"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/statemachine"
+	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
 // A state machine is the shape of a thing's life — an order goes pending →

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // The operations a step can ask a file connector for.

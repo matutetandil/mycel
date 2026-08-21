@@ -6,7 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"github.com/matutetandil/mycel/v2/internal/jwks"
+	"github.com/matutetandil/mycel/v3/internal/jwks"
 	"net/http"
 	"os"
 	"strings"

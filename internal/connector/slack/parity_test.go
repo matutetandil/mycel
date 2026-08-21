@@ -3,7 +3,7 @@ package slack
 import (
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector/notifytest"
+	"github.com/matutetandil/mycel/v3/internal/connector/notifytest"
 )
 
 func TestEveryFieldOfASlackMessageCanBeWrittenByAFlow(t *testing.T) {

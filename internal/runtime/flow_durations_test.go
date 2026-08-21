@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/parser"
 )
 
 // A duration nobody can read.

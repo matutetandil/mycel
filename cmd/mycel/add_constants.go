@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 var addConstantsValues []string

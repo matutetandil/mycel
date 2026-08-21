@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // Client is a SOAP client that calls external SOAP services.

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/connector/database"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector/database"
 )
 
 // Factory creates MySQL connectors.

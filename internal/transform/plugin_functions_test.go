@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/functions"
+	"github.com/matutetandil/mycel/v3/internal/functions"
 )
 
 // A plugin can add a function to the expression language, so a transform can

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // diagnoseFile returns diagnostics for a single file (parse errors + schema validation).

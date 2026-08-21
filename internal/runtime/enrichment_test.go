@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/transform"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
 // An enrichment fetches what a message did not carry — the customer behind an

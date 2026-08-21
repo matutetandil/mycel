@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/matutetandil/mycel/v2/internal/parser"
-	"github.com/matutetandil/mycel/v2/internal/runtime"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/runtime"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 var (

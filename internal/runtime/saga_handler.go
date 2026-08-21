@@ -3,9 +3,9 @@ package runtime
 import (
 	"fmt"
 
-	"github.com/matutetandil/mycel/v2/internal/banner"
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/saga"
+	"github.com/matutetandil/mycel/v3/internal/banner"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/saga"
 )
 
 // registerSagas registers all saga configurations as flow handlers.

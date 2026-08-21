@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/parser"
-	"github.com/matutetandil/mycel/v2/internal/plugin"
-	"github.com/matutetandil/mycel/v2/internal/validate"
-	"github.com/matutetandil/mycel/v2/internal/validator"
+	"github.com/matutetandil/mycel/v3/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/plugin"
+	"github.com/matutetandil/mycel/v3/internal/validate"
+	"github.com/matutetandil/mycel/v3/internal/validator"
 )
 
 // A validator a type names.

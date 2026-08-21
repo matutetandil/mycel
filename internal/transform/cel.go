@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/matutetandil/mycel/v2/internal/identity"
+	"github.com/matutetandil/mycel/v3/internal/identity"
 	"reflect"
 	"strings"
 	"sync"

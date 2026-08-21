@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/flow"
 )
 
 // A read flow with steps answers out of its steps: the destination is neither

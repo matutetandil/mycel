@@ -15,9 +15,9 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/identity"
-	"github.com/matutetandil/mycel/v2/internal/jwks"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/identity"
+	"github.com/matutetandil/mycel/v3/internal/jwks"
 )
 
 // AuthConfig holds authentication configuration for the REST server.

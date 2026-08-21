@@ -281,7 +281,7 @@ Response:
 {
   "status": "healthy",
   "timestamp": "2026-08-20T22:17:55Z",
-  "version": "2.18.0",
+  "version": "3.0.0",
   "service_version": "1.0.0",
   "uptime": "5s",
   "components": [
@@ -307,7 +307,7 @@ Response:
 {
   "status": "healthy",
   "timestamp": "2026-08-20T22:17:55Z",
-  "version": "2.18.0",
+  "version": "3.0.0",
   "service_version": "1.0.0",
   "uptime": "5s"
 }
@@ -328,7 +328,7 @@ ready is that they are:
 {
   "status": "healthy",
   "timestamp": "2026-08-20T22:17:55Z",
-  "version": "2.18.0",
+  "version": "3.0.0",
   "service_version": "1.0.0",
   "components": [
     {"name": "postgres", "status": "healthy", "latency": "5ms"}

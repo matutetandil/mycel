@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/saga"
+	"github.com/matutetandil/mycel/v3/internal/saga"
 )
 
 // Engine manages long-running workflow instances with persistence.

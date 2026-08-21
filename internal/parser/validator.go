@@ -6,7 +6,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 
-	"github.com/matutetandil/mycel/v2/internal/validator"
+	"github.com/matutetandil/mycel/v3/internal/validator"
 )
 
 // validatorBlockSchema defines the schema for a validator block.

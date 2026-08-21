@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.0] - 2026-08-21
 
 ### Added
 
@@ -29,7 +29,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
-Every one of these is a setting that was written, documented, and did nothing.
+**The Go module path is now `github.com/matutetandil/mycel/v3`.** Go requires
+the major version in the path from v2 onwards, so a v3 tag on a `/v2` module is
+invisible to the module proxy — which is exactly how `go install` served
+1.22.0 for months before 2.13.0 caught it. Install and update with:
+
+```bash
+go install github.com/matutetandil/mycel/v3/cmd/mycel@latest
+```
+
+Nothing else changes for it: the binary, the Docker images, the Linux packages,
+the Homebrew formula and the Helm chart are unaffected, and Mycel is a runtime
+rather than a library, so no configuration and no `.mycel` file names the path.
+
+The rest of this section is one shape repeated. Every one of these is a setting
+that was written, documented, and did nothing.
 Honouring it is the fix — and honouring it is also what changes behaviour, so
 each is listed here with what to do about it.
 

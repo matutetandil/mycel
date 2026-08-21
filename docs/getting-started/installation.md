@@ -55,7 +55,7 @@ Requires Go 1.21 or later.
 ### Install
 
 ```bash
-go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
+go install github.com/matutetandil/mycel/v3/cmd/mycel@latest
 ```
 
 The binary lands in `$GOBIN`, or `$(go env GOPATH)/bin` if `GOBIN` is unset.
@@ -86,7 +86,7 @@ background. **The install command is also the update command** — re-run it and
 Go replaces the binary with the newest release:
 
 ```bash
-go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
+go install github.com/matutetandil/mycel/v3/cmd/mycel@latest
 ```
 
 `@latest` resolves to the highest published release tag each time it runs, so
@@ -94,7 +94,7 @@ this is safe to repeat. To pin a specific version instead — in a CI image, or
 to match what is deployed:
 
 ```bash
-go install github.com/matutetandil/mycel/v2/cmd/mycel@v2.13.0
+go install github.com/matutetandil/mycel/v3/cmd/mycel@v3.0.0
 ```
 
 Check what you have with `mycel version`, and compare against the

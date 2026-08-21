@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/graphql-go/graphql"
-	"github.com/matutetandil/mycel/v2/internal/validate"
+	"github.com/matutetandil/mycel/v3/internal/validate"
 )
 
 // A GraphQL argument is where the schema stops being decoration and starts

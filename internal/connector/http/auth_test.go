@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // Outgoing authentication has one failure mode worth designing around: it does

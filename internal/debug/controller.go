@@ -3,8 +3,8 @@ package debug
 import (
 	"context"
 
-	"github.com/matutetandil/mycel/v2/internal/trace"
-	"github.com/matutetandil/mycel/v2/internal/transform"
+	"github.com/matutetandil/mycel/v3/internal/trace"
+	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
 // StudioBreakpointController implements trace.BreakpointController for the Studio protocol.

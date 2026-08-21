@@ -6,8 +6,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/connector/cache/types"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector/cache/types"
 )
 
 // Cache defines the interface for cache operations.

@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/validate"
-	myerrors "github.com/matutetandil/mycel/v2/pkg/errors"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/validate"
+	myerrors "github.com/matutetandil/mycel/v3/pkg/errors"
 )
 
 // A cache key has one hard requirement: the same request must produce the same

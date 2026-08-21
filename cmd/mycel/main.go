@@ -17,13 +17,13 @@ import (
 	"go.uber.org/automaxprocs/maxprocs"
 	"golang.org/x/mod/module"
 
-	graphqlconn "github.com/matutetandil/mycel/v2/internal/connector/graphql"
-	"github.com/matutetandil/mycel/v2/internal/envdefaults"
-	"github.com/matutetandil/mycel/v2/internal/export/asyncapi"
-	"github.com/matutetandil/mycel/v2/internal/export/openapi"
-	"github.com/matutetandil/mycel/v2/internal/logging"
-	"github.com/matutetandil/mycel/v2/internal/parser"
-	"github.com/matutetandil/mycel/v2/internal/runtime"
+	graphqlconn "github.com/matutetandil/mycel/v3/internal/connector/graphql"
+	"github.com/matutetandil/mycel/v3/internal/envdefaults"
+	"github.com/matutetandil/mycel/v3/internal/export/asyncapi"
+	"github.com/matutetandil/mycel/v3/internal/export/openapi"
+	"github.com/matutetandil/mycel/v3/internal/logging"
+	"github.com/matutetandil/mycel/v3/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/runtime"
 )
 
 // Environment variable names
@@ -36,7 +36,7 @@ var (
 	// buildInfo() overrides both of these when the binary carries real build
 	// metadata, which it does for `go install` (module version) and for any
 	// build from a git checkout (VCS revision).
-	version = "2.18.0"
+	version = "3.0.0"
 	commit  = "dev"
 )
 

@@ -1,6 +1,6 @@
 package connectors
 
-import "github.com/matutetandil/mycel/v2/pkg/schema"
+import "github.com/matutetandil/mycel/v3/pkg/schema"
 
 // SOAPSchema implements ConnectorSchemaProvider for SOAP.
 type SOAPSchema struct{}

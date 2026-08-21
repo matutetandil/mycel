@@ -3,8 +3,8 @@ package runtime
 import (
 	"fmt"
 
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/parser"
 )
 
 // Durations that a flow writes and the runtime reads.

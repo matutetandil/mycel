@@ -1,8 +1,8 @@
 package runtime
 
 import (
-	"github.com/matutetandil/mycel/v2/internal/parser"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/internal/parser"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // ValidateAll runs every configuration check and returns everything wrong.

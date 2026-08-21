@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // SendGridConnector sends emails via SendGrid API

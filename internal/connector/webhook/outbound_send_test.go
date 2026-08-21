@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"encoding/json"
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 	"net/http"
 	"net/http/httptest"
 	"strconv"

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/flow"
 )
 
 // These two kinds were added through the reusableKinds registry alone (no

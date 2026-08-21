@@ -1,6 +1,6 @@
 package connectors
 
-import "github.com/matutetandil/mycel/v2/pkg/schema"
+import "github.com/matutetandil/mycel/v3/pkg/schema"
 
 // CacheSchema implements ConnectorSchemaProvider for Cache.
 type CacheSchema struct{}

@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/connector/database/sqlite"
-	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector/database/sqlite"
+	"github.com/matutetandil/mycel/v3/internal/flow"
 )
 
 // newTxHandler wires a FlowHandler whose destination is a real sqlite connector

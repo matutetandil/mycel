@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // The subscriptions block has exactly four attributes and every one of them

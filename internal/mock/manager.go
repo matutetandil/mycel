@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // Manager manages mock configuration and connector wrapping.

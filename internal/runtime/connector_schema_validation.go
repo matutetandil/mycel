@@ -5,9 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/parser"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/parser"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // ValidateConnectorSchemas checks connector settings that accept one of a fixed

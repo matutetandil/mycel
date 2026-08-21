@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 func create(t *testing.T, driver string, props map[string]interface{}) (connector.Connector, error) {

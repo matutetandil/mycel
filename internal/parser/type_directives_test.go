@@ -3,7 +3,7 @@ package parser
 import (
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/validate"
+	"github.com/matutetandil/mycel/v3/internal/validate"
 )
 
 // A type block describes a shape, and in a federated graph it also describes a

@@ -11,7 +11,7 @@ import (
 
 	pahomqtt "github.com/eclipse/paho.mqtt.golang"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // How this connector asks to be treated by a broker.

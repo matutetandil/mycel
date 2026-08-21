@@ -10,10 +10,10 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/connector/mq/kafka"
-	"github.com/matutetandil/mycel/v2/internal/connector/mq/rabbitmq"
-	mqredis "github.com/matutetandil/mycel/v2/internal/connector/mq/redis"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector/mq/kafka"
+	"github.com/matutetandil/mycel/v3/internal/connector/mq/rabbitmq"
+	mqredis "github.com/matutetandil/mycel/v3/internal/connector/mq/redis"
 )
 
 // Factory creates message queue connectors from configuration.

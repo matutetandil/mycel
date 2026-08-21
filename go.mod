@@ -1,4 +1,4 @@
-module github.com/matutetandil/mycel/v2
+module github.com/matutetandil/mycel/v3
 
 go 1.25.0
 

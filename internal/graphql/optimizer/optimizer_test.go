@@ -3,7 +3,7 @@ package optimizer
 import (
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/graphql/analyzer"
+	"github.com/matutetandil/mycel/v3/internal/graphql/analyzer"
 )
 
 func TestIsSelectStar(t *testing.T) {

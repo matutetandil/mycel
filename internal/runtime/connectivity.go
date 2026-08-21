@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // DefaultConnectivityTimeout bounds each individual connector check. Without

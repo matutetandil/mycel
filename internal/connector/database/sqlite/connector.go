@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 
 	_ "modernc.org/sqlite" // SQLite driver (pure Go)
 )

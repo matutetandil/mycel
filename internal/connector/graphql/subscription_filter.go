@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/matutetandil/mycel/v2/internal/transform"
+	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
 // A subscription filter decides which subscribers an event is for.

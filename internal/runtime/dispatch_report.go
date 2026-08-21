@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // catchAllPatterns accept every delivery. "*" is Mycel's own default; "#" is

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/matutetandil/mycel/v2/internal/trace"
+	"github.com/matutetandil/mycel/v3/internal/trace"
 )
 
 var errDisconnected = fmt.Errorf("disconnected")

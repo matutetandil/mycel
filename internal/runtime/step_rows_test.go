@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/flow"
 )
 
 // What a step leaves behind when its lookup matches nothing.

@@ -305,7 +305,7 @@ curl -fsSL https://raw.githubusercontent.com/matutetandil/mycel/main/install.sh 
 helm install my-api oci://ghcr.io/matutetandil/charts/mycel
 
 # Go
-go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
+go install github.com/matutetandil/mycel/v3/cmd/mycel@latest
 ```
 
 Every release also publishes `.deb`, `.rpm` and `.apk` packages (with a systemd unit) and plain tarballs — see [Installation](docs/getting-started/installation.md), or [helm/mycel/README.md](helm/mycel/README.md) for the chart's values, autoscaling and ingress.

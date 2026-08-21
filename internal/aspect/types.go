@@ -1,7 +1,7 @@
 package aspect
 
 import (
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // When defines when an aspect executes relative to the flow.

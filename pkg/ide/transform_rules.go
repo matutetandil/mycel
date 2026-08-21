@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // TransformRule represents an ordered transform rule for breakpoint placement.

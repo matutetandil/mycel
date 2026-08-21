@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/transform"
+	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
 // Every function the editor offers, compiled by the engine that will run it.

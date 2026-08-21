@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/parser"
-	"github.com/matutetandil/mycel/v2/internal/runtime"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/runtime"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // If we describe every block in the schema, then what we generate from it has

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/flow"
 )
 
 // A flow made of steps gathers from several places and then says what to send

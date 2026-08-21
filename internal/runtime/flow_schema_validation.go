@@ -5,11 +5,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/matutetandil/mycel/v2/internal/aspect"
-	"github.com/matutetandil/mycel/v2/internal/auth"
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/parser"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/internal/aspect"
+	"github.com/matutetandil/mycel/v3/internal/auth"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/parser"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // ValidateFlowSchemas checks every flow's "from" block against the source schema
