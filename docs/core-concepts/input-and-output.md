@@ -46,7 +46,9 @@ transform {
 }
 ```
 
-Note the difference: a REST request arrives **flattened** onto `input`, while a queue message keeps its payload under `input.body` alongside the transport metadata. There is no `input.params` and no `input.query` — those were never populated by any source.
+Note the difference: a REST request arrives **flattened** onto `input`, while a RabbitMQ or Kafka message keeps its payload under `input.body` alongside the transport metadata. There is no `input.params` and no `input.query` — those were never populated by any source.
+
+Not every queue wraps: **Redis Pub/Sub merges the payload straight onto `input`**, so it is `input.order_id` there and `input.body.order_id` on RabbitMQ. Which is why the table below is worth reading rather than guessing from the transport.
 
 ### A path or query parameter is always a string
 
