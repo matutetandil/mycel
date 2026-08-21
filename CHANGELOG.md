@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`constants` blocks.** A value declared once and referred to by name from anywhere in the configuration — a list of SKUs a queue consumer skips, a page size four queries share, a region read from the environment:
+
+  ```hcl
+  constants {
+    skus_to_skip = ["SKU-1", "SKU-2"]
+    page_size    = 500
+    region       = env("REGION", "us")
+  }
+  ```
+
+  `constants.page_size` reads the same in a `query`, which HCL evaluates when the configuration is read, and in a `filter`, which CEL evaluates per message. Which of the two you are writing for is not something you have to know: a constant that resolved in one and not the other would be worse than having none, because the failure is per-expression and nothing announces it.
+
+  They hold literals — strings, numbers, lists, maps, `env()` calls — read once, when the configuration is. A value worked out from a message is what a transform is for. Declaring the same name twice is refused, naming both files, rather than letting the order files are walked in decide.
+
+  `mycel add constants --value page_size=500` writes one, and `mycel validate` lists what it found.
+
+  The name is `constants` rather than `const` because `const` and `var` are both reserved identifiers in CEL: an expression naming either does not compile, whatever the environment declares.
+
 ### Breaking
 
 Every one of these is a setting that was written, documented, and did nothing.

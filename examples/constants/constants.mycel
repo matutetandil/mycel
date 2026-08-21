@@ -1,0 +1,21 @@
+// Values this service uses in more than one place.
+//
+// They are read once, when the configuration is, and every part of it refers
+// to them by the same name — an HCL attribute with ${constants.x}, a CEL
+// expression with constants.x.
+
+constants {
+  // The catalogue this service ignores. Written here rather than in each
+  // query that needs it, which is the case that asked for the feature.
+  skus_to_skip = ["SKU-DISCONTINUED", "SKU-SAMPLE", "SKU-INTERNAL"]
+
+  // How many rows a listing returns.
+  page_size = 3
+
+  // Where this deployment is. From the environment, because it changes per
+  // deployment and not per message.
+  region = env("REGION", "us")
+
+  // What counts as an order worth flagging.
+  large_order_total = 1000
+}
