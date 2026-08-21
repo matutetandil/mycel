@@ -199,7 +199,7 @@ connector "db" {
   type     = "database"
   driver   = "postgres"
   host     = env("DB_HOST")
-  port     = 5432
+  port     = env("DB_PORT", "5432")
   database = env("DB_NAME")
   user     = env("DB_USER")
   password = env("DB_PASSWORD")
@@ -223,14 +223,18 @@ flow "get_invoice_pdf" {
 
   step "invoice" {
     connector = "db"
-    query     = "SELECT * FROM invoices WHERE id = ?"
-    params    = [input.id]
+    query     = "SELECT * FROM invoices WHERE id = :id"
+    params {
+      id = "input.id"
+    }
   }
 
   step "items" {
     connector = "db"
-    query     = "SELECT * FROM invoice_items WHERE invoice_id = ?"
-    params    = [input.id]
+    query     = "SELECT * FROM invoice_items WHERE invoice_id = :id"
+    params {
+      id = "input.id"
+    }
   }
 
   transform {
@@ -238,7 +242,9 @@ flow "get_invoice_pdf" {
     number   = "step.invoice.number"
     date     = "step.invoice.date"
     customer = "step.invoice.customer_name"
-    items    = "step.items"
+    # as_list because a lookup that matched one row hands back the row, not a
+    # list of one — and the template iterates this.
+    items    = "as_list(step.items)"
     total    = "step.invoice.total"
   }
 

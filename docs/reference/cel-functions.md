@@ -108,6 +108,7 @@ pick(input, "id", "email")
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
+| `as_list(any)` | `(any) → list` | A list stays a list; anything else becomes a list of one; nothing becomes the empty list |
 | `first(list)` | `(list) → any` | First element, or null if empty |
 | `last(list)` | `(list) → any` | Last element, or null if empty |
 | `flatten(list)` | `(list(list)) → list` | Flatten one level of nesting |
@@ -121,6 +122,7 @@ pick(input, "id", "email")
 | `max_val(list)` | `(list) → any` | Maximum value |
 
 ```cel
+as_list(step.items)                        // safe to iterate whatever it holds
 first(input.items)                         // first item or null
 last(input.items)                          // last item or null
 flatten([[1, 2], [3, 4]])                  // [1, 2, 3, 4]

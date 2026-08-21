@@ -1938,6 +1938,27 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 		// What the steps gathered travels with the request, so the response
 		// block can be shaped out of them.
 		ctx = withStepResults(ctx, gathered)
+
+		// A destination that can only be written to is a renderer, not a
+		// source: what a read flow does with it is hand it the answer. The
+		// PDF page is written this way — gather the invoice with steps, render
+		// it through the pdf connector — and it answered with the gathered
+		// JSON, because a read flow with steps never touched its destination.
+		if err == nil && rendersTheAnswer(h.Dest) {
+			result, err = h.renderThrough(ctx, result)
+		}
+	} else if h.Dest != nil && operation.IsRead() && rendersTheAnswer(h.Dest) {
+		// The same, for a read flow with no steps: build the payload the usual
+		// way and hand it to the renderer. Without this the flow was refused
+		// with "destination connector does not support required operation",
+		// since a read looks for something to read from.
+		var computed map[string]interface{}
+		computed, err = h.applyTransforms(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("transform error: %w", err)
+		}
+		delete(computed, "headers")
+		result, err = h.renderThrough(ctx, computed)
 	} else if len(h.Config.MultiTo) > 0 && !operation.IsRead() {
 		// Check for multi-destination writes
 		result, err = h.handleMultiDestWrite(ctx, input, operation)
@@ -2406,6 +2427,55 @@ func (h *FlowHandler) shapeReadResult(ctx context.Context, input map[string]inte
 	default:
 		return readResult, nil
 	}
+}
+
+// rendersTheAnswer reports a destination that can only be written to, which on
+// a read flow means it turns the answer into something — a PDF, a rendered
+// document, a notification — rather than being where the answer comes from.
+func rendersTheAnswer(dest connector.Connector) bool {
+	if dest == nil {
+		return false
+	}
+	if _, readable := dest.(connector.Reader); readable {
+		return false
+	}
+	_, writable := dest.(connector.Writer)
+	return writable
+}
+
+// renderThrough hands a read flow's answer to its destination and answers with
+// what came back.
+func (h *FlowHandler) renderThrough(ctx context.Context, answer interface{}) (interface{}, error) {
+	writer, ok := h.Dest.(connector.Writer)
+	if !ok {
+		return answer, nil
+	}
+
+	payload, ok := answer.(map[string]interface{})
+	if !ok {
+		payload = map[string]interface{}{"data": answer}
+	}
+
+	data := &connector.Data{
+		Target:    h.Config.To.GetTarget(),
+		Operation: h.Config.To.GetOperation(),
+		Payload:   payload,
+	}
+
+	result, err := meteredWrite(ctx, writer, data)
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Rows) == 1 {
+		return result.Rows[0], nil
+	}
+	if len(result.Rows) > 0 {
+		return result.Rows, nil
+	}
+	if len(result.Metadata) > 0 {
+		return result.Metadata, nil
+	}
+	return answer, nil
 }
 
 // handleStepsFlow handles flows with steps where data comes from step execution + transform.

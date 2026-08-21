@@ -376,3 +376,76 @@ func TestAFlowWithNoDestinationAndNoTransformStillEchoes(t *testing.T) {
 		t.Errorf("answered %#v, want the request back", result)
 	}
 }
+
+// A read flow whose destination can only be written to renders its answer
+// through it.
+//
+// A PDF connector is written to, not read from, so a flow that gathers an
+// invoice and hands it over was refused with "destination connector does not
+// support required operation" — or, with steps, answered with the gathered
+// JSON, because a read flow with steps never touched its destination. The
+// documented way to serve a generated document could not work either way.
+func TestAReadFlowRendersThroughAWriteOnlyDestination(t *testing.T) {
+	renderer := &writeOnlyConnector{
+		rows: []map[string]interface{}{{
+			"_binary":       "JVBERi0=",
+			"_content_type": "application/pdf",
+		}},
+	}
+
+	h := &FlowHandler{
+		Config: &flow.Config{
+			Name: "get_invoice_pdf",
+			From: &flow.FromConfig{
+				Connector:       "api",
+				ConnectorParams: map[string]interface{}{"operation": "GET /invoices/:id/pdf"},
+			},
+			Transform: &flow.TransformConfig{
+				Mappings: map[string]string{"number": "input.id"},
+				Order:    []string{"number"},
+			},
+			To: &flow.ToConfig{
+				Connector:       "pdf",
+				ConnectorParams: map[string]interface{}{"operation": "generate"},
+			},
+		},
+		Dest:       renderer,
+		SourceType: "rest",
+	}
+
+	result, err := h.executeFlowCoreInternal(context.Background(),
+		map[string]interface{}{"id": "42"})
+	if err != nil {
+		t.Fatalf("flow failed: %v", err)
+	}
+
+	answer, ok := result.(map[string]interface{})
+	if !ok || answer["_content_type"] != "application/pdf" {
+		t.Fatalf("answered %#v, want what the renderer produced", result)
+	}
+	// And it was handed what the flow built, under the operation it named.
+	if renderer.written == nil || renderer.written.Payload["number"] != "42" {
+		t.Errorf("the renderer was handed %#v", renderer.written)
+	}
+	if renderer.written.Operation != "generate" {
+		t.Errorf("operation = %q, want the one the to block names", renderer.written.Operation)
+	}
+}
+
+// writeOnlyConnector can be written to and not read from, like the PDF and
+// notification connectors.
+type writeOnlyConnector struct {
+	rows    []map[string]interface{}
+	written *connector.Data
+}
+
+func (c *writeOnlyConnector) Name() string                      { return "pdf" }
+func (c *writeOnlyConnector) Type() string                      { return "pdf" }
+func (c *writeOnlyConnector) Connect(ctx context.Context) error { return nil }
+func (c *writeOnlyConnector) Close(ctx context.Context) error   { return nil }
+func (c *writeOnlyConnector) Health(ctx context.Context) error  { return nil }
+
+func (c *writeOnlyConnector) Write(_ context.Context, data *connector.Data) (*connector.Result, error) {
+	c.written = data
+	return &connector.Result{Rows: c.rows, Affected: 1}, nil
+}

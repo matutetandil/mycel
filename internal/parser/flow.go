@@ -755,6 +755,38 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 	// Capture all connector-specific attributes from the remaining body.
 	extractDynamicAttrs(remain, ctx, step.ConnectorParams)
 
+	// A step's params and body written as blocks rather than attributes.
+	//
+	// `enrich` declares them as blocks and a step reads them as attributes, so
+	// the two siblings took opposite syntax and the wrong one was swept into
+	// the connector params as nothing at all: a step written
+	// `params { id = "input.id" }` — which is how the enrich block beside it
+	// is written, and how the PDF page shows it — ran its query with the
+	// parameter unbound. Both forms are read now, in both places.
+	if body, ok := remain.(*hclsyntax.Body); ok {
+		for _, nested := range body.Blocks {
+			switch nested.Type {
+			case "params", "body":
+				values, err := parseParamsBlock(nested.AsHCLBlock(), ctx)
+				if err != nil {
+					return nil, fmt.Errorf("step %s error: %w", nested.Type, err)
+				}
+				if len(values) == 0 {
+					continue
+				}
+				asAny := make(map[string]interface{}, len(values))
+				for key, value := range values {
+					asAny[key] = value
+				}
+				// An attribute of the same name was written explicitly and
+				// wins; this only fills a gap.
+				if _, written := step.ConnectorParams[nested.Type]; !written {
+					step.ConnectorParams[nested.Type] = asAny
+				}
+			}
+		}
+	}
+
 	return step, nil
 }
 

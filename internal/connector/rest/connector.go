@@ -527,7 +527,17 @@ func (c *Connector) parseMultipart(r *http.Request, input map[string]interface{}
 		}
 	}
 
-	// File fields
+	// File fields, published under `input.files.<field>` — which is what the
+	// REST page documents and what nothing did: they were only ever put flat
+	// on the input, so every transform written from the documentation failed
+	// with "no such key: files". The flat key stays as well, for
+	// configurations written against what the code did rather than what the
+	// page said.
+	//
+	// The grouping is also the only unambiguous form: a form carrying a text
+	// field and a file of the same name has one overwrite the other when both
+	// are flat.
+	uploaded := make(map[string]interface{})
 	for key, fileHeaders := range r.MultipartForm.File {
 		var files []map[string]interface{}
 		for _, fh := range fileHeaders {
@@ -550,9 +560,15 @@ func (c *Connector) parseMultipart(r *http.Request, input map[string]interface{}
 		}
 		if len(files) == 1 {
 			input[key] = files[0]
+			uploaded[key] = files[0]
 		} else if len(files) > 0 {
 			input[key] = files
+			uploaded[key] = files
 		}
+	}
+
+	if len(uploaded) > 0 {
+		input["files"] = uploaded
 	}
 }
 

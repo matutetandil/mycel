@@ -217,7 +217,7 @@ flow "upload_avatar" {
 
   to {
     connector = "db"
-    operation = "INSERT user_avatars"
+    target    = "user_avatars"
   }
 }
 ```

@@ -27,7 +27,7 @@ func TestAReadFlowWithStepsSaysItsDestinationIsUnused(t *testing.T) {
 			To:    &flow.ToConfig{Connector: "db"},
 			Steps: []*flow.StepConfig{{Name: "weather"}},
 		},
-	})
+	}, nil)
 
 	said := out.String()
 	if !strings.Contains(said, "get_user_with_weather") {
@@ -61,7 +61,7 @@ func TestOnlyTheFlowsThatIgnoreADestinationAreReported(t *testing.T) {
 			From: &flow.FromConfig{ConnectorParams: map[string]interface{}{"operation": "GET /items"}},
 			To:   &flow.ToConfig{Connector: "db"},
 		},
-	})
+	}, nil)
 
 	if said := out.String(); said != "" {
 		t.Errorf("warned about a flow that uses its destination:\n%s", said)

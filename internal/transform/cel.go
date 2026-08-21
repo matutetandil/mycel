@@ -386,6 +386,32 @@ func baseCELOptions() []cel.EnvOption {
 			),
 		),
 
+		// as_list makes a value safe to iterate.
+		//
+		// A lookup that matched one row hands back the row, and one that
+		// matched several hands back the list — which is what makes
+		// `step.customer.tier` read naturally, and what makes a collection
+		// unusable: a template doing `{{range .items}}` over an invoice with
+		// one line iterates the fields of that line instead, and the answer
+		// changes shape with the data. `as_list` settles it: a list stays a
+		// list, anything else becomes a list of one, and nothing becomes the
+		// empty list.
+		cel.Function("as_list",
+			cel.Overload("as_list_dyn",
+				[]*cel.Type{cel.DynType},
+				cel.ListType(cel.DynType),
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					if list, ok := val.(traits.Lister); ok {
+						return list
+					}
+					if types.IsUnknownOrError(val) || val == nil || val == types.NullValue {
+						return types.NewDynamicList(types.DefaultTypeAdapter, []ref.Val{})
+					}
+					return types.NewDynamicList(types.DefaultTypeAdapter, []ref.Val{val})
+				}),
+			),
+		),
+
 		cel.Function("flatten",
 			cel.Overload("flatten_list",
 				[]*cel.Type{cel.ListType(cel.ListType(cel.DynType))},
