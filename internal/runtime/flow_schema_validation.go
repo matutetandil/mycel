@@ -7,6 +7,7 @@ import (
 
 	"github.com/matutetandil/mycel/v2/internal/aspect"
 	"github.com/matutetandil/mycel/v2/internal/auth"
+	"github.com/matutetandil/mycel/v2/internal/flow"
 	"github.com/matutetandil/mycel/v2/internal/parser"
 	"github.com/matutetandil/mycel/v2/pkg/schema"
 )
@@ -40,11 +41,11 @@ func ValidateFlowSchemas(config *parser.Configuration, reg *schema.Registry) []e
 
 	var errs []error
 	for _, f := range config.Flows {
-		if f == nil || f.From == nil || f.From.Connector == "" {
+		if f == nil || f.From == nil || f.From.GetConnector() == "" {
 			continue
 		}
 
-		ref, ok := byName[f.From.Connector]
+		ref, ok := byName[f.From.GetConnector()]
 		if !ok {
 			// Unknown connector: registerFlows reports this with a better message.
 			continue
@@ -76,11 +77,83 @@ func ValidateFlowSchemas(config *parser.Configuration, reg *schema.Registry) []e
 		sort.Strings(missing)
 		errs = append(errs, fmt.Errorf(
 			"flow %q: from block is missing %s required by connector %q (%s)",
-			f.Name, quoteList(missing), f.From.Connector, describeType(ref),
+			f.Name, quoteList(missing), f.From.GetConnector(), describeType(ref),
 		))
 	}
 
+	errs = append(errs, validateDestinations(config, reg, byName)...)
+
 	sort.Slice(errs, func(i, j int) bool { return errs[i].Error() < errs[j].Error() })
+	return errs
+}
+
+// validateDestinations checks every destination against its connector's target
+// schema.
+//
+// Only "one of these has to be there" is enforced, which is what a destination
+// schema has to say: the rest is open, because a `to` block carries
+// connector-specific parameters no schema enumerates. That openness is why a
+// misspelt attribute is swept up and ignored — and why a database destination
+// that named no table produced a SQL syntax error at the first request instead
+// of a word at startup.
+func validateDestinations(
+	config *parser.Configuration,
+	reg *schema.Registry,
+	byName map[string]*connectorRef,
+) []error {
+	var errs []error
+
+	check := func(flowName string, to *flow.ToConfig) {
+		if to == nil || to.Connector == "" {
+			return
+		}
+		// A transaction says what it writes in its own statements.
+		if to.Transaction != nil {
+			return
+		}
+
+		ref, known := byName[to.Connector]
+		if !known {
+			return
+		}
+		provider := reg.Lookup(ref.Type, ref.Driver)
+		if provider == nil {
+			return
+		}
+		target := provider.TargetSchema()
+		if target == nil {
+			return
+		}
+
+		for _, group := range target.RequiredOneOf {
+			satisfied := false
+			for _, name := range group {
+				if hasParam(to.ConnectorParams, name) {
+					satisfied = true
+					break
+				}
+			}
+			if satisfied {
+				continue
+			}
+			errs = append(errs, fmt.Errorf(
+				"flow %q: to block names connector %q (%s) and says nothing about what to write to — "+
+					"give it one of %s",
+				flowName, to.Connector, describeType(ref), quoteList(group),
+			))
+		}
+	}
+
+	for _, f := range config.Flows {
+		if f == nil {
+			continue
+		}
+		check(f.Name, f.To)
+		for _, to := range f.MultiTo {
+			check(f.Name, to)
+		}
+	}
+
 	return errs
 }
 

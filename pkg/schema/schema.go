@@ -224,3 +224,83 @@ func (b *Block) FindChild(blockType string) *Block {
 	}
 	return nil
 }
+
+// blockDirectories maps a named block type to the directory a project keeps it
+// in — the directory `mycel add` writes to and the one an editor expects.
+//
+// One map rather than one per caller: `mycel add state-machine` writes to
+// state_machines/, and an editor's own list of known directories did not
+// include it, so a project organised by Mycel's own command was told to
+// organise itself.
+//
+// Only the kinds a project keeps one-per-file are here. Blocks that are
+// declared once for the whole service — service, auth, security — live
+// wherever the author put them and are not moved.
+var blockDirectories = map[string]string{
+	"connector":     "connectors",
+	"flow":          "flows",
+	"type":          "types",
+	"transform":     "transforms",
+	"aspect":        "aspects",
+	"validator":     "validators",
+	"saga":          "sagas",
+	"state_machine": "state_machines",
+}
+
+// DirectoryFor returns the directory a block of this type belongs in, or "" if
+// the type has no directory of its own.
+func DirectoryFor(blockType string) string {
+	return blockDirectories[blockType]
+}
+
+// BlockDirectories returns the directory name for every block type that has
+// one, keyed by block type.
+func BlockDirectories() map[string]string {
+	out := make(map[string]string, len(blockDirectories))
+	for blockType, dir := range blockDirectories {
+		out[blockType] = dir
+	}
+	return out
+}
+
+// pipelineStages is the order a flow's stages run in.
+//
+// Measured against a running service rather than written from the diagram: the
+// three lists that described this — the trace package's constants, the debug
+// adapter's line numbers and the editor's gutter — disagreed with each other
+// and with the runtime, which is how a stage came to be offered that execution
+// never reaches and another to be reached that was never offered.
+//
+// dedupe is placed at the point it decides, which is before the write it gates;
+// a trace shows it closing after the write because it wraps it.
+var pipelineStages = []string{
+	"input",
+	"sanitize",
+	"filter",
+	"accept",
+	"validate_input",
+	"step",
+	"enrich",
+	"transform",
+	"dedupe",
+	"read",
+	"write",
+	"response",
+	"validate_output",
+}
+
+// PipelineStages returns the stages of a flow in the order they run.
+func PipelineStages() []string {
+	return append([]string(nil), pipelineStages...)
+}
+
+// StageOrder returns a stage's position in the pipeline, and whether it is a
+// stage at all.
+func StageOrder(stage string) (int, bool) {
+	for i, s := range pipelineStages {
+		if s == stage {
+			return i, true
+		}
+	}
+	return 0, false
+}

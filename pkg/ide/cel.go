@@ -5,50 +5,79 @@ import "fmt"
 // CEL completion support for transform blocks, filter expressions, and accept conditions.
 
 // celFunctions returns completion items for all built-in CEL functions.
-func celFunctions() []CompletionItem {
-	fns := []struct {
-		name, sig, doc string
-	}{
-		{"uuid", "uuid()", "Generate a new UUID v4"},
-		{"now", "now()", "Current timestamp (RFC3339)"},
-		{"lower", "lower(s)", "Convert string to lowercase"},
-		{"upper", "upper(s)", "Convert string to uppercase"},
-		{"trim", "trim(s)", "Remove leading and trailing whitespace"},
-		{"replace", "replace(s, old, new)", "Replace occurrences of old with new"},
-		{"split", "split(s, sep)", "Split string by separator"},
-		{"join", "join(list, sep)", "Join list elements with separator"},
-		{"contains", "contains(s, substr)", "Check if string contains substring"},
-		{"starts_with", "starts_with(s, prefix)", "Check if string starts with prefix"},
-		{"ends_with", "ends_with(s, suffix)", "Check if string ends with suffix"},
-		{"len", "len(s)", "Length of string or list"},
-		{"int", "int(v)", "Convert to integer"},
-		{"double", "double(v)", "Convert to double/float"},
-		{"string", "string(v)", "Convert to string"},
-		{"has", "has(field)", "Check if field exists"},
-		{"size", "size(v)", "Size of string, list, or map"},
-		{"matches", "matches(s, pattern)", "Regex match"},
-		{"timestamp", "timestamp(s)", "Parse string as timestamp"},
-		{"duration", "duration(s)", "Parse string as duration"},
-		{"base64_encode", "base64_encode(s)", "Encode string as base64"},
-		{"base64_decode", "base64_decode(s)", "Decode base64 string"},
-		{"json_encode", "json_encode(v)", "Encode value as JSON string"},
-		{"json_decode", "json_decode(s)", "Decode JSON string to value"},
-		{"hash_md5", "hash_md5(s)", "MD5 hash of string"},
-		{"hash_sha256", "hash_sha256(s)", "SHA-256 hash of string"},
-		{"coalesce", "coalesce(a, b)", "Return first non-null value"},
-		{"default", "default(v, fallback)", "Return fallback if v is null"},
-		{"has_field", "has_field(field)", "Check if field was requested (GraphQL)"},
-		{"field_requested", "field_requested(field)", "Check if field was requested (GraphQL)"},
-		{"first", "first(list)", "First element of a list"},
-		{"last", "last(list)", "Last element of a list"},
-		{"unique", "unique(list)", "Remove duplicates from list"},
-		{"pluck", "pluck(list, field)", "Extract field from each item in list"},
-		{"sort_by", "sort_by(list, field)", "Sort list by field"},
-		{"sum", "sum(list)", "Sum of numeric list"},
-		{"avg", "avg(list)", "Average of numeric list"},
-		{"min", "min(a, b)", "Minimum of two values"},
-		{"max", "max(a, b)", "Maximum of two values"},
+// celFunction is one function offered in a transform, with a call that
+// exercises it — so the list can be compiled rather than believed.
+//
+// Ten of the thirty-nine this used to offer did not exist: four were CEL's own
+// string methods written as if they were calls, base64 and json helpers that
+// were never implemented, an md5 that is not there, and min/max, which are
+// min_val/max_val over a list. Somebody accepting one of those completions got
+// a configuration that fails when the flow runs.
+type celFunction struct {
+	name, sig, doc, example string
+}
+
+// celFunctionList is every function offered, and the call each is checked with.
+func celFunctionList() []celFunction {
+	return []celFunction{
+		{"uuid", "uuid()", "Generate a new UUID v4", `uuid()`},
+		{"now", "now()", "Current timestamp (RFC3339)", `now()`},
+		{"now_unix", "now_unix()", "Current time in seconds since the epoch", `now_unix()`},
+		{"format_date", "format_date(t, layout)", "Format a timestamp: YYYY, MM, DD, HH, mm, ss", `format_date(now(), "YYYY-MM-DD")`},
+
+		{"lower", "lower(s)", "Convert string to lowercase", `lower("A")`},
+		{"upper", "upper(s)", "Convert string to uppercase", `upper("a")`},
+		{"trim", "trim(s)", "Remove leading and trailing whitespace", `trim(" a ")`},
+		{"replace", "replace(s, old, new)", "Replace occurrences of old with new", `replace("a", "a", "b")`},
+		{"split", "split(s, sep)", "Split string by separator", `split("a,b", ",")`},
+		{"join", "join(list, sep)", "Join list elements with separator", `join(["a"], ",")`},
+		{"substring", "substring(s, start, end)", "Part of a string, by index", `substring("abcd", 1, 3)`},
+		{"len", "len(v)", "Length of a string or list", `len("ab")`},
+
+		// CEL's own string methods, which are written on the value rather
+		// than called on it. They were offered here as starts_with(s, prefix)
+		// and the like, which is not something this language has.
+		{"startsWith", `"s".startsWith(prefix)`, "Whether a string starts with a prefix", `"abc".startsWith("a")`},
+		{"endsWith", `"s".endsWith(suffix)`, "Whether a string ends with a suffix", `"abc".endsWith("c")`},
+		{"contains", `"s".contains(substr)`, "Whether a string contains another", `"abc".contains("b")`},
+		{"matches", "matches(s, pattern)", "Regular expression match", `matches("abc", "a.c")`},
+		{"size", "size(v)", "Size of a string, list or map", `size("ab")`},
+
+		{"int", "int(v)", "Convert to integer", `int("1")`},
+		{"double", "double(v)", "Convert to double", `double(1)`},
+		{"string", "string(v)", "Convert to string", `string(1)`},
+		{"timestamp", "timestamp(s)", "Parse string as timestamp", `timestamp("2020-01-01T00:00:00Z")`},
+		{"duration", "duration(s)", "Parse string as duration", `duration("5s")`},
+		{"hash_sha256", "hash_sha256(s)", "SHA-256 hash, hex encoded", `hash_sha256("a")`},
+
+		{"coalesce", "coalesce(v, fallback)", "First value that is not null", `coalesce("", "x")`},
+		{"default", "default(v, fallback)", "Fallback when v is null", `default("", "x")`},
+		{"has_field", "has_field(m, key)", "Whether a map has a key", `has_field({"a": 1}, "a")`},
+
+		{"first", "first(list)", "First element of a list", `first([1, 2])`},
+		{"last", "last(list)", "Last element of a list", `last([1, 2])`},
+		{"unique", "unique(list)", "Remove duplicates from a list", `unique([1, 1])`},
+		{"reverse", "reverse(list)", "Reverse a list", `reverse([1, 2])`},
+		{"flatten", "flatten(list)", "Flatten a list of lists", `flatten([[1], [2]])`},
+		{"pluck", "pluck(list, field)", "Extract a field from each item", `pluck([{"k": 1}], "k")`},
+		{"sort_by", "sort_by(list, field)", "Sort a list by a field", `sort_by([{"k": 1}], "k")`},
+		{"sum", "sum(list)", "Sum of a numeric list", `sum([1, 2])`},
+		{"avg", "avg(list)", "Average of a numeric list", `avg([1, 2])`},
+		{"min_val", "min_val(list)", "Smallest value in a list", `min_val([1, 2])`},
+		{"max_val", "max_val(list)", "Largest value in a list", `max_val([1, 2])`},
+
+		{"merge", "merge(a, b)", "Two maps as one", `merge({"a": 1}, {"b": 2})`},
+		{"pick", "pick(m, k1)", "A map with only the named keys", `pick({"a": 1}, "a")`},
+		{"omit", "omit(m, k1)", "A map without the named keys", `omit({"a": 1}, "a")`},
+
+		{"requested_fields", "requested_fields(input)", "Every field path a GraphQL query asked for", `requested_fields({"a": 1})`},
+		{"requested_top_fields", "requested_top_fields(input)", "The top-level fields a GraphQL query asked for", `requested_top_fields({"a": 1})`},
+		{"field_requested", "field_requested(input, name)", "Whether a GraphQL query asked for a field", `field_requested({"a": 1}, "a")`},
 	}
+}
+
+func celFunctions() []CompletionItem {
+	fns := celFunctionList()
 
 	items := make([]CompletionItem, len(fns))
 	for i, f := range fns {

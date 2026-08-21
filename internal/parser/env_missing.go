@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"os"
 	"sort"
 
@@ -78,7 +79,7 @@ func unresolvedEnvCalls(expr hclsyntax.Expression) []string {
 			return nil
 		}
 
-		name := val.AsString()
+		name := stringOrEmpty(val)
 		if name != "" && os.Getenv(name) == "" {
 			names = append(names, name)
 		}
@@ -86,4 +87,45 @@ func unresolvedEnvCalls(expr hclsyntax.Expression) []string {
 	})
 
 	return names
+}
+
+// UnsetEnvVar is an env("NAME") call with no default whose variable is not set,
+// anywhere in the configuration.
+//
+// The connector version of this was written first because a connector that
+// cannot start reports a generic "requires X" and the variable behind it was
+// the missing piece. But every block reads env() the same way and none of the
+// others said anything — so `auth { jwt { secret = env("JWT_SECRET") } }` with
+// the variable unset produced a service refusing to start with "JWT secret is
+// required", naming neither the variable nor the file.
+type UnsetEnvVar struct {
+	// Block is where it was written, as the reader would name it: `auth`,
+	// `connector "api"`, `service`.
+	Block string
+	// Attr is the attribute path inside that block, such as `jwt.secret`.
+	Attr string
+	// Name is the environment variable.
+	Name string
+}
+
+// describeBlock names a block the way somebody reading the file would.
+func describeBlock(block *hcl.Block) string {
+	if len(block.Labels) > 0 {
+		return fmt.Sprintf("%s %q", block.Type, block.Labels[0])
+	}
+	return block.Type
+}
+
+// CollectUnsetEnv walks a root block for env() calls that resolve to nothing.
+func CollectUnsetEnv(blockLabel string, body hcl.Body) []UnsetEnvVar {
+	found := collectMissingEnv(body)
+	if len(found) == 0 {
+		return nil
+	}
+
+	out := make([]UnsetEnvVar, 0, len(found))
+	for _, m := range found {
+		out = append(out, UnsetEnvVar{Block: blockLabel, Attr: m.Attr, Name: m.Name})
+	}
+	return out
 }

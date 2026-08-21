@@ -45,24 +45,24 @@ func TestConnector_ReadWriteJSON(t *testing.T) {
 		t.Fatalf("failed to write: %v", err)
 	}
 
-	if result["path"] != filepath.Join(tmpDir, "users.json") {
-		t.Errorf("unexpected path: %v", result["path"])
+	if result.Metadata["path"] != filepath.Join(tmpDir, "users.json") {
+		t.Errorf("unexpected path: %v", result.Metadata["path"])
 	}
 
 	// Read back
-	rows, err := conn.Read(ctx, &connector.Query{
+	rows, err := conn.Read(ctx, connector.Query{
 		Target: "users.json",
 	})
 	if err != nil {
 		t.Fatalf("failed to read: %v", err)
 	}
 
-	if len(rows) != 2 {
-		t.Errorf("expected 2 rows, got %d", len(rows))
+	if len(rows.Rows) != 2 {
+		t.Errorf("expected 2 rows, got %d", len(rows.Rows))
 	}
 
-	if rows[0]["name"] != "Alice" {
-		t.Errorf("expected Alice, got %v", rows[0]["name"])
+	if rows.Rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice, got %v", rows.Rows[0]["name"])
 	}
 }
 
@@ -98,15 +98,15 @@ func TestConnector_ReadWriteCSV(t *testing.T) {
 	}
 
 	// Read back
-	rows, err := conn.Read(ctx, &connector.Query{
+	rows, err := conn.Read(ctx, connector.Query{
 		Target: "users.csv",
 	})
 	if err != nil {
 		t.Fatalf("failed to read CSV: %v", err)
 	}
 
-	if len(rows) != 2 {
-		t.Errorf("expected 2 rows, got %d", len(rows))
+	if len(rows.Rows) != 2 {
+		t.Errorf("expected 2 rows, got %d", len(rows.Rows))
 	}
 }
 
@@ -137,7 +137,7 @@ func TestConnector_ReadWriteText(t *testing.T) {
 	}
 
 	// Read back
-	rows, err := conn.Read(ctx, &connector.Query{
+	rows, err := conn.Read(ctx, connector.Query{
 		Target: "readme.txt",
 		Params: map[string]interface{}{
 			"format": "text",
@@ -147,12 +147,12 @@ func TestConnector_ReadWriteText(t *testing.T) {
 		t.Fatalf("failed to read text: %v", err)
 	}
 
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 row, got %d", len(rows))
+	if len(rows.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows.Rows))
 	}
 
-	if rows[0]["content"] != "Hello, World!" {
-		t.Errorf("expected 'Hello, World!', got %v", rows[0]["content"])
+	if rows.Rows[0]["content"] != "Hello, World!" {
+		t.Errorf("expected 'Hello, World!', got %v", rows.Rows[0]["content"])
 	}
 }
 
@@ -174,15 +174,15 @@ func TestConnector_ListDirectory(t *testing.T) {
 
 	ctx := context.Background()
 
-	rows, err := conn.Read(ctx, &connector.Query{
+	rows, err := conn.Read(ctx, connector.Query{
 		Target: ".",
 	})
 	if err != nil {
 		t.Fatalf("failed to list directory: %v", err)
 	}
 
-	if len(rows) != 3 {
-		t.Errorf("expected 3 entries, got %d", len(rows))
+	if len(rows.Rows) != 3 {
+		t.Errorf("expected 3 entries, got %d", len(rows.Rows))
 	}
 }
 
@@ -297,31 +297,31 @@ func TestConnector_ReadWriteExcel(t *testing.T) {
 		t.Fatalf("failed to write Excel: %v", err)
 	}
 
-	if result["path"] != filepath.Join(tmpDir, "users.xlsx") {
-		t.Errorf("unexpected path: %v", result["path"])
+	if result.Metadata["path"] != filepath.Join(tmpDir, "users.xlsx") {
+		t.Errorf("unexpected path: %v", result.Metadata["path"])
 	}
 
 	// Read back
-	rows, err := conn.Read(ctx, &connector.Query{
+	rows, err := conn.Read(ctx, connector.Query{
 		Target: "users.xlsx",
 	})
 	if err != nil {
 		t.Fatalf("failed to read Excel: %v", err)
 	}
 
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 rows, got %d", len(rows))
+	if len(rows.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows.Rows))
 	}
 
 	// Verify values (all Excel values come back as strings via GetRows)
-	if rows[0]["name"] != "Alice" {
-		t.Errorf("expected Alice, got %v", rows[0]["name"])
+	if rows.Rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice, got %v", rows.Rows[0]["name"])
 	}
-	if rows[1]["name"] != "Bob" {
-		t.Errorf("expected Bob, got %v", rows[1]["name"])
+	if rows.Rows[1]["name"] != "Bob" {
+		t.Errorf("expected Bob, got %v", rows.Rows[1]["name"])
 	}
-	if rows[0]["email"] != "alice@example.com" {
-		t.Errorf("expected alice@example.com, got %v", rows[0]["email"])
+	if rows.Rows[0]["email"] != "alice@example.com" {
+		t.Errorf("expected alice@example.com, got %v", rows.Rows[0]["email"])
 	}
 }
 
@@ -357,7 +357,7 @@ func TestConnector_ReadExcelSheet(t *testing.T) {
 	ctx := context.Background()
 
 	// Read specific sheet
-	rows, err := conn.Read(ctx, &connector.Query{
+	rows, err := conn.Read(ctx, connector.Query{
 		Target: "products.xlsx",
 		Params: map[string]interface{}{
 			"sheet": "Products",
@@ -367,15 +367,15 @@ func TestConnector_ReadExcelSheet(t *testing.T) {
 		t.Fatalf("failed to read Excel sheet: %v", err)
 	}
 
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 rows, got %d", len(rows))
+	if len(rows.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows.Rows))
 	}
 
-	if rows[0]["sku"] != "ABC-123" {
-		t.Errorf("expected ABC-123, got %v", rows[0]["sku"])
+	if rows.Rows[0]["sku"] != "ABC-123" {
+		t.Errorf("expected ABC-123, got %v", rows.Rows[0]["sku"])
 	}
-	if rows[1]["price"] != "49.99" {
-		t.Errorf("expected 49.99, got %v", rows[1]["price"])
+	if rows.Rows[1]["price"] != "49.99" {
+		t.Errorf("expected 49.99, got %v", rows.Rows[1]["price"])
 	}
 }
 
@@ -484,19 +484,19 @@ func TestConnector_ReadWriteTSV(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "data.tsv"), []byte(tsvContent), 0644)
 
 	// Read back as TSV (auto-detected from extension)
-	rows, err := conn.Read(ctx, &connector.Query{Target: "data.tsv"})
+	rows, err := conn.Read(ctx, connector.Query{Target: "data.tsv"})
 	if err != nil {
 		t.Fatalf("failed to read TSV: %v", err)
 	}
 
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 rows, got %d", len(rows))
+	if len(rows.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows.Rows))
 	}
-	if rows[0]["name"] != "Alice" {
-		t.Errorf("expected Alice, got %v", rows[0]["name"])
+	if rows.Rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice, got %v", rows.Rows[0]["name"])
 	}
-	if rows[0]["age"] != "30" {
-		t.Errorf("expected 30, got %v", rows[0]["age"])
+	if rows.Rows[0]["age"] != "30" {
+		t.Errorf("expected 30, got %v", rows.Rows[0]["age"])
 	}
 
 	// Write TSV data
@@ -515,12 +515,12 @@ func TestConnector_ReadWriteTSV(t *testing.T) {
 	}
 
 	// Read back
-	rows, err = conn.Read(ctx, &connector.Query{Target: "output.tsv"})
+	rows, err = conn.Read(ctx, connector.Query{Target: "output.tsv"})
 	if err != nil {
 		t.Fatalf("failed to read written TSV: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Errorf("expected 2 rows, got %d", len(rows))
+	if len(rows.Rows) != 2 {
+		t.Errorf("expected 2 rows, got %d", len(rows.Rows))
 	}
 }
 
@@ -543,21 +543,21 @@ func TestConnector_CSVDelimiter(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "european.csv"), []byte(content), 0644)
 
 	// Read with semicolon delimiter
-	rows, err := conn.Read(ctx, &connector.Query{
+	rows, err := conn.Read(ctx, connector.Query{
 		Target: "european.csv",
 		Params: map[string]interface{}{"delimiter": ";"},
 	})
 	if err != nil {
 		t.Fatalf("failed to read: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 rows, got %d", len(rows))
+	if len(rows.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows.Rows))
 	}
-	if rows[0]["name"] != "Alice" {
-		t.Errorf("expected Alice, got %v", rows[0]["name"])
+	if rows.Rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice, got %v", rows.Rows[0]["name"])
 	}
-	if rows[1]["city"] != "LA" {
-		t.Errorf("expected LA, got %v", rows[1]["city"])
+	if rows.Rows[1]["city"] != "LA" {
+		t.Errorf("expected LA, got %v", rows.Rows[1]["city"])
 	}
 }
 
@@ -580,21 +580,21 @@ func TestConnector_CSVNoHeader(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "noheader.csv"), []byte(content), 0644)
 
 	// Read without header
-	rows, err := conn.Read(ctx, &connector.Query{
+	rows, err := conn.Read(ctx, connector.Query{
 		Target: "noheader.csv",
 		Params: map[string]interface{}{"no_header": true},
 	})
 	if err != nil {
 		t.Fatalf("failed to read: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 rows, got %d", len(rows))
+	if len(rows.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows.Rows))
 	}
-	if rows[0]["column_1"] != "Alice" {
-		t.Errorf("expected Alice in column_1, got %v", rows[0]["column_1"])
+	if rows.Rows[0]["column_1"] != "Alice" {
+		t.Errorf("expected Alice in column_1, got %v", rows.Rows[0]["column_1"])
 	}
-	if rows[0]["column_2"] != "30" {
-		t.Errorf("expected 30 in column_2, got %v", rows[0]["column_2"])
+	if rows.Rows[0]["column_2"] != "30" {
+		t.Errorf("expected 30 in column_2, got %v", rows.Rows[0]["column_2"])
 	}
 }
 
@@ -617,7 +617,7 @@ func TestConnector_CSVCustomColumns(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "custom.csv"), []byte(content), 0644)
 
 	// Read with custom column names (overrides the header row)
-	rows, err := conn.Read(ctx, &connector.Query{
+	rows, err := conn.Read(ctx, connector.Query{
 		Target: "custom.csv",
 		Params: map[string]interface{}{
 			"columns": []interface{}{"name", "age", "city"},
@@ -626,14 +626,14 @@ func TestConnector_CSVCustomColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 rows, got %d", len(rows))
+	if len(rows.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows.Rows))
 	}
-	if rows[0]["name"] != "Alice" {
-		t.Errorf("expected Alice in name, got %v", rows[0]["name"])
+	if rows.Rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice in name, got %v", rows.Rows[0]["name"])
 	}
-	if rows[1]["city"] != "LA" {
-		t.Errorf("expected LA in city, got %v", rows[1]["city"])
+	if rows.Rows[1]["city"] != "LA" {
+		t.Errorf("expected LA in city, got %v", rows.Rows[1]["city"])
 	}
 }
 
@@ -656,18 +656,18 @@ func TestConnector_CSVSkipRows(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "report.csv"), []byte(content), 0644)
 
 	// Read skipping 2 rows (2 metadata lines)
-	rows, err := conn.Read(ctx, &connector.Query{
+	rows, err := conn.Read(ctx, connector.Query{
 		Target: "report.csv",
 		Params: map[string]interface{}{"skip_rows": 2},
 	})
 	if err != nil {
 		t.Fatalf("failed to read: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 rows, got %d", len(rows))
+	if len(rows.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows.Rows))
 	}
-	if rows[0]["name"] != "Alice" {
-		t.Errorf("expected Alice, got %v", rows[0]["name"])
+	if rows.Rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice, got %v", rows.Rows[0]["name"])
 	}
 }
 
@@ -689,18 +689,18 @@ func TestConnector_CSVComment(t *testing.T) {
 	content := "name,age\n# This is a comment\nAlice,30\n# Another comment\nBob,25\n"
 	os.WriteFile(filepath.Join(tmpDir, "comments.csv"), []byte(content), 0644)
 
-	rows, err := conn.Read(ctx, &connector.Query{
+	rows, err := conn.Read(ctx, connector.Query{
 		Target: "comments.csv",
 		Params: map[string]interface{}{"comment": "#"},
 	})
 	if err != nil {
 		t.Fatalf("failed to read: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 rows (comments skipped), got %d", len(rows))
+	if len(rows.Rows) != 2 {
+		t.Fatalf("expected 2 rows (comments skipped), got %d", len(rows.Rows))
 	}
-	if rows[0]["name"] != "Alice" {
-		t.Errorf("expected Alice, got %v", rows[0]["name"])
+	if rows.Rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice, got %v", rows.Rows[0]["name"])
 	}
 }
 
@@ -723,16 +723,16 @@ func TestConnector_CSVBOM(t *testing.T) {
 	content := append(bom, []byte("name,age\nAlice,30\n")...)
 	os.WriteFile(filepath.Join(tmpDir, "bom.csv"), content, 0644)
 
-	rows, err := conn.Read(ctx, &connector.Query{Target: "bom.csv"})
+	rows, err := conn.Read(ctx, connector.Query{Target: "bom.csv"})
 	if err != nil {
 		t.Fatalf("failed to read: %v", err)
 	}
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 row, got %d", len(rows))
+	if len(rows.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows.Rows))
 	}
 	// Without BOM handling, the first header would be "\xef\xbb\xbfname"
-	if rows[0]["name"] != "Alice" {
-		t.Errorf("expected Alice (BOM stripped), got headers: %v", rows[0])
+	if rows.Rows[0]["name"] != "Alice" {
+		t.Errorf("expected Alice (BOM stripped), got headers: %v", rows.Rows[0])
 	}
 }
 
@@ -753,21 +753,21 @@ func TestConnector_CSVTrimSpace(t *testing.T) {
 	content := " name , age \n Alice , 30 \n Bob , 25 \n"
 	os.WriteFile(filepath.Join(tmpDir, "spaces.csv"), []byte(content), 0644)
 
-	rows, err := conn.Read(ctx, &connector.Query{
+	rows, err := conn.Read(ctx, connector.Query{
 		Target: "spaces.csv",
 		Params: map[string]interface{}{"trim_space": true},
 	})
 	if err != nil {
 		t.Fatalf("failed to read: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 rows, got %d", len(rows))
+	if len(rows.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows.Rows))
 	}
-	if rows[0]["name"] != "Alice" {
-		t.Errorf("expected trimmed 'Alice', got %q", rows[0]["name"])
+	if rows.Rows[0]["name"] != "Alice" {
+		t.Errorf("expected trimmed 'Alice', got %q", rows.Rows[0]["name"])
 	}
-	if rows[0]["age"] != "30" {
-		t.Errorf("expected trimmed '30', got %q", rows[0]["age"])
+	if rows.Rows[0]["age"] != "30" {
+		t.Errorf("expected trimmed '30', got %q", rows.Rows[0]["age"])
 	}
 }
 
@@ -834,15 +834,15 @@ func TestConnector_CSVConnectorDefaults(t *testing.T) {
 	content := "name ; age\n Alice ; 30\n"
 	os.WriteFile(filepath.Join(tmpDir, "default.csv"), []byte(content), 0644)
 
-	rows, err := conn.Read(ctx, &connector.Query{Target: "default.csv"})
+	rows, err := conn.Read(ctx, connector.Query{Target: "default.csv"})
 	if err != nil {
 		t.Fatalf("failed to read: %v", err)
 	}
-	if len(rows) != 1 {
-		t.Fatalf("expected 1 row, got %d", len(rows))
+	if len(rows.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows.Rows))
 	}
-	if rows[0]["name"] != "Alice" {
-		t.Errorf("expected 'Alice', got %q", rows[0]["name"])
+	if rows.Rows[0]["name"] != "Alice" {
+		t.Errorf("expected 'Alice', got %q", rows.Rows[0]["name"])
 	}
 }
 

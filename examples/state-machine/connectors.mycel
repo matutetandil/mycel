@@ -6,10 +6,13 @@ connector "api" {
 connector "orders_db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"
+  # A file, not ":memory:": each connection in the pool gets its own private
+  # in-memory database, so the order written by one request is not there for
+  # the next transition.
+  database = "./data/orders.db"
 }
 
 connector "notifications" {
   type    = "http"
-  base_url = "http://localhost:6000"
+  base_url = env("NOTIFICATIONS_URL", "http://localhost:6000")
 }

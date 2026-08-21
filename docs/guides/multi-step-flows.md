@@ -14,13 +14,18 @@ flow "get_order_detail" {
   step "order" {
     connector = "db"
     operation = "query"
-    query     = "SELECT * FROM orders WHERE id = ?"
-    params    = [input.id]
+    query     = "SELECT * FROM orders WHERE id = :id"
+    params {
+      id = "input.id"
+    }
   }
 
   step "customer" {
     connector = "customers_api"
-    operation = "GET /customers/${step.order.customer_id}"
+    operation = "GET /customers/:customer_id"
+    params {
+      customer_id = "step.order.customer_id"
+    }
   }
 
   transform {
@@ -67,19 +72,29 @@ flow "get_product" {
 
   step "product" {
     connector = "db"
-    query     = "SELECT * FROM products WHERE id = ?"
-    params    = [input.id]
+    query     = "SELECT * FROM products WHERE id = :id"
+    params {
+      id = "input.id"
+    }
   }
 
   step "inventory" {
     connector = "inventory_api"
-    operation = "GET /stock/${step.product.sku}"
+    operation = "GET /stock/:sku"
+    params {
+      sku = "step.product.sku"
+    }
     when      = "step.product.track_inventory == true"
   }
 
   step "reviews" {
     connector = "reviews_api"
-    operation = "GET /reviews/${input.id}"
+    operation = "GET /reviews/:id"
+    params {
+      id = "input.id"
+    }
+    # A JSON body field. Sent as `?include_reviews=true` it would be the
+    # string "true" instead — see Input and Output.
     when      = "input.include_reviews == true"
   }
 
@@ -109,7 +124,10 @@ Continue the flow even if a step fails:
 ```hcl
 step "optional_data" {
   connector = "external_api"
-  operation = "GET /extras/${input.id}"
+  operation = "GET /extras/:id"
+  params {
+    id = "input.id"
+  }
   on_error  = "skip"
   default   = { extras: [] }  # Value used when step is skipped
 }
@@ -187,7 +205,10 @@ flow "checkout" {
   step "cart" {
     connector = "db"
     query     = "SELECT * FROM carts WHERE id = ? AND user_id = ?"
-    params    = [input.cart_id, input.user_id]
+    params {
+      cart_id = "input.cart_id"
+      user_id = "input.user_id"
+    }
   }
 
   # Check each item's inventory (parallel — depends on cart)
@@ -205,7 +226,9 @@ flow "checkout" {
   step "customer" {
     connector = "db"
     query     = "SELECT * FROM users WHERE id = ?"
-    params    = [input.user_id]
+    params {
+      user_id = "input.user_id"
+    }
   }
 
   # Calculate shipping cost

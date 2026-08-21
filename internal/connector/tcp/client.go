@@ -170,6 +170,9 @@ func (c *ClientConnector) Close(ctx context.Context) error {
 
 // Health checks if the client can connect to the server.
 func (c *ClientConnector) Health(ctx context.Context) error {
+	if err := c.stillOpen(); err != nil {
+		return err
+	}
 	conn, err := c.dial(ctx)
 	if err != nil {
 		return err
@@ -451,6 +454,18 @@ func (c *ClientConnector) doSendOnlyNestJS(conn net.Conn, msg *Message) error {
 
 // getConn gets a connection from the pool or creates a new one.
 func (c *ClientConnector) getConn(ctx context.Context) (net.Conn, error) {
+	// A closed client is asked no further.
+	//
+	// Close drains the pool and closes the channel, and a receive on a closed
+	// channel hands back a nil connection straight away — which was then used,
+	// so anything reaching this connector after it had been closed took the
+	// whole process down with a nil dereference. That is a flow still in
+	// flight during a hot reload or a shutdown, which is exactly when it
+	// happens.
+	if err := c.stillOpen(); err != nil {
+		return nil, err
+	}
+
 	// Try to get from pool first
 	select {
 	case conn := <-c.pool:
@@ -466,8 +481,25 @@ func (c *ClientConnector) getConn(ctx context.Context) (net.Conn, error) {
 	return c.dial(ctx)
 }
 
+// stillOpen reports whether this client may still be used.
+func (c *ClientConnector) stillOpen() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.connected {
+		return fmt.Errorf("tcp client %q is closed", c.name)
+	}
+	return nil
+}
+
 // returnConn returns a connection to the pool.
 func (c *ClientConnector) returnConn(conn net.Conn) {
+	// Sending on the channel Close closed would panic, and a connection that
+	// arrives after Close has nowhere to go anyway.
+	if err := c.stillOpen(); err != nil {
+		conn.Close()
+		return
+	}
+
 	select {
 	case c.pool <- conn:
 		// Returned to pool

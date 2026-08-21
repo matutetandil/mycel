@@ -143,8 +143,7 @@ connector "backend_pool" {
   }
 
   # Retry on transient failures
-  retry_count   = 3
-  retry_backoff = "100ms"
+  retry_count = 3
 }
 ```
 

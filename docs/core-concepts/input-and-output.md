@@ -46,7 +46,25 @@ transform {
 }
 ```
 
-Note the difference: a REST request arrives **flattened** onto `input`, while a queue message keeps its payload under `input.body` alongside the transport metadata. There is no `input.params` and no `input.query` — those were never populated by any source.
+Note the difference: a REST request arrives **flattened** onto `input`, while a RabbitMQ or Kafka message keeps its payload under `input.body` alongside the transport metadata. There is no `input.params` and no `input.query` — those were never populated by any source.
+
+Not every queue wraps: **Redis Pub/Sub merges the payload straight onto `input`**, so it is `input.order_id` there and `input.body.order_id` on RabbitMQ. Which is why the table below is worth reading rather than guessing from the transport.
+
+### A path or query parameter is always a string
+
+A URL carries no types. `?include_price=true&page=2` puts the four characters `true` and the one character `2` on `input`, so the natural-looking comparison is false and the arithmetic fails:
+
+```hcl
+# ?include_price=true
+when = "input.include_price == true"     # false — a string is not a boolean
+when = "input.include_price == \"true\""  # this is the one
+
+# ?page=2
+page = "input.page + 1"                  # fails — no such overload
+page = "int(input.page) + 1"             # convert it first
+```
+
+The same flag sent in a **JSON body** is a real boolean and does compare to `true`, because JSON has types and a query string does not. So the right expression depends on where the value came in, not on what it looks like.
 
 **[Source Properties by Connector](../reference/source-properties.md) lists exactly what `input` holds for each of the 15 source types** — including the metadata fields (`input._topic`, `input._path`, `input.partition`, `input.new` / `input.old` for CDC) that only some sources set. Check it before guessing.
 

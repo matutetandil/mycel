@@ -176,6 +176,9 @@ services:
   # ==========================================================================
   redis:
     image: redis:7-alpine
+    # Published so a test on the host can reach it, as the other stores are.
+    ports:
+      - "${PORT_REDIS:-36379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
@@ -249,6 +252,10 @@ services:
   # ==========================================================================
   elasticsearch:
     image: elasticsearch:8.12.0
+    # Published so a test on the host can reach it, as the other stores are:
+    # the examples that use Elasticsearch are started from outside the network.
+    ports:
+      - "${PORT_ES:-39200}:9200"
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
@@ -296,6 +303,10 @@ services:
   # ==========================================================================
   mosquitto:
     image: eclipse-mosquitto:2
+    # Published so the examples harness, which runs outside this network, can
+    # point the mqtt example at it.
+    ports:
+      - "${PORT_MQTT:-31883}:1883"
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
     healthcheck:
@@ -309,6 +320,8 @@ services:
   # ==========================================================================
   sftp:
     image: emberstack/sftp
+    ports:
+      - "${PORT_SFTP:-32222}:22"
     volumes:
       - ./sftp/sftp.json:/app/config/sftp.json:ro
 

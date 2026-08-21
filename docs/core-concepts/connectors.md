@@ -140,7 +140,7 @@ connector "rabbit" {
   driver   = "rabbitmq"
   host     = env("RABBITMQ_HOST")
   port     = 5672
-  user     = "guest"
+  username = "guest"
   password = env("RABBITMQ_PASS")
   vhost    = "/"
 }

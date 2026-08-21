@@ -24,8 +24,8 @@ flow "process_payment" {
       driver = "redis"
       url    = env("REDIS_URL", "redis://localhost:6379")
     }
-    key     = "'account:' + input.account_id"
-    timeout = "30s"
+    key         = "'account:' + input.account_id"
+    timeout     = "30s"
     wait    = true
     retry   = "100ms"
   }
@@ -73,14 +73,16 @@ flow "reserve_inventory" {
       driver = "redis"
       url    = env("REDIS_URL", "redis://localhost:6379")
     }
-    key     = "'inventory:' + input.product_id"
-    timeout = "10s"
+    key         = "'inventory:' + input.product_id"
+    timeout     = "10s"
   }
 
   step "current" {
     connector = "db"
-    query     = "SELECT stock FROM products WHERE id = ?"
-    params    = [input.product_id]
+    query     = "SELECT stock FROM products WHERE id = :product_id"
+    params {
+      product_id = "input.product_id"
+    }
   }
 
   transform {
@@ -113,9 +115,9 @@ flow "call_ai_api" {
       driver = "redis"
       url    = env("REDIS_URL", "redis://localhost:6379")
     }
-    key     = "'ai_api_quota'"
-    limit   = 5        # Max 5 concurrent calls
-    timeout = "10s"    # Wait up to 10s for a slot
+    key         = "'ai_api_quota'"
+    max_permits = 5        # Max 5 concurrent calls
+    timeout     = "10s"    # Wait up to 10s for a slot
   }
 
   to {
@@ -148,9 +150,9 @@ flow "geocode_address" {
       driver = "redis"
       url    = env("REDIS_URL", "redis://localhost:6379")
     }
-    key     = "'google_maps_quota'"
-    limit   = 20        # Google Maps allows 50 QPS, leave buffer
-    timeout = "5s"
+    key         = "'google_maps_quota'"
+    max_permits = 20        # Google Maps allows 50 QPS, leave buffer
+    timeout     = "5s"
   }
 
   to {
@@ -201,8 +203,10 @@ flow "create_item" {
   # Check if parent already exists in DB
   step "check_parent" {
     connector = "db"
-    query     = "SELECT entity_id FROM products WHERE sku = ?"
-    params    = [input.parent_sku]
+    query     = "SELECT entity_id FROM products WHERE sku = :parent_sku"
+    params {
+      parent_sku = "input.parent_sku"
+    }
     on_error  = "default"
     default   = []
   }
@@ -352,7 +356,7 @@ coordinate {
   # Skip waiting if parent already exists in DB
   preflight {
     connector = "db"
-    query     = "SELECT entity_id FROM products WHERE sku = ?"
+    query     = "SELECT entity_id FROM products WHERE sku = :parent_sku"
     params    = { sku = "input.parent_sku" }
     if_exists = "pass"
   }
@@ -389,8 +393,8 @@ flow "critical_payment" {
       driver = "redis"
       url    = env("REDIS_URL", "redis://localhost:6379")
     }
-    key     = "'account:' + input.account_id"
-    timeout = "30s"
+    key         = "'account:' + input.account_id"
+    timeout     = "30s"
   }
 
   # Limit concurrent external payment API calls
@@ -399,9 +403,9 @@ flow "critical_payment" {
       driver = "redis"
       url    = env("REDIS_URL", "redis://localhost:6379")
     }
-    key     = "'payment_gateway'"
-    limit   = 10
-    timeout = "10s"
+    key         = "'payment_gateway'"
+    max_permits = 10
+    timeout     = "10s"
   }
 
   # Canonical projection of what the downstream sees. Required for dedupe
@@ -486,8 +490,8 @@ flow "style_update" {
       driver = "redis"
       url    = env("REDIS_URL", "redis://localhost:6379")
     }
-    key     = "'sku_lock:' + input.body.payload.styleNumber"
-    timeout = "30s"
+    key         = "'sku_lock:' + input.body.payload.styleNumber"
+    timeout     = "30s"
     wait    = true
   }
 

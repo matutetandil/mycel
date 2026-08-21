@@ -71,6 +71,16 @@ type ProjectIndex struct {
 	Caches        map[string]*NamedEntity
 	Sagas         map[string]*NamedEntity
 	StateMachines map[string]*NamedEntity
+
+	// Named holds every named top-level block, keyed by block type and then by
+	// name — including the ten reusable kinds (dedupe, retry, lock and the
+	// rest), which the typed maps above do not cover.
+	//
+	// The typed maps are a hand-written list, and a kind added to the language
+	// and not added to that list is a kind the editor cannot resolve. That is
+	// what happened to the reusable blocks: `use = "lock.typo"` is refused by
+	// `mycel validate` and drew nothing at all in an editor.
+	Named map[string]map[string]*NamedEntity
 }
 
 // newProjectIndex creates an empty project index.
@@ -86,6 +96,7 @@ func newProjectIndex() *ProjectIndex {
 		Caches:        make(map[string]*NamedEntity),
 		Sagas:         make(map[string]*NamedEntity),
 		StateMachines: make(map[string]*NamedEntity),
+		Named:         make(map[string]map[string]*NamedEntity),
 	}
 }
 
@@ -117,6 +128,7 @@ func (idx *ProjectIndex) rebuild() {
 	idx.Caches = make(map[string]*NamedEntity)
 	idx.Sagas = make(map[string]*NamedEntity)
 	idx.StateMachines = make(map[string]*NamedEntity)
+	idx.Named = make(map[string]map[string]*NamedEntity)
 
 	for _, fi := range idx.Files {
 		for _, b := range fi.Blocks {
@@ -125,6 +137,15 @@ func (idx *ProjectIndex) rebuild() {
 				Name:  b.Name,
 				File:  fi.Path,
 				Range: b.Range,
+			}
+
+			if b.Name != "" {
+				byName := idx.Named[b.Type]
+				if byName == nil {
+					byName = make(map[string]*NamedEntity)
+					idx.Named[b.Type] = byName
+				}
+				byName[b.Name] = entity
 			}
 
 			switch b.Type {
@@ -178,5 +199,5 @@ func (idx *ProjectIndex) lookupEntity(kind, name string) *NamedEntity {
 	case "state_machine":
 		return idx.StateMachines[name]
 	}
-	return nil
+	return idx.Named[kind][name]
 }

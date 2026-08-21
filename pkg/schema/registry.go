@@ -1,6 +1,10 @@
 package schema
 
-import "sync"
+import (
+	"sort"
+	"strings"
+	"sync"
+)
 
 // Registry holds connector schema providers indexed by type and driver.
 // The parser and IDE engine query this to get connector-specific schemas.
@@ -101,4 +105,39 @@ func (r *Registry) AllConnectorTypes() []string {
 		}
 	}
 	return types
+}
+
+// Registration names one provider the registry holds: a connector type, and
+// the driver it describes, which is empty for the type's default.
+type Registration struct {
+	Type   string
+	Driver string
+}
+
+// AllRegistrations returns every provider the registry holds, drivers included.
+//
+// AllConnectorTypes answers with types alone, and a caller that walks those and
+// looks each one up sees only the default driver of each — so a check written
+// over "every connector schema" was in fact reading one of the four database
+// schemas and one of the three queue ones. The rest were registered and looked
+// at by nothing.
+func (r *Registry) AllRegistrations() []Registration {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	out := make([]Registration, 0, len(r.providers))
+	for key := range r.providers {
+		connType, driver := key, ""
+		if at := strings.IndexByte(key, ':'); at >= 0 {
+			connType, driver = key[:at], key[at+1:]
+		}
+		out = append(out, Registration{Type: connType, Driver: driver})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Type != out[j].Type {
+			return out[i].Type < out[j].Type
+		}
+		return out[i].Driver < out[j].Driver
+	})
+	return out
 }

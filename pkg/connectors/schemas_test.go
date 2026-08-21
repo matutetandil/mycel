@@ -23,14 +23,25 @@ func everySchema(t *testing.T) map[string]schema.ConnectorSchemaProvider {
 	reg := schema.NewRegistry()
 	RegisterAll(reg)
 
+	// Every registration, drivers included. Walking the types alone and
+	// looking each one up reads the default driver of each — one of the four
+	// database schemas, one of the three queue ones — and leaves the rest
+	// checked by nothing.
 	found := map[string]schema.ConnectorSchemaProvider{}
-	for _, connType := range reg.AllConnectorTypes() {
-		provider := reg.Lookup(connType, "")
+	for _, registration := range reg.AllRegistrations() {
+		provider := reg.Lookup(registration.Type, registration.Driver)
 		if provider == nil {
-			t.Errorf("%s is registered and answers with nothing", connType)
+			t.Errorf("%s/%s is registered and answers with nothing", registration.Type, registration.Driver)
 			continue
 		}
-		found[connType] = provider
+		name := registration.Type
+		if registration.Driver != "" {
+			name += "/" + registration.Driver
+		}
+		found[name] = provider
+	}
+	if len(found) == 0 {
+		t.Fatal("the registry holds nothing; this test is checking nothing")
 	}
 	return found
 }

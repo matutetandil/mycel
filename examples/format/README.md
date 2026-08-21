@@ -11,8 +11,16 @@ Demonstrates Mycel's multi-format I/O system. The same service handles JSON and 
 
 ## Quick Start
 
+The database file is created where the service is started from, so run these
+from this directory.
+
 ```bash
-mycel start --config ./examples/format
+cd examples/format
+
+# Create the products table
+mycel migrate --config .
+
+mycel start --config .
 ```
 
 ## Format Levels
@@ -115,6 +123,10 @@ curl -X POST http://localhost:3000/products \
 ```
 
 ### Mixed Format Flow
+
+The `soap_api` connector points at a host that does not exist, so this one
+answers with a connection error until you point it at a real service — it is
+here to show what a step-level format looks like.
 
 ```bash
 # JSON in -> enrichment calls SOAP (XML) -> JSON out

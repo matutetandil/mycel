@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -44,8 +45,11 @@ type Connector struct {
 	defaultFormat string // default format for request/response ("json", "xml")
 	environment   string // runtime environment (development, staging, production)
 
-	mu         sync.Mutex
-	handlers   map[string]HandlerFunc
+	mu       sync.Mutex
+	handlers map[string]HandlerFunc
+	// formats holds the codec a flow declared for its operation, keyed the same
+	// way as handlers.
+	formats    map[string]string
 	pathParams map[string][]string // maps path pattern to param names
 
 	// started is atomic rather than guarded by mu, because Health reads it
@@ -116,6 +120,23 @@ func (c *Connector) Health(ctx context.Context) error {
 // Operation format: "METHOD /path" e.g., "GET /users", "POST /users", "GET /users/:id"
 // Multiple flows can register for the same operation (fan-out): the first handler
 // returns the HTTP response, additional handlers run concurrently as fire-and-forget.
+// SetOperationFormat records the format a flow declared for one operation, so
+// that the request is decoded and the answer encoded in it.
+//
+// The runtime already put the format on the context it hands the flow, but the
+// request is read and the response written against the HTTP request's own
+// context, which never saw it — so `format = "xml"` on a REST flow decoded
+// whatever Content-Type said and answered in JSON regardless. The format
+// example advertised an XML endpoint that returned JSON.
+func (c *Connector) SetOperationFormat(operation, format string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.formats == nil {
+		c.formats = make(map[string]string)
+	}
+	c.formats[operation] = format
+}
+
 func (c *Connector) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -204,9 +225,20 @@ func (c *Connector) Start(ctx context.Context) error {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Start server in goroutine
+	// Take the port before reporting success.
+	//
+	// ListenAndServe was called inside the goroutine, so a port already in use
+	// was an error logged from a background thread while startup carried on:
+	// the banner said "listening on :3000", the service said "Ready", the
+	// health endpoint said healthy, and nothing was listening. A deployment
+	// looked fine and answered nothing.
+	listener, err := net.Listen("tcp", c.server.Addr)
+	if err != nil {
+		return fmt.Errorf("rest connector %q cannot listen on port %d: %w", c.name, c.port, err)
+	}
+
 	go func() {
-		if err := c.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := c.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			c.logger.Error("HTTP server error", slog.Any("error", err))
 		}
 	}()
@@ -219,6 +251,7 @@ func (c *Connector) Start(ctx context.Context) error {
 func (c *Connector) setupRoutes() {
 	// Group handlers by path to handle multiple methods
 	pathHandlers := make(map[string]map[string]HandlerFunc)
+	pathFormats := make(map[string]map[string]string)
 
 	for operation, handler := range c.handlers {
 		method, origPath := parseOperation(operation)
@@ -236,16 +269,23 @@ func (c *Connector) setupRoutes() {
 			pathHandlers[path] = make(map[string]HandlerFunc)
 		}
 		pathHandlers[path][method] = handler
+		if format := c.formats[operation]; format != "" {
+			if _, ok := pathFormats[path]; !ok {
+				pathFormats[path] = make(map[string]string)
+			}
+			pathFormats[path][method] = format
+		}
 	}
 
 	// Register combined handlers for each path
 	registered := make(map[string]bool, len(pathHandlers))
 	for path, methods := range pathHandlers {
 		handlers := methods // capture for closure
+		formats := pathFormats[path]
 		paramNames := c.pathParams[path]
 		registered[path] = true
 		c.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			c.handleRequest(w, r, handlers, paramNames)
+			c.handleRequest(w, r, handlers, formats, paramNames)
 		})
 	}
 
@@ -289,9 +329,15 @@ func (c *Connector) setupRoutes() {
 }
 
 // handleRequest processes an HTTP request.
-func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handlers map[string]HandlerFunc, paramNames []string) {
+func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handlers map[string]HandlerFunc, formats map[string]string, paramNames []string) {
 	start := time.Now()
 	path := r.URL.Path
+
+	// The flow's declared format, put where the request decoding and the
+	// response encoding both look for it.
+	if format := formats[r.Method]; format != "" {
+		r = r.WithContext(codec.WithFormat(r.Context(), format))
+	}
 
 	// Track in-flight requests
 	if c.metrics != nil {
@@ -493,7 +539,17 @@ func (c *Connector) parseMultipart(r *http.Request, input map[string]interface{}
 		}
 	}
 
-	// File fields
+	// File fields, published under `input.files.<field>` — which is what the
+	// REST page documents and what nothing did: they were only ever put flat
+	// on the input, so every transform written from the documentation failed
+	// with "no such key: files". The flat key stays as well, for
+	// configurations written against what the code did rather than what the
+	// page said.
+	//
+	// The grouping is also the only unambiguous form: a form carrying a text
+	// field and a file of the same name has one overwrite the other when both
+	// are flat.
+	uploaded := make(map[string]interface{})
 	for key, fileHeaders := range r.MultipartForm.File {
 		var files []map[string]interface{}
 		for _, fh := range fileHeaders {
@@ -516,9 +572,15 @@ func (c *Connector) parseMultipart(r *http.Request, input map[string]interface{}
 		}
 		if len(files) == 1 {
 			input[key] = files[0]
+			uploaded[key] = files[0]
 		} else if len(files) > 0 {
 			input[key] = files
+			uploaded[key] = files
 		}
+	}
+
+	if len(uploaded) > 0 {
+		input["files"] = uploaded
 	}
 }
 
@@ -661,7 +723,7 @@ func (c *Connector) corsMiddleware(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 			// Handle preflight
-			if r.Method == "OPTIONS" {
+			if isPreflight(r) {
 				w.WriteHeader(http.StatusOK)
 				return
 			}
@@ -670,10 +732,10 @@ func (c *Connector) corsMiddleware(next http.Handler) http.Handler {
 			origin := r.Header.Get("Origin")
 			if origin != "" {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, QUERY, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, QUERY, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-				if r.Method == "OPTIONS" {
+				if isPreflight(r) {
 					w.WriteHeader(http.StatusOK)
 					return
 				}
@@ -682,6 +744,17 @@ func (c *Connector) corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isPreflight reports whether this is a CORS preflight rather than an OPTIONS
+// request meant for a flow.
+//
+// A preflight is an OPTIONS carrying Access-Control-Request-Method; the browser
+// always sends it. Answering every OPTIONS as preflight made a flow that serves
+// OPTIONS unreachable whenever CORS was configured — it was registered, it
+// appeared in the banner, and the middleware replied before it was ever asked.
+func isPreflight(r *http.Request) bool {
+	return r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != ""
 }
 
 // isOriginAllowed checks if the origin is allowed by CORS config.

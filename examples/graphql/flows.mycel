@@ -11,6 +11,11 @@ flow "get_users" {
     connector = "database"
     target    = "users"
   }
+
+  # Without this the field is published as JSON, and `{ users { id email } }` —
+  # the query this example's README shows — is refused: "Field \"users\" of
+  # type \"[JSON]\" must not have a sub selection."
+  returns = "User[]"
 }
 
 # GraphQL Query: Get single user by ID
@@ -27,6 +32,8 @@ flow "get_user" {
     target    = "users"
     query     = "SELECT * FROM users WHERE id = :id"
   }
+
+  returns = "User"
 }
 
 # GraphQL Mutation: Create a new user
@@ -38,16 +45,21 @@ flow "create_user" {
     operation = "Mutation.createUser"
   }
 
+  # The arguments of a mutation arrive flat: the input object is the message.
   transform {
-    email      = "input.input.email"
-    name       = "input.input.name"
+    email      = "input.email"
+    name       = "input.name"
     created_at = "now()"
   }
 
+  # A mutation answers with the row it made, so the write asks for it back.
   to {
     connector = "database"
     target    = "users"
+    query     = "INSERT INTO users (email, name, created_at) VALUES (:email, :name, :created_at) RETURNING *"
   }
+
+  returns = "User"
 }
 
 # GraphQL Mutation: Update a user
@@ -61,13 +73,16 @@ flow "update_user" {
 
   transform {
     id   = "input.id"
-    name = "input.input.name"
+    name = "input.name"
   }
 
   to {
     connector = "database"
     target    = "users"
+    query     = "UPDATE users SET name = :name WHERE id = :id RETURNING *"
   }
+
+  returns = "User"
 }
 
 # GraphQL Mutation: Delete a user

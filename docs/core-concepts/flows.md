@@ -667,13 +667,18 @@ flow "get_order_detail" {
   step "order" {
     connector = "db"
     operation = "query"
-    query     = "SELECT * FROM orders WHERE id = ?"
-    params    = [input.id]
+    query     = "SELECT * FROM orders WHERE id = :id"
+    params {
+      id = "input.id"
+    }
   }
 
   step "customer" {
     connector = "customers_api"
-    operation = "GET /customers/${step.order.customer_id}"
+    operation = "GET /customers/:customer_id"
+    params {
+      customer_id = "step.order.customer_id"
+    }
     when      = "step.order.customer_id != ''"  # Skip if no customer
     on_error  = "skip"
     default   = {}
@@ -945,8 +950,8 @@ flow "process_payment" {
       driver = "redis"
       url    = env("REDIS_URL", "redis://localhost:6379")
     }
-    key     = "'account:' + input.account_id"
-    timeout = "30s"
+    key         = "'account:' + input.account_id"
+    timeout     = "30s"
     wait    = true
     retry   = "100ms"
   }
@@ -972,9 +977,9 @@ flow "call_external_api" {
       driver = "redis"
       url    = env("REDIS_URL", "redis://localhost:6379")
     }
-    key     = "'api_quota'"
-    limit   = 10        # Max 10 concurrent flows
-    timeout = "5s"
+    key         = "'api_quota'"
+    max_permits = 10        # Max 10 concurrent flows
+    timeout     = "5s"
   }
 
   to {

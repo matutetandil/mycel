@@ -126,6 +126,27 @@ func (rf *RequestedFields) List() []string {
 	return fields
 }
 
+// Leaves returns the top-level fields that have nothing selected inside them.
+//
+// These are the ones that correspond to a column. A field with a selection set
+// is another entity — `orders { user { name } }` asks for a user, not for a
+// column called user — and asking a database for it produced "no such column:
+// user" from the very query the optimisation is meant to improve.
+func (rf *RequestedFields) Leaves() []string {
+	if rf.tree == nil || rf.tree.Fields == nil {
+		return []string{}
+	}
+
+	fields := make([]string, 0, len(rf.tree.Fields))
+	for name, node := range rf.tree.Fields {
+		if node != nil && node.Children != nil && len(node.Children.Fields) > 0 {
+			continue
+		}
+		fields = append(fields, name)
+	}
+	return fields
+}
+
 // ListFlat returns all field paths flattened.
 // Example: ["id", "name", "orders.id", "orders.total"]
 func (rf *RequestedFields) ListFlat() []string {

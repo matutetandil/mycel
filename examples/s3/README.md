@@ -34,28 +34,27 @@ export MINIO_SECRET_KEY="minioadmin"
 ## Usage
 
 ```bash
-# Start the service
-mycel start --config ./examples/s3
+cd examples/s3
 
-# Upload a file
+# Create the table that indexes what has been stored
+mycel migrate --config .
+
+mycel start --config .
+
+# Store an object and record it — the bytes go to the bucket, what is known
+# about them to the database.
 curl -X POST http://localhost:3000/upload \
   -H "Content-Type: application/json" \
-  -d '{"filename":"test.txt","content":"Hello S3"}'
+  -d '{"filename":"note.txt","content":"hello from s3"}'
 
-# Get presigned URL
-curl http://localhost:3000/presigned/{id}
-
-# Download
-curl http://localhost:3000/download/{id}
-
-# List files
+# What has been stored
 curl http://localhost:3000/files
 
-# Copy a file
-curl -X POST http://localhost:3000/copy/{id}
+# The bytes back
+curl http://localhost:3000/download/note.txt
 
-# Delete
-curl -X DELETE http://localhost:3000/files/{id}
+# A link that carries its own permission, for handing to a browser
+curl http://localhost:3000/presigned/note.txt
 ```
 
 ## Configuration
@@ -81,12 +80,13 @@ connector "minio" {
   type   = "file"
   driver = "s3"
 
-  bucket           = env("MINIO_BUCKET")
-  endpoint         = env("MINIO_ENDPOINT")
-  access_key       = env("MINIO_ACCESS_KEY")
-  secret_key       = env("MINIO_SECRET_KEY")
+  bucket         = env("MINIO_BUCKET")
+  # The scheme in the endpoint decides whether the connection is encrypted:
+  # http://... for a local MinIO, https://... for anything else.
+  endpoint       = env("MINIO_ENDPOINT", "http://localhost:9000")
+  access_key     = env("MINIO_ACCESS_KEY")
+  secret_key     = env("MINIO_SECRET_KEY")
   use_path_style = true
-  use_ssl          = false
 }
 ```
 

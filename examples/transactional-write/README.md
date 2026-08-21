@@ -8,17 +8,18 @@ across statements because they share the connection.
 
 ## Run
 
+The database file is created where the service is started from, so run these
+from this directory.
+
 ```bash
-mycel validate --config ./examples/transactional-write
-mycel start    --config ./examples/transactional-write
-```
+cd examples/transactional-write
 
-Create the tables once (SQLite):
+mycel validate --config .
 
-```sql
-CREATE TABLE product        (id INTEGER PRIMARY KEY AUTOINCREMENT, sku TEXT, name TEXT);
-CREATE TABLE product_option (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER, code TEXT, position INTEGER);
-CREATE TABLE option_value   (id INTEGER PRIMARY KEY AUTOINCREMENT, option_id INTEGER, label TEXT, price REAL);
+# Create the three tables (migrations/001_create_catalog.sql)
+mycel migrate --config .
+
+mycel start --config .
 ```
 
 Send an aggregate:

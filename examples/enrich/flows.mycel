@@ -14,7 +14,7 @@ flow "get_product" {
 
   to {
     connector = "products_db"
-    operation = "products"
+    target    = "products"
   }
 }
 
@@ -28,7 +28,7 @@ flow "get_product_with_price" {
 
   enrich "pricing" {
     connector = "pricing_service"
-    operation = "getPrice"
+    operation = "GET /price"
     params {
       product_id = "input.id"
     }
@@ -43,7 +43,7 @@ flow "get_product_with_price" {
 
   to {
     connector = "products_db"
-    operation = "products"
+    target    = "products"
   }
 }
 
@@ -56,7 +56,7 @@ flow "get_product_full" {
 
   enrich "pricing" {
     connector = "pricing_service"
-    operation = "getPrice"
+    operation = "GET /price"
     params {
       product_id = "input.id"
     }
@@ -80,7 +80,7 @@ flow "get_product_full" {
 
   to {
     connector = "products_db"
-    operation = "products"
+    target    = "products"
   }
 }
 
@@ -94,7 +94,7 @@ flow "get_product_reusable" {
 
   enrich "pricing" {
     connector = "pricing_service"
-    operation = "getPrice"
+    operation = "GET /price"
     params {
       product_id = "input.id"
     }
@@ -109,6 +109,6 @@ flow "get_product_reusable" {
 
   to {
     connector = "products_db"
-    operation = "products"
+    target    = "products"
   }
 }

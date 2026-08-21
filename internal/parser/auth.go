@@ -281,7 +281,7 @@ func (p *HCLParser) parseAuthMFABlock(block *hcl.Block) (*auth.MFAConfig, error)
 	if attr, exists := content.Attributes["enabled"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Enabled = val.True()
+			config.Enabled = boolOrFalse(val)
 		}
 	}
 
@@ -321,7 +321,7 @@ func (p *HCLParser) parseAuthMFABlock(block *hcl.Block) (*auth.MFAConfig, error)
 	if attr, exists := content.Attributes["require_multiple"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.RequireMultiple = val.True()
+			config.RequireMultiple = boolOrFalse(val)
 		}
 	}
 
@@ -774,7 +774,7 @@ func (p *HCLParser) parseAuthBruteForceBlock(block *hcl.Block) (*auth.BruteForce
 	if attr, exists := content.Attributes["enabled"]; exists {
 		val, diags := attr.Expr.Value(p.evalCtx)
 		if !diags.HasErrors() {
-			config.Enabled = val.True()
+			config.Enabled = boolOrFalse(val)
 		}
 	}
 
@@ -1007,7 +1007,7 @@ func (p *HCLParser) parseAuthProviderBlock(block *hcl.Block) (*auth.ProviderConf
 			config.Request = make(map[string]string)
 			for it := val.ElementIterator(); it.Next(); {
 				k, v := it.Element()
-				config.Request[k.AsString()] = v.AsString()
+				config.Request[stringOrEmpty(k)] = stringOrEmpty(v)
 			}
 		}
 	}
@@ -1047,7 +1047,14 @@ func (p *HCLParser) parseAuthAccountLinkingBlock(block *hcl.Block) (*auth.Accoun
 }
 
 func (p *HCLParser) parseAuthEndpointsBlock(block *hcl.Block) (*auth.EndpointsConfig, error) {
-	config := &auth.EndpointsConfig{}
+	// Start from the defaults, so that naming one endpoint does not silence the
+	// rest. Writing the block at all used to leave every endpoint nil, and a
+	// nil endpoint is a disabled one: `endpoints { prefix = "/auth" }` — the
+	// form the documentation shows for moving the prefix, and the only thing
+	// the auth example wrote — turned off login, register, refresh, me and the
+	// other thirteen. Overriding one is still an override, and turning one off
+	// is still `enabled = false` inside its own block.
+	config := auth.DefaultEndpointsConfig()
 
 	content, diags := block.Body.Content(&hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
@@ -1197,7 +1204,7 @@ func stringValue(name string, val cty.Value) (string, error) {
 	case cty.String:
 		return val.AsString(), nil
 	case cty.Bool:
-		if val.True() {
+		if boolOrFalse(val) {
 			return "true", nil
 		}
 		return "false", nil

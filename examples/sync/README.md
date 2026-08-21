@@ -156,9 +156,38 @@ flow "health_ping" {
 # Start dependencies
 docker-compose up -d
 
-# Start Mycel
+export POSTGRES_HOST=localhost POSTGRES_PORT=5432
+export REDIS_URL=redis://localhost:6379
+export RABBITMQ_HOST=localhost RABBITMQ_PORT=5672
+
+mycel migrate --config ./examples/sync
 mycel start --config ./examples/sync
 ```
+
+## Try It
+
+The lock is the one to watch. Two payments for the same user are serialised —
+the second waits for the first — while payments for different users run
+alongside each other:
+
+```bash
+curl -X POST http://localhost:3000/payments \
+  -H "Content-Type: application/json" \
+  -d '{"data":{"user_id":1,"amount":10.00}}'
+
+# Same user: this one waits for the one above to finish
+curl -X POST http://localhost:3000/payments \
+  -H "Content-Type: application/json" \
+  -d '{"data":{"user_id":1,"amount":25.50}}'
+
+# A different user: no waiting, different key
+curl -X POST http://localhost:3000/payments \
+  -H "Content-Type: application/json" \
+  -d '{"data":{"user_id":2,"amount":99.00}}'
+```
+
+Both rows land in `payments`. What the lock changes is the order they are
+written in, not whether they are.
 
 ## Configuration
 

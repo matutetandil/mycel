@@ -396,6 +396,32 @@ func baseCELOptions() []cel.EnvOption {
 			),
 		),
 
+		// as_list makes a value safe to iterate.
+		//
+		// A lookup that matched one row hands back the row, and one that
+		// matched several hands back the list — which is what makes
+		// `step.customer.tier` read naturally, and what makes a collection
+		// unusable: a template doing `{{range .items}}` over an invoice with
+		// one line iterates the fields of that line instead, and the answer
+		// changes shape with the data. `as_list` settles it: a list stays a
+		// list, anything else becomes a list of one, and nothing becomes the
+		// empty list.
+		cel.Function("as_list",
+			cel.Overload("as_list_dyn",
+				[]*cel.Type{cel.DynType},
+				cel.ListType(cel.DynType),
+				cel.UnaryBinding(func(val ref.Val) ref.Val {
+					if list, ok := val.(traits.Lister); ok {
+						return list
+					}
+					if types.IsUnknownOrError(val) || val == nil || val == types.NullValue {
+						return types.NewDynamicList(types.DefaultTypeAdapter, []ref.Val{})
+					}
+					return types.NewDynamicList(types.DefaultTypeAdapter, []ref.Val{val})
+				}),
+			),
+		),
+
 		cel.Function("flatten",
 			cel.Overload("flatten_list",
 				[]*cel.Type{cel.ListType(cel.ListType(cel.DynType))},
@@ -929,7 +955,7 @@ func (t *CELTransformer) Compile(expr string) (cel.Program, error) {
 	}
 	t.mu.RUnlock()
 
-	rewritten := RewriteCoalesce(expr)
+	rewritten := RewriteDefault(RewriteCoalesce(expr))
 
 	// Parse and check the expression
 	ast, issues := t.env.Compile(rewritten)
@@ -1342,11 +1368,26 @@ func buildErrorDetails(failure error) map[string]interface{} {
 // input = original request data, output = destination result (pre-filled).
 // In CEL expressions: input.* references request, output.* references destination result.
 func (t *CELTransformer) TransformResponse(ctx context.Context, input map[string]interface{}, output map[string]interface{}, rules []Rule) (map[string]interface{}, error) {
+	return t.TransformResponseWithSteps(ctx, input, output, nil, rules)
+}
+
+// TransformResponseWithSteps is TransformResponse with what the flow's steps
+// gathered, reachable as step.<name>.
+//
+// A flow that gathers with steps shapes its answer out of them, and a response
+// could see only input and output — so a response naming a step was refused
+// with "no such attribute(s): step", including in the example whose search
+// flow is one step and a response.
+func (t *CELTransformer) TransformResponseWithSteps(ctx context.Context, input map[string]interface{}, output map[string]interface{}, steps map[string]interface{}, rules []Rule) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
 
+	if steps == nil {
+		steps = map[string]interface{}{}
+	}
 	activation := map[string]interface{}{
 		"input":  input,
 		"output": output,
+		"step":   steps,
 		"ctx":    make(map[string]interface{}),
 		"auth":   identity.Activation(ctx),
 	}

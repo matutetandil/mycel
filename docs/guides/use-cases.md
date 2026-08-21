@@ -47,7 +47,7 @@ connector "db" {
   type     = "database"
   driver   = "postgres"
   host     = env("DB_HOST")
-  port     = 5432
+  port     = env("DB_PORT", "5432")
   database = "myapp"
   user     = env("DB_USER")
   password = env("DB_PASS")
@@ -55,7 +55,7 @@ connector "db" {
 
 connector "slack" {
   type    = "slack"
-  webhook = env("SLACK_WEBHOOK_URL")
+  webhook_url = env("SLACK_WEBHOOK_URL")
 }
 ```
 
@@ -396,10 +396,9 @@ connector "db" {
 }
 
 connector "rabbit" {
-  type     = "mq"
-  driver   = "rabbitmq"
-  url      = env("RABBITMQ_URL")
-  exchange = "events"
+  type   = "mq"
+  driver = "rabbitmq"
+  url    = env("RABBITMQ_URL")
 }
 ```
 
@@ -472,7 +471,7 @@ connector "db" {
 
 connector "slack_alerts" {
   type    = "slack"
-  webhook = env("SLACK_ALERTS_WEBHOOK")
+  webhook_url = env("SLACK_ALERTS_WEBHOOK")
 }
 ```
 
@@ -622,24 +621,35 @@ flow "get_user_with_weather" {
     target    = "users"
   }
 
-  step "weather" {
+  # Runs after the read, so the row is what `input` holds: the city it fetches
+  # the weather for is the user's.
+  enrich "weather" {
     connector = "weather_api"
     operation = "GET /current.json"
     params {
-      key = env("WEATHER_API_KEY")
-      q   = "output.city"
+      key = "env('WEATHER_API_KEY')"
+      q   = "input.city"
     }
   }
 
-  response {
-    name    = "output.name"
-    email   = "output.email"
-    city    = "output.city"
-    weather = "step.weather.current.condition.text"
-    temp_c  = "step.weather.current.temp_c"
+  transform {
+    name    = "input.name"
+    email   = "input.email"
+    city    = "input.city"
+    weather = "enriched.weather.current.condition.text"
+    temp_c  = "enriched.weather.current.temp_c"
   }
 }
 ```
+
+`enrich` rather than `step`: a step is how a flow gathers from several places
+*instead of* reading a destination, so a read flow with steps never reads its
+`to` — and the request is answered out of the steps alone. An enrichment is the
+other thing: read first, then add to what came back.
+
+Every value in `params` is a CEL expression, which is why the key is quoted
+twice. `key = env("WEATHER_API_KEY")` would put the key itself where an
+expression is expected, and CEL would try to resolve it as a name.
 
 **Test:**
 
@@ -647,7 +657,9 @@ flow "get_user_with_weather" {
 curl http://localhost:3000/users/abc-123/dashboard
 ```
 
-Returns the user from the database plus live weather data for their city.
+```json
+[{"name":"Ada","email":"ada@example.com","city":"Wellington","weather":"Partly cloudy","temp_c":17}]
+```
 
 ---
 
@@ -668,8 +680,8 @@ connector "internal_api" {
 }
 
 connector "discord" {
-  type    = "discord"
-  webhook = env("DISCORD_WEBHOOK_URL")
+  type        = "discord"
+  webhook_url = env("DISCORD_WEBHOOK_URL")
 }
 ```
 
@@ -1148,7 +1160,7 @@ connector "db" {
 
 connector "search" {
   type = "elasticsearch"
-  urls = [env("ELASTICSEARCH_URL")]
+  url  = env("ELASTICSEARCH_URL")
 }
 ```
 
@@ -1446,7 +1458,10 @@ flow "get_product_detail" {
   # Step 2: Get inventory from external service
   step "inventory" {
     connector = "inventory_api"
-    operation = "GET /stock/${step.product.sku}"
+    operation = "GET /stock/:sku"
+    params {
+      sku = "step.product.sku"
+    }
     timeout   = "3s"
     on_error  = "default"
     default   = { available = 0, warehouse = "unknown" }
@@ -1455,7 +1470,10 @@ flow "get_product_detail" {
   # Step 3: Get reviews (optional, skip on error)
   step "reviews" {
     connector = "reviews_api"
-    operation = "GET /reviews?product_id=${step.product.id}"
+    operation = "GET /reviews?product_id=:id"
+    params {
+      id = "step.product.id"
+    }
     timeout   = "2s"
     on_error  = "skip"
     default   = []
@@ -1507,7 +1525,7 @@ connector "pg_cdc" {
 
 connector "search" {
   type = "elasticsearch"
-  urls = [env("ELASTICSEARCH_URL")]
+  url  = env("ELASTICSEARCH_URL")
 }
 
 connector "rabbit" {
@@ -2110,8 +2128,14 @@ connector "redis_cache" {
 
 ```hcl
 flow "process_payment" {
-  from { connector.api = "POST /payments" }
-  to   { connector.db  = "payments" }
+  from {
+    connector = "api"
+    operation = "POST /payments"
+  }
+  to {
+    connector = "db"
+    target    = "payments"
+  }
 
   idempotency {
     storage = "redis_cache"
@@ -2165,8 +2189,14 @@ connector "redis_cache" {
 
 ```hcl
 flow "export_report" {
-  from { connector.api = "POST /reports/export" }
-  to   { connector.db  = "SELECT * FROM orders WHERE date >= :start_date" }
+  from {
+    connector = "api"
+    operation = "POST /reports/export"
+  }
+  to {
+    connector = "db"
+    target    = "SELECT * FROM orders WHERE date >= :start_date"
+  }
 
   async {
     storage = "redis_cache"

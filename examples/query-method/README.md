@@ -21,7 +21,7 @@ QUERY closes the gap: a body-carrying request that is explicitly safe and idempo
 
 ```bash
 # From this directory: create the database
-mkdir -p data && sqlite3 data/app.db < setup.sql
+mycel migrate --config .
 
 # From the repository root
 mycel start --config ./examples/query-method
@@ -82,7 +82,8 @@ query-method/
 │   └── search.mycel  # QUERY + GET flows
 ├── data/
 │   └── app.db  # SQLite database file
-└── setup.sql   # Schema + sample products
+└── migrations/
+    └── 001_create_products.sql  # Schema + sample products
 ```
 
 ## How It Works

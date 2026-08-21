@@ -201,3 +201,31 @@ func TopFieldsFromInput(input map[string]interface{}) []string {
 
 	return nil
 }
+
+// ColumnsFromInput returns the requested fields that name a column: the
+// top-level ones with nothing selected inside them.
+//
+// A field carrying a selection is another entity, and a query built from the
+// full list asked for it by name — "no such column: user" — in the example the
+// optimisation is named after.
+func ColumnsFromInput(input map[string]interface{}) []string {
+	if input == nil {
+		return nil
+	}
+
+	switch fields := input["__requested_columns"].(type) {
+	case []string:
+		return fields
+	case []interface{}:
+		out := make([]string, 0, len(fields))
+		for _, f := range fields {
+			if s, ok := f.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+
+	// Nothing said which are columns: the whole top level, as before.
+	return TopFieldsFromInput(input)
+}

@@ -237,14 +237,10 @@ func isCELExpression(s string) bool {
 	return strings.Contains(s, "input.") || strings.Contains(s, "step.")
 }
 
-// isWriteOperation checks if an operation is a database write.
+// isWriteOperation checks if an operation is a database write. The list is
+// shared with the flow steps, which decide the same thing.
 func isWriteOperation(op string) bool {
-	switch op {
-	case "INSERT", "UPDATE", "DELETE", "INSERT_ONE", "UPDATE_ONE", "DELETE_ONE",
-		"UPDATE_MANY", "DELETE_MANY", "PUBLISH":
-		return true
-	}
-	return false
+	return connector.IsWriteOperation(op)
 }
 
 // isCallOperation checks if an operation is an HTTP/RPC call (contains a path or method).

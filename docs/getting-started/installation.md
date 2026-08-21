@@ -146,17 +146,31 @@ the binary — a systemd unit, an unprivileged `mycel` user, `/etc/mycel` and
 `/var/lib/mycel` — so a server install is a service rather than a loose
 executable:
 
+The file name carries the version, so pick it up from the release rather than
+typing one — `latest/download/<name>` needs the exact name, and a name from an
+older release is a 404:
+
 ```bash
+VERSION=$(curl -fsSL https://api.github.com/repos/matutetandil/mycel/releases/latest \
+  | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+BASE=https://github.com/matutetandil/mycel/releases/latest/download
+
 # Debian, Ubuntu
-curl -LO https://github.com/matutetandil/mycel/releases/latest/download/mycel_2.15.0_linux_amd64.deb
-sudo dpkg -i mycel_2.15.0_linux_amd64.deb
+curl -LO $BASE/mycel_${VERSION}_linux_${ARCH}.deb
+sudo dpkg -i mycel_${VERSION}_linux_${ARCH}.deb
 
 # RHEL, Fedora, Rocky, Alma
-sudo rpm -i mycel_2.15.0_linux_amd64.rpm
+curl -LO $BASE/mycel_${VERSION}_linux_${ARCH}.rpm
+sudo rpm -i mycel_${VERSION}_linux_${ARCH}.rpm
 
 # Alpine
-sudo apk add --allow-untrusted mycel_2.15.0_linux_amd64.apk
+curl -LO $BASE/mycel_${VERSION}_linux_${ARCH}.apk
+sudo apk add --allow-untrusted mycel_${VERSION}_linux_${ARCH}.apk
 ```
+
+amd64 and arm64 are both published. The [install script](#install-script)
+below does this resolution for you if you only want the binary.
 
 Then:
 

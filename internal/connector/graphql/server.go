@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -268,6 +269,15 @@ func (c *ServerConnector) Start(ctx context.Context) error {
 	}
 
 	// Start server in goroutine
+	// Take the port before reporting success: ListenAndServe inside the
+	// goroutine meant a port already in use was logged from a background
+	// thread while startup carried on, and the service reported itself ready
+	// with nothing listening.
+	listener, err := net.Listen("tcp", c.server.Addr)
+	if err != nil {
+		return fmt.Errorf("graphql connector %q cannot listen on port %d: %w", c.name, c.config.Port, err)
+	}
+
 	go func() {
 		c.logger.Info("starting GraphQL server",
 			"address", addr,
@@ -276,7 +286,7 @@ func (c *ServerConnector) Start(ctx context.Context) error {
 			"connector", c.name,
 		)
 
-		if err := c.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := c.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			c.logger.Error("GraphQL server error",
 				"error", err,
 				"connector", c.name,

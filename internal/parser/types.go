@@ -26,7 +26,7 @@ func coerceInt(val cty.Value) (int, error) {
 		i, _ := bf.Int64()
 		return int(i), nil
 	case cty.String:
-		s := val.AsString()
+		s := stringOrEmpty(val)
 		if s == "" {
 			return 0, nil
 		}
@@ -51,7 +51,7 @@ func coerceFloat(val cty.Value) (float64, error) {
 		f, _ := val.AsBigFloat().Float64()
 		return f, nil
 	case cty.String:
-		s := val.AsString()
+		s := stringOrEmpty(val)
 		if s == "" {
 			return 0, nil
 		}
@@ -136,30 +136,30 @@ func parseTypeDirective(schema *validate.TypeSchema, name string, attr *hcl.Attr
 		if val.Type().IsTupleType() || val.Type().IsListType() {
 			for it := val.ElementIterator(); it.Next(); {
 				_, v := it.Element()
-				schema.Keys = append(schema.Keys, v.AsString())
+				schema.Keys = append(schema.Keys, stringOrEmpty(v))
 			}
 		} else {
-			schema.Keys = append(schema.Keys, val.AsString())
+			schema.Keys = append(schema.Keys, stringOrEmpty(val))
 		}
 
 	case "_shareable":
-		schema.Shareable = val.True()
+		schema.Shareable = boolOrFalse(val)
 
 	case "_inaccessible":
-		schema.Inaccessible = val.True()
+		schema.Inaccessible = boolOrFalse(val)
 
 	case "_description":
-		schema.Description = val.AsString()
+		schema.Description = stringOrEmpty(val)
 
 	case "_implements":
 		// List of interface names
 		if val.Type().IsTupleType() || val.Type().IsListType() {
 			for it := val.ElementIterator(); it.Next(); {
 				_, v := it.Element()
-				schema.InterfaceNames = append(schema.InterfaceNames, v.AsString())
+				schema.InterfaceNames = append(schema.InterfaceNames, stringOrEmpty(v))
 			}
 		} else {
-			schema.InterfaceNames = append(schema.InterfaceNames, val.AsString())
+			schema.InterfaceNames = append(schema.InterfaceNames, stringOrEmpty(val))
 		}
 	}
 
@@ -207,7 +207,7 @@ func parseFieldDefinition(name string, attr *hcl.Attribute, ctx *hcl.EvalContext
 		case diags.HasErrors():
 			return nil, fmt.Errorf("field %q: %s", name, diags.Error())
 		case val.Type() == cty.String:
-			field.Type = val.AsString()
+			field.Type = stringOrEmpty(val)
 		default:
 			// A number or a boolean where a type belongs — `age = 18` rather
 			// than `age = number` — used to panic the process on "not a
@@ -247,7 +247,7 @@ func parseConstraintsAndDirectives(field *validate.FieldSchema, args []hclsyntax
 				if diags.HasErrors() {
 					continue
 				}
-				key := keyVal.AsString()
+				key := stringOrEmpty(keyVal)
 
 				val, diags := item.ValueExpr.Value(ctx)
 				if diags.HasErrors() {
@@ -282,7 +282,16 @@ func parseConstraintsAndDirectives(field *validate.FieldSchema, args []hclsyntax
 
 // constraintNames are the rules a field can carry, in the order they are worth
 // reading.
-var constraintNames = []string{"format", "min", "max", "min_length", "max_length", "pattern", "enum"}
+//
+// Everything applyConstraint accepts, not only the value rules: somebody who
+// reaches this message wrote a word that is not one of these, and being told a
+// list that leaves out `validator` — the word for the thing they were most
+// likely reaching for — sends them looking in the documentation for something
+// that is right here.
+var constraintNames = []string{
+	"format", "min", "max", "min_length", "max_length", "pattern", "enum",
+	"validator", "required", "description",
+}
 
 // describeConstraint explains why a constraint produced nothing: either the
 // name is not one, or the value is not the kind that name takes.
@@ -350,7 +359,12 @@ func parseFieldDirective(field *validate.FieldSchema, key string, value interfac
 
 	case "validator":
 		if s, ok := value.(string); ok {
-			field.ValidatorRef = s
+			// Either spelling: the registry keys validators by their bare
+			// name, and the example in this repository documents the
+			// prefixed form, so `validator.email` used to resolve to
+			// nothing — silently, since a reference that does not resolve
+			// leaves the field unvalidated.
+			field.ValidatorRef = parseRefName("validator", s)
 		}
 		return true
 	}
@@ -370,7 +384,7 @@ func parseConstraintsFromArgs(args []hclsyntax.Expression, ctx *hcl.EvalContext)
 				if diags.HasErrors() {
 					continue
 				}
-				key := keyVal.AsString()
+				key := stringOrEmpty(keyVal)
 
 				val, diags := item.ValueExpr.Value(ctx)
 				if diags.HasErrors() {

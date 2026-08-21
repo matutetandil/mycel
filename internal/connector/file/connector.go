@@ -191,11 +191,13 @@ func (c *Connector) Health(ctx context.Context) error {
 }
 
 // Read reads from a file.
-func (c *Connector) Read(ctx context.Context, query *connector.Query) ([]map[string]interface{}, error) {
+func (c *Connector) readQuery(ctx context.Context, query *connector.Query) ([]map[string]interface{}, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	path := c.resolvePath(query.Target)
+	// The file to read is as often named by the message as fixed in the
+	// configuration — a download is asked for by name.
+	path := c.resolvePath(connector.ResolveTarget(query.Target, query.Filters))
 	format := getParamString(query.Params, "format", "")
 	if format == "" {
 		format = c.detectFormat(path)
@@ -215,11 +217,15 @@ func (c *Connector) Read(ctx context.Context, query *connector.Query) ([]map[str
 }
 
 // Write writes data to a file.
-func (c *Connector) Write(ctx context.Context, data *connector.Data) (map[string]interface{}, error) {
+func (c *Connector) writeFile(ctx context.Context, data *connector.Data) (map[string]interface{}, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	path := c.resolvePath(data.Target)
+	// Where to write is often carried by the message rather than fixed in the
+	// configuration — an upload names its own file. Whatever comes out of that
+	// is still resolved under base_path, which is what keeps a filename from
+	// the outside from escaping the directory.
+	path := c.resolvePath(connector.ResolveTarget(data.Target, data.Payload))
 	format := getParamString(data.Params, "format", "")
 	if format == "" {
 		format = c.detectFormat(path)
@@ -273,7 +279,7 @@ func (c *Connector) Call(ctx context.Context, operation string, params map[strin
 	case "read":
 		path, _ := params["path"].(string)
 		format, _ := params["format"].(string)
-		return c.Read(ctx, &connector.Query{
+		return c.readQuery(ctx, &connector.Query{
 			Target: path,
 			Params: map[string]interface{}{
 				"format": format,
@@ -284,7 +290,7 @@ func (c *Connector) Call(ctx context.Context, operation string, params map[strin
 		path, _ := params["path"].(string)
 		format, _ := params["format"].(string)
 		append_, _ := params["append"].(bool)
-		return c.Write(ctx, &connector.Data{
+		return c.writeFile(ctx, &connector.Data{
 			Target: path,
 			Params: map[string]interface{}{
 				"content": params["content"],
@@ -1121,4 +1127,31 @@ func (b *bomReader) Read(p []byte) (int, error) {
 	}
 
 	return b.r.Read(p)
+}
+
+// Read and Write below are the flow-facing pair — the shapes connector.Reader
+// and connector.Writer require.
+//
+// Without them this connector satisfied neither, so a flow naming it as a
+// destination was answered "destination connector does not support required
+// operation" — including the one in the documentation, which shows exactly
+// that. It was reachable only from a step, and the files example had its
+// upload and download flows commented out with a note blaming the parser.
+
+// Read returns the contents of a file as rows.
+func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector.Result, error) {
+	rows, err := c.readQuery(ctx, &query)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{Rows: rows, Affected: int64(len(rows))}, nil
+}
+
+// Write stores the payload as a file and reports what it wrote.
+func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	written, err := c.writeFile(ctx, data)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{Affected: 1, Metadata: written}, nil
 }

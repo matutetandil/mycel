@@ -4,7 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
+	"strconv"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	"github.com/matutetandil/mycel/v2/internal/connector"
 	"github.com/matutetandil/mycel/v2/internal/connector/mq/kafka"
@@ -291,6 +295,33 @@ func (f *Factory) createRedis(cfg *connector.Config) (*mqredis.Connector, error)
 	config.DB = getInt(cfg.Properties, "db", 0)
 	config.Channels = getStringSlice(cfg.Properties, "channels", nil)
 	config.Patterns = getStringSlice(cfg.Properties, "patterns", nil)
+
+	// A Redis URL, which is how Redis is usually configured and how the cache
+	// connector has always taken it. Only this driver did not: `url` was read
+	// by nothing here, so a connector written the documented way connected to
+	// localhost:6379 whatever the URL said, and said nothing about it.
+	if raw := getString(cfg.Properties, "url", ""); raw != "" {
+		opts, err := redis.ParseURL(raw)
+		if err != nil {
+			return nil, fmt.Errorf("redis connector %q: invalid url: %w", cfg.Name, err)
+		}
+		host, port, splitErr := net.SplitHostPort(opts.Addr)
+		if splitErr != nil {
+			return nil, fmt.Errorf("redis connector %q: cannot read host and port out of %q: %w", cfg.Name, opts.Addr, splitErr)
+		}
+		config.Host = host
+		if n, convErr := strconv.Atoi(port); convErr == nil {
+			config.Port = n
+		}
+		// What the URL carries wins over the defaults; what it does not carry
+		// leaves the attributes beside it alone.
+		if opts.Password != "" {
+			config.Password = opts.Password
+		}
+		if opts.DB != 0 {
+			config.DB = opts.DB
+		}
+	}
 
 	return mqredis.NewConnector(cfg.Name, config, f.logger)
 }

@@ -160,16 +160,20 @@ enriched.inventory.available > 0 ? "In Stock" : "Out of Stock"
 
 ## Running This Example
 
-This example requires external services to be running. For a complete working example, you would need:
-
-1. A TCP pricing service on port 9001
-2. An HTTP inventory service on port 8080
-3. A SQLite database
+The two services the flows enrich from are not part of this example. Point them
+at your own, or at anything that answers JSON:
 
 ```bash
-# Start the service
+export PRICING_URL=http://localhost:9001
+export INVENTORY_URL=http://localhost:8080/api
+
+mycel migrate --config ./examples/enrich
 mycel start --config ./examples/enrich
 ```
+
+A flow that enriches and does not reach its service fails the request rather
+than answering without the enriched fields, which is the point of declaring the
+enrichment rather than making the call optional.
 
 ## Verify It Works
 
@@ -187,19 +191,33 @@ INFO  Registered flows with enrichments
 INFO  REST server listening on :3000
 ```
 
-### 2. Test product with pricing (mock scenario)
+### 2. Read a product
+
+Each flow is a different route, and only some of them enrich:
 
 ```bash
+# No enrichment: the product as it is stored
 curl http://localhost:3000/products/123
+
+# One enrichment: the price comes from the pricing service
+curl http://localhost:3000/products/123/price
+
+# Two enrichments, from independent services
+curl http://localhost:3000/products/123/full
+
+# The same, shaped by a reusable named transform
+curl http://localhost:3000/products/123/v2
 ```
 
-Expected response (with enriched pricing data):
+`/products/123/full` answers with the stored product and what the two services
+said about it:
+
 ```json
 {
   "id": "123",
   "name": "Widget",
   "price": 29.99,
-  "currency": "USD",
+  "stock_available": 42,
   "in_stock": true
 }
 ```

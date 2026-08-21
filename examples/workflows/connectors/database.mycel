@@ -2,7 +2,10 @@ connector "postgres" {
   type     = "database"
   driver   = "postgres"
   host     = env("DB_HOST", "localhost")
-  port     = 5432
+  # From the environment like the rest of the connection: a fixed port means a
+  # reader whose Postgres is not on 5432 cannot point this at it, however much
+  # they set DB_HOST.
+  port     = env("DB_PORT", "5432")
   database = env("DB_NAME", "orders")
   user     = env("DB_USER", "mycel")
   password = env("DB_PASSWORD", "mycel")

@@ -44,7 +44,7 @@ func TestTheAnswerIsShapedByTheTransform(t *testing.T) {
 		"order_total":   "step.latest_order.total",
 	}, []string{"customer_name", "order_total"})
 
-	answer, err := handler.handleStepsFlow(context.Background(), map[string]interface{}{"id": "c-1"})
+	answer, _, err := handler.handleStepsFlow(context.Background(), map[string]interface{}{"id": "c-1"})
 	if err != nil {
 		t.Fatalf("handleStepsFlow: %v", err)
 	}
@@ -66,13 +66,13 @@ func TestTheAnswerIsTheSameOnEveryRequest(t *testing.T) {
 	// pick one by walking a map: three steps meant three possible answers, a
 	// different one per request, with nothing in the configuration to explain
 	// why the same call returned a customer once and an order the next time.
-	first, err := stepsFlow(t, nil, nil).handleStepsFlow(context.Background(), map[string]interface{}{})
+	first, _, err := stepsFlow(t, nil, nil).handleStepsFlow(context.Background(), map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("handleStepsFlow: %v", err)
 	}
 
 	for i := 0; i < 25; i++ {
-		again, err := stepsFlow(t, nil, nil).handleStepsFlow(context.Background(), map[string]interface{}{})
+		again, _, err := stepsFlow(t, nil, nil).handleStepsFlow(context.Background(), map[string]interface{}{})
 		if err != nil {
 			t.Fatalf("handleStepsFlow: %v", err)
 		}
@@ -84,7 +84,7 @@ func TestTheAnswerIsTheSameOnEveryRequest(t *testing.T) {
 
 func TestWithNoTransformTheAnswerIsTheFirstStep(t *testing.T) {
 	// First as written, which is the only order a reader can predict.
-	answer, err := stepsFlow(t, nil, nil).handleStepsFlow(context.Background(), map[string]interface{}{})
+	answer, _, err := stepsFlow(t, nil, nil).handleStepsFlow(context.Background(), map[string]interface{}{})
 	if err != nil {
 		t.Fatalf("handleStepsFlow: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestAStepThatFailsIsReportedRatherThanAnswered(t *testing.T) {
 		ConnectorParams: map[string]interface{}{"query": "SELECT * FROM customers"},
 	}}, map[string]connector.Connector{"customers": broken})
 
-	if _, err := handler.handleStepsFlow(context.Background(), map[string]interface{}{}); err == nil {
+	if _, _, err := handler.handleStepsFlow(context.Background(), map[string]interface{}{}); err == nil {
 		t.Error("a flow whose step failed answered as though it had not")
 	}
 }

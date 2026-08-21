@@ -272,6 +272,7 @@ func SemaphoreSchema() Block {
 			{Name: "use", Doc: "Reference a named semaphore block (use = \"semaphore.<name>\"); other attrs override it", Type: TypeString, Ref: RefSemaphore},
 			{Name: "key", Doc: "CEL expression for the semaphore key", Type: TypeString},
 			{Name: "max_permits", Doc: "Maximum concurrent permits", Type: TypeNumber},
+			{Name: "limit", Doc: "Maximum concurrent permits; the same setting as max_permits", Type: TypeNumber},
 			{Name: "timeout", Doc: "Max time to wait for a permit", Type: TypeDuration},
 			{Name: "lease", Doc: "Max time to hold a permit", Type: TypeDuration},
 		},
@@ -329,6 +330,24 @@ func SequenceGuardSchema() Block {
 	}
 }
 
+// AspectCacheSchema is the cache an aspect's action is kept under.
+//
+// It is not the flow's cache block: an aspect caches what its own action
+// returned, so there is no `invalidate_on` — nothing else writes the thing it
+// holds — and its three attributes are all required. Declaring one block for
+// both said an aspect took an attribute its parser refuses.
+func AspectCacheSchema() Block {
+	return Block{
+		Type: "cache",
+		Doc:  "Cache the result of this aspect's action",
+		Attrs: []Attr{
+			{Name: "storage", Doc: "Cache storage connector", Type: TypeString, Ref: RefConnector, Required: true},
+			{Name: "ttl", Doc: "Cache entry time-to-live", Type: TypeDuration, Required: true},
+			{Name: "key", Doc: "Cache key template with ${...} interpolation", Type: TypeString, Required: true},
+		},
+	}
+}
+
 func FlowCacheSchema() Block {
 	return Block{
 		Type: "cache",
@@ -337,6 +356,7 @@ func FlowCacheSchema() Block {
 			{Name: "storage", Doc: "Cache storage connector", Type: TypeString, Ref: RefConnector},
 			{Name: "ttl", Doc: "Cache entry time-to-live", Type: TypeDuration},
 			{Name: "key", Doc: "Cache key template with ${...} interpolation", Type: TypeString},
+			{Name: "invalidate_on", Doc: "Flows whose writes drop this flow's cached entries", Type: TypeList},
 			{Name: "use", Doc: "Reference to named cache definition", Type: TypeString, Ref: RefCache},
 		},
 	}
@@ -599,7 +619,7 @@ func AspectSchema() Block {
 			}, Children: []Block{
 				TransformBlockSchema(),
 			}},
-			FlowCacheSchema(),
+			AspectCacheSchema(),
 			{Type: "invalidate", Doc: "Cache invalidation", Attrs: []Attr{
 				{Name: "storage", Doc: "Cache storage connector", Type: TypeString, Ref: RefConnector},
 				{Name: "keys", Doc: "Specific keys to invalidate", Type: TypeList},
@@ -643,7 +663,11 @@ func TypeSchema() Block {
 
 // FieldTypes are the value types a type field may declare.
 func FieldTypes() []string {
-	return []string{"string", "number", "boolean", "array", "object"}
+	// "id" is an identifier: GraphQL publishes it as ID, which accepts a
+	// number or a string. The GraphQL converter has mapped it since it was
+	// written, and this list did not name it — so it was a type that worked
+	// and that nothing offered or documented.
+	return []string{"string", "number", "boolean", "id", "array", "object"}
 }
 
 // StringFormats are the values the `format` constraint accepts.
@@ -673,7 +697,11 @@ func FieldConstraints() []Attr {
 		{Name: "min", Doc: "Minimum numeric value (inclusive)", Type: TypeNumber},
 		{Name: "max", Doc: "Maximum numeric value (inclusive)", Type: TypeNumber},
 		{Name: "enum", Doc: "Value must be one of these", Type: TypeList},
-		{Name: "validate", Doc: "Name of a custom validator to apply", Type: TypeString, Ref: RefValidator},
+		// `validator`, not `validate`: the parser accepts the first and
+		// refuses the second, so anything completing from this schema was
+		// offering a word that does not work.
+		{Name: "validator", Doc: "Name of a custom validator to apply", Type: TypeString, Ref: RefValidator},
+		{Name: "description", Doc: "What the field is, for generated documentation", Type: TypeString},
 	}
 }
 

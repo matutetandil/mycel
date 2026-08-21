@@ -38,9 +38,20 @@ Common patterns:
 
 ## Running this Example
 
+The database files are created where the service is started from, so run these
+from this directory.
+
 ```bash
+cd examples/aspects
+
+# Create the tables. This example keeps its audit trail in a database of its
+# own, so each is migrated by name — the migrations for each live under
+# migrations/<connector>/.
+mycel migrate --config . --connector db
+mycel migrate --config . --connector audit_db
+
 # Start the service
-mycel start --config ./examples/aspects
+mycel start --config .
 
 # Test GET (will be cached)
 curl http://localhost:3000/products
@@ -51,8 +62,11 @@ curl -X POST -H "Content-Type: application/json" \
   http://localhost:3000/products
 
 # Check audit logs (in audit_logs.db)
-sqlite3 audit_logs.db "SELECT * FROM audit_logs"
+sqlite3 audit_logs.db "SELECT flow, operation, target, affected FROM audit_logs"
 ```
+
+The `request_log` aspect appends to `request_logs` in the same database on
+every request, and `error_logger` appends to `error_logs` when a flow fails.
 
 ## Files
 

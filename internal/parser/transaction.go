@@ -84,7 +84,7 @@ func parseTxUse(body hcl.Body, ctx *hcl.EvalContext) (string, error) {
 	if diags.HasErrors() {
 		return "", fmt.Errorf("transaction use error: %s", diags.Error())
 	}
-	return parseRefName("transaction", val.AsString()), nil
+	return parseRefName("transaction", stringOrEmpty(val)), nil
 }
 
 // parseTxStatements reads the ordered exec/each children of a transaction (or
@@ -134,13 +134,13 @@ func parseTxExecBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.TxExec, err
 			if d.HasErrors() {
 				return nil, fmt.Errorf("exec query error: %s", d.Error())
 			}
-			ex.Query = val.AsString()
+			ex.Query = stringOrEmpty(val)
 		case "capture":
 			val, d := attr.Expr.Value(ctx)
 			if d.HasErrors() {
 				return nil, fmt.Errorf("exec capture error: %s", d.Error())
 			}
-			ex.Capture = val.AsString()
+			ex.Capture = stringOrEmpty(val)
 		case "when":
 			// CEL gate: prefer the evaluated string literal, fall back to the
 			// raw expression text when it references runtime variables.
@@ -148,7 +148,7 @@ func parseTxExecBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.TxExec, err
 			if d.HasErrors() {
 				ex.When = extractExpressionText(attr.Expr)
 			} else {
-				ex.When = val.AsString()
+				ex.When = stringOrEmpty(val)
 			}
 		case "params":
 			params, err := parseTxParams(attr, ctx)
@@ -212,7 +212,7 @@ func parseTxParams(attr *hcl.Attribute, ctx *hcl.EvalContext) (map[string]string
 		if v.IsNull() {
 			return nil, fmt.Errorf("exec param %q is null", k)
 		}
-		params[k] = v.AsString()
+		params[k] = stringOrEmpty(v)
 	}
 	return params, nil
 }

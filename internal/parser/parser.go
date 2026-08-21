@@ -39,6 +39,12 @@ type Parser interface {
 
 // Configuration holds all parsed configuration.
 type Configuration struct {
+	// UnsetEnv are env("NAME") calls with no default whose variable is not
+	// set, from every block rather than only connectors. They resolve to an
+	// empty string, so what follows is a service that starts wrong or refuses
+	// to start naming something other than the variable.
+	UnsetEnv []UnsetEnvVar
+
 	// Constants are the values constants blocks declared, by name. They are
 	// resolved when the configuration is read, and the runtime hands them to
 	// CEL so that `constants.x` means the same thing in an expression as it
@@ -219,6 +225,7 @@ func NewConfiguration() *Configuration {
 
 // Merge merges another configuration into this one.
 func (c *Configuration) Merge(other *Configuration) {
+	c.UnsetEnv = append(c.UnsetEnv, other.UnsetEnv...)
 	c.Connectors = append(c.Connectors, other.Connectors...)
 	c.Flows = append(c.Flows, other.Flows...)
 	c.Types = append(c.Types, other.Types...)
@@ -241,7 +248,16 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.Sagas = append(c.Sagas, other.Sagas...)
 	c.StateMachines = append(c.StateMachines, other.StateMachines...)
 	if other.ServiceConfig != nil {
-		c.ServiceConfig = other.ServiceConfig
+		// Field by field, not wholesale.
+		//
+		// A second `service` block replaced the first entirely, so a project
+		// that put `service { admin_port = … }` in one file and
+		// `service { name, version, workflow { … } }` in another — which the
+		// documentation invites, since every .mycel file is merged and the
+		// names are for the reader's benefit — ended up with a service that
+		// had no name, no version and no workflow engine. Nothing said so; the
+		// workflow endpoints simply were not there.
+		c.ServiceConfig = mergeServiceConfig(c.ServiceConfig, other.ServiceConfig)
 	}
 	if other.MockConfig != nil {
 		c.MockConfig = other.MockConfig
@@ -543,6 +559,12 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 
 	// Process each block type
 	for _, block := range content.Blocks {
+		// Every block reads env() the same way, so every block is walked for
+		// the calls that resolve to nothing. Connectors keep their own copy as
+		// well, which is what lets a failed registration name the variable
+		// behind it.
+		config.UnsetEnv = append(config.UnsetEnv, CollectUnsetEnv(describeBlock(block), block.Body)...)
+
 		// Reusable inline blocks (dedupe, retry, lock, ...) are dispatched
 		// through the registry so this loop never grows per kind.
 		if kind, ok := reusableKindByName[block.Type]; ok {
@@ -703,6 +725,35 @@ func rootSchema() *hcl.BodySchema {
 	return schema
 }
 
+// mergeServiceConfig folds a later service block into an earlier one: what it
+// sets wins, what it leaves alone is kept.
+func mergeServiceConfig(base, overlay *ServiceConfig) *ServiceConfig {
+	if base == nil {
+		return overlay
+	}
+	if overlay == nil {
+		return base
+	}
+
+	merged := *base
+	if overlay.Name != "" {
+		merged.Name = overlay.Name
+	}
+	if overlay.Version != "" {
+		merged.Version = overlay.Version
+	}
+	if overlay.AdminPort != 0 {
+		merged.AdminPort = overlay.AdminPort
+	}
+	if overlay.RateLimit != nil {
+		merged.RateLimit = overlay.RateLimit
+	}
+	if overlay.Workflow != nil {
+		merged.Workflow = overlay.Workflow
+	}
+	return &merged
+}
+
 // parseServiceBlock parses a service block.
 func parseServiceBlock(block *hcl.Block, ctx *hcl.EvalContext) (*ServiceConfig, error) {
 	schema := &hcl.BodySchema{
@@ -729,7 +780,7 @@ func parseServiceBlock(block *hcl.Block, ctx *hcl.EvalContext) (*ServiceConfig, 
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("service name error: %s", diags.Error())
 		}
-		svc.Name = val.AsString()
+		svc.Name = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["version"]; ok {
@@ -737,7 +788,7 @@ func parseServiceBlock(block *hcl.Block, ctx *hcl.EvalContext) (*ServiceConfig, 
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("service version error: %s", diags.Error())
 		}
-		svc.Version = val.AsString()
+		svc.Version = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["admin_port"]; ok {
@@ -822,7 +873,7 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("enabled error: %s", diags.Error())
 		}
-		rl.Enabled = val.True()
+		rl.Enabled = boolOrFalse(val)
 	}
 
 	if attr, ok := content.Attributes["requests_per_second"]; ok {
@@ -854,7 +905,7 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("key_extractor error: %s", diags.Error())
 		}
-		rl.KeyExtractor = val.AsString()
+		rl.KeyExtractor = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["exclude_paths"]; ok {
@@ -864,7 +915,7 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 		}
 		paths := []string{}
 		for _, v := range val.AsValueSlice() {
-			paths = append(paths, v.AsString())
+			paths = append(paths, stringOrEmpty(v))
 		}
 		rl.ExcludePaths = paths
 	}
@@ -874,7 +925,7 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("enable_headers error: %s", diags.Error())
 		}
-		rl.EnableHeaders = val.True()
+		rl.EnableHeaders = boolOrFalse(val)
 	}
 
 	if attr, ok := content.Attributes["storage"]; ok {
@@ -882,7 +933,7 @@ func parseRateLimitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*RateLimitConf
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("storage error: %s", diags.Error())
 		}
-		rl.Storage = val.AsString()
+		rl.Storage = stringOrEmpty(val)
 	}
 
 	return rl, nil
@@ -916,7 +967,7 @@ func parseWorkflowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*WorkflowConfig
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("workflow storage error: %s", diags.Error())
 		}
-		ref := val.AsString()
+		ref := stringOrEmpty(val)
 		if strings.HasPrefix(ref, "connector.") {
 			ref = strings.TrimPrefix(ref, "connector.")
 		}
@@ -926,14 +977,14 @@ func parseWorkflowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*WorkflowConfig
 	if attr, ok := content.Attributes["table"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			wf.Table = val.AsString()
+			wf.Table = stringOrEmpty(val)
 		}
 	}
 
 	if attr, ok := content.Attributes["auto_create"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			wf.AutoCreate = val.True()
+			wf.AutoCreate = boolOrFalse(val)
 		}
 	}
 
@@ -993,7 +1044,7 @@ func parseWorkflowAPIBlock(block *hcl.Block, ctx *hcl.EvalContext) (*WorkflowAPI
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("workflow api host error: %s", diags.Error())
 		}
-		api.Host = val.AsString()
+		api.Host = stringOrEmpty(val)
 	}
 
 	for _, nested := range content.Blocks {

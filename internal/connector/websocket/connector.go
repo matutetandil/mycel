@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -178,13 +179,22 @@ func (c *Connector) Start(ctx context.Context) error {
 		Handler: mux,
 	}
 
+	// Take the port before reporting success: ListenAndServe inside the
+	// goroutine meant a port already in use was logged from a background
+	// thread while startup carried on, and the service reported itself ready
+	// with nothing listening.
+	listener, err := net.Listen("tcp", c.server.Addr)
+	if err != nil {
+		return fmt.Errorf("websocket connector %q cannot listen on port %d: %w", c.name, c.port, err)
+	}
+
 	go func() {
 		c.logger.Info("websocket server started",
 			"host", c.host,
 			"port", c.port,
 			"path", c.path,
 		)
-		if err := c.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := c.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			c.logger.Error("websocket server error", "error", err)
 		}
 	}()
@@ -203,7 +213,7 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	case "broadcast":
 		c.broadcast(payload)
 	case "send_to_room":
-		room := data.Target
+		room := connector.ResolveTarget(data.Target, payload)
 		if room == "" {
 			return nil, fmt.Errorf("send_to_room requires a target room")
 		}
@@ -212,7 +222,10 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 		// The documentation says the payload or the filters may carry it, and
 		// only the filters were read — so the form the documentation shows,
 		// with the id in the payload, sent to nobody.
-		userID := userIDFrom(data.Filters)
+		userID := connector.ResolveTarget(data.Target, payload)
+		if userID == "" {
+			userID = userIDFrom(data.Filters)
+		}
 		if userID == "" {
 			userID = userIDFrom(payload)
 		}

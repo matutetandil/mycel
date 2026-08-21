@@ -450,12 +450,20 @@ Template resolution: payload `template` > connector config `template`.
 
 ### Push
 
+One of `token`, `tokens`, `topic` or `condition` says who receives it.
+
 | Payload field | Type | Description |
 |---------------|------|-------------|
-| `device_token` | string | Target device |
+| `token` | string | The device to send to |
+| `tokens` | list | Several devices at once |
+| `topic` | string | Everyone subscribed to a topic |
+| `condition` | string | Everyone matching a topic condition |
 | `title` | string | Notification title |
 | `body` | string | Notification body |
 | `data` | map | Custom data payload |
+| `priority` | string | `normal` or `high` |
+| `collapse_key` | string | Replaces an earlier undelivered notification with the same key |
+| `ttl` | int | Seconds the service should keep trying |
 
 ### Webhook
 

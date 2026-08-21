@@ -301,7 +301,7 @@ nothing discards everything.
    flow "get_users" {
      from {
        connector = "api"
-       path      = "GET /users"  # Must match exactly
+       operation = "GET /users"  # Must match exactly
      }
    }
    ```
@@ -310,17 +310,18 @@ nothing discards everything.
    # This works
    curl http://localhost:3000/users
 
-   # This does NOT work (trailing slash)
+   # This does NOT work: a trailing slash is a different path, answered 404
    curl http://localhost:3000/users/
    ```
 
 2. Check method matches:
    ```bash
    # Your flow expects POST
-   path = "POST /users"
+   operation = "POST /users"
 
-   # But you're sending GET
-   curl http://localhost:3000/users  # Wrong!
+   # But you're sending GET — answered 405, not 404: the path is served,
+   # the method is not
+   curl http://localhost:3000/users
    curl -X POST http://localhost:3000/users  # Correct
    ```
 
@@ -401,7 +402,7 @@ ERROR  Transform failed: no such key: user_name
 
 3. Make fields optional if needed:
    ```hcl
-   email = string { required = false, format = "email" }
+   email = string({ required = false, format = "email" })
    ```
 
 ---
@@ -432,7 +433,7 @@ ERROR  Failed to connect to RabbitMQ: dial tcp: connection refused
      type     = "rabbitmq"
      host     = "localhost"
      port     = 5672
-     user     = "guest"      # Default
+     username = "guest"      # Default
      password = "guest"      # Default
      vhost    = "/"          # Default
    }
@@ -518,17 +519,24 @@ flow "get_product" {
 1. Set cache limits:
    ```hcl
    connector "cache" {
-     type     = "cache"
-     driver   = "memory"
-     max_size = 10000  # Max entries
+     type      = "cache"
+     driver    = "memory"
+     max_items = 10000  # Max entries
    }
    ```
 
 2. Set connection pool limits:
    ```hcl
    connector "db" {
-     pool_size     = 10
-     max_idle_time = "5m"
+     type     = "database"
+     driver   = "postgres"
+     host     = env("DB_HOST")
+     database = "myapp"
+
+     pool {
+       max = 10
+       min = 2
+     }
    }
    ```
 

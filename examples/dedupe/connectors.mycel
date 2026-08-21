@@ -15,6 +15,22 @@ connector "rabbit" {
   type   = "mq"
   driver = "rabbitmq"
   url    = env("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+
+  // The queue to consume. Without it the connector subscribes to nothing:
+  // `operation` on a flow is the routing pattern a delivery is matched
+  // against, not a subscription, so the service starts, reports the flow, and
+  // never receives a message.
+  //
+  // create_if_missing is off, which is the default since 2.0.0: this queue
+  // belongs to the upstream publisher, and a service that declares a queue it
+  // does not own is how two deployments end up disagreeing about its
+  // arguments. Create it where it belongs, or set this to true if this
+  // service owns it.
+  queue {
+    name              = "all.in.magento.q"
+    durable           = true
+    create_if_missing = env("QUEUE_CREATE_IF_MISSING", "false")
+  }
 }
 
 // Destination: a slow downstream API (Magento, in Mercury's case). Each

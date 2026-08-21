@@ -1,6 +1,7 @@
 package mock
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -86,6 +87,25 @@ func (m *Manager) WrapConnector(name string, conn connector.Connector) (connecto
 	}
 
 	if m.loader == nil {
+		return conn, nil
+	}
+
+	// A connector the runtime starts is left alone.
+	//
+	// Wrapping replaces what a connector answers when it is asked something,
+	// and one that serves is not asked — it receives. Wrapping it anyway cost
+	// it the ability to serve at all: the wrapper offers the ordinary
+	// connector surface and nothing else, so the runtime's `conn.(Starter)`
+	// stopped matching and the server was never started. The banner still said
+	// "listening", because that line is printed from the configuration, and
+	// every request to the mocks example was refused by a service that looked
+	// like it had come up.
+	if starter, serves := conn.(interface {
+		Start(ctx context.Context) error
+	}); serves {
+		_ = starter
+		m.logger.Info("connector left unwrapped: it serves rather than answers",
+			"connector", name)
 		return conn, nil
 	}
 

@@ -20,6 +20,9 @@ func (PostgresSchema) ConnectorSchema() schema.Block {
 			{Name: "user", Doc: "Username — or give a url that contains one", Type: schema.TypeString},
 			{Name: "password", Doc: "Password", Type: schema.TypeString},
 			{Name: "sslmode", Doc: "SSL mode (disable, require, verify-ca, verify-full)", Type: schema.TypeString},
+			// The factory reads both spellings, and the documentation shows
+			// this one.
+			{Name: "ssl_mode", Doc: "SSL mode; alias of sslmode", Type: schema.TypeString},
 			{Name: "use_replicas", Doc: "Enable read replicas", Type: schema.TypeBool},
 		},
 		Children: []schema.Block{
@@ -138,7 +141,14 @@ func dbSourceSchema() *schema.Block {
 
 func dbTargetSchema() *schema.Block {
 	return &schema.Block{
-		Open: true,
+		// Open, because a destination carries connector-specific parameters
+		// this does not enumerate — so a misspelt attribute is swept up and
+		// ignored rather than refused. What can still be said is that a
+		// destination has to name what it writes to: without a table or a
+		// query there is nothing to write, and `targt = "users"` produced a
+		// SQL syntax error at the first request rather than a word at startup.
+		Open:          true,
+		RequiredOneOf: [][]string{{"target", "query"}},
 		Attrs: []schema.Attr{
 			{Name: "target", Doc: "Table name", Type: schema.TypeString},
 			{Name: "query", Doc: "Raw SQL query", Type: schema.TypeString},

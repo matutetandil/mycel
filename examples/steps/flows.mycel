@@ -99,7 +99,10 @@ flow "get_product_details" {
     params = {
       product_id = "input.id"
     }
-    when      = "input.include_price == true"
+    # Compared as a string: this one arrives in the query string, and a query
+    # string has no types — `?include_price=true` is the four characters. A
+    # flag sent in a JSON body is a real boolean and compares to `true`.
+    when      = "input.include_price == \"true\""
     on_error  = "default"
     default   = { price = 0, currency = "USD" }
   }
@@ -111,7 +114,7 @@ flow "get_product_details" {
     params = {
       product_id = "input.id"
     }
-    when     = "input.include_inventory == true"
+    when     = "input.include_inventory == \"true\""
     on_error = "skip"
   }
 

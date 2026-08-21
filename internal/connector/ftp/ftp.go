@@ -218,7 +218,12 @@ func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector
 	switch operation {
 	case "LIST":
 		rows, err = c.listDirectory(remotePath)
-	case "GET", "":
+	// SELECT is what the runtime calls a read when the flow does not say
+	// otherwise — a database word that reaches every connector on a read path.
+	// A file server was refusing it outright, so a flow that fetched a file
+	// without naming an operation was answered "unknown read operation:
+	// SELECT", which names nothing a reader wrote.
+	case "GET", "SELECT", "":
 		rows, err = c.downloadFile(remotePath, query.Params)
 	default:
 		return nil, fmt.Errorf("unknown read operation: %s", query.Operation)
@@ -252,7 +257,11 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	var err error
 
 	switch operation {
-	case "PUT", "UPLOAD", "":
+	// INSERT and UPDATE for the same reason SELECT is accepted on the read
+	// side: they are what the runtime calls a write when the flow does not say
+	// otherwise, so a flow that uploads a file without naming an operation was
+	// answered "unknown write operation: INSERT".
+	case "PUT", "UPLOAD", "INSERT", "UPDATE", "":
 		metadata, err = c.uploadFile(remotePath, data.Payload)
 	case "MKDIR":
 		metadata, err = c.makeDirectory(remotePath)

@@ -159,3 +159,86 @@ func TestTheDeclarationsAreReadFromTheConfiguration(t *testing.T) {
 		t.Errorf("declarations = %v", byName)
 	}
 }
+
+// An update that fails must not take the lock file with it.
+//
+// The lock file is the only record of what this deployment is pinned to, and
+// resolving afresh means removing it. But an update that fails writes no new
+// one — LoadAll stops at the first plugin it cannot load and saves nothing —
+// so removing it up front left no lock file at all, and the next start floated
+// every plugin to whatever resolved that day.
+
+func TestAFailedUpdateLeavesThePinsAlone(t *testing.T) {
+	dir := pluginProject(t, map[string]string{
+		"service.mycel": `service {
+  name = "with-plugins"
+}
+
+plugin "nowhere" {
+  source = "./plugins/nowhere"
+}`,
+	})
+
+	lockPath := filepath.Join(dir, "plugins.lock")
+	pinned := `{"version":1,"plugins":{"nowhere":{"version":"1.0.0","resolved":"./plugins/nowhere"}}}`
+	if err := os.WriteFile(lockPath, []byte(pinned), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The plugin's source does not exist, so the update cannot succeed.
+	err := runPluginUpdate(nil, nil)
+	if err == nil {
+		t.Fatal("updating a plugin that cannot be loaded reported success")
+	}
+
+	after, readErr := os.ReadFile(lockPath)
+	if readErr != nil {
+		t.Fatalf("the lock file is gone after a failed update, so the next start "+
+			"resolves every plugin afresh: %v", readErr)
+	}
+	if string(after) != pinned {
+		t.Errorf("the lock file changed after a failed update:\n got %s\nwant %s", after, pinned)
+	}
+}
+
+func TestAFailedUpdateWithNoLockFileLeavesNone(t *testing.T) {
+	// Nothing to put back, and nothing to invent.
+	dir := pluginProject(t, map[string]string{
+		"service.mycel": `service {
+  name = "with-plugins"
+}
+
+plugin "nowhere" {
+  source = "./plugins/nowhere"
+}`,
+	})
+
+	if err := runPluginUpdate(nil, nil); err == nil {
+		t.Fatal("updating a plugin that cannot be loaded reported success")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "plugins.lock")); !os.IsNotExist(err) {
+		t.Errorf("a lock file appeared out of a failed update: %v", err)
+	}
+}
+
+func TestUpdatingByNameRefusesAPluginNobodyDeclared(t *testing.T) {
+	pluginProject(t, map[string]string{"service.mycel": declaredPlugins})
+
+	err := runPluginUpdate(nil, []string{"not-declared"})
+	if err == nil {
+		t.Fatal("a plugin the configuration does not declare was updated")
+	}
+	if !strings.Contains(err.Error(), "not-declared") {
+		t.Errorf("the error does not name it: %v", err)
+	}
+}
+
+func TestUpdatingAConfigurationWithNoPluginsSaysSo(t *testing.T) {
+	pluginProject(t, map[string]string{"service.mycel": `service {
+  name = "plain"
+}`})
+
+	if err := runPluginUpdate(nil, nil); err != nil {
+		t.Errorf("a service with no plugins errored: %v", err)
+	}
+}

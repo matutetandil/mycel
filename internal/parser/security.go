@@ -99,7 +99,7 @@ func parseSecurityBlock(block *hcl.Block, ctx *hcl.EvalContext) (*security.Confi
 		var chars []string
 		for it := val.ElementIterator(); it.Next(); {
 			_, v := it.Element()
-			chars = append(chars, v.AsString())
+			chars = append(chars, stringOrEmpty(v))
 		}
 		cfg.AllowedControlChars = chars
 	}
@@ -152,7 +152,7 @@ func parseSanitizerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*security.Sani
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("source error: %s", diags.Error())
 		}
-		cfg.Source = val.AsString()
+		cfg.Source = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["wasm"]; ok {
@@ -160,7 +160,7 @@ func parseSanitizerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*security.Sani
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("wasm error: %s", diags.Error())
 		}
-		cfg.WASM = val.AsString()
+		cfg.WASM = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["entrypoint"]; ok {
@@ -168,7 +168,7 @@ func parseSanitizerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*security.Sani
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("entrypoint error: %s", diags.Error())
 		}
-		cfg.Entrypoint = val.AsString()
+		cfg.Entrypoint = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["apply_to"]; ok {
@@ -178,7 +178,7 @@ func parseSanitizerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*security.Sani
 		}
 		for it := val.ElementIterator(); it.Next(); {
 			_, v := it.Element()
-			cfg.ApplyTo = append(cfg.ApplyTo, v.AsString())
+			cfg.ApplyTo = append(cfg.ApplyTo, stringOrEmpty(v))
 		}
 	}
 
@@ -189,7 +189,7 @@ func parseSanitizerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*security.Sani
 		}
 		for it := val.ElementIterator(); it.Next(); {
 			_, v := it.Element()
-			cfg.Fields = append(cfg.Fields, v.AsString())
+			cfg.Fields = append(cfg.Fields, stringOrEmpty(v))
 		}
 	}
 
@@ -244,7 +244,7 @@ func parseFlowSecurityBlock(block *hcl.Block, ctx *hcl.EvalContext) (*security.F
 		}
 		for it := val.ElementIterator(); it.Next(); {
 			_, v := it.Element()
-			cfg.Sanitizers = append(cfg.Sanitizers, v.AsString())
+			cfg.Sanitizers = append(cfg.Sanitizers, stringOrEmpty(v))
 		}
 	}
 

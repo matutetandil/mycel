@@ -12,12 +12,26 @@ A simple REST API with SQLite database demonstrating core Mycel concepts.
 
 ## Quick Start
 
-```bash
-# From the repository root
-mycel start --config ./examples/basic
+The database file is created where the service is started from, so run these
+from this directory and everything lands where the file structure below says it
+does.
 
-# Or with Docker
-docker run -v $(pwd)/examples/basic:/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
+```bash
+cd examples/basic
+
+# Create the users table. Nothing creates it for you, and every command
+# below fails without it.
+mycel migrate --config .
+
+mycel start --config .
+```
+
+With Docker, mount the example and give the database somewhere that outlives
+the container:
+
+```bash
+docker run -v $(pwd):/etc/mycel -v $(pwd)/data:/data -p 3000:3000 \
+  ghcr.io/matutetandil/mycel
 ```
 
 ## Verify It Works
@@ -28,9 +42,10 @@ docker run -v $(pwd)/examples/basic:/etc/mycel -p 3000:3000 ghcr.io/matutetandil
 curl http://localhost:3000/health
 ```
 
-Expected response:
+Expected response — abbreviated here; the service also reports its version,
+uptime and the health of each connector:
 ```json
-{"status":"healthy"}
+{"status":"healthy","components":[{"name":"api","status":"healthy"},{"name":"sqlite","status":"healthy"}]}
 ```
 
 ### 2. Create a user
@@ -41,9 +56,9 @@ curl -X POST http://localhost:3000/users \
   -d '{"email": "john@example.com", "name": "John Doe"}'
 ```
 
-Expected response:
+Expected response — a write answers with what it did, not with the row:
 ```json
-{"id":1,"email":"john@example.com","name":"John Doe"}
+{"affected":1,"id":1}
 ```
 
 ### 3. List all users
@@ -52,9 +67,9 @@ Expected response:
 curl http://localhost:3000/users
 ```
 
-Expected response:
+Expected response — `created_at` is filled in by the database:
 ```json
-[{"id":1,"email":"john@example.com","name":"John Doe"}]
+[{"created_at":"2026-08-19T18:30:11Z","email":"john@example.com","id":1,"name":"John Doe"}]
 ```
 
 ### 4. Get a single user
@@ -63,9 +78,10 @@ Expected response:
 curl http://localhost:3000/users/1
 ```
 
-Expected response:
+Expected response — a read answers with the rows it found, so a single user
+arrives as a list of one:
 ```json
-{"id":1,"email":"john@example.com","name":"John Doe"}
+[{"created_at":"2026-08-19T18:30:11Z","email":"john@example.com","id":1,"name":"John Doe"}]
 ```
 
 ### 5. Test validation (should fail)
@@ -78,7 +94,22 @@ curl -X POST http://localhost:3000/users \
 
 Expected response (validation error):
 ```json
-{"error":"validation failed","details":{"email":"required field"}}
+{"error":"validation error on 'email': field is required"}
+```
+
+`id` and `age` are declared optional in `types/user.mycel`, which is why the
+request above does not have to supply them — every field of a type is required
+unless it says otherwise.
+
+### 6. Delete a user
+
+```bash
+curl -X DELETE http://localhost:3000/users/1
+```
+
+Expected response:
+```json
+{"affected":1}
 ```
 
 ## File Structure
@@ -94,8 +125,9 @@ basic/
 ├── types/
 │   └── user.mycel  # User input validation schema
 ├── data/
-│   └── app.db  # SQLite database file (created automatically)
-└── setup.sql   # Initial database schema
+│   └── app.db  # SQLite database file (created by the migration)
+└── migrations/
+    └── 001_create_users.sql  # The users table
 ```
 
 ## Configuration Explained

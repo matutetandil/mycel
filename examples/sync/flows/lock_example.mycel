@@ -29,7 +29,7 @@ flow "process_payment" {
 
   to {
     connector = "postgres"
-    operation = "payments"
+    target    = "payments"
   }
 }
 
@@ -60,6 +60,6 @@ flow "process_payment_rest" {
 
   to {
     connector = "postgres"
-    operation = "payments"
+    target    = "payments"
   }
 }

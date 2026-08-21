@@ -42,7 +42,7 @@ func parsePluginBlock(block *hcl.Block, ctx *hcl.EvalContext) (*plugin.PluginDec
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("plugin source error: %s", diags.Error())
 		}
-		decl.Source = val.AsString()
+		decl.Source = stringOrEmpty(val)
 	}
 
 	// Version is optional (only used for git sources)
@@ -51,7 +51,7 @@ func parsePluginBlock(block *hcl.Block, ctx *hcl.EvalContext) (*plugin.PluginDec
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("plugin version error: %s", diags.Error())
 		}
-		decl.Version = val.AsString()
+		decl.Version = stringOrEmpty(val)
 	}
 
 	// Copy is optional (only for local plugins)
@@ -60,7 +60,7 @@ func parsePluginBlock(block *hcl.Block, ctx *hcl.EvalContext) (*plugin.PluginDec
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("plugin copy error: %s", diags.Error())
 		}
-		decl.Copy = val.True()
+		decl.Copy = boolOrFalse(val)
 	}
 
 	return decl, nil

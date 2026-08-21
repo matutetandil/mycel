@@ -242,6 +242,20 @@ func (v *TypeValidator) validateType(value interface{}, expectedType string) err
 		default:
 			return fmt.Errorf("expected number, got %T", value)
 		}
+	case "id":
+		// An identifier, which GraphQL publishes as ID and serialises as a
+		// string while accepting either. The converter has mapped this type
+		// since it was written and validation refused it as unknown, so a type
+		// using it worked for a schema and could not be validated against.
+		switch value.(type) {
+		case string,
+			int, int8, int16, int32, int64,
+			uint, uint8, uint16, uint32, uint64,
+			float32, float64:
+			// Valid identifier
+		default:
+			return fmt.Errorf("expected an id, got %T", value)
+		}
 	case "boolean":
 		if _, ok := value.(bool); !ok {
 			return fmt.Errorf("expected boolean, got %T", value)

@@ -72,8 +72,11 @@ You can also provide a default value:
 
 ```hcl
 connector "db" {
-  host = env("DB_HOST", "localhost")
-  port = 5432
+  type     = "database"
+  driver   = "postgres"
+  host     = env("DB_HOST", "localhost")
+  port     = 5432
+  database = env("DB_NAME", "myapp")
 }
 ```
 

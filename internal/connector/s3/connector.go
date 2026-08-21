@@ -101,14 +101,14 @@ func (c *Connector) Health(ctx context.Context) error {
 }
 
 // Read reads an object from S3 and returns its contents.
-func (c *Connector) Read(ctx context.Context, query *connector.Query) ([]map[string]interface{}, error) {
+func (c *Connector) readObject(ctx context.Context, query *connector.Query) ([]map[string]interface{}, error) {
 	if c.client == nil {
 		if err := c.Connect(ctx); err != nil {
 			return nil, err
 		}
 	}
 
-	key := c.buildKey(query.Target)
+	key := c.buildKey(connector.ResolveTarget(query.Target, query.Filters))
 	format := c.getFormat(key, query.Params)
 
 	// Check if this is a list operation
@@ -135,19 +135,27 @@ func (c *Connector) Read(ctx context.Context, query *connector.Query) ([]map[str
 }
 
 // Write writes content to an S3 object.
-func (c *Connector) Write(ctx context.Context, data *connector.Data) (map[string]interface{}, error) {
+func (c *Connector) writeObject(ctx context.Context, data *connector.Data) (map[string]interface{}, error) {
 	if c.client == nil {
 		if err := c.Connect(ctx); err != nil {
 			return nil, err
 		}
 	}
 
-	key := c.buildKey(data.Target)
+	// Where to write is often carried by the message rather than fixed in the
+	// configuration — an upload names its own object.
+	key := c.buildKey(connector.ResolveTarget(data.Target, data.Payload))
 	format := c.getFormat(key, data.Params)
 
-	content, ok := data.Params["content"]
-	if !ok {
-		return nil, fmt.Errorf("content is required for write operation")
+	// What to write is the payload, as it is for the file connector. Demanding
+	// it in params instead meant a flow that sends its message to a bucket —
+	// the ordinary thing to write — was refused for want of content.
+	content := interface{}(data.Payload)
+	if explicit, given := data.Params["content"]; given {
+		content = explicit
+	}
+	if content == nil {
+		return nil, fmt.Errorf("nothing to write: the flow sent no payload and no content parameter")
 	}
 
 	// Serialize content based on format
@@ -241,6 +249,43 @@ func (c *Connector) Call(ctx context.Context, operation string, input map[string
 	}
 
 	switch operation {
+	// read and write are what the page lists first, and they were handled only
+	// through the Reader and Writer interfaces — so they worked as a flow's
+	// source or destination and not from a step, where a connector is asked by
+	// name. The file connector answers both here; this one answered "unknown
+	// operation".
+	case "read":
+		key, _ := input["key"].(string)
+		if key == "" {
+			key, _ = input["path"].(string)
+		}
+		format, _ := input["format"].(string)
+		rows, err := c.readObject(ctx, &connector.Query{
+			Target: key,
+			Params: map[string]interface{}{"format": format},
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) == 1 {
+			return rows[0], nil
+		}
+		return rows, nil
+
+	case "write":
+		key, _ := input["key"].(string)
+		if key == "" {
+			key, _ = input["path"].(string)
+		}
+		format, _ := input["format"].(string)
+		return c.writeObject(ctx, &connector.Data{
+			Target: key,
+			Params: map[string]interface{}{
+				"content": input["content"],
+				"format":  format,
+			},
+		})
+
 	case "exists":
 		return c.exists(ctx, input)
 	case "head", "stat":
@@ -596,4 +641,26 @@ func (c *Connector) presignPut(ctx context.Context, input map[string]interface{}
 		"method":  result.Method,
 		"expires": expires.String(),
 	}, nil
+}
+
+// Read and Write below are the flow-facing pair — the shapes connector.Reader
+// and connector.Writer require. Without them a flow naming this connector as a
+// destination was refused, though the documentation shows one.
+
+// Read returns an object's contents as rows.
+func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector.Result, error) {
+	rows, err := c.readObject(ctx, &query)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{Rows: rows, Affected: int64(len(rows))}, nil
+}
+
+// Write stores the payload as an object and reports what it wrote.
+func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector.Result, error) {
+	written, err := c.writeObject(ctx, data)
+	if err != nil {
+		return nil, err
+	}
+	return &connector.Result{Affected: 1, Metadata: written}, nil
 }

@@ -15,14 +15,18 @@ aspect "audit_writes" {
     connector = "audit_db"
     target    = "audit_logs"
 
+    # What an aspect can record is what is true of any flow it matches: which
+    # flow ran, what it did, and to what. The payload itself is not among them
+    # — CEL has no way to render a map as text, and an aspect matching
+    # `create_*` cannot name fields it does not know. `string(input)` compiled
+    # to nothing and this aspect failed silently on every write.
     transform {
-      id         = "uuid()"
-      flow       = "_flow"
-      operation  = "_operation"
-      target     = "_target"
-      input      = "string(input)"
-      affected   = "result.affected"
-      timestamp  = "now()"
+      id        = "uuid()"
+      flow      = "_flow"
+      operation = "_operation"
+      target    = "_target"
+      affected  = "result.affected"
+      timestamp = "now()"
     }
   }
 }

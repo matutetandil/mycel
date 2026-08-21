@@ -32,8 +32,10 @@ flow "receive_webhook" {
 
   transform {
     provider    = "input.provider"
-    event_type  = "input.headers['x-event-type'] ?? input.body.type ?? 'unknown'"
-    payload     = "input.body"
+    # A REST request arrives flat on `input` — there is no `input.body`, which
+    # is the queue sources' shape. See docs/core-concepts/input-and-output.md.
+    event_type  = "input.headers['x-event-type'] ?? input.type ?? 'unknown'"
+    payload     = "input"
     received_at = "now()"
   }
 

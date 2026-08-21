@@ -8,7 +8,7 @@ Mycel includes native connectors for sending notifications through multiple chan
 |-----------|---------|--------|
 | `email` | SMTP email | `host`, `port`, `username`, `password` |
 | `slack` | Slack messages | `token` (Bot token) |
-| `discord` | Discord messages | `token` (Bot token) |
+| `discord` | Discord messages | `bot_token`, or `webhook_url` |
 | `sms` | SMS via Twilio | `account_sid`, `auth_token`, `from` |
 | `push` | FCM / APNs | `provider`, `credentials_file` |
 | `webhook` | HTTP callbacks | `url`, `method`, `headers` |
@@ -78,8 +78,8 @@ flow "alert_on_error" {
 
 ```hcl
 connector "discord_bot" {
-  type  = "discord"
-  token = env("DISCORD_BOT_TOKEN")
+  type      = "discord"
+  bot_token = env("DISCORD_BOT_TOKEN")
 }
 
 flow "send_discord_notification" {
@@ -133,9 +133,10 @@ flow "send_otp_sms" {
 ```hcl
 # FCM (Firebase Cloud Messaging)
 connector "push_fcm" {
-  type             = "push"
-  provider         = "fcm"
-  credentials_file = "./firebase-credentials.json"
+  type                 = "push"
+  driver               = "fcm"
+  service_account_json = env("FCM_SERVICE_ACCOUNT", "./firebase-credentials.json")
+  project_id           = "my-firebase-project"
 }
 
 flow "send_push" {
@@ -163,12 +164,14 @@ flow "send_push" {
 ```hcl
 connector "external_webhook" {
   type   = "webhook"
+  mode   = "outbound"
   url    = env("WEBHOOK_URL")
   method = "POST"
-  headers = {
-    "X-Webhook-Secret" = env("WEBHOOK_SECRET")
-    "Content-Type"     = "application/json"
-  }
+
+  # Outgoing calls are signed rather than carrying a shared header: the
+  # receiver checks the signature against the same secret.
+  secret           = env("WEBHOOK_SECRET")
+  signature_header = "X-Webhook-Signature"
 }
 
 flow "notify_external_system" {

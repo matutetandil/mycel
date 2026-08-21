@@ -16,7 +16,9 @@ connector "api" {
 connector "mongo" {
   type     = "database"
   driver   = "mongodb"
-  uri      = "mongodb://admin:secret@localhost:27017/myapp?authSource=admin"
+  # From the environment, as this example's README shows: a connection written
+  # into the file cannot be pointed at your own server without editing it.
+  uri      = env("MONGO_URI", "mongodb://admin:secret@localhost:27017/myapp?authSource=admin")
   database = "myapp"
 
   pool {
@@ -29,8 +31,8 @@ connector "mongo" {
 # connector "mongo_alt" {
 #   type     = "database"
 #   driver   = "mongodb"
-#   host     = "localhost"
-#   port     = 27017
+#   host     = env("MONGO_HOST", "localhost")
+#   port     = env("MONGO_PORT", "27017")
 #   database = "myapp"
 #   user     = "admin"
 #   password = "secret"

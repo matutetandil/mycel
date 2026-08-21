@@ -44,14 +44,14 @@ func (r *Runtime) reportDispatch(logger *slog.Logger, reg *schema.Registry) {
 	perConnector := map[string][]dispatchBinding{}
 
 	for _, f := range r.config.Flows {
-		if f == nil || f.From == nil || f.From.Connector == "" {
+		if f == nil || f.From == nil || f.From.GetConnector() == "" {
 			continue
 		}
-		ref, ok := byName[f.From.Connector]
+		ref, ok := byName[f.From.GetConnector()]
 		if !ok || !isSubscriptionSource(reg, ref) {
 			continue
 		}
-		perConnector[f.From.Connector] = append(perConnector[f.From.Connector],
+		perConnector[f.From.GetConnector()] = append(perConnector[f.From.GetConnector()],
 			dispatchBinding{flow: f.Name, pattern: f.From.GetOperation()})
 	}
 

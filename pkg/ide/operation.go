@@ -9,6 +9,23 @@ import (
 
 var validHTTPMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "QUERY", "HEAD", "OPTIONS"}
 
+// readMethods are the methods with read semantics: safe, and dispatched down
+// the read path rather than the write path.
+var readMethods = map[string]bool{"GET": true, "QUERY": true, "HEAD": true, "OPTIONS": true}
+
+// IsReadMethod reports whether a flow declaring this method reads rather than
+// writes. The runtime is held to the same answer by a test.
+func IsReadMethod(method string) bool {
+	return readMethods[strings.ToUpper(strings.TrimSpace(method))]
+}
+
+// HTTPMethods returns the methods offered for a flow's operation. Exported so
+// the runtime can hold its dispatch to this list: a method offered here and not
+// dispatched there is answered with a 500.
+func HTTPMethods() []string {
+	return append([]string(nil), validHTTPMethods...)
+}
+
 // validateOperation checks REST operation strings for common issues.
 func validateOperation(path string, attr *Attribute, connType string) []*Diagnostic {
 	if attr.ValueRaw == "" {

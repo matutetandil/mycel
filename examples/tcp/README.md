@@ -14,7 +14,7 @@ The service exposes:
 ```bash
 # Create data directory and initialize database
 mkdir -p data
-sqlite3 data/tcp_example.db < setup.sql
+mycel migrate --config .
 
 # Run the service
 mycel start --config ./examples/tcp

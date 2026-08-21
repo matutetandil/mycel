@@ -13,17 +13,13 @@ import (
 	"github.com/matutetandil/mycel/v2/internal/transform"
 )
 
-// parseFlowBlock parses a flow block from HCL.
-func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error) {
-	if len(block.Labels) < 1 {
-		return nil, fmt.Errorf("flow block requires a name label")
-	}
-
-	config := &flow.Config{
-		Name: block.Labels[0],
-	}
-
-	schema := &hcl.BodySchema{
+// flowBodySchema is what a flow block may contain.
+//
+// A function rather than a literal inside the parser so that it can be
+// counted: docs/llms.txt states how many blocks and attributes a flow holds,
+// and that number is checked against this one rather than believed.
+func flowBodySchema() *hcl.BodySchema {
+	return &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
 			{Name: "returns"}, // GraphQL return type for HCL-first mode
 			{Name: "cache"},   // Reference to named cache (cache.name)
@@ -54,6 +50,19 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 			{Type: "state_transition"}, // State machine transition
 		},
 	}
+}
+
+// parseFlowBlock parses a flow block from HCL.
+func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error) {
+	if len(block.Labels) < 1 {
+		return nil, fmt.Errorf("flow block requires a name label")
+	}
+
+	config := &flow.Config{
+		Name: block.Labels[0],
+	}
+
+	schema := flowBodySchema()
 
 	content, diags := block.Body.Content(schema)
 	if diags.HasErrors() {
@@ -64,7 +73,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 	if attr, ok := content.Attributes["returns"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			config.Returns = val.AsString()
+			config.Returns = stringOrEmpty(val)
 		}
 	}
 
@@ -73,7 +82,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
 			config.Cache = &flow.CacheConfig{
-				Use: parseCacheReference(val.AsString()),
+				Use: parseCacheReference(stringOrEmpty(val)),
 			}
 		}
 	}
@@ -82,7 +91,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 	if attr, ok := content.Attributes["when"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			config.When = val.AsString()
+			config.When = stringOrEmpty(val)
 		}
 	}
 
@@ -90,7 +99,7 @@ func parseFlowBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Config, error
 	if attr, ok := content.Attributes["entity"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			config.Entity = val.AsString()
+			config.Entity = stringOrEmpty(val)
 		}
 	}
 
@@ -305,7 +314,7 @@ func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, e
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("from connector error: %s", diags.Error())
 		}
-		from.Connector = val.AsString()
+		from.Connector = stringOrEmpty(val)
 	}
 
 	// Capture all connector-specific attributes from the remaining body.
@@ -319,7 +328,7 @@ func parseFromBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FromConfig, e
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("from filter error: %s", diags.Error())
 		}
-		filterStr := val.AsString()
+		filterStr := stringOrEmpty(val)
 		from.Filter = filterStr
 		// Also set FilterConfig for unified access
 		from.FilterConfig = &flow.FilterConfig{
@@ -373,7 +382,7 @@ func parseFilterBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FilterConfi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("filter condition error: %s", diags.Error())
 		}
-		cfg.Condition = val.AsString()
+		cfg.Condition = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["on_reject"]; ok {
@@ -381,7 +390,7 @@ func parseFilterBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FilterConfi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("filter on_reject error: %s", diags.Error())
 		}
-		policy := val.AsString()
+		policy := stringOrEmpty(val)
 		switch policy {
 		case "ack", "reject", "requeue":
 			cfg.OnReject = policy
@@ -395,7 +404,7 @@ func parseFilterBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.FilterConfi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("filter id_field error: %s", diags.Error())
 		}
-		cfg.IDField = val.AsString()
+		cfg.IDField = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["max_requeue"]; ok {
@@ -468,7 +477,7 @@ func parseAcceptBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("accept use error: %s", diags.Error())
 		}
-		cfg.Use = parseRefName("accept", val.AsString())
+		cfg.Use = parseRefName("accept", stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["when"]; ok {
@@ -476,7 +485,7 @@ func parseAcceptBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("accept when error: %s", diags.Error())
 		}
-		cfg.When = val.AsString()
+		cfg.When = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["on_reject"]; ok {
@@ -484,7 +493,7 @@ func parseAcceptBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("accept on_reject error: %s", diags.Error())
 		}
-		policy := val.AsString()
+		policy := stringOrEmpty(val)
 		switch policy {
 		case "ack", "reject", "requeue":
 			cfg.OnReject = policy
@@ -584,7 +593,7 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("to connector error: %s", diags.Error())
 		}
-		to.Connector = val.AsString()
+		to.Connector = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["when"]; ok {
@@ -592,7 +601,7 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		if diags.HasErrors() {
 			to.When = extractExpressionText(attr.Expr)
 		} else {
-			to.When = val.AsString()
+			to.When = stringOrEmpty(val)
 		}
 	}
 
@@ -602,7 +611,7 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 			return nil, fmt.Errorf("to parallel error: %s", diags.Error())
 		}
 		if val.Type() == cty.Bool {
-			to.Parallel = val.True()
+			to.Parallel = boolOrFalse(val)
 		}
 	}
 
@@ -611,7 +620,7 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("to envelope error: %s", diags.Error())
 		}
-		to.Envelope = val.AsString()
+		to.Envelope = stringOrEmpty(val)
 	}
 
 	// Parse nested transform / transaction blocks
@@ -704,7 +713,7 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("step connector error: %s", diags.Error())
 		}
-		step.Connector = parseConnectorReference(val.AsString())
+		step.Connector = parseConnectorReference(stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["when"]; ok {
@@ -712,7 +721,7 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("step when error: %s", diags.Error())
 		}
-		step.When = val.AsString()
+		step.When = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["timeout"]; ok {
@@ -720,7 +729,7 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("step timeout error: %s", diags.Error())
 		}
-		step.Timeout = val.AsString()
+		step.Timeout = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["on_error"]; ok {
@@ -728,7 +737,7 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("step on_error error: %s", diags.Error())
 		}
-		step.OnError = val.AsString()
+		step.OnError = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["default"]; ok {
@@ -744,12 +753,44 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("step envelope error: %s", diags.Error())
 		}
-		step.Envelope = val.AsString()
+		step.Envelope = stringOrEmpty(val)
 	}
 
 	// Capture all connector-specific attributes from the remaining body.
 	if err := extractDynamicAttrs(remain, ctx, step.ConnectorParams); err != nil {
 		return nil, fmt.Errorf("step: %w", err)
+	}
+
+	// A step's params and body written as blocks rather than attributes.
+	//
+	// `enrich` declares them as blocks and a step reads them as attributes, so
+	// the two siblings took opposite syntax and the wrong one was swept into
+	// the connector params as nothing at all: a step written
+	// `params { id = "input.id" }` — which is how the enrich block beside it
+	// is written, and how the PDF page shows it — ran its query with the
+	// parameter unbound. Both forms are read now, in both places.
+	if body, ok := remain.(*hclsyntax.Body); ok {
+		for _, nested := range body.Blocks {
+			switch nested.Type {
+			case "params", "body":
+				values, err := parseParamsBlock(nested.AsHCLBlock(), ctx)
+				if err != nil {
+					return nil, fmt.Errorf("step %s error: %w", nested.Type, err)
+				}
+				if len(values) == 0 {
+					continue
+				}
+				asAny := make(map[string]interface{}, len(values))
+				for key, value := range values {
+					asAny[key] = value
+				}
+				// An attribute of the same name was written explicitly and
+				// wins; this only fills a gap.
+				if _, written := step.ConnectorParams[nested.Type]; !written {
+					step.ConnectorParams[nested.Type] = asAny
+				}
+			}
+		}
 	}
 
 	return step, nil
@@ -777,7 +818,7 @@ func parseValidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ValidateC
 			return nil, fmt.Errorf("validate input error: %s", diags.Error())
 		}
 		// Handle type.name format
-		validate.Input = parseTypeReference(val.AsString())
+		validate.Input = parseTypeReference(stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["output"]; ok {
@@ -785,7 +826,7 @@ func parseValidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ValidateC
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("validate output error: %s", diags.Error())
 		}
-		validate.Output = parseTypeReference(val.AsString())
+		validate.Output = parseTypeReference(stringOrEmpty(val))
 	}
 
 	return validate, nil
@@ -842,7 +883,7 @@ func parseEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.EnrichConfi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("enrich connector error: %s", diags.Error())
 		}
-		enrich.Connector = parseConnectorReference(val.AsString())
+		enrich.Connector = parseConnectorReference(stringOrEmpty(val))
 	}
 
 	// Parse params block
@@ -885,7 +926,7 @@ func parseParamsBlock(block *hcl.Block, ctx *hcl.EvalContext) (map[string]string
 		// Try to evaluate as a simple value (for quoted strings)
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			params[name] = val.AsString()
+			params[name] = stringOrEmpty(val)
 		} else {
 			// Extract raw expression text for unquoted expressions
 			exprStr := extractExpressionText(attr.Expr)
@@ -916,7 +957,7 @@ func parseTransformBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Transfor
 
 		if name == "use" {
 			if !diags.HasErrors() {
-				transform.Use = parseTransformReference(val.AsString())
+				transform.Use = parseTransformReference(stringOrEmpty(val))
 			}
 			continue
 		}
@@ -962,11 +1003,11 @@ func mappingExpression(field string, val cty.Value) (string, error) {
 	}
 	switch val.Type() {
 	case cty.String:
-		return val.AsString(), nil
+		return stringOrEmpty(val), nil
 	case cty.Number:
 		return val.AsBigFloat().Text('f', -1), nil
 	case cty.Bool:
-		if val.True() {
+		if boolOrFalse(val) {
 			return "true", nil
 		}
 		return "false", nil
@@ -1085,12 +1126,7 @@ func parseRequireBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RequireCon
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("require roles error: %s", diags.Error())
 		}
-		if val.Type().IsListType() || val.Type().IsTupleType() {
-			for it := val.ElementIterator(); it.Next(); {
-				_, v := it.Element()
-				require.Roles = append(require.Roles, v.AsString())
-			}
-		}
+		require.Roles = append(require.Roles, stringList(val)...)
 	}
 
 	if attr, ok := content.Attributes["permissions"]; ok {
@@ -1098,12 +1134,7 @@ func parseRequireBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.RequireCon
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("require permissions error: %s", diags.Error())
 		}
-		if val.Type().IsListType() || val.Type().IsTupleType() {
-			for it := val.ElementIterator(); it.Next(); {
-				_, v := it.Element()
-				require.Permissions = append(require.Permissions, v.AsString())
-			}
-		}
+		require.Permissions = append(require.Permissions, stringList(val)...)
 	}
 
 	return require, nil
@@ -1162,7 +1193,7 @@ func parseErrorHandlingBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool)
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("error_handling use error: %s", diags.Error())
 		}
-		eh.Use = parseRefName("error_handling", val.AsString())
+		eh.Use = parseRefName("error_handling", stringOrEmpty(val))
 	}
 
 	for _, nestedBlock := range content.Blocks {
@@ -1231,7 +1262,7 @@ func parseErrorClassHandlerBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.
 		return nil, fmt.Errorf("action error: %s", diags.Error())
 	}
 
-	action := val.AsString()
+	action := stringOrEmpty(val)
 	switch action {
 	case "ack", "retry", "requeue", "reject":
 		// valid
@@ -1296,7 +1327,7 @@ func parseRetryBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("retry use error: %s", diags.Error())
 		}
-		retry.Use = parseRefName("retry", val.AsString())
+		retry.Use = parseRefName("retry", stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["attempts"]; ok {
@@ -1316,7 +1347,7 @@ func parseRetryBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("retry delay error: %s", diags.Error())
 		}
-		retry.Delay = val.AsString()
+		retry.Delay = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["max_delay"]; ok {
@@ -1324,7 +1355,7 @@ func parseRetryBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("retry max_delay error: %s", diags.Error())
 		}
-		retry.MaxDelay = val.AsString()
+		retry.MaxDelay = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["backoff"]; ok {
@@ -1332,7 +1363,7 @@ func parseRetryBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("retry backoff error: %s", diags.Error())
 		}
-		retry.Backoff = val.AsString()
+		retry.Backoff = stringOrEmpty(val)
 	}
 
 	if strict {
@@ -1372,7 +1403,7 @@ func parseFallbackConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Fal
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("fallback connector error: %s", diags.Error())
 		}
-		fallback.Connector = val.AsString()
+		fallback.Connector = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["target"]; ok {
@@ -1380,7 +1411,7 @@ func parseFallbackConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Fal
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("fallback target error: %s", diags.Error())
 		}
-		fallback.Target = val.AsString()
+		fallback.Target = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["include_error"]; ok {
@@ -1388,7 +1419,7 @@ func parseFallbackConfigBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Fal
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("fallback include_error error: %s", diags.Error())
 		}
-		fallback.IncludeError = val.True()
+		fallback.IncludeError = boolOrFalse(val)
 	}
 
 	// Parse optional transform block
@@ -1445,7 +1476,7 @@ func parseErrorResponseBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Erro
 		if val.Type().IsObjectType() || val.Type().IsMapType() {
 			errResp.Headers = make(map[string]string)
 			for k, v := range val.AsValueMap() {
-				errResp.Headers[k] = v.AsString()
+				errResp.Headers[k] = stringOrEmpty(v)
 			}
 		}
 	}
@@ -1566,7 +1597,7 @@ func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("dedupe use error: %s", diags.Error())
 		}
-		dedupe.Use = parseRefName("dedupe", val.AsString())
+		dedupe.Use = parseRefName("dedupe", stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["cache"]; ok {
@@ -1574,7 +1605,7 @@ func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("dedupe cache error: %s", diags.Error())
 		}
-		dedupe.Cache = parseConnectorReference(val.AsString())
+		dedupe.Cache = parseConnectorReference(stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["key"]; ok {
@@ -1583,7 +1614,7 @@ func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 			// CEL expression — extract raw text
 			dedupe.Key = extractExpressionText(attr.Expr)
 		} else {
-			dedupe.Key = val.AsString()
+			dedupe.Key = stringOrEmpty(val)
 		}
 	}
 
@@ -1592,7 +1623,7 @@ func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("dedupe ttl error: %s", diags.Error())
 		}
-		dedupe.TTL = val.AsString()
+		dedupe.TTL = stringOrEmpty(val)
 		// Validate the TTL string at parse time so misconfigured
 		// deployments fail fast at deploy. Silent fallback to "no
 		// expiry" (the symptom of catching the error at runtime) would
@@ -1607,7 +1638,7 @@ func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("dedupe on_duplicate error: %s", diags.Error())
 		}
-		dedupe.OnDuplicate = val.AsString()
+		dedupe.OnDuplicate = stringOrEmpty(val)
 	}
 
 	// Parse the fingerprint block — named CEL expressions, same shape as a
@@ -1640,7 +1671,7 @@ func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 				continue
 			}
 			// Literal values are accepted too: treat them as constant projections
-			dedupe.Fingerprint[name] = val.AsString()
+			dedupe.Fingerprint[name] = stringOrEmpty(val)
 		}
 	}
 
@@ -1707,7 +1738,7 @@ func parseAsyncBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.AsyncConfig,
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("async storage error: %s", diags.Error())
 		}
-		config.Storage = parseConnectorReference(val.AsString())
+		config.Storage = parseConnectorReference(stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["ttl"]; ok {
@@ -1715,7 +1746,7 @@ func parseAsyncBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.AsyncConfig,
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("async ttl error: %s", diags.Error())
 		}
-		config.TTL = val.AsString()
+		config.TTL = stringOrEmpty(val)
 	}
 
 	return config, nil
@@ -1750,7 +1781,7 @@ func parseIdempotencyBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Idempo
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("idempotency storage error: %s", diags.Error())
 		}
-		config.Storage = parseConnectorReference(val.AsString())
+		config.Storage = parseConnectorReference(stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["key"]; ok {
@@ -1758,7 +1789,7 @@ func parseIdempotencyBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Idempo
 		if diags.HasErrors() {
 			config.Key = extractExpressionText(attr.Expr)
 		} else {
-			config.Key = val.AsString()
+			config.Key = stringOrEmpty(val)
 		}
 	}
 
@@ -1767,7 +1798,7 @@ func parseIdempotencyBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Idempo
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("idempotency ttl error: %s", diags.Error())
 		}
-		config.TTL = val.AsString()
+		config.TTL = stringOrEmpty(val)
 	}
 
 	if config.Storage == "" {
@@ -1898,7 +1929,7 @@ func parseTransformEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfo
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("enrich connector error: %s", diags.Error())
 		}
-		enrich.Connector = parseConnectorReference(val.AsString())
+		enrich.Connector = parseConnectorReference(stringOrEmpty(val))
 	}
 
 	// Parse operation attribute
@@ -1907,7 +1938,7 @@ func parseTransformEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfo
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("enrich operation error: %s", diags.Error())
 		}
-		enrich.Operation = val.AsString()
+		enrich.Operation = stringOrEmpty(val)
 	}
 
 	// Parse params block
@@ -1971,7 +2002,7 @@ func ctyValueToMap(val cty.Value) map[string]interface{} {
 		result := make(map[string]interface{})
 		for it := val.ElementIterator(); it.Next(); {
 			key, v := it.Element()
-			result[key.AsString()] = ctyValueToInterface(v)
+			result[stringOrEmpty(key)] = ctyValueToInterface(v)
 		}
 		return result
 	}
@@ -1990,7 +2021,7 @@ func ctyValueToInterface(val cty.Value) interface{} {
 
 	// Handle primitives
 	if valType == cty.String {
-		return val.AsString()
+		return stringOrEmpty(val)
 	}
 	if valType == cty.Number {
 		bf := val.AsBigFloat()
@@ -2004,7 +2035,7 @@ func ctyValueToInterface(val cty.Value) interface{} {
 		return f
 	}
 	if valType == cty.Bool {
-		return val.True()
+		return boolOrFalse(val)
 	}
 
 	// Handle lists/tuples
@@ -2022,7 +2053,7 @@ func ctyValueToInterface(val cty.Value) interface{} {
 		result := make(map[string]interface{})
 		for it := val.ElementIterator(); it.Next(); {
 			key, v := it.Element()
-			result[key.AsString()] = ctyValueToInterface(v)
+			result[stringOrEmpty(key)] = ctyValueToInterface(v)
 		}
 		return result
 	}
@@ -2047,9 +2078,18 @@ func parseCacheReference(ref string) string {
 //	  invalidate_on = ["products:updated:${input.params.id}"]
 //	}
 func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig, error) {
+	// storage is not required here, because `use` supplies it.
+	//
+	// It used to be, and cache was the only one of the ten reusable blocks
+	// where that was so — which made it the only one whose `use` could not be
+	// written: `cache { use = "cache.short" }`, the spelling the documentation
+	// calls the recommended one, was refused with "the argument storage is
+	// required". The example in this repository declares three named caches
+	// and references none of them, writing storage out again in every flow,
+	// which is what the feature not working looks like from the outside.
 	schema := &hcl.BodySchema{
 		Attributes: []hcl.AttributeSchema{
-			{Name: "storage", Required: true},
+			{Name: "storage"},
 			{Name: "ttl"},
 			{Name: "key"},
 			{Name: "invalidate_on"},
@@ -2069,7 +2109,7 @@ func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig,
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("cache storage error: %s", diags.Error())
 		}
-		cache.Storage = parseConnectorReference(val.AsString())
+		cache.Storage = parseConnectorReference(stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["ttl"]; ok {
@@ -2077,27 +2117,33 @@ func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig,
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("cache ttl error: %s", diags.Error())
 		}
-		cache.TTL = val.AsString()
+		cache.TTL = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["key"]; ok {
+		// A cache key is a template, not an HCL expression: the runtime
+		// replaces ${input.id} in it when a request arrives. HCL sees the same
+		// ${...} and tries to resolve `input` as a variable it does not have,
+		// so evaluating first refused the spelling the feature was built for —
+		// the one the guide shows, and the one an aspect's cache key already
+		// accepted through this same fallback. The two blocks are called cache
+		// and behaved differently.
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("cache key error: %s", diags.Error())
+			cache.Key = templateText(attr.Expr)
+		} else {
+			cache.Key = stringOrEmpty(val)
 		}
-		cache.Key = val.AsString()
 	}
 
 	if attr, ok := content.Attributes["invalidate_on"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("cache invalidate_on error: %s", diags.Error())
-		}
-		if val.Type().IsListType() || val.Type().IsTupleType() {
-			for it := val.ElementIterator(); it.Next(); {
-				_, v := it.Element()
-				cache.InvalidateOn = append(cache.InvalidateOn, v.AsString())
-			}
+			// Templates, like the key above: ${input.id} in one of these is
+			// replaced when the flow runs, and HCL cannot resolve it here.
+			cache.InvalidateOn = append(cache.InvalidateOn, templateList(attr.Expr)...)
+		} else {
+			cache.InvalidateOn = append(cache.InvalidateOn, stringList(val)...)
 		}
 	}
 
@@ -2106,7 +2152,15 @@ func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig,
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("cache use error: %s", diags.Error())
 		}
-		cache.Use = parseCacheReference(val.AsString())
+		cache.Use = parseCacheReference(stringOrEmpty(val))
+	}
+
+	// One or the other has to say where the cache lives. Checked here rather
+	// than by the schema so that either spelling is accepted, and refused with
+	// a message naming both rather than only the one that is missing.
+	if cache.Storage == "" && cache.Use == "" {
+		return nil, fmt.Errorf("cache block names no storage: write storage = \"<connector>\", " +
+			"or use = \"cache.<name>\" to take it from a named cache")
 	}
 
 	return cache, nil
@@ -2178,32 +2232,28 @@ func parseInvalidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Invalid
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("invalidate storage error: %s", diags.Error())
 		}
-		inv.Storage = parseConnectorReference(val.AsString())
+		inv.Storage = parseConnectorReference(stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["keys"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("invalidate keys error: %s", diags.Error())
-		}
-		if val.Type().IsListType() || val.Type().IsTupleType() {
-			for it := val.ElementIterator(); it.Next(); {
-				_, v := it.Element()
-				inv.Keys = append(inv.Keys, v.AsString())
-			}
+			// Templates, like the key above: ${input.id} in one of these is
+			// replaced when the flow runs, and HCL cannot resolve it here.
+			inv.Keys = append(inv.Keys, templateList(attr.Expr)...)
+		} else {
+			inv.Keys = append(inv.Keys, stringList(val)...)
 		}
 	}
 
 	if attr, ok := content.Attributes["patterns"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("invalidate patterns error: %s", diags.Error())
-		}
-		if val.Type().IsListType() || val.Type().IsTupleType() {
-			for it := val.ElementIterator(); it.Next(); {
-				_, v := it.Element()
-				inv.Patterns = append(inv.Patterns, v.AsString())
-			}
+			// Templates, like the key above: ${input.id} in one of these is
+			// replaced when the flow runs, and HCL cannot resolve it here.
+			inv.Patterns = append(inv.Patterns, templateList(attr.Expr)...)
+		} else {
+			inv.Patterns = append(inv.Patterns, stringList(val)...)
 		}
 	}
 
@@ -2247,7 +2297,7 @@ func parseNamedCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.NamedCa
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("cache storage error: %s", diags.Error())
 		}
-		cache.Storage = parseConnectorReference(val.AsString())
+		cache.Storage = parseConnectorReference(stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["ttl"]; ok {
@@ -2255,7 +2305,7 @@ func parseNamedCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.NamedCa
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("cache ttl error: %s", diags.Error())
 		}
-		cache.TTL = val.AsString()
+		cache.TTL = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["prefix"]; ok {
@@ -2263,19 +2313,17 @@ func parseNamedCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.NamedCa
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("cache prefix error: %s", diags.Error())
 		}
-		cache.Prefix = val.AsString()
+		cache.Prefix = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["invalidate_on"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
-			return nil, fmt.Errorf("cache invalidate_on error: %s", diags.Error())
-		}
-		if val.Type().IsListType() || val.Type().IsTupleType() {
-			for it := val.ElementIterator(); it.Next(); {
-				_, v := it.Element()
-				cache.InvalidateOn = append(cache.InvalidateOn, v.AsString())
-			}
+			// Templates, like the key above: ${input.id} in one of these is
+			// replaced when the flow runs, and HCL cannot resolve it here.
+			cache.InvalidateOn = append(cache.InvalidateOn, templateList(attr.Expr)...)
+		} else {
+			cache.InvalidateOn = append(cache.InvalidateOn, stringList(val)...)
 		}
 	}
 
@@ -2351,7 +2399,7 @@ func parseLockBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.L
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("lock use error: %s", diags.Error())
 		}
-		lock.Use = parseRefName("lock", val.AsString())
+		lock.Use = parseRefName("lock", stringOrEmpty(val))
 	}
 
 	for _, nestedBlock := range content.Blocks {
@@ -2369,7 +2417,7 @@ func parseLockBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.L
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("lock key error: %s", diags.Error())
 		}
-		lock.Key = val.AsString()
+		lock.Key = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["timeout"]; ok {
@@ -2377,7 +2425,7 @@ func parseLockBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.L
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("lock timeout error: %s", diags.Error())
 		}
-		lock.Timeout = val.AsString()
+		lock.Timeout = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["wait"]; ok {
@@ -2385,7 +2433,7 @@ func parseLockBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.L
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("lock wait error: %s", diags.Error())
 		}
-		lock.Wait = val.True()
+		lock.Wait = boolOrFalse(val)
 	}
 
 	if attr, ok := content.Attributes["retry"]; ok {
@@ -2393,7 +2441,7 @@ func parseLockBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow.L
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("lock retry error: %s", diags.Error())
 		}
-		lock.Retry = val.AsString()
+		lock.Retry = stringOrEmpty(val)
 	}
 
 	if strict {
@@ -2477,7 +2525,7 @@ func parseSequenceGuardBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool)
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("sequence_guard use error: %s", diags.Error())
 		}
-		sg.Use = parseRefName("sequence_guard", val.AsString())
+		sg.Use = parseRefName("sequence_guard", stringOrEmpty(val))
 	}
 
 	for _, nestedBlock := range content.Blocks {
@@ -2495,7 +2543,7 @@ func parseSequenceGuardBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool)
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("sequence_guard key error: %s", diags.Error())
 		}
-		sg.Key = val.AsString()
+		sg.Key = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["sequence"]; ok {
@@ -2503,7 +2551,7 @@ func parseSequenceGuardBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool)
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("sequence_guard sequence error: %s", diags.Error())
 		}
-		sg.Sequence = val.AsString()
+		sg.Sequence = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["on_older"]; ok {
@@ -2511,7 +2559,7 @@ func parseSequenceGuardBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool)
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("sequence_guard on_older error: %s", diags.Error())
 		}
-		policy := val.AsString()
+		policy := stringOrEmpty(val)
 		switch policy {
 		case "", "ack", "reject", "requeue":
 			sg.OnOlder = policy
@@ -2525,7 +2573,7 @@ func parseSequenceGuardBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool)
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("sequence_guard ttl error: %s", diags.Error())
 		}
-		sg.TTL = val.AsString()
+		sg.TTL = stringOrEmpty(val)
 	}
 
 	if strict {
@@ -2590,6 +2638,11 @@ func parseSemaphoreBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*f
 			{Name: "use"},
 			{Name: "key"},
 			{Name: "max_permits"},
+			// The name the reference page's example uses, beside a sentence
+			// saying the two are the same setting. They were not: a semaphore
+			// written the documented way was refused as an unsupported
+			// argument.
+			{Name: "limit"},
 			{Name: "timeout"},
 			{Name: "lease"},
 		},
@@ -2610,7 +2663,7 @@ func parseSemaphoreBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*f
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("semaphore use error: %s", diags.Error())
 		}
-		sem.Use = parseRefName("semaphore", val.AsString())
+		sem.Use = parseRefName("semaphore", stringOrEmpty(val))
 	}
 
 	for _, nestedBlock := range content.Blocks {
@@ -2628,7 +2681,7 @@ func parseSemaphoreBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*f
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("semaphore key error: %s", diags.Error())
 		}
-		sem.Key = val.AsString()
+		sem.Key = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["max_permits"]; ok {
@@ -2643,12 +2696,24 @@ func parseSemaphoreBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*f
 		sem.MaxPermits = permits
 	}
 
+	if attr, ok := content.Attributes["limit"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("semaphore limit error: %s", diags.Error())
+		}
+		permits, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("semaphore limit error: %s", err)
+		}
+		sem.MaxPermits = permits
+	}
+
 	if attr, ok := content.Attributes["timeout"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("semaphore timeout error: %s", diags.Error())
 		}
-		sem.Timeout = val.AsString()
+		sem.Timeout = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["lease"]; ok {
@@ -2656,7 +2721,7 @@ func parseSemaphoreBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*f
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("semaphore lease error: %s", diags.Error())
 		}
-		sem.Lease = val.AsString()
+		sem.Lease = stringOrEmpty(val)
 	}
 
 	if strict {
@@ -2763,7 +2828,7 @@ func parseCoordinateBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("coordinate use error: %s", diags.Error())
 		}
-		coord.Use = parseRefName("coordinate", val.AsString())
+		coord.Use = parseRefName("coordinate", stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["timeout"]; ok {
@@ -2771,7 +2836,7 @@ func parseCoordinateBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("coordinate timeout error: %s", diags.Error())
 		}
-		coord.Timeout = val.AsString()
+		coord.Timeout = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["on_timeout"]; ok {
@@ -2779,7 +2844,7 @@ func parseCoordinateBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("coordinate on_timeout error: %s", diags.Error())
 		}
-		coord.OnTimeout = val.AsString()
+		coord.OnTimeout = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["max_retries"]; ok {
@@ -2875,7 +2940,7 @@ func parseSyncStorageBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SyncSt
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("storage driver error: %s", diags.Error())
 		}
-		cfg.Driver = val.AsString()
+		cfg.Driver = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["url"]; ok {
@@ -2883,7 +2948,7 @@ func parseSyncStorageBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SyncSt
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("storage url error: %s", diags.Error())
 		}
-		cfg.URL = val.AsString()
+		cfg.URL = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["host"]; ok {
@@ -2891,7 +2956,7 @@ func parseSyncStorageBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SyncSt
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("storage host error: %s", diags.Error())
 		}
-		cfg.Host = val.AsString()
+		cfg.Host = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["port"]; ok {
@@ -2911,7 +2976,7 @@ func parseSyncStorageBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SyncSt
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("storage password error: %s", diags.Error())
 		}
-		cfg.Password = val.AsString()
+		cfg.Password = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["db"]; ok {
@@ -2950,7 +3015,7 @@ func parseWaitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.WaitConfig, e
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("wait when error: %s", diags.Error())
 		}
-		wait.When = val.AsString()
+		wait.When = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["for"]; ok {
@@ -2958,7 +3023,7 @@ func parseWaitBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.WaitConfig, e
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("wait for error: %s", diags.Error())
 		}
-		wait.For = val.AsString()
+		wait.For = stringOrEmpty(val)
 	}
 
 	return wait, nil
@@ -2986,7 +3051,7 @@ func parseSignalBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SignalConfi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("signal when error: %s", diags.Error())
 		}
-		signal.When = val.AsString()
+		signal.When = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["emit"]; ok {
@@ -2994,7 +3059,7 @@ func parseSignalBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SignalConfi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("signal emit error: %s", diags.Error())
 		}
-		signal.Emit = val.AsString()
+		signal.Emit = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["ttl"]; ok {
@@ -3002,7 +3067,7 @@ func parseSignalBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.SignalConfi
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("signal ttl error: %s", diags.Error())
 		}
-		signal.TTL = val.AsString()
+		signal.TTL = stringOrEmpty(val)
 	}
 
 	return signal, nil
@@ -3033,7 +3098,7 @@ func parsePreflightBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Prefligh
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("preflight connector error: %s", diags.Error())
 		}
-		preflight.Connector = parseConnectorReference(val.AsString())
+		preflight.Connector = parseConnectorReference(stringOrEmpty(val))
 	}
 
 	if attr, ok := content.Attributes["query"]; ok {
@@ -3041,7 +3106,7 @@ func parsePreflightBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Prefligh
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("preflight query error: %s", diags.Error())
 		}
-		preflight.Query = val.AsString()
+		preflight.Query = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["params"]; ok {
@@ -3052,7 +3117,7 @@ func parsePreflightBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Prefligh
 		if val.Type().IsObjectType() || val.Type().IsMapType() {
 			for it := val.ElementIterator(); it.Next(); {
 				k, v := it.Element()
-				preflight.Params[k.AsString()] = v.AsString()
+				preflight.Params[stringOrEmpty(k)] = stringOrEmpty(v)
 			}
 		}
 	}
@@ -3062,7 +3127,7 @@ func parsePreflightBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Prefligh
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("preflight if_exists error: %s", diags.Error())
 		}
-		preflight.IfExists = val.AsString()
+		preflight.IfExists = stringOrEmpty(val)
 	}
 
 	return preflight, nil
@@ -3117,7 +3182,7 @@ func parseBatchBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.BatchConfig,
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("batch source error: %s", diags.Error())
 		}
-		batch.Source = parseConnectorReference(val.AsString())
+		batch.Source = parseConnectorReference(stringOrEmpty(val))
 	}
 
 	// Parse query
@@ -3126,7 +3191,7 @@ func parseBatchBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.BatchConfig,
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("batch query error: %s", diags.Error())
 		}
-		batch.Query = val.AsString()
+		batch.Query = stringOrEmpty(val)
 	}
 
 	// Parse params
@@ -3157,7 +3222,7 @@ func parseBatchBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.BatchConfig,
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("batch on_error error: %s", diags.Error())
 		}
-		batch.OnError = val.AsString()
+		batch.OnError = stringOrEmpty(val)
 	}
 
 	// Parse nested blocks
@@ -3211,7 +3276,7 @@ func parseStateTransitionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.St
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("state_transition machine error: %s", diags.Error())
 		}
-		st.Machine = val.AsString()
+		st.Machine = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["entity"]; ok {
@@ -3219,7 +3284,7 @@ func parseStateTransitionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.St
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("state_transition entity error: %s", diags.Error())
 		}
-		st.Entity = val.AsString()
+		st.Entity = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["id"]; ok {
@@ -3227,7 +3292,7 @@ func parseStateTransitionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.St
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("state_transition id error: %s", diags.Error())
 		}
-		st.ID = val.AsString()
+		st.ID = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["event"]; ok {
@@ -3235,13 +3300,13 @@ func parseStateTransitionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.St
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("state_transition event error: %s", diags.Error())
 		}
-		st.Event = val.AsString()
+		st.Event = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["data"]; ok {
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
-			st.Data = val.AsString()
+			st.Data = stringOrEmpty(val)
 		}
 	}
 
@@ -3250,7 +3315,7 @@ func parseStateTransitionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.St
 		if diags.HasErrors() {
 			return nil, fmt.Errorf("state_transition connector error: %s", diags.Error())
 		}
-		st.Connector = val.AsString()
+		st.Connector = stringOrEmpty(val)
 	}
 
 	return st, nil

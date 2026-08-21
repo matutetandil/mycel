@@ -19,6 +19,31 @@ import (
 // somebody can act on, so a lookup that quietly returns nothing produces a
 // record with a hole in it.
 
+// tableConnector stands in for a database: it can be read and not called,
+// which is what every database driver in the tree is. The fake used here
+// before could do both, so three tests that meant "a lookup against a table"
+// were quietly exercising the call path instead.
+type tableConnector struct {
+	name    string
+	rows    []map[string]interface{}
+	err     error
+	filters map[string]interface{}
+}
+
+func (c *tableConnector) Name() string                  { return c.name }
+func (c *tableConnector) Type() string                  { return "database" }
+func (c *tableConnector) Connect(context.Context) error { return nil }
+func (c *tableConnector) Close(context.Context) error   { return nil }
+func (c *tableConnector) Health(context.Context) error  { return nil }
+
+func (c *tableConnector) Read(_ context.Context, q connector.Query) (*connector.Result, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	c.filters = q.Filters
+	return &connector.Result{Rows: c.rows}, nil
+}
+
 func enrichingHandler(t *testing.T, enrichments []*flow.EnrichConfig, conns map[string]connector.Connector) *FlowHandler {
 	t.Helper()
 	registry := connector.NewRegistry()
@@ -38,7 +63,7 @@ func enrichingHandler(t *testing.T, enrichments []*flow.EnrichConfig, conns map[
 }
 
 func TestALookupIsAvailableUnderItsName(t *testing.T) {
-	customers := &stepConnector{name: "db", rows: []map[string]interface{}{
+	customers := &tableConnector{name: "db", rows: []map[string]interface{}{
 		{"id": "c-1", "email": "someone@example.com", "tier": "gold"},
 	}}
 
@@ -65,14 +90,13 @@ func TestALookupIsAvailableUnderItsName(t *testing.T) {
 	}
 
 	// And the lookup was made with what the message carried.
-	_, params := customers.seen()
-	if len(params) != 1 || params[0]["id"] != "c-1" {
-		t.Errorf("the lookup asked for %v, want the id from the message", params)
+	if customers.filters["id"] != "c-1" {
+		t.Errorf("the lookup asked for %v, want the id from the message", customers.filters)
 	}
 }
 
 func TestSeveralRowsComeBackAsAListToo(t *testing.T) {
-	db := &stepConnector{name: "db", rows: []map[string]interface{}{{"id": "1"}, {"id": "2"}}}
+	db := &tableConnector{name: "db", rows: []map[string]interface{}{{"id": "1"}, {"id": "2"}}}
 	h := enrichingHandler(t, nil, map[string]connector.Connector{"db": db})
 
 	enriched, err := h.executeEnrichments(context.Background(), map[string]interface{}{},
@@ -90,7 +114,7 @@ func TestSeveralRowsComeBackAsAListToo(t *testing.T) {
 }
 
 func TestSeveralLookupsEachGetTheirOwnName(t *testing.T) {
-	customers := &stepConnector{name: "db", rows: []map[string]interface{}{{"id": "c-1", "tier": "gold"}}}
+	customers := &tableConnector{name: "db", rows: []map[string]interface{}{{"id": "c-1", "tier": "gold"}}}
 	// Call-only, because a connector that can also be read from is read from:
 	// an enrichment is a lookup, so the read path is preferred deliberately.
 	prices := &callOnlyConnector{answer: map[string]interface{}{"amount": 42}}
@@ -128,7 +152,7 @@ func TestALookupThatFailsStopsTheFlowAndSaysWhich(t *testing.T) {
 	// Enrichment is data the record needs; carrying on without it would send
 	// an incomplete record onward, which is worse than not sending one. The
 	// name matters because a flow may have several.
-	broken := &stepConnector{name: "db", err: errors.New("connection refused")}
+	broken := &tableConnector{name: "db", err: errors.New("connection refused")}
 	h := enrichingHandler(t, nil, map[string]connector.Connector{"db": broken})
 
 	_, err := h.executeEnrichments(context.Background(), map[string]interface{}{},
@@ -164,7 +188,7 @@ func TestALookupNamingAConnectorThatDoesNotExistIsReported(t *testing.T) {
 func TestAParameterThatCannotBeEvaluatedIsReported(t *testing.T) {
 	// Naming a field the message does not carry is a configuration mistake,
 	// and it has to say which parameter of which lookup.
-	db := &stepConnector{name: "db"}
+	db := &tableConnector{name: "db"}
 	h := enrichingHandler(t, nil, map[string]connector.Connector{"db": db})
 
 	_, err := h.executeEnrichments(context.Background(), map[string]interface{}{},
@@ -235,11 +259,20 @@ func (c callOnlyConnector) Call(context.Context, string, map[string]interface{})
 	return c.answer, nil
 }
 
-func TestAConnectorThatCanBeReadIsReadRatherThanCalled(t *testing.T) {
-	// A connector offering both is read from, because an enrichment is a
-	// lookup. The preference is deliberate — a read carries its parameters as
-	// filters, which is what a query wants — and stating it keeps it from
-	// being changed by accident.
+func TestAConnectorThatCanDoBothIsCalledRatherThanRead(t *testing.T) {
+	// The preference used to be the other way round, on the grounds that a
+	// read carries its parameters as filters. It does — but every connector
+	// that only reads is a database, and those take the read path regardless;
+	// the preference only decides for the ones that do both, and there the
+	// read path was losing information.
+	//
+	// A GraphQL field holding a list of one came back as the object and the
+	// same field holding two came back as the list, because the read path
+	// flattens a response into rows and then a single row is unwrapped. A REST
+	// gateway forwarding that answered a different shape depending on how many
+	// rows happened to exist upstream. The call path hands back what the
+	// service actually said, which is also the shape its own documentation
+	// describes: enriched.<name> is the answer, whatever shape that is.
 	both := &stepConnector{
 		name: "api",
 		rows: []map[string]interface{}{{"from": "read"}},
@@ -257,7 +290,36 @@ func TestAConnectorThatCanBeReadIsReadRatherThanCalled(t *testing.T) {
 	}
 
 	row, _ := enriched["lookup"].(map[string]interface{})
-	if row == nil || row["from"] != "read" {
-		t.Errorf("the enrichment came from %v, want the read path", enriched["lookup"])
+	if row == nil || row["from"] != "call" {
+		t.Errorf("the enrichment came from %v, want the call path", enriched["lookup"])
+	}
+}
+
+// A list of one stays a list, which is the whole reason for the preference.
+func TestAnEnrichmentDoesNotFlattenAListOfOne(t *testing.T) {
+	upstream := &stepConnector{
+		name: "api",
+		call: map[string]interface{}{"products": []interface{}{
+			map[string]interface{}{"id": "p1"},
+		}},
+	}
+
+	h := enrichingHandler(t, nil, map[string]connector.Connector{"api": upstream})
+	enriched, err := h.executeEnrichments(context.Background(), map[string]interface{}{},
+		[]*flow.EnrichConfig{{
+			Name: "catalogue", Connector: "api",
+			ConnectorParams: map[string]interface{}{"operation": "query { products { id } }"},
+		}})
+	if err != nil {
+		t.Fatalf("executeEnrichments: %v", err)
+	}
+
+	answer, _ := enriched["catalogue"].(map[string]interface{})
+	if answer == nil {
+		t.Fatalf("the enrichment came back as %#v", enriched["catalogue"])
+	}
+	products, ok := answer["products"].([]interface{})
+	if !ok || len(products) != 1 {
+		t.Errorf("products came back as %#v, want a list of one", answer["products"])
 	}
 }

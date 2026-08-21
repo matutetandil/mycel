@@ -211,6 +211,9 @@ mycel start --config ./examples/exec
 curl http://localhost:3000/system/info
 curl http://localhost:3000/system/disk
 curl -X POST http://localhost:3000/echo -d '{"message":"hello"}'
+
+# A flow whose answer is enriched by running a command
+curl http://localhost:3000/enriched/42
 ```
 
 ## See Also

@@ -4,35 +4,69 @@ This example demonstrates local file system operations.
 
 ## Features
 
-- Upload and download files
-- List directory contents
-- File metadata tracking in SQLite
-- Delete files with metadata cleanup
-
-## Files
-
-- `config.mycel` - Connectors configuration
-- `flows.mycel` - File operation flows
+- Upload a file and record it, in one flow with two destinations
+- Download the bytes back
+- List what has been stored
 
 ## Usage
 
-```bash
-# Start the service
-mycel start --config ./examples/files
+The database file and the storage directory are created where the service is
+started from, so run these from this directory.
 
-# Upload a file
+```bash
+cd examples/files
+
+# Create the table that indexes what has been stored
+mycel migrate --config .
+
+mycel start --config .
+```
+
+### Upload a file
+
+The bytes go to the file connector and what is known about them to the
+database — one flow, two destinations.
+
+```bash
 curl -X POST http://localhost:3000/files \
   -H "Content-Type: application/json" \
-  -d '{"filename":"test.txt","content":"Hello World","mime_type":"text/plain"}'
+  -d '{"filename":"test.txt","content":"Hello World"}'
+```
 
-# List files
+```json
+{"results":{"db":{"affected":1,"id":1},"storage":{"affected":1,"id":null}},"success":true}
+```
+
+The file itself is now at `data/files/test.txt`.
+
+### List what has been stored
+
+```bash
 curl http://localhost:3000/files
+```
 
-# Download a file
-curl http://localhost:3000/files/{id}/download
+```json
+[{"filename":"test.txt","size":11,"uploaded_at":"2026-08-19T19:24:33Z"}]
+```
 
-# Delete a file
-curl -X DELETE http://localhost:3000/files/{id}
+### What is known about one file
+
+```bash
+curl http://localhost:3000/files/test.txt
+```
+
+```json
+[{"filename":"test.txt","size":11,"uploaded_at":"2026-08-19T19:24:33Z"}]
+```
+
+### Download the bytes
+
+```bash
+curl http://localhost:3000/files/test.txt/content
+```
+
+```json
+[{"content":"Hello World"}]
 ```
 
 ## Configuration
@@ -43,96 +77,32 @@ connector "storage" {
   driver    = "local"
   base_path = "./data/files"
 
-  permissions {
-    file_mode = "0644"
-    dir_mode  = "0755"
-  }
+  # Octal, as chmod takes it.
+  permissions = "0644"
+  create_dirs = true
 }
 ```
+
+`base_path` is what confines the writing: an upload names its own file, and a
+name that tries to climb out of the directory is resolved back into it.
 
 ## Operations
 
+A flow's destination may name an operation; without one, reading a file and
+writing a file are chosen by the flow's direction.
+
 | Operation | Description |
 |-----------|-------------|
-| `READ` | Read file content |
-| `WRITE` | Write file content |
-| `DELETE` | Delete a file |
-| `LIST` | List directory contents |
+| `read` | Read file content |
+| `write` | Write file content |
+| `delete` | Delete a file |
+| `list` | List directory contents |
+| `exists` | Whether a file is there |
+| `stat` | Size and modification time |
+| `copy` / `move` | Copy or move a file |
 
-## Verify It Works
+## Files
 
-### 1. Start the service
-
-```bash
-mycel start --config ./examples/files
-```
-
-You should see:
-```
-INFO  Starting service: files-example
-INFO  Loaded 3 connectors: api, storage, db
-INFO    storage: local filesystem at ./data/files
-INFO  REST server listening on :3000
-```
-
-### 2. Upload a file
-
-```bash
-curl -X POST http://localhost:3000/files \
-  -H "Content-Type: application/json" \
-  -d '{"filename":"test.txt","content":"Hello World","mime_type":"text/plain"}'
-```
-
-Expected response:
-```json
-{
-  "id": "<uuid>",
-  "filename": "test.txt",
-  "size": 11,
-  "mime_type": "text/plain",
-  "created_at": "2024-01-15T10:30:00Z"
-}
-```
-
-### 3. Verify file exists
-
-```bash
-ls -la ./data/files/
-# Should show: test.txt
-```
-
-### 4. List files
-
-```bash
-curl http://localhost:3000/files
-```
-
-Expected response:
-```json
-[{"id": "<uuid>", "filename": "test.txt", "size": 11}]
-```
-
-### 5. Download file
-
-```bash
-curl http://localhost:3000/files/<uuid>/download
-```
-
-Expected response:
-```
-Hello World
-```
-
-### Common Issues
-
-**"Permission denied"**
-
-Ensure the `base_path` directory is writable:
-```bash
-mkdir -p ./data/files
-chmod 755 ./data/files
-```
-
-**"File not found"**
-
-Check that the file ID is correct and the file was successfully uploaded.
+- `config.mycel` — connectors
+- `flows.mycel` — the flows
+- `migrations/` — the table that indexes stored files

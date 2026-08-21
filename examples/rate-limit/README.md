@@ -18,8 +18,13 @@ This example demonstrates rate limiting configuration.
 ## Usage
 
 ```bash
+cd examples/rate-limit
+
+# Create the items table
+mycel migrate --config .
+
 # Start the service
-mycel start --config ./examples/rate-limit
+mycel start --config .
 
 # Make requests (limited to 10/s, burst 20)
 for i in {1..25}; do curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/items; done

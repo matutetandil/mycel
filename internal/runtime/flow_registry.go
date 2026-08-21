@@ -633,12 +633,12 @@ func (h *FlowHandler) executeWithRetry(ctx context.Context, input map[string]int
 			maxAttempts = eh.Retry.Attempts
 		}
 		if eh.Retry.Delay != "" {
-			if d, err := time.ParseDuration(eh.Retry.Delay); err == nil {
+			if d, err := flow.ParseDuration(eh.Retry.Delay); err == nil {
 				delay = d
 			}
 		}
 		if eh.Retry.MaxDelay != "" {
-			if d, err := time.ParseDuration(eh.Retry.MaxDelay); err == nil {
+			if d, err := flow.ParseDuration(eh.Retry.MaxDelay); err == nil {
 				maxDelay = d
 			}
 		}
@@ -992,7 +992,7 @@ func (h *FlowHandler) executeAsync(ctx context.Context, input map[string]interfa
 
 	ttl := time.Hour
 	if async.TTL != "" {
-		if d, parseErr := time.ParseDuration(async.TTL); parseErr == nil {
+		if d, parseErr := flow.ParseDuration(async.TTL); parseErr == nil {
 			ttl = d
 		}
 	}
@@ -1130,7 +1130,7 @@ func (h *FlowHandler) storeIdempotencyResult(ctx context.Context, input map[stri
 
 	ttl := 24 * time.Hour // Default 24h
 	if idem.TTL != "" {
-		if d, parseErr := time.ParseDuration(idem.TTL); parseErr == nil {
+		if d, parseErr := flow.ParseDuration(idem.TTL); parseErr == nil {
 			ttl = d
 		}
 	}
@@ -1933,13 +1933,54 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	// declared and echoed the request back, headers and all. A flow that does
 	// have a destination already runs its steps on the way to writing.
 	if len(h.Config.Steps) > 0 && (operation.IsRead() || h.Dest == nil) {
-		result, err = h.handleStepsFlow(ctx, input)
+		var gathered map[string]interface{}
+		result, gathered, err = h.handleStepsFlow(ctx, input)
+		// What the steps gathered travels with the request, so the response
+		// block can be shaped out of them.
+		ctx = withStepResults(ctx, gathered)
+
+		// A destination that can only be written to is a renderer, not a
+		// source: what a read flow does with it is hand it the answer. The
+		// PDF page is written this way — gather the invoice with steps, render
+		// it through the pdf connector — and it answered with the gathered
+		// JSON, because a read flow with steps never touched its destination.
+		if err == nil && rendersTheAnswer(h.Dest) {
+			result, err = h.renderThrough(ctx, result)
+		}
+	} else if h.Dest != nil && operation.IsRead() && rendersTheAnswer(h.Dest) {
+		// The same, for a read flow with no steps: build the payload the usual
+		// way and hand it to the renderer. Without this the flow was refused
+		// with "destination connector does not support required operation",
+		// since a read looks for something to read from.
+		var computed map[string]interface{}
+		computed, err = h.applyTransforms(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("transform error: %w", err)
+		}
+		delete(computed, "headers")
+		result, err = h.renderThrough(ctx, computed)
 	} else if len(h.Config.MultiTo) > 0 && !operation.IsRead() {
 		// Check for multi-destination writes
 		result, err = h.handleMultiDestWrite(ctx, input, operation)
 	} else if h.Dest == nil {
-		// Echo flow (no "to" block) — return transformed input as-is
-		result = input
+		// No destination: the flow's answer is what it computed.
+		//
+		// This said "return transformed input" and returned the input, so a
+		// flow with no `to` ignored its transform and its enrich blocks
+		// entirely — a gateway that calls somebody else's API and shapes the
+		// answer, which is what a flow without a destination is usually for,
+		// echoed the request back instead, headers and all.
+		if (h.Config.Transform != nil && len(h.Config.Transform.Mappings) > 0) || len(h.Config.Enrichments) > 0 {
+			var computed map[string]interface{}
+			computed, err = h.applyTransforms(ctx, input)
+			if err != nil {
+				return nil, fmt.Errorf("transform error: %w", err)
+			}
+			delete(computed, "headers")
+			result = computed
+		} else {
+			result = input
+		}
 	} else {
 		// Single destination (original behavior)
 		// Get the destination as a reader/writer
@@ -1949,14 +1990,17 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 			// Try just reader or writer based on operation
 			result, err = h.handleSimpleRequest(ctx, input)
 		} else {
-			switch operation.Method {
-			case "GET", "QUERY":
+			// Read methods are asked once, here, rather than listed again:
+			// the list and IsRead had already drifted apart, and a method in
+			// one and not the other is answered with a 500.
+			switch {
+			case operation.IsRead():
 				result, err = h.handleRead(ctx, input, dest)
-			case "POST":
+			case operation.Method == "POST":
 				result, err = h.handleCreate(ctx, input, dest)
-			case "PUT", "PATCH":
+			case operation.Method == "PUT", operation.Method == "PATCH":
 				result, err = h.handleUpdate(ctx, input, dest)
-			case "DELETE":
+			case operation.Method == "DELETE":
 				result, err = h.handleDelete(ctx, input, dest)
 			default:
 				return nil, fmt.Errorf("unsupported operation: %s", operation.Method)
@@ -1970,10 +2014,17 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 
 	// Apply response transform if configured
 	if len(h.Config.Response) > 0 {
-		result, err = h.applyResponseTransform(ctx, input, result)
-		if err != nil {
-			return nil, fmt.Errorf("response transform error: %w", err)
+		// Announced like the other stages: the editor offers a breakpoint on
+		// the response block, and shaping the answer is the last thing a flow
+		// does — the one place worth stopping at when what came back is not
+		// what was expected.
+		shaped, respErr := trace.RecordStage(ctx, trace.StageResponse, "", result, func() (interface{}, error) {
+			return h.applyResponseTransform(ctx, input, result)
+		})
+		if respErr != nil {
+			return nil, fmt.Errorf("response transform error: %w", respErr)
 		}
+		result = shaped
 	}
 
 	// Check the answer against the contract the flow declares for it.
@@ -2167,8 +2218,45 @@ func (h *FlowHandler) executeBatch(ctx context.Context, input map[string]interfa
 
 // handleRead handles GET requests.
 func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface{}, dest connector.Reader) (interface{}, error) {
+	// What the flow computed is part of what it asks for.
+	//
+	// The transform block ran on every write path and on no read path at all:
+	// on a GET it was applied neither to the request nor to the answer, so it
+	// was parsed, offered by the editor, documented as the thing `to` sees —
+	// and dead. A flow reading `SELECT ... WHERE id = :user_id` from a
+	// transform that computed user_id sent the query with the parameter
+	// unbound, which Postgres reports as a syntax error at ":" and SQLite as a
+	// missing argument: neither names the flow, and nothing suggests the
+	// transform never ran.
+	//
+	// The computed fields are laid over the request rather than replacing it,
+	// so the path parameters of `GET /users/:id` are still there for a flow
+	// that also transforms.
+	//
+	// Only a destination that spells its own query out is served this way. A
+	// destination named by table or collection builds its criteria from the
+	// request, and feeding it computed fields would silently add filters to
+	// reads that work today. Shaping what comes back is the `response` block's
+	// job, and a read flow whose transform is written against the answer
+	// rather than the request is still not served by either — see the enrich
+	// example, whose enrichments do not run on a read at all.
+	if h.Config.To.GetQuery() != "" && h.Config.Transform != nil && len(h.Config.Transform.Mappings) > 0 {
+		computed, err := h.applyTransforms(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("transform error: %w", err)
+		}
+		merged := make(map[string]interface{}, len(input)+len(computed))
+		for key, val := range input {
+			merged[key] = val
+		}
+		for key, val := range computed {
+			merged[key] = val
+		}
+		input = merged
+	}
+
 	query := connector.Query{
-		Target:    h.Config.To.GetTarget(),
+		Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 		Operation: "SELECT",
 		Filters:   make(map[string]interface{}),
 	}
@@ -2180,7 +2268,7 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 
 	// GraphQL Query Optimization: Extract requested fields from input
 	// These fields are injected by the GraphQL resolver when field analysis is enabled
-	if topFields := optimizer.TopFieldsFromInput(input); len(topFields) > 0 {
+	if topFields := optimizer.ColumnsFromInput(input); len(topFields) > 0 {
 		// Convert GraphQL camelCase field names to snake_case column names
 		columns := make([]string, len(topFields))
 		for i, f := range topFields {
@@ -2249,6 +2337,20 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 			}
 		}
 
+		// A filter document written on the destination, which is how a Mongo
+		// read says which documents it wants. Nothing read it here, so a flow
+		// asking for the active users answered with all of them — the
+		// collection, unfiltered, reported as the answer.
+		if len(h.Config.To.GetQueryFilter()) > 0 {
+			resolved, err := h.resolveFilterDocument(ctx, h.Config.To.GetQueryFilter(), input)
+			if err != nil {
+				return nil, err
+			}
+			for key, val := range resolved {
+				query.Filters[key] = val
+			}
+		}
+
 		// Also apply explicit filter if present
 		if h.Config.To.GetFilter() != "" {
 			// Parse filter expression and add to query
@@ -2270,16 +2372,119 @@ func (h *FlowHandler) handleRead(ctx context.Context, input map[string]interface
 		return nil, readErr
 	}
 
-	return readResult, nil
+	return h.shapeReadResult(ctx, input, readResult)
+}
+
+// shapeReadResult applies a read flow's enrichments and transform to what came
+// back.
+//
+// A flow's transform feeds whatever the flow has left to say. Writing, that is
+// the row. Reading with a query of its own, the query's parameters, which is
+// handled above. Reading a table by name there is nothing left to ask for, so
+// what the transform describes is the answer — which is how every read flow in
+// the examples is written, and none of them worked: the transform was ignored,
+// and with it the `enrich` blocks that fetch the price or the stock level a
+// read is being shaped to include. `enrich` on a read flow, which is the most
+// natural place for it, never called anything at all.
+//
+// The row is laid over the request, so a transform can read a path parameter
+// that is not a column as well as the columns. A list is shaped row by row.
+func (h *FlowHandler) shapeReadResult(ctx context.Context, input map[string]interface{}, readResult interface{}) (interface{}, error) {
+	shaping := h.Config.To.GetQuery() == "" &&
+		((h.Config.Transform != nil && len(h.Config.Transform.Mappings) > 0) || len(h.Config.Enrichments) > 0)
+	if !shaping {
+		return readResult, nil
+	}
+
+	shape := func(row map[string]interface{}) (interface{}, error) {
+		merged := make(map[string]interface{}, len(input)+len(row))
+		for key, val := range input {
+			merged[key] = val
+		}
+		for key, val := range row {
+			merged[key] = val
+		}
+		return h.applyTransforms(ctx, merged)
+	}
+
+	switch rows := readResult.(type) {
+	case []map[string]interface{}:
+		shaped := make([]interface{}, 0, len(rows))
+		for _, row := range rows {
+			one, err := shape(row)
+			if err != nil {
+				return nil, fmt.Errorf("transform error: %w", err)
+			}
+			shaped = append(shaped, one)
+		}
+		return shaped, nil
+	case map[string]interface{}:
+		one, err := shape(rows)
+		if err != nil {
+			return nil, fmt.Errorf("transform error: %w", err)
+		}
+		return one, nil
+	default:
+		return readResult, nil
+	}
+}
+
+// rendersTheAnswer reports a destination that can only be written to, which on
+// a read flow means it turns the answer into something — a PDF, a rendered
+// document, a notification — rather than being where the answer comes from.
+func rendersTheAnswer(dest connector.Connector) bool {
+	if dest == nil {
+		return false
+	}
+	if _, readable := dest.(connector.Reader); readable {
+		return false
+	}
+	_, writable := dest.(connector.Writer)
+	return writable
+}
+
+// renderThrough hands a read flow's answer to its destination and answers with
+// what came back.
+func (h *FlowHandler) renderThrough(ctx context.Context, answer interface{}) (interface{}, error) {
+	writer, ok := h.Dest.(connector.Writer)
+	if !ok {
+		return answer, nil
+	}
+
+	payload, ok := answer.(map[string]interface{})
+	if !ok {
+		payload = map[string]interface{}{"data": answer}
+	}
+
+	data := &connector.Data{
+		Target:    h.Config.To.GetTarget(),
+		Operation: h.Config.To.GetOperation(),
+		Payload:   payload,
+	}
+
+	result, err := meteredWrite(ctx, writer, data)
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Rows) == 1 {
+		return result.Rows[0], nil
+	}
+	if len(result.Rows) > 0 {
+		return result.Rows, nil
+	}
+	if len(result.Metadata) > 0 {
+		return result.Metadata, nil
+	}
+	return answer, nil
 }
 
 // handleStepsFlow handles flows with steps where data comes from step execution + transform.
 // This is used for orchestration flows where data is aggregated from multiple sources.
-func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]interface{}) (interface{}, map[string]interface{}, error) {
 	// Execute all steps and collect results
 	stepResults, err := h.executeSteps(ctx, input)
 	if err != nil {
-		return nil, fmt.Errorf("step execution failed: %w", err)
+		return nil, nil, fmt.Errorf("step execution failed: %w", err)
 	}
 
 	// If no transform is configured, return the result of the step written
@@ -2290,10 +2495,10 @@ func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]inte
 	if h.Config.Transform == nil || len(h.Config.Transform.Mappings) == 0 {
 		for _, step := range h.Config.Steps {
 			if result, ok := stepResults[step.Name]; ok {
-				return result, nil
+				return result, stepResults, nil
 			}
 		}
-		return nil, nil
+		return nil, stepResults, nil
 	}
 
 	// Build transform rules from mappings
@@ -2304,17 +2509,17 @@ func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]inte
 	if celTransformer == nil {
 		celTransformer, err = transform.NewCELTransformer()
 		if err != nil {
-			return nil, fmt.Errorf("failed to create transformer: %w", err)
+			return nil, stepResults, fmt.Errorf("failed to create transformer: %w", err)
 		}
 	}
 
 	// Apply transform with step results (no enriched data for steps-only flows)
 	transformResult, err := celTransformer.TransformWithSteps(ctx, input, nil, stepResults, rules)
 	if err != nil {
-		return nil, fmt.Errorf("transform failed: %w", err)
+		return nil, stepResults, fmt.Errorf("transform failed: %w", err)
 	}
 
-	return transformResult, nil
+	return transformResult, stepResults, nil
 }
 
 // isGraphQLOperation checks if an operation string is a GraphQL operation.
@@ -2352,14 +2557,44 @@ func (h *FlowHandler) handleSubscriptionPublish(ctx context.Context, input map[s
 
 // isInternalField checks if a key is an internal field used for query optimization.
 func isInternalField(key string) bool {
-	return key == "__requested_fields" || key == "__requested_top_fields"
+	return key == "__requested_fields" || key == "__requested_top_fields" ||
+		key == "__requested_columns"
+}
+
+// stripInternalFields removes what the GraphQL resolver added for the flow's
+// own use, so none of it reaches a connector as data.
+//
+// Each place that needed this listed the names itself, and adding one meant
+// remembering all of them: a new field went into two of the three, and the
+// third handed a []string to the database driver as a query parameter —
+// "unsupported type []string". One list, asked in one way.
+func stripInternalFields(input map[string]interface{}) {
+	for key := range input {
+		if isInternalField(key) {
+			delete(input, key)
+		}
+	}
+}
+
+// identifiers returns what a connector may recognise the record by. The
+// payload is what is written; this is how the destination is asked to file it.
+func identifiers(input map[string]interface{}) map[string]interface{} {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]interface{}, len(input))
+	for key, value := range input {
+		if isInternalField(key) || key == "headers" {
+			continue
+		}
+		out[key] = value
+	}
+	return out
 }
 
 // handleCreate handles POST requests.
 func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interface{}, dest connector.Writer) (interface{}, error) {
-	// Remove internal GraphQL optimization fields from input
-	delete(input, "__requested_fields")
-	delete(input, "__requested_top_fields")
+	stripInternalFields(input)
 
 	// Apply transforms if configured
 	payload, err := h.applyTransforms(ctx, input)
@@ -2370,10 +2605,27 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 	// Remove meta fields that should not be written to destination
 	delete(payload, "headers")
 
+	// Nothing to write is worth saying so.
+	//
+	// An empty payload became `INSERT INTO items () VALUES ()`, and what came
+	// back was the driver's opinion of it — `SQL logic error: near ")"` — for
+	// a request that simply carried no fields. That is an ordinary mistake
+	// (an empty body, a transform that produced nothing) and the message named
+	// neither the flow nor the reason.
+	if len(payload) == 0 && h.Config.To.GetQuery() == "" && h.Config.To.Transaction == nil {
+		return nil, fmt.Errorf("flow %q has nothing to write: the request carried no fields%s",
+			h.Config.Name, transformHint(h.Config))
+	}
+
 	data := &connector.Data{
-		Target:    h.Config.To.GetTarget(),
+		Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 		Operation: "INSERT",
 		Payload:   flow.WrapPayload(payload, h.Config.To.Envelope),
+		// What the message carried, for a connector that identifies the record
+		// by something in it: Elasticsearch takes the document id this way, and
+		// with no filters at all it could only ever write to an id of its own
+		// invention — so `index` could not put a document where a flow said.
+		Filters: identifiers(input),
 	}
 
 	// Override operation if specified in to block config
@@ -2429,13 +2681,26 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 
 	// For GraphQL and gRPC operations, return the created object instead of {id, affected}
 	// This allows mutations like `createUser(input: {...}) { id email name }` to work
-	if (isGraphQLOperation(h.Config.From.GetOperation()) || h.SourceType == "grpc") && result.LastID != 0 {
+	//
+	// Read back by the id the flow assigned when there is one. It used to use
+	// only the driver's last insert id, which for a table keyed by anything
+	// other than an autoincrementing integer is the row's position — so a
+	// mutation whose flow generates its own key read back nothing and GraphQL
+	// answered "Cannot return null for non-nullable field User.email" for a
+	// record that had just been written.
+	writtenID, hasWrittenID := payload["id"]
+	if (isGraphQLOperation(h.Config.From.GetOperation()) || h.SourceType == "grpc") &&
+		(result.LastID != 0 || hasWrittenID) {
 		// Try to read back the created record
 		if reader, ok := dest.(connector.Reader); ok {
+			readBy := interface{}(result.LastID)
+			if hasWrittenID && writtenID != nil {
+				readBy = writtenID
+			}
 			query := connector.Query{
-				Target:    h.Config.To.GetTarget(),
+				Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 				Operation: "SELECT",
-				Filters:   map[string]interface{}{"id": result.LastID},
+				Filters:   map[string]interface{}{"id": readBy},
 			}
 			readResult, err := meteredRead(ctx, reader, query)
 			if err == nil && len(readResult.Rows) > 0 {
@@ -2449,11 +2714,35 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		return result.Metadata, nil
 	}
 
-	// Default: return insert metadata
+	// Default: return insert metadata.
+	//
+	// The id the flow assigned wins over the one the driver reports. A flow
+	// that generates its own key — `id = "uuid()"`, which is the first thing
+	// the quick start teaches — was answered with the row's position in the
+	// table instead: `{"affected":1,"id":1}` for a record whose id is a uuid,
+	// so a caller that created something and then fetched it by the id it was
+	// given looked up a record that does not exist.
+	assigned := result.LastID
+	if written, ok := payload["id"]; ok && written != nil {
+		return map[string]interface{}{
+			"id":       written,
+			"affected": result.Affected,
+		}, nil
+	}
 	return map[string]interface{}{
-		"id":       result.LastID,
+		"id":       assigned,
 		"affected": result.Affected,
 	}, nil
+}
+
+// transformHint points at the transform when there is one, since an empty
+// payload from a flow that shapes its writes is a different mistake from an
+// empty request body.
+func transformHint(cfg *flow.Config) string {
+	if cfg.Transform != nil && len(cfg.Transform.Mappings) > 0 {
+		return " and the transform produced no fields"
+	}
+	return ""
 }
 
 // handleUpdate handles PUT/PATCH requests.
@@ -2465,9 +2754,7 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 		delete(input, "id")
 	}
 
-	// Remove internal GraphQL optimization fields from input
-	delete(input, "__requested_fields")
-	delete(input, "__requested_top_fields")
+	stripInternalFields(input)
 
 	// Apply transforms if configured
 	payload, err := h.applyTransforms(ctx, input)
@@ -2479,7 +2766,7 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 	delete(payload, "headers")
 
 	data := &connector.Data{
-		Target:    h.Config.To.GetTarget(),
+		Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 		Operation: "UPDATE",
 		Payload:   flow.WrapPayload(payload, h.Config.To.Envelope),
 		Filters:   make(map[string]interface{}),
@@ -2540,7 +2827,7 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 // handleDelete handles DELETE requests.
 func (h *FlowHandler) handleDelete(ctx context.Context, input map[string]interface{}, dest connector.Writer) (interface{}, error) {
 	data := &connector.Data{
-		Target:    h.Config.To.GetTarget(),
+		Target:    connector.ResolveTarget(h.Config.To.GetTarget(), input),
 		Operation: "DELETE",
 		Filters:   make(map[string]interface{}),
 	}
@@ -2788,6 +3075,15 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 		}
 		transformInput["output"] = basePayload
 
+		// A flow may shape each destination and never declare a transform of
+		// its own, and then nothing has built the evaluator: this took the
+		// service down with a nil dereference on the first message, which is
+		// what a fan-out to two destinations with a transform on each looks
+		// like.
+		if err := h.ensureTransformer(); err != nil {
+			return nil, err
+		}
+
 		// Convert map[string]string to []transform.Rule
 		rules := transform.RulesFromMappings(destConfig.Transform, destConfig.TransformOrder)
 
@@ -2802,8 +3098,22 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 
 	// Build data for write
 	data := &connector.Data{
-		Target:  destConfig.GetTarget(),
+		// Resolved against the message rather than the payload: a
+		// per-destination transform has already replaced the payload by now,
+		// so a target naming a field of the message would find nothing in it.
+		Target:  connector.ResolveTarget(destConfig.GetTarget(), input),
 		Payload: flow.WrapPayload(payload, destConfig.Envelope),
+	}
+
+	// Extra parameters the destination declares. The reference documents these
+	// as CEL expressions and maps them to connector.Data.Params, and nothing
+	// ever put them there: a `to` block's params reached no connector at all.
+	if len(destConfig.GetParams()) > 0 {
+		params, err := h.resolveFilterDocument(ctx, destConfig.GetParams(), input)
+		if err != nil {
+			return nil, fmt.Errorf("params: %w", err)
+		}
+		data.Params = params
 	}
 
 	// Set operation type
@@ -2835,7 +3145,11 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 
 	// Set query filter for NoSQL (MongoDB)
 	if len(destConfig.GetQueryFilter()) > 0 {
-		data.Filters = destConfig.GetQueryFilter()
+		resolved, err := h.resolveFilterDocument(ctx, destConfig.GetQueryFilter(), input)
+		if err != nil {
+			return nil, err
+		}
+		data.Filters = resolved
 	}
 
 	// Set update document for NoSQL
@@ -2884,6 +3198,111 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 	}, nil
 }
 
+// resolveFilterDocument resolves the values in a filter document against the
+// message.
+//
+// The documentation writes one as `query_filter = { order_id = "input.order_id" }`,
+// and the examples as `{ "_id" = ":id" }` — the two ways everything else in
+// Mycel refers to something the message carries. Neither was resolved: the
+// document went to the driver as written, so it matched documents whose field
+// literally held the text "input.order_id", which is to say none.
+//
+// Operators and constants pass through: `{ status = "active" }` and
+// `{ created_at = { "$gte" = "input.since" } }` both mean what they say.
+func (h *FlowHandler) resolveFilterDocument(
+	ctx context.Context,
+	document map[string]interface{},
+	input map[string]interface{},
+) (map[string]interface{}, error) {
+	// A read flow may have no transform block, and then nothing has built the
+	// evaluator yet — without it every expression here would be left as the
+	// text it is, and the filter would match documents holding that text.
+	if err := h.ensureTransformer(); err != nil {
+		return nil, err
+	}
+
+	out := make(map[string]interface{}, len(document))
+	for key, val := range document {
+		resolved, err := h.resolveFilterValue(ctx, key, val, input)
+		if err != nil {
+			return nil, err
+		}
+		out[key] = resolved
+	}
+	return out, nil
+}
+
+func (h *FlowHandler) resolveFilterValue(
+	ctx context.Context,
+	key string,
+	val interface{},
+	input map[string]interface{},
+) (interface{}, error) {
+	switch typed := val.(type) {
+	case map[string]interface{}:
+		return h.resolveFilterDocument(ctx, typed, input)
+
+	case []interface{}:
+		out := make([]interface{}, len(typed))
+		for i, item := range typed {
+			resolved, err := h.resolveFilterValue(ctx, key, item, input)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = resolved
+		}
+		return out, nil
+
+	case string:
+		// ":name" is the path parameter of that name.
+		if strings.HasPrefix(typed, ":") {
+			if value, found := input[strings.TrimPrefix(typed, ":")]; found {
+				return value, nil
+			}
+			return typed, nil
+		}
+		if h.Transformer == nil || !strings.Contains(typed, "input.") {
+			return typed, nil
+		}
+		result, err := h.Transformer.EvaluateExpression(ctx, input, nil, typed)
+		if err != nil {
+			return nil, fmt.Errorf("query_filter %s: %w", key, err)
+		}
+		return result, nil
+	}
+
+	return val, nil
+}
+
+// evaluateStepValues resolves the expressions in a step's params or body.
+//
+// A value that mentions the message or an earlier step is evaluated; anything
+// else is the literal it looks like, so a constant stays a constant.
+func (h *FlowHandler) evaluateStepValues(
+	ctx context.Context,
+	step *flow.StepConfig,
+	what string,
+	values map[string]interface{},
+	input map[string]interface{},
+	stepResults map[string]interface{},
+) (map[string]interface{}, error) {
+	out := make(map[string]interface{}, len(values))
+	for key, val := range values {
+		text, isText := val.(string)
+		if !isText || h.Transformer == nil ||
+			(!strings.Contains(text, "input.") && !strings.Contains(text, "step.")) {
+			out[key] = val
+			continue
+		}
+		result, err := h.Transformer.EvaluateExpressionWithSteps(ctx, input, stepResults, text)
+		if err != nil {
+			return nil, fmt.Errorf("step %s: failed to evaluate %s %s: %w", step.Name, what, key, err)
+		}
+		out[key] = result
+	}
+	return out, nil
+}
+
 // Operation represents a parsed HTTP operation from flow config.
 type Operation struct {
 	Method string
@@ -2893,8 +3312,20 @@ type Operation struct {
 // IsRead reports whether the operation has read semantics. QUERY (RFC 10008)
 // is a safe, idempotent method that carries its query in the request body —
 // it shares GET's read path, response shaping, and caching behavior.
+//
+// HEAD and OPTIONS are safe methods too (RFC 9110 §9.2.1), and a flow may
+// serve either: the editor offers both, and the router registers them like any
+// other. Without them here they fell through to the write path and were
+// dispatched as INSERT, so `operation = "HEAD /items"` — a plausible thing to
+// write, and offered by completion — answered 500 to every request and would
+// have written had the payload suited the table. Go's server drops the body of
+// a HEAD response itself, which is the rest of what HEAD means.
 func (o Operation) IsRead() bool {
-	return o.Method == "GET" || o.Method == "QUERY"
+	switch o.Method {
+	case "GET", "QUERY", "HEAD", "OPTIONS":
+		return true
+	}
+	return false
 }
 
 // destMethodIsQuery reports whether a flow destination targets the HTTP QUERY
@@ -3060,6 +3491,26 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 		return make(map[string]interface{}), nil
 	}
 
+	// Announced, because a phase that runs without saying so cannot be traced
+	// and cannot be stopped at. The stage was named in the trace package, given
+	// a line by the debug adapter and offered as a breakpoint by the editor,
+	// and nothing ever emitted it: a breakpoint on it waited forever, and a
+	// trace of a flow with steps did not show them running.
+	out, err := trace.RecordStage(ctx, trace.StageStep, "", input, func() (interface{}, error) {
+		return h.executeStepsCore(ctx, input)
+	})
+	if err != nil {
+		return nil, err
+	}
+	results, _ := out.(map[string]interface{})
+	if results == nil {
+		results = make(map[string]interface{})
+	}
+	return results, nil
+}
+
+func (h *FlowHandler) executeStepsCore(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
+
 	// Initialize CEL transformer if needed (for evaluating step params and conditions)
 	if h.Transformer == nil {
 		var err error
@@ -3134,26 +3585,18 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 		}
 
 		// Build params by evaluating CEL expressions if needed
-		params := make(map[string]interface{})
-		if h.Transformer != nil && len(step.GetParams()) > 0 {
-			for key, val := range step.GetParams() {
-				// If value is a string that looks like an expression, evaluate it
-				if strVal, ok := val.(string); ok {
-					if strings.Contains(strVal, "input.") || strings.Contains(strVal, "step.") {
-						result, err := h.Transformer.EvaluateExpressionWithSteps(ctx, input, stepResults, strVal)
-						if err != nil {
-							return nil, fmt.Errorf("step %s: failed to evaluate param %s: %w", step.Name, key, err)
-						}
-						params[key] = result
-						continue
-					}
-				}
-				params[key] = val
-			}
-		} else {
-			for key, val := range step.GetParams() {
-				params[key] = val
-			}
+		params, err := h.evaluateStepValues(ctx, step, "param", step.GetParams(), input, stepResults)
+		if err != nil {
+			return nil, err
+		}
+
+		// And the body the same way. It was passed through as written, so the
+		// documented form — body = { items = "step.cart.items" } — sent that
+		// text over the wire, and a step writing to a database stored the words
+		// "input.name" in the column.
+		body, err := h.evaluateStepValues(ctx, step, "body field", step.GetBody(), input, stepResults)
+		if err != nil {
+			return nil, err
 		}
 
 		// Execute the step based on connector type and operation
@@ -3184,20 +3627,15 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					}
 					return nil, fmt.Errorf("step %s: query failed: %w", step.Name, err)
 				}
-				// Return single row if only one result
-				if len(readResult.Rows) == 1 {
-					result = readResult.Rows[0]
-				} else {
-					result = readResult.Rows
-				}
+				result = stepRows(step, readResult.Rows)
 			}
 		} else if step.GetOperation() != "" {
 			// HTTP/REST or other operation-based connector
 			if caller, ok := conn.(Caller); ok {
 				// For Caller interface (TCP, HTTP client, gRPC)
 				callParams := params
-				if len(step.GetBody()) > 0 {
-					callParams = step.GetBody()
+				if len(body) > 0 {
+					callParams = body
 				}
 				callResult, err := meteredCall(ctx, caller, step.GetOperation(), callParams)
 				if err != nil {
@@ -3216,8 +3654,15 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					return nil, fmt.Errorf("step %s: call failed: %w", step.Name, err)
 				}
 				result = callResult
-			} else if reader, ok := conn.(connector.Reader); ok {
-				// For Reader interface (database SELECT)
+			} else if reader, ok := conn.(connector.Reader); ok && !connector.IsWriteOperation(step.GetOperation()) {
+				// For Reader interface (database SELECT).
+				//
+				// Which ability to use is decided by the operation, not by
+				// which interface the connector happens to satisfy first: a
+				// database satisfies both, so a step naming INSERT came down
+				// here and the branch below was unreachable. A step could not
+				// write, and did not say so — the insert quietly became a
+				// select, and the id a later step wanted was never there.
 				query := connector.Query{
 					Target:    step.GetTarget(),
 					Operation: step.GetOperation(),
@@ -3239,17 +3684,13 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 					}
 					return nil, fmt.Errorf("step %s: read failed: %w", step.Name, err)
 				}
-				if len(readResult.Rows) == 1 {
-					result = readResult.Rows[0]
-				} else {
-					result = readResult.Rows
-				}
+				result = stepRows(step, readResult.Rows)
 			} else if writer, ok := conn.(connector.Writer); ok {
 				// For Writer interface (INSERT, UPDATE, DELETE)
 				data := &connector.Data{
 					Target:    step.GetTarget(),
 					Operation: step.GetOperation(),
-					Payload:   flow.WrapPayload(step.GetBody(), step.Envelope),
+					Payload:   flow.WrapPayload(body, step.Envelope),
 					Filters:   params,
 				}
 				writeResult, err := meteredWrite(ctx, writer, data)
@@ -3315,6 +3756,32 @@ func (h *FlowHandler) executeSteps(ctx context.Context, input map[string]interfa
 	return stepResults, nil
 }
 
+// stepRows is what a step read leaves behind for the steps after it.
+//
+// One row is that row, so `step.user.name` reads a field. Several are the list.
+// None used to be the empty list, which is where this went wrong: every later
+// reference to `step.user.name` then indexed a list with a string, and CEL says
+// so in those words — "unsupported index type 'string' in list" — naming
+// neither the step nor the fact that its query matched nothing. A lookup that
+// finds no row is a common thing for a flow to have to handle, and it read like
+// a bug in the expression.
+//
+// So nothing found is nothing, and a step that declares a `default` gets it,
+// which is what a default is for.
+func stepRows(step *flow.StepConfig, rows []map[string]interface{}) interface{} {
+	switch {
+	case len(rows) == 1:
+		return rows[0]
+	case len(rows) == 0:
+		if step.Default != nil {
+			return step.Default
+		}
+		return nil
+	default:
+		return rows
+	}
+}
+
 // analyzeNeededSteps determines which steps are needed based on requested fields.
 // Returns nil if no optimization is possible (execute all steps).
 // Returns a map of step names to whether they should be executed.
@@ -3349,6 +3816,21 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 		return make(map[string]interface{}), nil
 	}
 
+	out, err := trace.RecordStage(ctx, trace.StageEnrich, "", input, func() (interface{}, error) {
+		return h.executeEnrichmentsCore(ctx, input, enrichments)
+	})
+	if err != nil {
+		return nil, err
+	}
+	enrichedOut, _ := out.(map[string]interface{})
+	if enrichedOut == nil {
+		enrichedOut = make(map[string]interface{})
+	}
+	return enrichedOut, nil
+}
+
+func (h *FlowHandler) executeEnrichmentsCore(ctx context.Context, input map[string]interface{}, enrichments []*flow.EnrichConfig) (map[string]interface{}, error) {
+
 	enriched := make(map[string]interface{})
 
 	for _, enrich := range enrichments {
@@ -3379,8 +3861,21 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 		// Execute the enrichment based on connector capabilities
 		var result interface{}
 
-		// Try as a Reader first
-		if reader, ok := conn.(connector.Reader); ok {
+		// A call before a read, where the connector can do both.
+		//
+		// An enrichment asks a service a question — it has params, not filters
+		// — and the read path flattens the answer: a GraphQL field holding a
+		// list of one came back as the object, and the same field holding two
+		// came back as the list, so a gateway forwarding it answered a
+		// different shape depending on how many rows existed upstream. The
+		// call path hands back what the service actually said.
+		if caller, ok := conn.(Caller); ok {
+			callResult, err := meteredCall(ctx, caller, enrich.GetOperation(), params)
+			if err != nil {
+				return nil, fmt.Errorf("enrich %s: call failed: %w", enrich.Name, err)
+			}
+			result = callResult
+		} else if reader, ok := conn.(connector.Reader); ok {
 			query := connector.Query{
 				Target:    enrich.GetOperation(),
 				Operation: "SELECT",
@@ -3396,13 +3891,6 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 			} else {
 				result = readResult.Rows
 			}
-		} else if caller, ok := conn.(Caller); ok {
-			// Try as a Caller (for TCP, HTTP, etc.)
-			callResult, err := meteredCall(ctx, caller, enrich.GetOperation(), params)
-			if err != nil {
-				return nil, fmt.Errorf("enrich %s: call failed: %w", enrich.Name, err)
-			}
-			result = callResult
 		} else {
 			return nil, fmt.Errorf("enrich %s: connector %s does not support read or call operations", enrich.Name, enrich.Connector)
 		}
@@ -3414,6 +3902,24 @@ func (h *FlowHandler) executeEnrichments(ctx context.Context, input map[string]i
 }
 
 // applyTransforms applies configured transformations to the input data.
+// stepResultsKey carries what a flow's steps gathered to whoever shapes its
+// answer.
+type stepResultsKey struct{}
+
+// withStepResults returns a context carrying what the steps produced.
+func withStepResults(ctx context.Context, results map[string]interface{}) context.Context {
+	if len(results) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, stepResultsKey{}, results)
+}
+
+// stepResultsFrom returns what the flow's steps gathered, or nothing.
+func stepResultsFrom(ctx context.Context) map[string]interface{} {
+	results, _ := ctx.Value(stepResultsKey{}).(map[string]interface{})
+	return results
+}
+
 // applyResponseTransform applies response transformation rules to the result.
 // Available variables: input (original request), output (destination result).
 func (h *FlowHandler) applyResponseTransform(ctx context.Context, input map[string]interface{}, result interface{}) (interface{}, error) {
@@ -3440,7 +3946,7 @@ func (h *FlowHandler) applyResponseTransform(ctx context.Context, input map[stri
 		output["items"] = v
 	}
 
-	transformed, err := h.Transformer.TransformResponse(ctx, input, output, rules)
+	transformed, err := h.Transformer.TransformResponseWithSteps(ctx, input, output, stepResultsFrom(ctx), rules)
 	if err != nil {
 		return nil, err
 	}
@@ -3797,12 +4303,21 @@ func (h *FlowHandler) buildCacheKey(input map[string]interface{}) string {
 	keyTemplate := h.Config.Cache.Key
 	if keyTemplate == "" && h.Config.Cache.Use != "" {
 		// If using named cache, build default key from flow name
+		if _, ok := h.NamedCaches[h.Config.Cache.Use]; ok {
+			keyTemplate = h.Config.Name
+		}
+	}
+
+	// A named cache's prefix goes on whatever key is used, which is what a
+	// prefix is: the namespace shared by everything in that cache. It used to
+	// apply only when the flow wrote no key of its own, so two flows sharing a
+	// named cache with keys of their own shared its keyspace as well — and
+	// prefixing is exactly what keeps them apart. The field's own comment, the
+	// documentation and the name all said "prepended to all cache keys".
+	prefix := ""
+	if h.Config.Cache.Use != "" {
 		if named, ok := h.NamedCaches[h.Config.Cache.Use]; ok {
-			if named.Prefix != "" {
-				keyTemplate = named.Prefix + ":" + h.Config.Name
-			} else {
-				keyTemplate = h.Config.Name
-			}
+			prefix = named.Prefix
 		}
 	}
 
@@ -3824,11 +4339,19 @@ func (h *FlowHandler) buildCacheKey(input map[string]interface{}) string {
 		for _, k := range names {
 			keyTemplate += fmt.Sprintf(":%s=%v", k, input[k])
 		}
-		return keyTemplate
+		return withCachePrefix(prefix, keyTemplate)
 	}
 
 	// Interpolate variables in key template
-	return h.interpolateKey(keyTemplate, input)
+	return withCachePrefix(prefix, h.interpolateKey(keyTemplate, input))
+}
+
+// withCachePrefix puts a named cache's prefix in front of a key.
+func withCachePrefix(prefix, key string) string {
+	if prefix == "" || key == "" {
+		return key
+	}
+	return prefix + ":" + key
 }
 
 // interpolateKey replaces ${input.xxx} placeholders with actual values.
@@ -3987,7 +4510,7 @@ func (h *FlowHandler) getCacheTTL() time.Duration {
 
 	// First check flow-level TTL
 	if h.Config.Cache.TTL != "" {
-		if ttl, err := time.ParseDuration(h.Config.Cache.TTL); err == nil {
+		if ttl, err := flow.ParseDuration(h.Config.Cache.TTL); err == nil {
 			return ttl
 		}
 	}
@@ -3995,7 +4518,7 @@ func (h *FlowHandler) getCacheTTL() time.Duration {
 	// Fall back to named cache TTL
 	if h.Config.Cache.Use != "" {
 		if named, ok := h.NamedCaches[h.Config.Cache.Use]; ok && named.TTL != "" {
-			if ttl, err := time.ParseDuration(named.TTL); err == nil {
+			if ttl, err := flow.ParseDuration(named.TTL); err == nil {
 				return ttl
 			}
 		}

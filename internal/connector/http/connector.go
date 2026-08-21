@@ -445,6 +445,18 @@ func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector
 // step.<name>.<field>.
 func (c *Connector) Call(ctx context.Context, operation string, params map[string]interface{}) (interface{}, error) {
 	method, path := parseTarget(operation)
+
+	// Path parameters, taken out of the params before the rest are sent.
+	//
+	// `GET /customers/:id` is how a REST API is addressed, and there was no
+	// way to say it: the path was concatenated as written and every parameter
+	// went to the query string or the body, so a step could not fetch
+	// /customers/42 at all. The documentation had invented
+	// `"GET /customers/${step.order.customer_id}"` for it, in eight places —
+	// HCL interpolation of a CEL variable, which does not exist when the
+	// configuration is read, so the attribute could not be evaluated and the
+	// step ended up with no operation whatsoever.
+	path, params = fillPathParams(path, params)
 	fullURL := c.baseURL + path
 
 	var body io.Reader
@@ -477,6 +489,45 @@ func (c *Connector) Call(ctx context.Context, operation string, params map[strin
 		return result.Rows[0], nil
 	}
 	return result.Rows, nil
+}
+
+// fillPathParams substitutes `:name` and `{name}` segments from params and
+// returns what is left for the query string or the body.
+//
+// A parameter that names a path segment is spent there: sending it again as a
+// query parameter would be a second, contradictory statement of the same
+// thing.
+func fillPathParams(path string, params map[string]interface{}) (string, map[string]interface{}) {
+	if len(params) == 0 || !strings.ContainsAny(path, ":{") {
+		return path, params
+	}
+
+	remaining := make(map[string]interface{}, len(params))
+	for name, value := range params {
+		remaining[name] = value
+	}
+
+	segments := strings.Split(path, "/")
+	for i, segment := range segments {
+		name := ""
+		switch {
+		case strings.HasPrefix(segment, ":"):
+			name = segment[1:]
+		case strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}"):
+			name = segment[1 : len(segment)-1]
+		default:
+			continue
+		}
+
+		value, declared := remaining[name]
+		if !declared {
+			continue
+		}
+		segments[i] = url.PathEscape(fmt.Sprintf("%v", value))
+		delete(remaining, name)
+	}
+
+	return strings.Join(segments, "/"), remaining
 }
 
 // doRequest executes an HTTP request with authentication.

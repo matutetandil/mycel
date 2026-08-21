@@ -9,7 +9,7 @@
 
 connector "api" {
   type = "rest"
-  mode = "server"
+
   port = env("API_PORT", 8080)
 }
 

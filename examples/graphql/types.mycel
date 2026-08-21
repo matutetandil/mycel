@@ -7,9 +7,15 @@ type "User" {
   _shareable   = true
   _description = "A user entity in the federated graph"
 
-  id    = string
+  # `id` is its own type: it publishes as GraphQL's ID, which accepts both a
+  # number and a string, so `user(id: 1)` and `$id: ID!` both work.
+  id    = id
   email = string
   name  = string
+
+  # The flows write it and the README asks for it; a field a type does not
+  # declare is refused: "Cannot query field \"createdAt\" on type \"User\"."
+  createdAt = string
 }
 
 # Product type with multiple keys (compound key federation)

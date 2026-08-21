@@ -19,7 +19,10 @@ connector "api" {
 connector "db" {
   type     = "database"
   driver   = "sqlite"
-  database = ":memory:"  # In-memory for demo, use "./data.db" for persistence
+  # A file, not ":memory:": each connection in the pool gets its own private
+  # in-memory database, so a product written by one request is not there for
+  # the next — which makes a caching demonstration impossible to follow.
+  database = "./data/cache_demo.db"
 }
 
 # =====================

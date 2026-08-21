@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	goruntime "runtime"
 	"sort"
 	"strings"
@@ -257,19 +258,15 @@ func New(opts Options) (*Runtime, error) {
 	// each flow is wired, and every one of them has to see the same values.
 	transform.SetDefaultConstants(config.Constants)
 
-	// Check each flow's "from" block against its source connector's schema,
-	// so a missing required parameter fails here instead of surfacing later
-	// as a confusing runtime error.
-	if errs := ValidateFlowSchemas(config, schemaReg); len(errs) > 0 {
-		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
-	}
-
-	if errs := ValidateAuthHooks(config); len(errs) > 0 {
-		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
-	}
-
-	// And each connector's settings against the words that connector accepts.
-	if errs := ValidateConnectorSchemas(config, schemaReg); len(errs) > 0 {
+	// Everything that is wrong, rather than the first thing.
+	//
+	// Each of these used to return on its own, so a configuration with a bad
+	// duration and a broken connector reference reported the duration, was
+	// fixed, and reported the reference on the next start — which on a
+	// deployment is a whole cycle per mistake. `mycel validate` reports them
+	// together and so does this, from the same list, so the two cannot come to
+	// disagree about what is checked.
+	if errs := ValidateAll(config, schemaReg); len(errs) > 0 {
 		return nil, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
 	}
 
@@ -719,6 +716,11 @@ func (r *Runtime) Start(ctx context.Context) error {
 	// Print startup warnings for production environment
 	r.printStartupWarnings()
 
+	// And, in every environment, the settings a connector was given and does
+	// not read: those are the same mistake on a laptop as in production, and
+	// the symptom is a default quietly standing in for what was written.
+	r.warnAboutUnreadAttributes(r.schemaRegistry)
+
 	r.logger.Info("starting service",
 		"service", serviceName,
 		"version", serviceVersion,
@@ -767,6 +769,10 @@ func (r *Runtime) Start(ctx context.Context) error {
 
 	// Mount the auth endpoints and the inbound webhooks, after flows so that a
 	// flow claiming one of those paths keeps it.
+	// After the connectors exist, since whether a destination is used depends
+	// on what it can do.
+	reportIgnoredDestinations(r.logger, r.config.Flows, r.connectors)
+
 	r.wireAPIKeyValidators()
 	r.mountAuthEndpoints()
 	r.mountInboundWebhooks()
@@ -912,6 +918,39 @@ func (r *Runtime) printStartupWarnings() {
 		r.logger.Warn("no authentication configured in production",
 			"suggestion", "consider adding an auth block to secure your endpoints")
 	}
+
+	// And the one that undoes TLS while looking like it configures it.
+	//
+	// insecure_skip_verify does not relax certificate checking, it turns it
+	// off: the connection is still encrypted and anyone who can answer for the
+	// address can read it. It is the setting people reach for to get past a
+	// self-signed certificate in development and the one they forget to take
+	// out, and nothing said a word about it in production.
+	for _, cfg := range r.config.Connectors {
+		if !skipsCertificateVerification(cfg.Properties) {
+			continue
+		}
+		r.logger.Warn("certificate verification is turned off",
+			"connector", cfg.Name,
+			"environment", r.environment,
+			"detail", "the connection is encrypted and unauthenticated: anything that can answer for the address can read it",
+			"suggestion", "name the certificate authority with ca_cert instead")
+	}
+}
+
+// skipsCertificateVerification reports whether a connector's tls block turns
+// verification off, whichever way it spells it.
+func skipsCertificateVerification(props map[string]interface{}) bool {
+	tls, ok := props["tls"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	for _, name := range []string{"insecure_skip_verify", "skip_verify", "insecure"} {
+		if enabled, ok := tls[name].(bool); ok && enabled {
+			return true
+		}
+	}
+	return false
 }
 
 // InitForTrace partially initializes the runtime for trace mode.
@@ -1290,10 +1329,21 @@ func (r *Runtime) registerFlows() error {
 	fmt.Println("    Flows:")
 
 	for _, cfg := range r.config.Flows {
-		// Get source connector
-		source, err := r.connectors.Get(cfg.From.Connector)
-		if err != nil {
-			return fmt.Errorf("flow %s: source connector not found: %w", cfg.Name, err)
+		// A scheduled flow has no source: the clock is what triggers it, which
+		// is how the documentation describes `when` and how the scheduled
+		// example is written. Reading through a nil `from` crashed the service
+		// at startup — the example demonstrating the feature could not be
+		// started, and `mycel validate` accepted it.
+		var source connector.Connector
+		var err error
+		if cfg.From != nil && cfg.From.GetConnector() != "" {
+			source, err = r.connectors.Get(cfg.From.GetConnector())
+			if err != nil {
+				return fmt.Errorf("flow %s: source connector not found: %w", cfg.Name, err)
+			}
+		} else if cfg.When == "" {
+			// No source and no schedule: nothing would ever run it.
+			return fmt.Errorf("flow %q has no from block and no when schedule, so nothing can trigger it", cfg.Name)
 		}
 
 		// Get destination connector (optional — flows without "to" are echo flows)
@@ -1307,9 +1357,9 @@ func (r *Runtime) registerFlows() error {
 
 		// Validate connector-specific parameters if connectors implement validators.
 		// Validators may set defaults (e.g., operation = "*") in ConnectorParams.
-		if sv, ok := source.(connector.SourceValidator); ok {
+		if sv, ok := source.(connector.SourceValidator); ok && cfg.From != nil {
 			if err := sv.ValidateSourceParams(cfg.From.ConnectorParams); err != nil {
-				return fmt.Errorf("flow %s: source %s: %w", cfg.Name, cfg.From.Connector, err)
+				return fmt.Errorf("flow %s: source %s: %w", cfg.Name, cfg.From.GetConnector(), err)
 			}
 		}
 		if dest != nil {
@@ -1324,7 +1374,7 @@ func (r *Runtime) registerFlows() error {
 		handler := &FlowHandler{
 			Config:             cfg,
 			Source:             source,
-			SourceType:         r.getConnectorType(cfg.From.Connector),
+			SourceType:         r.sourceTypeOf(cfg),
 			Dest:               dest,
 			NamedTransforms:    r.transforms,
 			Types:              r.types,
@@ -1398,8 +1448,15 @@ func (r *Runtime) registerFlows() error {
 			}
 		}
 
-		// Parse operation to get method and path
-		method, path := r.parseFlowOperation(cfg.From.Connector, cfg.From.GetOperation())
+		// Parse operation to get method and path. A scheduled flow has no
+		// source to parse: what triggers it is the schedule, so that is what
+		// the banner shows.
+		var method, path string
+		if cfg.From != nil {
+			method, path = r.parseFlowOperation(cfg.From.GetConnector(), cfg.From.GetOperation())
+		} else {
+			method, path = "CRON", cfg.When
+		}
 		// "(echo)" is only true of a flow that has no destination and shapes
 		// nothing: a fan-out writes to several places, and a response block
 		// answers with something the flow computed. Reporting all three as an
@@ -1793,7 +1850,7 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 
 	// Find flows that use this connector as source
 	for _, handler := range r.flows.handlers {
-		if handler.Config.From.Connector == connectorName {
+		if handler.Config.From.GetConnector() == connectorName {
 			// Wrap handler with format context if flow declares a format
 			requestHandler := handler.HandleRequest
 			if handler.Config.From.GetFormat() != "" {
@@ -1802,11 +1859,21 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 				requestHandler = func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
 					return origHandler(codec.WithFormat(ctx, fromFormat), input)
 				}
+				// The wrapper above serves the flow. The connector reads the
+				// request and writes the answer against the transport's own
+				// context, which the wrapper cannot reach, so it is told
+				// separately — without this a flow declaring xml answered in
+				// JSON.
+				if fr, ok := conn.(interface {
+					SetOperationFormat(operation, format string)
+				}); ok {
+					fr.SetOperationFormat(handler.Config.From.GetOperation(), fromFormat)
+				}
 			}
 
 			// If flow has a return type and connector supports typed args, use RegisterRouteWithArgs
 			if hasArgsSupport && handler.Config.Returns != "" {
-				args := inferArgsFromFlow(handler.Config)
+				args := inferArgsFromFlow(handler.Config, r.types)
 				routerWithArgs.RegisterRouteWithArgs(
 					handler.Config.From.GetOperation(),
 					requestHandler,
@@ -1840,7 +1907,7 @@ func (r *Runtime) registerJobStatusEndpoint(connectorName string, conn connector
 	hasAsync := false
 	for _, handler := range r.flows.handlers {
 		if handler.Config.From != nil && handler.Config.Async != nil {
-			fromConn := handler.Config.From.Connector
+			fromConn := handler.Config.From.GetConnector()
 			if fromConn == connectorName {
 				hasAsync = true
 				break
@@ -1861,7 +1928,7 @@ func (r *Runtime) registerJobStatusEndpoint(connectorName string, conn connector
 	var storageName string
 	for _, handler := range r.flows.handlers {
 		if handler.Config.From != nil && handler.Config.Async != nil {
-			fromConn := handler.Config.From.Connector
+			fromConn := handler.Config.From.GetConnector()
 			if fromConn == connectorName {
 				storageName = handler.Config.Async.Storage
 				break
@@ -1954,7 +2021,7 @@ func (r *Runtime) registerEntityResolvers(connectorName string, conn connector.C
 		// Look for flows like: from { connector.api = "Query.user" } to { connector.db = "users" }
 		var resolverHandler *FlowHandler
 		for _, handler := range r.flows.handlers {
-			if handler.Config.From.Connector != connectorName {
+			if handler.Config.From.GetConnector() != connectorName {
 				continue
 			}
 			// Check if the flow returns this type
@@ -1974,9 +2041,15 @@ func (r *Runtime) registerEntityResolvers(connectorName string, conn connector.C
 				"connector", connectorName,
 			)
 		} else {
-			r.logger.Debug("no entity resolver found for type (register a flow with entity attribute)",
+			// A type carrying _key is one this subgraph tells the gateway it
+			// can resolve by reference. Without a resolver the gateway routes
+			// those lookups here and gets nothing back, which reads as a null
+			// in the composed graph rather than as an error anywhere — and
+			// this was said at debug level, which is off.
+			r.logger.Warn("a federated type has a key and nothing to resolve it with",
 				"type", typeName,
 				"connector", connectorName,
+				"hint", fmt.Sprintf("give a flow entity = %q, or a returns of %q", typeName, typeName),
 			)
 		}
 	}
@@ -1988,7 +2061,7 @@ func (r *Runtime) registerEntityResolvers(connectorName string, conn connector.C
 // For mutations with a returns type and no step-inferred args, it automatically
 // creates a typed input argument using the returns type (e.g., returns = "user"
 // generates input: UserInput instead of input: JSON).
-func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
+func inferArgsFromFlow(cfg *flow.Config, types map[string]*validate.TypeSchema) []*ArgDef {
 	args := make(map[string]*ArgDef) // Use map to deduplicate
 
 	// Extract from step params
@@ -1998,18 +2071,59 @@ func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
 		}
 	}
 
+	// Whether a mutation takes a typed input object is decided by what the
+	// steps gave, before anything is read from the destination: a mutation
+	// whose destination names its columns as :placeholders would otherwise
+	// publish one argument per column and lose the `input` object it declares.
+	inferredFromSteps := len(args)
+
+	// And from the destination's own query.
+	//
+	// A GraphQL query flow that fetches with `query = "... WHERE sku = :sku"`
+	// named its parameter there and nowhere else, and only a step's params
+	// were read — so the field was published taking no arguments at all, and
+	// asking for `product(sku: "ABC-123")`, which is what the example's README
+	// shows, was answered "Unknown argument sku".
+	for _, to := range destinations(cfg) {
+		for _, name := range namedParameters(to.GetQuery()) {
+			if args[name] == nil {
+				args[name] = &ArgDef{
+					Name:        name,
+					Type:        "string",
+					Required:    false,
+					Description: fmt.Sprintf("Argument %s (inferred from the destination query)", name),
+				}
+			}
+		}
+		for _, value := range to.GetQueryFilter() {
+			extractInputArgs(value, args)
+		}
+	}
+
 	// For mutations with a custom returns type and no step-inferred args,
 	// use the returns type as a typed input argument.
 	// This generates typed input objects (e.g., returns = "user" → input: userInput)
 	// instead of generic JSON. Scalar types are excluded since they don't map
 	// to meaningful input objects.
-	if len(args) == 0 && cfg.Returns != "" && strings.HasPrefix(cfg.From.GetOperation(), "Mutation.") {
+	if inferredFromSteps == 0 && cfg.Returns != "" && strings.HasPrefix(cfg.From.GetOperation(), "Mutation.") {
 		returnsType := strings.TrimSuffix(strings.TrimSuffix(cfg.Returns, "[]"), "!")
 		if !isScalarReturnType(returnsType) {
 			return []*ArgDef{{
 				Name: "input",
 				Type: returnsType,
 			}}
+		}
+	}
+
+	// An argument's type, where the flow says enough to know it: a field of the
+	// type the flow returns, named the same. Everything was published as String
+	// otherwise, so `user(id: 1)` — the example's own query, against an integer
+	// column — was refused: "Expected type String, found 1".
+	if declared := types[strings.TrimSuffix(strings.TrimSuffix(cfg.Returns, "[]"), "!")]; declared != nil {
+		for _, field := range declared.Fields {
+			if arg := args[field.Name]; arg != nil && field.Type != "" {
+				arg.Type = field.Type
+			}
 		}
 	}
 
@@ -2038,6 +2152,30 @@ func inferArgsFromFlow(cfg *flow.Config) []*ArgDef {
 // input.last, input.limit ?? 25 — published no argument, and a client sending
 // one was told it did not exist. Every occurrence is taken now, wherever in the
 // expression it appears.
+// destinations returns every destination a flow writes to or reads from.
+func destinations(cfg *flow.Config) []*flow.ToConfig {
+	var out []*flow.ToConfig
+	if cfg.To != nil {
+		out = append(out, cfg.To)
+	}
+	out = append(out, cfg.MultiTo...)
+	return out
+}
+
+// namedParameters returns the :name placeholders a statement carries.
+var namedParameter = regexp.MustCompile(`:([a-zA-Z_][a-zA-Z0-9_]*)`)
+
+func namedParameters(query string) []string {
+	if query == "" {
+		return nil
+	}
+	var out []string
+	for _, match := range namedParameter.FindAllStringSubmatch(query, -1) {
+		out = append(out, match[1])
+	}
+	return out
+}
+
 func extractInputArgs(value interface{}, args map[string]*ArgDef) {
 	switch v := value.(type) {
 	case string:
@@ -2810,4 +2948,13 @@ func (r *Runtime) AuthManager() *auth.Manager {
 // AuthHandler returns the auth HTTP handler, or nil if auth is not configured.
 func (r *Runtime) AuthHandler() *auth.Handler {
 	return r.authHandler
+}
+
+// sourceTypeOf reports the connector type a flow is triggered from, or "" for a
+// scheduled flow, which is triggered by the clock and names no source.
+func (r *Runtime) sourceTypeOf(cfg *flow.Config) string {
+	if cfg.From == nil || cfg.From.GetConnector() == "" {
+		return ""
+	}
+	return r.getConnectorType(cfg.From.GetConnector())
 }

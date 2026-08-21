@@ -850,7 +850,10 @@ flow "send_reset_email" {
   from { connector = "internal" }
   to {
     connector = "smtp"
-    template  = "Reset your password: https://app.example.com/reset?token=${auth.reset_token}"
+    # A CEL expression, so the token is read when the mail is sent. Written as
+    # an HCL ${...} template it would be resolved as the file is read, and
+    # `auth` does not exist then.
+    template  = "'Reset your password: https://app.example.com/reset?token=' + auth.reset_token"
   }
 }
 ```

@@ -60,9 +60,23 @@ connector "api" {
 connector "db" {
   type   = "database"
   driver = "sqlite"
-  path   = "./data/users.db"
+  database = "./data/users.db"
 }
 ```
+
+```sql
+-- migrations/001_create_users.sql
+CREATE TABLE IF NOT EXISTS users (
+    id         TEXT PRIMARY KEY,
+    email      TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    created_at TEXT
+);
+```
+
+The columns are named as a database names them and the schema below exposes
+them as GraphQL does — `created_at` here, `createdAt` there. Mycel translates
+between the two, so neither has to give up its convention.
 
 ```graphql
 # schema.graphql
@@ -120,6 +134,10 @@ flow "create_user" {
     operation = "Mutation.createUser"
   }
   transform {
+    # The mutation returns `User!`, so the record has to be findable after it
+    # is written — which means the flow assigns the key rather than leaving it
+    # to the database.
+    id         = "uuid()"
     email      = "lower(input.email)"
     name       = "input.name"
     created_at = "now()"
@@ -146,6 +164,7 @@ flow "delete_user" {
 
 ```bash
 # Start service
+mycel migrate --config .
 mycel start --config .
 
 # Query all users
@@ -203,6 +222,11 @@ connector "products_api" {
 }
 ```
 
+A gateway flow has **no `to` block**: what it answers with is what its
+transform builds. Writing `to { connector = "api" }` to mean "reply with this"
+is refused — the REST connector is where the request came from, not somewhere
+to write to.
+
 ```hcl
 # flows.mycel
 
@@ -222,9 +246,6 @@ flow "get_products" {
     products = "enriched.products.products"
   }
 
-  to {
-    connector = "api"  # Returns response
-  }
 }
 
 # GET /products/:id -> GraphQL query with variable
@@ -249,9 +270,6 @@ flow "get_product" {
     description = "enriched.product.product.description"
   }
 
-  to {
-    connector = "api"
-  }
 }
 
 # POST /products -> GraphQL mutation
@@ -274,9 +292,6 @@ flow "create_product" {
     name = "enriched.created.createProduct.name"
   }
 
-  to {
-    connector = "api"
-  }
 }
 ```
 
@@ -365,6 +380,9 @@ type Mutation {
 }
 ```
 
+These flows answer with what their transform builds, so they have no `to`
+block: the GraphQL server is where the request arrived, not a destination.
+
 ```hcl
 # flows.mycel
 
@@ -384,9 +402,6 @@ flow "get_users" {
     result = "enriched.users"
   }
 
-  to {
-    connector = "api"
-  }
 }
 
 # Query.user(id) -> GET /users/:id
@@ -398,7 +413,10 @@ flow "get_user" {
 
   enrich "user" {
     connector = "users_rest"
-    operation = "GET /users/${input.id}"
+    operation = "GET /users/:id"
+    params {
+      id = "input.id"
+    }
   }
 
   transform {
@@ -408,9 +426,6 @@ flow "get_user" {
     avatar = "enriched.user.avatar"
   }
 
-  to {
-    connector = "api"
-  }
 }
 
 # Mutation.createUser -> POST /users
@@ -435,9 +450,6 @@ flow "create_user" {
     name  = "enriched.created.name"
   }
 
-  to {
-    connector = "api"
-  }
 }
 ```
 
@@ -489,7 +501,7 @@ connector "orders_queue" {
 
   host     = env("RABBITMQ_HOST", "localhost")
   port     = 5672
-  user     = env("RABBITMQ_USER", "guest")
+  username = env("RABBITMQ_USER", "guest")
   password = env("RABBITMQ_PASS", "guest")
 
   queue {
@@ -617,7 +629,7 @@ connector "order_events" {
 
   host     = env("RABBITMQ_HOST", "localhost")
   port     = 5672
-  user     = env("RABBITMQ_USER", "guest")
+  username = env("RABBITMQ_USER", "guest")
   password = env("RABBITMQ_PASS", "guest")
 
   publisher {
@@ -631,7 +643,7 @@ connector "order_events" {
 connector "db" {
   type   = "database"
   driver = "sqlite"
-  path   = "./data/orders.db"
+  database = "./data/orders.db"
 }
 ```
 
@@ -750,7 +762,7 @@ connector "events" {
 
   host     = env("RABBITMQ_HOST", "localhost")
   port     = 5672
-  user     = env("RABBITMQ_USER", "guest")
+  username = env("RABBITMQ_USER", "guest")
   password = env("RABBITMQ_PASS", "guest")
 
   publisher {
@@ -763,7 +775,7 @@ connector "events" {
 connector "db" {
   type   = "database"
   driver = "sqlite"
-  path   = "./data/orders.db"
+  database = "./data/orders.db"
 }
 ```
 
@@ -916,7 +928,7 @@ connector "api" {
 connector "db" {
   type   = "database"
   driver = "sqlite"  # or "postgres"
-  path   = "./data/orders.db"
+  database = "./data/orders.db"
 }
 ```
 
@@ -1307,7 +1319,7 @@ The transform builds the mutation's variables; the `to` block names the operatio
 ```hcl
 connector "inventory_graphql" {
   type     = "graphql"
-  mode     = "client"
+  driver   = "client"
   endpoint = env("INVENTORY_GRAPHQL_URL")
   timeout  = "30s"
 }
@@ -1417,7 +1429,6 @@ service {
 
 connector "api" {
   type = "rest"
-  mode = "server"
   port = env("API_PORT", 8080)
 }
 

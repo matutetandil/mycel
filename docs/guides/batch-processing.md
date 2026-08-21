@@ -249,8 +249,13 @@ Use `lock` to ensure a scheduled job doesn't run concurrently on multiple instan
 flow "daily_sync" {
   when = "@daily"
 
+  # Since 2.0 a lock declares its storage inline rather than naming a
+  # connector: a driver, and whatever that driver needs.
   lock {
-    storage = "connector.redis"
+    storage {
+      driver = "redis"
+      url    = env("REDIS_URL", "redis://localhost:6379")
+    }
     key     = "'daily_sync_lock'"
     timeout = "1h"
     wait    = false  # Skip if another instance is running

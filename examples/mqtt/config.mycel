@@ -6,7 +6,7 @@ service {
 # MQTT broker for IoT sensor data
 connector "sensors" {
   type      = "mqtt"
-  broker    = "tcp://localhost:1883"
+  broker    = env("MQTT_BROKER", "tcp://localhost:1883")
   client_id = "mycel-iot-gateway"
   qos       = 1
 }

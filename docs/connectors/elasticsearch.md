@@ -64,8 +64,9 @@ flow "search_products" {
     }
   }
 
-  transform { output.results = "step.results" }
-  to { response }
+  response {
+    results = "step.results"
+  }
 }
 
 # Index a document

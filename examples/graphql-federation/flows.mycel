@@ -115,19 +115,27 @@ flow "create_product" {
   }
 
   transform {
-    sku         = "input.input.sku"
-    name        = "input.input.name"
-    price       = "input.input.price"
-    description = "input.input.description"
-    category    = "input.input.category"
+    sku         = "input.sku"
+    name        = "input.name"
+    price       = "input.price"
+    description = "input.description ?? ''"
+    category    = "input.category"
     in_stock    = "true"
     created_at  = "now()"
     updated_at  = "now()"
   }
 
+  # A mutation answers with the row it made, so the write asks for it back.
+  # Without RETURNING the flow answers {affected, id} and GraphQL refuses it:
+  # "Cannot return null for non-nullable field Product.sku".
   to {
     connector = "db"
     target    = "products"
+    query     = <<-SQL
+      INSERT INTO products (sku, name, price, description, category, in_stock, created_at, updated_at)
+      VALUES (:sku, :name, :price, :description, :category, :in_stock, :created_at, :updated_at)
+      RETURNING *
+    SQL
   }
 
   returns = "Product"
@@ -168,16 +176,21 @@ flow "add_review" {
 
   transform {
     id          = "uuid()"
-    product_sku = "input.input.productSku"
-    rating      = "input.input.rating"
-    comment     = "input.input.comment"
-    author      = "input.input.author"
+    product_sku = "input.productSku"
+    rating      = "input.rating"
+    comment     = "input.comment"
+    author      = "input.author"
     created_at  = "now()"
   }
 
   to {
     connector = "db"
     target    = "reviews"
+    query     = <<-SQL
+      INSERT INTO reviews (id, product_sku, rating, comment, author, created_at)
+      VALUES (:id, :product_sku, :rating, :comment, :author, :created_at)
+      RETURNING *
+    SQL
   }
 
   returns = "Review"

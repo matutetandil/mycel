@@ -209,8 +209,10 @@ func TestDAPProtocol(t *testing.T) {
 
 	// Send setBreakpoints
 	sendDAP(t, conn, 2, "setBreakpoints", &SetBreakpointsArguments{
-		Source:      Source{Name: "test_flow"},
-		Breakpoints: []SourceBreakpoint{{Line: 7}}, // transform
+		Source: Source{Name: "test_flow"},
+		// Asked for by stage rather than by number: the virtual lines follow
+		// the order the stages run in, so inserting one renumbers the rest.
+		Breakpoints: []SourceBreakpoint{{Line: StageLines[string(trace.StageTransform)]}},
 	})
 	bpResp := readDAP(t, reader)
 	if !bpResp.Success {

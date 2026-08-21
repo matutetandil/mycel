@@ -260,3 +260,212 @@ func captureStdout(t *testing.T, fn func()) string {
 	os.Stdout = previous
 	return <-done
 }
+
+// Everything that is wrong, in one run.
+//
+// The checks grew one at a time, each returning as soon as it found something,
+// so a configuration wrong in five ways reported the first kind, was fixed,
+// and reported the next on the following run. That is the experience each
+// check avoids inside itself — every duration at once, every duplicate at once
+// — and they recreated it between them.
+func TestEveryKindOfProblemIsReportedInOneRun(t *testing.T) {
+	withConfigDir(t, project(t, map[string]string{"config.mycel": `
+service {
+  name = "orders"
+}
+
+connector "api" {
+  type = "rest"
+  port = 18392
+}
+
+flow "get_user" {
+  from {
+    connector = "api"
+    operation = "GET /users/:id"
+  }
+
+  cache {
+    storage = "a_cache_nobody_declared"
+    ttl     = "5 minutes"
+  }
+
+  step "one" {
+    connector = "api"
+    on_error  = "ignore"
+  }
+
+  step "one" {
+    connector = "api"
+  }
+
+  validate {
+    input = "no_such_type"
+  }
+}
+`}))
+
+	err := runValidate(nil, nil)
+	if err == nil {
+		t.Fatal("a configuration wrong in five ways was accepted")
+	}
+
+	// The summary names each kind, so somebody reading only the last line
+	// knows how much is ahead of them.
+	for _, kind := range []string{
+		"duration", "step", "type reference", "duplicate name", "connector reference",
+	} {
+		if !strings.Contains(err.Error(), kind) {
+			t.Errorf("the summary does not mention %s errors: %v", kind, err)
+		}
+	}
+}
+
+func TestOneKindOfProblemStillReadsAsOne(t *testing.T) {
+	// The ordinary case: nothing about reporting everything should make a
+	// single mistake harder to read.
+	withConfigDir(t, project(t, map[string]string{"config.mycel": `
+service {
+  name = "orders"
+}
+
+connector "api" {
+  type = "rest"
+  port = 18393
+}
+
+connector "memcache" {
+  type   = "cache"
+  driver = "memory"
+}
+
+flow "get_user" {
+  from {
+    connector = "api"
+    operation = "GET /users/:id"
+  }
+  cache {
+    storage = "memcache"
+    ttl     = "5 minutes"
+  }
+}
+`}))
+
+	err := runValidate(nil, nil)
+	if err == nil {
+		t.Fatal("accepted")
+	}
+	if !strings.Contains(err.Error(), "1 duration error(s)") {
+		t.Errorf("the summary does not read as one problem: %v", err)
+	}
+	// And nothing else is claimed alongside it.
+	if strings.Contains(err.Error(), ",") {
+		t.Errorf("a single problem was summarised as several: %v", err)
+	}
+}
+
+// An env() call with no default and no variable behind it.
+//
+// It resolves to an empty string, and what follows is a service that starts
+// wrong or refuses to start naming something other than the variable. The
+// warning covered connectors, because a connector that cannot start reports a
+// generic "requires X" and the variable was the missing piece — but every
+// block reads env() the same way, and an unset signing secret said nothing at
+// all.
+func TestAnUnsetVariableIsNamedWhereverItIsWritten(t *testing.T) {
+	for name, tc := range map[string]struct {
+		config string
+		expect string
+	}{
+		"in an auth block": {
+			`service {
+  name = "s"
+}
+
+auth {
+  jwt {
+    secret = env("MYCEL_TEST_UNSET_SECRET")
+  }
+}`,
+			`auth (jwt.secret)`,
+		},
+		"in a connector": {
+			`service {
+  name = "s"
+}
+
+connector "db" {
+  type     = "database"
+  driver   = "postgres"
+  host     = env("MYCEL_TEST_UNSET_HOST")
+  user     = "app"
+  database = "app"
+}`,
+			`connector "db" (host)`,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			withConfigDir(t, project(t, map[string]string{"config.mycel": tc.config}))
+
+			out := captureStdout(t, func() {
+				_ = runValidate(nil, nil)
+			})
+			if !strings.Contains(out, "MYCEL_TEST_UNSET") {
+				t.Errorf("the variable is not named:\n%s", out)
+			}
+			if !strings.Contains(out, tc.expect) {
+				t.Errorf("where it was written is not named (want %q):\n%s", tc.expect, out)
+			}
+		})
+	}
+}
+
+// And when the configuration is invalid, the warning comes first: an env()
+// that resolved to nothing is often why one of the errors is there.
+func TestAnUnsetVariableIsNamedEvenWhenValidationFails(t *testing.T) {
+	withConfigDir(t, project(t, map[string]string{"config.mycel": `service {
+  name = "s"
+}
+
+connector "db" {
+  type     = "database"
+  driver   = "postgres"
+  host     = env("MYCEL_TEST_UNSET_HOST")
+  database = "app"
+}`}))
+
+	out := captureStdout(t, func() {
+		_ = runValidate(nil, nil)
+	})
+	if !strings.Contains(out, "MYCEL_TEST_UNSET_HOST") {
+		t.Errorf("the unset variable behind the failure was not named:\n%s", out)
+	}
+	if !strings.Contains(out, "Configuration is invalid") {
+		t.Errorf("the errors themselves are gone:\n%s", out)
+	}
+	// The warning has to come first, or it scrolls past under the errors.
+	if strings.Index(out, "MYCEL_TEST_UNSET_HOST") > strings.Index(out, "Configuration is invalid") {
+		t.Error("the warning is printed after the errors it explains")
+	}
+}
+
+func TestAVariableWithADefaultIsNotReported(t *testing.T) {
+	// Writing a default is how somebody says an empty value is intended, and
+	// warning about it would teach people to stop reading these.
+	withConfigDir(t, project(t, map[string]string{"config.mycel": `service {
+  name = "s"
+}
+
+auth {
+  jwt {
+    secret = env("MYCEL_TEST_UNSET_SECRET", "dev-secret")
+  }
+}`}))
+
+	out := captureStdout(t, func() {
+		_ = runValidate(nil, nil)
+	})
+	if strings.Contains(out, "Unset environment variables") {
+		t.Errorf("a variable with a default was reported:\n%s", out)
+	}
+}

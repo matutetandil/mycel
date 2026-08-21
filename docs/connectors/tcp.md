@@ -6,11 +6,11 @@ Raw TCP server and client with pluggable codecs. Use it for low-level communicat
 
 ```hcl
 connector "tcp_server" {
-  type   = "tcp"
-  driver = "server"
-  host   = "0.0.0.0"
-  port   = 9000
-  codec  = "json"    # "json", "msgpack", "raw", "nestjs"
+  type     = "tcp"
+  driver   = "server"
+  host     = "0.0.0.0"
+  port     = 9000
+  protocol = "json"    # "json", "msgpack", "nestjs"
 }
 ```
 
@@ -18,11 +18,12 @@ connector "tcp_server" {
 
 ```hcl
 connector "tcp_client" {
-  type    = "tcp"
-  driver  = "client"
-  address = "localhost:9000"
-  codec   = "json"
-  timeout = "10s"
+  type            = "tcp"
+  driver          = "client"
+  host            = "localhost"
+  port            = 9000
+  protocol        = "json"
+  connect_timeout = "10s"
 }
 ```
 
@@ -33,8 +34,7 @@ connector "tcp_client" {
 | `driver` | string | — | `server` or `client` |
 | `host` | string | `"0.0.0.0"` | Bind address (server) |
 | `port` | int | — | Listen port (server) |
-| `address` | string | — | Target address (client) |
-| `codec` | string | `"json"` | Wire format: `json`, `msgpack`, `raw`, `nestjs` |
+| `protocol` | string | `"json"` | Wire format: `json`, `msgpack`, `nestjs` |
 
 `msgpack` is MessagePack as the specification defines it, so the peer can be
 anything that implements it. Before 2.19.0 it encoded JSON under that name:

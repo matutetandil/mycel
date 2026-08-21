@@ -78,11 +78,11 @@ func TestAnObjectComesBackTheWayItWasWritten(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = c.Call(ctx, "delete", map[string]interface{}{"key": key}) })
 
-	rows, err := c.Read(ctx, &connector.Query{Target: key})
+	rows, err := c.Read(ctx, connector.Query{Target: key})
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != 1 || rows[0]["sku"] != "WIDGET-1" {
+	if len(rows.Rows) != 1 || rows.Rows[0]["sku"] != "WIDGET-1" {
 		t.Errorf("rows = %v, want what was written", rows)
 	}
 }
@@ -303,11 +303,11 @@ func TestASignedLinkCanBeGivenOutToUploadWith(t *testing.T) {
 	}
 
 	// And what was uploaded is what the bucket holds.
-	rows, err := c.Read(ctx, &connector.Query{Target: key})
+	rows, err := c.Read(ctx, connector.Query{Target: key})
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != 1 || rows[0]["sku"] != "WIDGET-1" {
+	if len(rows.Rows) != 1 || rows.Rows[0]["sku"] != "WIDGET-1" {
 		t.Errorf("rows = %v", rows)
 	}
 }
@@ -352,11 +352,11 @@ func TestListingAPrefixAnswersWithWhatIsUnderIt(t *testing.T) {
 		})
 	}
 
-	rows, err := c.Read(ctx, &connector.Query{Target: prefix})
+	rows, err := c.Read(ctx, connector.Query{Target: prefix})
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	if len(rows) != 2 {
-		t.Errorf("%d objects, want both under the prefix", len(rows))
+	if len(rows.Rows) != 2 {
+		t.Errorf("%d objects, want both under the prefix", len(rows.Rows))
 	}
 }

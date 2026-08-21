@@ -8,6 +8,6 @@ connector "api" {
 # connector (SQLite, MySQL/MariaDB); swap the driver/dsn to point at MySQL.
 connector "db" {
   type   = "database"
-  driver = "sqlite"
-  path   = "./catalog.db"
+  driver   = "sqlite"
+  database = "./catalog.db"
 }

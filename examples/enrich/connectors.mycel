@@ -14,22 +14,20 @@ connector "products_db" {
   database = "./products.db"
 }
 
-# Pricing service (TCP)
-# This would connect to an external pricing microservice
+# Pricing service. Not part of this example — point it at your own, or at
+# anything that answers a price. (A TCP or gRPC service works the same way from
+# a flow's side; see the tcp and grpc examples for those connectors.)
 connector "pricing_service" {
-  type   = "tcp"
-  driver = "client"
+  type = "http"
 
-  host     = "localhost"
-  port     = 9001
-  protocol = "json"
+  base_url = env("PRICING_URL", "http://localhost:9001")
+  timeout  = "5s"
 }
 
-# Inventory service (HTTP client)
-# This would call an external inventory API
+# Inventory service, likewise.
 connector "inventory_service" {
   type = "http"
 
-  base_url = "http://localhost:8080/api"
+  base_url = env("INVENTORY_URL", "http://localhost:8080/api")
   timeout  = "5s"
 }

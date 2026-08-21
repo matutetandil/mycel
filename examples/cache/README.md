@@ -23,9 +23,17 @@ This example demonstrates caching with Mycel using both in-memory and Redis cach
 
 ## Quick Start
 
+The database file is created where the service is started from, so run these
+from this directory.
+
 ```bash
+cd examples/cache
+
+# Create the products and users tables
+mycel migrate --config .
+
 # Start the service
-mycel start --config ./examples/cache
+mycel start --config .
 
 # The service runs on http://localhost:3000
 ```
@@ -265,7 +273,9 @@ flow "name" {
 ### 1. Start the service
 
 ```bash
-mycel start --config ./examples/cache
+cd examples/cache
+mycel migrate --config .
+mycel start --config .
 ```
 
 You should see:

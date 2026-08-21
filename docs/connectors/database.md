@@ -129,13 +129,15 @@ flow "get_user" {
 
   step "user" {
     connector = "db"
-    operation = "query"
-    query     = "SELECT * FROM users WHERE id = ?"
-    params    = [input.id]
+    query     = "SELECT * FROM users WHERE id = :id"
+    params = {
+      id = "input.id"
+    }
   }
 
-  transform { output = "step.user" }
-  to { response }
+  response {
+    user = "step.user"
+  }
 }
 ```
 

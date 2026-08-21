@@ -67,38 +67,34 @@ query {
 }
 ```
 
-### 3. DataLoader (N+1 Prevention)
+### 3. Siblings resolved together
 
-When fetching nested data, Mycel batches queries automatically:
+Fields in one query used to be resolved one after another, so a query asking for
+three things backed by three flows cost the sum of them — three fields over a
+backend answering in 100ms took 318ms. They now overlap: the work starts when a
+field registers and the answer is waited for afterwards, and two fields asking
+for exactly the same thing share one execution.
 
 ```graphql
 query {
-  orders {
-    id
-    user {      # Would cause N+1 without DataLoader
-      name
-    }
-    product {   # Would cause N+1 without DataLoader
-      name
-    }
-  }
+  users { id name }
+  products { id name }
+  orders { id total }
 }
 ```
 
-```sql
--- Without DataLoader (N+1 problem) - 10 orders = 21 queries!
-SELECT * FROM orders
-SELECT * FROM users WHERE id = 'user-1'
-SELECT * FROM products WHERE id = 'prod-1'
-SELECT * FROM users WHERE id = 'user-2'
-SELECT * FROM products WHERE id = 'prod-2'
-... (continues for each order)
+Three flows, three backends, one wait rather than three.
 
--- With DataLoader (automatic!) - only 3 queries
-SELECT * FROM orders
-SELECT * FROM users WHERE id IN ('user-1', 'user-2', 'user-3')
-SELECT * FROM products WHERE id IN ('prod-1', 'prod-2', 'prod-3')
-```
+This is not batching in the DataLoader sense — many keys folded into one query —
+and Mycel does not do that. Batching needs a flow that accepts many keys, and a
+flow takes one input; it also needs somewhere for the N+1 to arise, and a field
+of an object type cannot have a flow at all. Only `Query`, `Mutation` and
+`Subscription` can, so there is no per-row resolver to batch.
+
+Nested entities follow from the same fact: a `user` field inside `Order` has
+nothing to resolve it. Fetch what you need in the flow that serves the query —
+with a join, or with a `step` — rather than declaring an object field and
+expecting it to be filled.
 
 ### 4. CEL-based Conditional Steps
 
@@ -118,8 +114,8 @@ step "pricing" {
 # 1. Navigate to example directory
 cd examples/graphql-optimization
 
-# 2. Create and populate database
-sqlite3 demo.db < setup.sql
+# 2. Create and populate the database
+mycel migrate --config . --connector db
 
 # 3. Start Mycel
 mycel start
@@ -207,29 +203,22 @@ query {
 }
 ```
 
-### Test 3: DataLoader Batching
+### Test 3: Siblings resolved together
 
 ```graphql
-# Fetches all orders with nested user/product
-# Only 3 queries total (not 13!)
 query {
-  orders {
+  users {
     id
-    total
-    status
-    user {
-      id
-      name
-      email
-    }
-    product {
-      id
-      name
-      sku
-    }
+    name
+  }
+  products {
+    id
+    name
   }
 }
 ```
+
+Both flows run at once rather than one after the other.
 
 ## Available CEL Functions
 

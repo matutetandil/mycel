@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -107,8 +108,17 @@ func (s *Server) Start(ctx context.Context) error {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	// Take the port before reporting success: ListenAndServe inside the
+	// goroutine meant a port already in use was logged from a background
+	// thread while startup carried on, and the service reported itself ready
+	// with nothing listening.
+	listener, err := net.Listen("tcp", s.server.Addr)
+	if err != nil {
+		return fmt.Errorf("soap server cannot listen on %s: %w", s.server.Addr, err)
+	}
+
 	go func() {
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			s.logger.Error("SOAP server error", slog.Any("error", err))
 		}
 	}()

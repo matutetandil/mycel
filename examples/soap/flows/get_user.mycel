@@ -12,6 +12,6 @@ flow "get_user" {
 
   to {
     connector = "sqlite"
-    target    = "users"
+    query     = "SELECT * FROM users WHERE email = :Email"
   }
 }

@@ -104,6 +104,28 @@ service {
 | `table` | string | `"mycel_workflows"` | Table name |
 | `auto_create` | bool | `true` | Auto-create table |
 
+#### workflow.api
+
+An HTTP interface to running workflows, on a port of its own — never the admin
+server's.
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `port` | int | `9091` | Port to listen on; may not be the admin port |
+| `host` | string | every interface | Address to bind to |
+
+#### workflow.api.auth
+
+Required: these endpoints wake and cancel workflows.
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `type` | string | **required** — `jwt`, `api_key` or `basic` |
+| `header` | string | Header carrying the key (`api_key`) |
+| `keys` | list | Accepted API keys (`api_key`) |
+| `secret` | string | Secret tokens are signed with (`jwt`) |
+| `jwks_url` | string | Where the signing keys are published (`jwt`) |
+
 ---
 
 ## connector
@@ -172,11 +194,57 @@ connector "db" {
   }
 
   operation "find_by_email" {
-    query  = "SELECT * FROM users WHERE email = $1"
-    params = [{ name = "email", type = "string", required = true }]
+    query = "SELECT * FROM users WHERE email = :email"
+
+    param "email" {
+      type     = "string"
+      required = true
+    }
   }
 }
 ```
+
+#### Named operations
+
+A connector can name what it does, so a flow says `operation = "find_by_email"`
+rather than repeating the query. Which attributes an operation carries depends
+on the connector it belongs to.
+
+| Attribute | Connector | Description |
+|-----------|-----------|-------------|
+| `description` | any | What the operation does |
+| `input` / `output` | any | Type validating what goes in and comes back |
+| `timeout` | any | Operation timeout |
+| `method` | rest, http | HTTP method |
+| `path` | rest, http | HTTP path, `:name` for path parameters |
+| `query` | database | Raw SQL, `:name` for parameters |
+| `table` | database | Table the operation reads or writes |
+| `operation_type` | graphql | `Query`, `Mutation` or `Subscription` |
+| `field` | graphql | Schema field |
+| `service` / `rpc` | grpc | Service and RPC name |
+| `exchange` / `routing_key` / `queue` | mq | Where the message goes |
+| `protocol` / `action` | tcp | Wire protocol and action identifier |
+| `path_pattern` | file, s3 | Path or key pattern |
+| `key_pattern` / `ttl` | cache | Key pattern and how long it lives |
+| `command` / `args` | exec | Command to run and its arguments |
+
+#### `param` inside an operation
+
+Each `param "name" {}` declares one parameter of the operation: what it is,
+where it comes from, and what a valid value looks like. Defaults are filled in
+and constraints are checked before the flow runs.
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `type` | string | Declared type; a value that can be converted to it is |
+| `required` | bool | Reject the request when it is absent and there is no default |
+| `default` | any | Value used when the parameter is not supplied |
+| `description` | string | What the parameter means |
+| `in` | string | Where it comes from: `path`, `query`, `header` or `body` |
+| `min` / `max` | number | Smallest and largest allowed value |
+| `min_length` / `max_length` | number | Shortest and longest allowed value |
+| `pattern` | string | Regular expression the value must match |
+| `enum` | list | The complete set of allowed values |
 
 ### GraphQL
 
@@ -191,9 +259,10 @@ connector "gql" {
   playground_path = "/graphql/playground"
   introspection  = true
 
+  # One or the other: a file, or generated from the type blocks. Naming both
+  # is refused, and naming neither leaves the server with no schema at all.
   schema {
-    path          = "./schema.graphql"
-    auto_generate = true              # Auto-generate from type blocks
+    path = "./schema.graphql"
   }
 
   federation {
@@ -202,10 +271,9 @@ connector "gql" {
   }
 
   subscriptions {
-    enabled   = true
-    transport = "websocket"
-    path      = "/graphql/ws"
-    keepalive = "30s"
+    enabled             = true
+    path                = "/graphql/ws"
+    keep_alive_interval = "30s"
   }
 
   cors {
@@ -220,7 +288,6 @@ connector "external_gql" {
   driver      = "client"
   endpoint    = "https://api.example.com/graphql"
   timeout     = "30s"
-  retry_count = 3
 
   auth {
     type  = "bearer"
@@ -395,12 +462,13 @@ connector "tcp_server" {
 
 # Client
 connector "tcp_client" {
-  type     = "tcp"
-  driver   = "client"
-  host     = "localhost"
-  port     = 9000
-  protocol = "json"
-  timeout  = "10s"
+  type            = "tcp"
+  driver          = "client"
+  host            = "localhost"
+  port            = 9000
+  protocol        = "json"
+  connect_timeout = "10s"
+  read_timeout    = "30s"
 }
 ```
 
@@ -470,8 +538,6 @@ connector "script" {
   input_format  = "json"      # "args", "stdin", "json"
   output_format = "json"      # "text", "json", "lines"
   timeout       = "30s"
-  retry_count   = 3
-  retry_delay   = "1s"
 }
 ```
 
@@ -499,10 +565,15 @@ connector "sse" {
 
 ```hcl
 connector "cdc" {
-  type              = "cdc"
-  driver            = "postgres"
-  connection_string = env("PG_REPLICATION_URL")
-  tables            = ["orders", "products"]
+  type        = "cdc"
+  driver      = "postgres"
+  host        = env("PG_HOST", "localhost")
+  port        = 5432
+  database    = env("PG_DATABASE")
+  user        = env("PG_REPLICATION_USER")
+  password    = env("PG_REPLICATION_PASSWORD")
+  slot_name   = "mycel_slot"
+  publication = "mycel_pub"
 }
 ```
 
@@ -510,10 +581,10 @@ connector "cdc" {
 
 ```hcl
 connector "es" {
-  type      = "elasticsearch"
-  addresses = ["http://localhost:9200"]
-  username  = env("ES_USER")
-  password  = env("ES_PASSWORD")
+  type     = "elasticsearch"
+  url      = "http://localhost:9200"
+  username = env("ES_USER")
+  password = env("ES_PASSWORD")
 }
 ```
 
@@ -522,12 +593,11 @@ connector "es" {
 ```hcl
 # Client
 connector "soap_service" {
-  type        = "soap"
-  driver      = "client"
-  endpoint    = "http://legacy.example.com/service"
-  soap_action = "urn:operation"
-  namespace   = "http://example.com/ns"
-  version     = "1.1"             # "1.1" or "1.2"
+  type         = "soap"
+  driver       = "client"
+  endpoint     = "http://legacy.example.com/service"
+  namespace    = "http://example.com/ns"
+  soap_version = "1.1"            # "1.1" or "1.2"
 
   auth {
     type     = "basic"
@@ -536,15 +606,14 @@ connector "soap_service" {
   }
 }
 
-# Server
+# Server. A connector is a client when it names an endpoint and a server when
+# it names a port; naming both is refused.
 connector "soap_server" {
-  type       = "soap"
-  driver     = "server"
-  port       = 8080
-  path       = "/service"
-  namespace  = "http://example.com/ns"
-  wsdl_path  = "/service?wsdl"   # WSDL endpoint path
-  version    = "1.1"
+  type         = "soap"
+  driver       = "server"
+  port         = 8080
+  namespace    = "http://example.com/ns"
+  soap_version = "1.1"
 }
 ```
 
@@ -671,10 +740,69 @@ to {
   params       = { key = "value" }                         # Extra params (e.g., S3 COPY)
   when         = "output.amount > 0"                       # Conditional write
   parallel     = true                                      # Parallel multi-to (default: true)
+  envelope     = "product"                                 # Wrap the payload under one root key
 
   transform { ... }    # Per-destination transform
 }
 ```
+
+`envelope` wraps what is sent under a single root key — `{"product": {...}}`
+rather than `{...}` — which is what Magento's webapi, Spring's `@RequestBody`
+and SOAP-derived REST interfaces expect. A `step` takes it too, for the same
+reason.
+
+### transaction block
+
+Inside a `to`, a list of statements run over one pinned connection: they all
+commit or none does. A destination with a transaction names no `target` or
+`query` of its own — its statements say what they write.
+
+```hcl
+to {
+  connector = "db"
+
+  transaction {
+    exec {
+      query  = "DELETE FROM product_option WHERE product_id = :pid"
+      params = { pid = "input.id" }
+      when   = "input.id > 0"           # optional gate; false skips the statement
+    }
+
+    exec {
+      query   = "INSERT INTO product (sku, name) VALUES (:sku, :name)"
+      params  = { sku = "input.sku", name = "input.name" }
+      capture = "product_id"            # available below as captured.product_id
+    }
+
+    each "option" in "input.options" {  # iterate a list from the payload
+      exec {
+        query   = "INSERT INTO product_option (product_id, code) VALUES (:pid, :code)"
+        params  = {
+          pid  = "captured.product_id"  # captured above
+          code = "option.code"          # the current element
+        }
+        capture = "option_id"
+      }
+    }
+  }
+}
+```
+
+#### exec attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `query` | string | The statement, with `:name` placeholders |
+| `params` | map | CEL expressions filling the placeholders |
+| `when` | string | CEL gate; false skips this statement, which is not an error |
+| `capture` | string | Store the result under `captured.<name>` — the last insert id for INSERT, UPDATE and DELETE, the first column of the first row for SELECT |
+
+#### each
+
+`each "<var>" in "<list expression>"` runs its statements once per element. The
+element is bound to `<var>` and its position to `<var>_index`, and `each` nests.
+
+Supported by MySQL and SQLite.
 
 ### accept block
 
@@ -700,6 +828,8 @@ step "NAME" {
   params    = [input.id]
   body      = { key = "value" }
   format    = "json"
+  # From a JSON body this is a boolean. From a query string it is the text
+  # "true" — see Input and Output.
   when      = "input.include_details == true"
   timeout   = "5s"
   on_error  = "skip"
@@ -893,9 +1023,14 @@ semaphore {
   }
   key     = "'api_quota'"        # Required
   limit   = 10                   # Required
-  timeout = "5s"
+  timeout = "5s"                 # Max time to wait for a permit
+  lease   = "30s"                # Max time to hold one
 }
 ```
+
+`limit` and `max_permits` are the same setting under two names; either says how
+many may hold a permit at once. `lease` bounds how long one is held, so a worker
+that dies does not keep its permit forever.
 
 ### coordinate block
 
@@ -1169,7 +1304,7 @@ aspect "NAME" {
   when = "after"         # "before", "after", "around", "on_error"
   on   = ["create_*", "update_*"]  # Flow name patterns (glob syntax)
 
-  condition = "result.status == 'ok'"  # Optional CEL condition
+  if = "output.status == 'ok'"     # Optional CEL condition
 
   action {
     connector = "audit_db"          # Target connector (mutually exclusive with "flow")
@@ -1289,11 +1424,12 @@ Input sanitization configuration:
 
 ```hcl
 security {
-  max_input_size = 2097152   # 2 MB (default: 1 MB)
-  max_depth      = 20        # Nesting depth (default: 10)
-  max_string_len = 100000    # Per-string limit (default: 50000)
+  max_input_length = 2097152   # 2 MB for a whole payload
+  max_field_length = 131072    # per field
+  max_field_depth  = 20        # how deeply a payload may nest
 
   sanitizer "NAME" {
+    source     = "wasm"
     wasm       = "./wasm/sanitizer.wasm"
     entrypoint = "sanitize"
     apply_to   = ["flows/api/*"]

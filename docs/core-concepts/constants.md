@@ -14,6 +14,12 @@ constants {
 Every part of a configuration reads them the same way — `constants.<name>`:
 
 ```hcl
+constants {
+  skus_to_skip = ["SKU-1", "SKU-2", "SKU-3"]
+  page_size    = 500
+  region       = env("REGION", "us")
+}
+
 flow "list_items" {
   from {
     connector = "api"

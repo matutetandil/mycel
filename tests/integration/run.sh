@@ -83,6 +83,10 @@ PORT_DEFS=(
   PORT_MONGO:37017
   PORT_MINIO:39000
   PORT_KAFKA:29092
+  PORT_ES:39200
+  PORT_REDIS:36379
+  PORT_MQTT:31883
+  PORT_SFTP:32222
 )
 
 echo "Checking ports..."
@@ -341,6 +345,10 @@ if command -v go > /dev/null 2>&1; then
         MYCEL_TEST_MONGO_URI="mongodb://mongo:mycel@127.0.0.1:${PORT_MONGO}/mycel_test?authSource=admin" \
         MYCEL_TEST_S3_ENDPOINT="http://127.0.0.1:${PORT_MINIO}" \
         MYCEL_TEST_KAFKA_BROKERS="localhost:${PORT_KAFKA}" \
+        MYCEL_TEST_ELASTICSEARCH_URL="http://127.0.0.1:${PORT_ES}" \
+        MYCEL_TEST_REDIS_URL="redis://127.0.0.1:${PORT_REDIS}" \
+        MYCEL_TEST_MQTT_BROKER="tcp://127.0.0.1:${PORT_MQTT}" \
+        MYCEL_TEST_SFTP_ADDR="127.0.0.1:${PORT_SFTP}" \
         go test "$pkg" -run "$pattern" -count=1 -v 2>&1); then
       if echo "$out" | grep -q -- "--- SKIP"; then
         echo "  ✗ $label skipped itself"
@@ -371,6 +379,18 @@ if command -v go > /dev/null 2>&1; then
     ./internal/connector/mq/kafka/ 'SinglePublishDoesNot|LongerLingerIs|OffsetMoves|OffsetStays'
   run_go_tests "auth stores against postgres and mysql" \
     ./internal/auth/ 'AccountsInPostgres|AccountsInMySQL|SessionsInMySQL|RevokedTokensInMySQL'
+  run_go_tests "reading and writing against postgres" \
+    ./internal/connector/database/postgres/ 'PostgresRoundTrip|CastIsNotAParameter'
+  run_go_tests "reading and writing against mysql" \
+    ./internal/connector/database/mysql/ 'MySQLRoundTrip|WriteWithItsOwnSQL'
+  run_go_tests "a redis queue goes where its url says" \
+    ./internal/connector/mq/ 'RedisURLIsWhere'
+  run_go_tests "a rabbitmq dead letter queue" \
+    ./internal/connector/mq/rabbitmq/ 'RejectedMessage|BatchIsPublished'
+  run_go_tests "publishing and receiving over redis" \
+    ./internal/connector/mq/redis/ 'PublishedMessage|PatternSubscription|ClosedConnector'
+  run_go_tests "files over sftp" \
+    ./internal/connector/ftp/ 'FileGoesUp|PlainFile|DirectoryIsMade'
   run_go_tests "postgres read replicas" \
     ./internal/connector/database/postgres/ 'ReadGoesToThe|ReplicaThatCannotBeReached'
   run_go_tests "mysql read replicas" \
@@ -378,11 +398,23 @@ if command -v go > /dev/null 2>&1; then
   run_go_tests "mongodb write operations" \
     ./internal/connector/database/mongodb/ 'SeveralDocuments|UpdateChanges|ReplacingADocument|DeletingTakes|OperationNobody|AggregatingAnswers'
   run_go_tests "s3 objects and signed links" \
-    ./internal/connector/s3/ 'ObjectComesBack|AskingWhetherAnObject|CopyingLeavesBoth|DeletingAnObject|SignedLink|OperationNobody|ListingAPrefix'
+    ./internal/connector/s3/ 'ObjectComesBack|AskingWhetherAnObject|CopyingLeavesBoth|DeletingAnObject|SignedLink|OperationNobody|ListingAPrefix|AStepCanWrite'
   # Logical replication is a mode of the server, not something a library can
   # stand up, so the whole CDC path below the decoding only runs here.
   run_go_tests "cdc against postgres logical replication" \
     ./internal/connector/cdc/ 'ChangesToARealTable|StreamPicksUpWhereItLeftOff'
+
+  # The examples that want a broker or a database server, started and driven the
+  # way their READMEs say to. The self-contained ones run in the ordinary test
+  # suite; these are the rest, and nothing had ever run them.
+  run_go_tests "examples that need infrastructure" \
+    ./internal/examples/ 'TestTheExamplesThatNeedInfrastructureWorkWhenFollowed'
+
+  # The CDC example has no commands to run — it is a source. So the row is
+  # written to the database it watches and the event it should have become is
+  # looked for.
+  run_go_tests "the cdc example turns a change into an event" \
+    ./internal/examples/ 'TestTheCDCExampleTurnsAChangeIntoAnEvent'
 fi
 
 # Step 5: Summary

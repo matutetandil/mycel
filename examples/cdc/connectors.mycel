@@ -3,14 +3,16 @@ connector "pg_cdc" {
   type   = "cdc"
   driver = "postgres"
 
-  host     = "localhost"
-  port     = 5432
-  database = "myapp"
-  user     = "replication_user"
+  host     = env("DB_HOST", "localhost")
+  port     = env("DB_PORT", "5432")
+  database = env("DB_NAME", "myapp")
+  user     = env("DB_USER", "replication_user")
   password = env("DB_PASSWORD")
 
-  slot_name   = "mycel_slot"
-  publication = "mycel_pub"
+  # A slot holds WAL until this service confirms it, so a second service
+  # watching the same database needs a slot of its own.
+  slot_name   = env("CDC_SLOT", "mycel_slot")
+  publication = env("CDC_PUBLICATION", "mycel_pub")
 }
 
 # REST API to expose endpoints

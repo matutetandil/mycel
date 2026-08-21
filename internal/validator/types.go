@@ -130,7 +130,7 @@ func NewCELValidator(name, expr, message string) (*CELValidator, error) {
 
 	// Parse and check the expression. `??` is rewritten to coalesce() so
 	// validators may use the same null-coalescing syntax as transforms.
-	ast, issues := env.Compile(transform.RewriteCoalesce(expr))
+	ast, issues := env.Compile(transform.RewriteDefault(transform.RewriteCoalesce(expr)))
 	if issues != nil && issues.Err() != nil {
 		return nil, fmt.Errorf("CEL compilation error: %w", issues.Err())
 	}

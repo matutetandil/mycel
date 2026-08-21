@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/matutetandil/mycel/v2/pkg/schema"
 )
 
 // HintKind classifies an organization hint.
@@ -200,18 +202,9 @@ func checkMixedTypes(fi *FileIndex) []Hint {
 func checkWrongDirectory(fi *FileIndex) []Hint {
 	dir := filepath.Base(filepath.Dir(fi.Path))
 
-	// Map directory names to expected block types
-	dirToType := map[string]string{
-		"connectors": "connector",
-		"flows":      "flow",
-		"types":      "type",
-		"transforms": "transform",
-		"aspects":    "aspect",
-		"validators": "validator",
-		"sagas":      "saga",
-	}
-
-	expectedType, hasMapping := dirToType[dir]
+	// The directories come from one shared map, so the editor cannot come to
+	// expect a layout different from the one `mycel add` writes.
+	expectedType, hasMapping := directoryToType()[dir]
 	if !hasMapping {
 		return nil
 	}
@@ -256,18 +249,15 @@ func checkNoDirectoryStructure(idx *ProjectIndex) []Hint {
 		parentDir := filepath.Base(dir)
 
 		// Check if any file is in a typed subdirectory
-		knownDirs := map[string]bool{
-			"connectors": true, "flows": true, "types": true,
-			"transforms": true, "aspects": true, "validators": true, "sagas": true,
-		}
-		if knownDirs[parentDir] {
+		_, known := directoryToType()[parentDir]
+		if known {
 			hasSubdirs = true
 		}
 
 		// Check if we have non-service blocks in the root-level directory
 		for _, b := range fi.Blocks {
 			// If the file's parent is not a known subdir, it's "root-level"
-			if !knownDirs[parentDir] && b.Type != "service" {
+			if !known && b.Type != "service" {
 				typesInRoot[b.Type] = true
 			}
 		}
@@ -335,23 +325,25 @@ func toBaseName(name string) string {
 	return strings.ToLower(name)
 }
 
+// DirectoryForBlock returns the directory a block of this type belongs in, as
+// the editor expects to find it. Exported so `mycel add` and the editor can be
+// held to the same layout.
+func DirectoryForBlock(blockType string) string {
+	return typeToDir(blockType)
+}
+
 // typeToDir maps a block type to its conventional directory name.
 func typeToDir(blockType string) string {
-	switch blockType {
-	case "connector":
-		return "connectors"
-	case "flow":
-		return "flows"
-	case "type":
-		return "types"
-	case "transform":
-		return "transforms"
-	case "aspect":
-		return "aspects"
-	case "validator":
-		return "validators"
-	case "saga":
-		return "sagas"
+	return schema.DirectoryFor(blockType)
+}
+
+// directoryToType is the same mapping read the other way: directory name to
+// the block type it holds.
+func directoryToType() map[string]string {
+	dirs := schema.BlockDirectories()
+	out := make(map[string]string, len(dirs))
+	for blockType, dir := range dirs {
+		out[dir] = blockType
 	}
-	return ""
+	return out
 }
