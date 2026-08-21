@@ -433,7 +433,7 @@ ERROR  Failed to connect to RabbitMQ: dial tcp: connection refused
      type     = "rabbitmq"
      host     = "localhost"
      port     = 5672
-     user     = "guest"      # Default
+     username = "guest"      # Default
      password = "guest"      # Default
      vhost    = "/"          # Default
    }

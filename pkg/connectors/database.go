@@ -20,6 +20,9 @@ func (PostgresSchema) ConnectorSchema() schema.Block {
 			{Name: "user", Doc: "Username — or give a url that contains one", Type: schema.TypeString},
 			{Name: "password", Doc: "Password", Type: schema.TypeString},
 			{Name: "sslmode", Doc: "SSL mode (disable, require, verify-ca, verify-full)", Type: schema.TypeString},
+			// The factory reads both spellings, and the documentation shows
+			// this one.
+			{Name: "ssl_mode", Doc: "SSL mode; alias of sslmode", Type: schema.TypeString},
 			{Name: "use_replicas", Doc: "Enable read replicas", Type: schema.TypeBool},
 		},
 		Children: []schema.Block{

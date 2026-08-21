@@ -498,7 +498,7 @@ connector "orders_queue" {
 
   host     = env("RABBITMQ_HOST", "localhost")
   port     = 5672
-  user     = env("RABBITMQ_USER", "guest")
+  username = env("RABBITMQ_USER", "guest")
   password = env("RABBITMQ_PASS", "guest")
 
   queue {
@@ -626,7 +626,7 @@ connector "order_events" {
 
   host     = env("RABBITMQ_HOST", "localhost")
   port     = 5672
-  user     = env("RABBITMQ_USER", "guest")
+  username = env("RABBITMQ_USER", "guest")
   password = env("RABBITMQ_PASS", "guest")
 
   publisher {
@@ -759,7 +759,7 @@ connector "events" {
 
   host     = env("RABBITMQ_HOST", "localhost")
   port     = 5672
-  user     = env("RABBITMQ_USER", "guest")
+  username = env("RABBITMQ_USER", "guest")
   password = env("RABBITMQ_PASS", "guest")
 
   publisher {
@@ -1316,7 +1316,7 @@ The transform builds the mutation's variables; the `to` block names the operatio
 ```hcl
 connector "inventory_graphql" {
   type     = "graphql"
-  mode     = "client"
+  driver   = "client"
   endpoint = env("INVENTORY_GRAPHQL_URL")
   timeout  = "30s"
 }
@@ -1426,7 +1426,6 @@ service {
 
 connector "api" {
   type = "rest"
-  mode = "server"
   port = env("API_PORT", 8080)
 }
 

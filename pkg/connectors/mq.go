@@ -139,6 +139,7 @@ func (RedisPubSubSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "driver", Doc: "Broker driver — which implementation runs behind this connector", Type: schema.TypeString, Required: true, Values: []string{"rabbitmq", "kafka", "redis"}},
+			{Name: "url", Doc: "Redis URL, e.g. redis://user:pass@host:6379/0 — what it carries wins over the attributes beside it", Type: schema.TypeString},
 			{Name: "host", Doc: "Redis host", Type: schema.TypeString},
 			{Name: "port", Doc: "Redis port", Type: schema.TypeNumber},
 			{Name: "password", Doc: "Redis password", Type: schema.TypeString},

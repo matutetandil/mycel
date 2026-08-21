@@ -15,6 +15,8 @@ func (GraphQLSchema) ConnectorSchema() schema.Block {
 			{Name: "introspection", Doc: "Allow clients to query the schema itself. Off in production by default", Type: schema.TypeBool},
 			{Name: "playground_path", Doc: "Playground URL path", Type: schema.TypeString},
 			{Name: "timeout", Doc: "Client request timeout", Type: schema.TypeDuration},
+			{Name: "retry_count", Doc: "How many times a client retries a failed request", Type: schema.TypeNumber},
+			{Name: "retry_delay", Doc: "How long a client waits between retries", Type: schema.TypeDuration},
 		},
 		Children: []schema.Block{
 			{Type: "schema", Doc: "Schema configuration", Attrs: []schema.Attr{

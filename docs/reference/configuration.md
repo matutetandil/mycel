@@ -287,7 +287,6 @@ connector "external_gql" {
   driver      = "client"
   endpoint    = "https://api.example.com/graphql"
   timeout     = "30s"
-  retry_count = 3
 
   auth {
     type  = "bearer"
@@ -462,12 +461,13 @@ connector "tcp_server" {
 
 # Client
 connector "tcp_client" {
-  type     = "tcp"
-  driver   = "client"
-  host     = "localhost"
-  port     = 9000
-  protocol = "json"
-  timeout  = "10s"
+  type            = "tcp"
+  driver          = "client"
+  host            = "localhost"
+  port            = 9000
+  protocol        = "json"
+  connect_timeout = "10s"
+  read_timeout    = "30s"
 }
 ```
 
@@ -537,8 +537,6 @@ connector "script" {
   input_format  = "json"      # "args", "stdin", "json"
   output_format = "json"      # "text", "json", "lines"
   timeout       = "30s"
-  retry_count   = 3
-  retry_delay   = "1s"
 }
 ```
 

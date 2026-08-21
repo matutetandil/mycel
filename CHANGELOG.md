@@ -62,6 +62,8 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **A Redis Pub/Sub connector ignored its `url`.** Every other Redis connector takes one and this driver read `host` and `port` only, so a connector written the documented way connected to localhost:6379 whatever the URL said, and said nothing about it.
+
 - **A server that could not take its port reported itself ready.** `ListenAndServe` was called inside the goroutine, so a port already in use was an error logged from a background thread while startup carried on: the banner said "listening on :3000", the service said Ready, the health endpoint said healthy, and nothing was listening — a deployment that looked fine and answered nothing. The REST, WebSocket, SSE, SOAP and GraphQL servers now take their port before reporting success. (gRPC, TCP, the admin server and the workflow API already did.)
 
 - **A second `service` block replaced the first entirely.** A project that put `service { admin_port = … }` in one file and the name, version and `workflow { }` in another ended up with a service that had no name, no version and no workflow engine, and the workflow endpoints were simply not there. Every `.mycel` file is merged and the file names are for the reader's benefit — so splitting that block is the obvious thing to do with it. It is folded field by field now.

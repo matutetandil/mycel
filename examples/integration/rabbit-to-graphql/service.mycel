@@ -20,7 +20,7 @@ connector "rabbit" {
 
 connector "inventory_graphql" {
   type     = "graphql"
-  mode     = "client"
+  driver   = "client"
   endpoint = env("INVENTORY_GRAPHQL_URL", "https://inventory.example.com/graphql")
 
   timeout = "30s"
@@ -28,7 +28,7 @@ connector "inventory_graphql" {
 
 connector "users_graphql" {
   type     = "graphql"
-  mode     = "client"
+  driver   = "client"
   endpoint = env("USERS_GRAPHQL_URL", "https://users.example.com/graphql")
 
   timeout = "15s"

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -44,16 +45,46 @@ func repoPath(parts ...string) string {
 	return filepath.Join(append([]string{"..", ".."}, parts...)...)
 }
 
-// freePort asks the operating system for a port nobody is using.
+// freePort asks the operating system for a port nobody is using, and does not
+// hand the same one out twice.
+//
+// The listener has to be closed before the port can be given to a service, and
+// the operating system happily hands the just-released port to the next
+// caller — so two examples in one run were occasionally given the same number
+// and the second failed to bind. That used to be invisible, because a server
+// that could not take its port went on reporting itself ready; now it is a
+// failed start, so the race shows up as a flaky suite rather than a silent
+// one.
 func freePort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("finding a free port: %v", err)
+
+	for attempt := 0; attempt < 50; attempt++ {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatalf("finding a free port: %v", err)
+		}
+		port := l.Addr().(*net.TCPAddr).Port
+		_ = l.Close()
+
+		handedOutMu.Lock()
+		taken := handedOut[port]
+		if !taken {
+			handedOut[port] = true
+		}
+		handedOutMu.Unlock()
+
+		if !taken {
+			return port
+		}
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
+	t.Fatal("could not find a port that has not already been handed out")
+	return 0
 }
+
+var (
+	handedOutMu sync.Mutex
+	handedOut   = map[int]bool{}
+)
 
 var (
 	portInConfig  = regexp.MustCompile(`(?m)^(\s*(?:admin_)?port\s*=\s*)(\d+)`)

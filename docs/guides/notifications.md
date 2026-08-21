@@ -8,7 +8,7 @@ Mycel includes native connectors for sending notifications through multiple chan
 |-----------|---------|--------|
 | `email` | SMTP email | `host`, `port`, `username`, `password` |
 | `slack` | Slack messages | `token` (Bot token) |
-| `discord` | Discord messages | `token` (Bot token) |
+| `discord` | Discord messages | `bot_token`, or `webhook_url` |
 | `sms` | SMS via Twilio | `account_sid`, `auth_token`, `from` |
 | `push` | FCM / APNs | `provider`, `credentials_file` |
 | `webhook` | HTTP callbacks | `url`, `method`, `headers` |
@@ -78,8 +78,8 @@ flow "alert_on_error" {
 
 ```hcl
 connector "discord_bot" {
-  type  = "discord"
-  token = env("DISCORD_BOT_TOKEN")
+  type      = "discord"
+  bot_token = env("DISCORD_BOT_TOKEN")
 }
 
 flow "send_discord_notification" {
@@ -164,7 +164,7 @@ flow "send_push" {
 ```hcl
 connector "external_webhook" {
   type   = "webhook"
-  mode   = "client"
+  mode   = "outbound"
   url    = env("WEBHOOK_URL")
   method = "POST"
 
