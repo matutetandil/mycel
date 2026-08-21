@@ -184,6 +184,7 @@ CEL string literals are single-quoted and CEL macros are not HCL syntax, so both
 
 | Variable | Filled by | Available in |
 |----------|-----------|--------------|
+| `constants` | [`constants` blocks](constants.md) — `constants.<name>`, the same in an HCL attribute | every expression, and every attribute |
 | `enriched` | [`enrich` blocks](transforms.md#enrichment-in-transforms) — `enriched.<name>` per block | `transform`, and anything after it |
 | `step` | [`step` blocks](../guides/multi-step-flows.md) — `step.<name>` per step | `transform`, later `step` blocks, `to` |
 | `error` | A failure, as `error.message` / `error.code` / `error.type` | `error_handling`, `on_error` aspects |

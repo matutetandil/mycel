@@ -101,6 +101,12 @@ constant "page_size" is declared twice: in constants.mycel and in limits.mycel
 they are read in
 ```
 
+## Writing one
+
+```bash
+mycel add constants --value page_size=500 --value region=us
+```
+
 ## Checking them
 
 `mycel validate` lists what it found:

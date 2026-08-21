@@ -50,16 +50,6 @@ func newConstants() *Constants {
 	}
 }
 
-// Names returns the declared names, in order, for messages.
-func (c *Constants) Names() []string {
-	names := make([]string, 0, len(c.Values))
-	for name := range c.Values {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
 // asObject is what goes into the HCL evaluation context under `constants`.
 func (c *Constants) asObject() cty.Value {
 	if len(c.Values) == 0 {

@@ -161,6 +161,7 @@ mycel add saga place_order --from rabbit --steps reserve_stock,charge_card,ship
 mycel add state-machine order --states pending,paid,shipped,delivered
 mycel add validator adult --type cel --expr "input.age >= 18"
 mycel add transform normalize_user --fields id,email,created_at
+mycel add constants --value page_size=500 --value region=us
 
 mycel add connector --list       # available types
 ```
@@ -170,6 +171,7 @@ mycel add connector --list       # available types
 | `--type` | `connector` | Connector type — required |
 | `--driver` | `connector` | Driver, for types that have one |
 | `--list` | `connector` | List available types and exit |
+| `--value` | `constants` | A constant, as `name=value`; repeatable |
 | `--from` | `flow` | Source connector |
 | `--to` | `flow` | Destination connector |
 | `--operation` | `flow` | Source operation, e.g. `"GET /orders"` |

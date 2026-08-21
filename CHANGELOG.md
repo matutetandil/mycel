@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   They hold literals — strings, numbers, lists, maps, `env()` calls — read once, when the configuration is. A value worked out from a message is what a transform is for. Declaring the same name twice is refused, naming both files, rather than letting the order files are walked in decide.
 
+  `mycel add constants --value page_size=500` writes one, and `mycel validate` lists what it found.
+
   The name is `constants` rather than `const` because `const` and `var` are both reserved identifiers in CEL: an expression naming either does not compile, whatever the environment declares.
 
 ### Breaking
