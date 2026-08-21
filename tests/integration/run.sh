@@ -385,6 +385,8 @@ if command -v go > /dev/null 2>&1; then
     ./internal/connector/database/mysql/ 'MySQLRoundTrip|WriteWithItsOwnSQL'
   run_go_tests "a redis queue goes where its url says" \
     ./internal/connector/mq/ 'RedisURLIsWhere'
+  run_go_tests "a rabbitmq dead letter queue" \
+    ./internal/connector/mq/rabbitmq/ 'RejectedMessage|BatchIsPublished'
   run_go_tests "publishing and receiving over redis" \
     ./internal/connector/mq/redis/ 'PublishedMessage|PatternSubscription|ClosedConnector'
   run_go_tests "files over sftp" \
