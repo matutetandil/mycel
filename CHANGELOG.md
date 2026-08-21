@@ -82,6 +82,8 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **Using a TCP client after it was closed took the process down.** `Close` drains the connection pool and closes its channel, and a receive on a closed channel hands back a nil connection straight away — which was then used. A flow still in flight during a hot reload or a shutdown panicked the whole service with a nil dereference; returning a connection to the closed pool panicked with "send on closed channel". A closed client refuses now, saying so.
+
 - **A step could not address a REST API by path.** `GET /customers/:id` was concatenated as written and every parameter went to the query string or the body, so fetching /customers/42 could not be expressed — which is why the documentation had invented `"GET /customers/${step.order.customer_id}"` in eight places: HCL interpolation of a CEL variable, which does not exist when the configuration is read, so the attribute could not be evaluated and the step ended up with no operation at all. Path parameters are filled from `params` now, in both spellings, and the one that names a segment is spent there rather than repeated in the query string.
 
 - **An FTP or SFTP connector refused the runtime's own words for a read and a write.** A flow that does not name an operation gets `SELECT` on a read and `INSERT` on a write, because that is where the defaults come from — so fetching a file or uploading one from an ordinary flow was answered "unknown read operation: SELECT", which names nothing anybody wrote.
