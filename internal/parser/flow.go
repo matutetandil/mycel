@@ -2620,6 +2620,11 @@ func parseSemaphoreBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*f
 			{Name: "use"},
 			{Name: "key"},
 			{Name: "max_permits"},
+			// The name the reference page's example uses, beside a sentence
+			// saying the two are the same setting. They were not: a semaphore
+			// written the documented way was refused as an unsupported
+			// argument.
+			{Name: "limit"},
 			{Name: "timeout"},
 			{Name: "lease"},
 		},
@@ -2669,6 +2674,18 @@ func parseSemaphoreBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*f
 		permits, err := coerceInt(val)
 		if err != nil {
 			return nil, fmt.Errorf("semaphore max_permits error: %s", err)
+		}
+		sem.MaxPermits = permits
+	}
+
+	if attr, ok := content.Attributes["limit"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("semaphore limit error: %s", diags.Error())
+		}
+		permits, err := coerceInt(val)
+		if err != nil {
+			return nil, fmt.Errorf("semaphore limit error: %s", err)
 		}
 		sem.MaxPermits = permits
 	}

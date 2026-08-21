@@ -62,6 +62,8 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **A semaphore written the documented way was refused.** The reference page's example writes `limit = 10` and says in the next sentence that `limit` and `max_permits` are the same setting under two names. Only `max_permits` was accepted, so the example did not parse. The claim is true now.
+
 - **A Redis Pub/Sub connector ignored its `url`.** Every other Redis connector takes one and this driver read `host` and `port` only, so a connector written the documented way connected to localhost:6379 whatever the URL said, and said nothing about it.
 
 - **A server that could not take its port reported itself ready.** `ListenAndServe` was called inside the goroutine, so a port already in use was an error logged from a background thread while startup carried on: the banner said "listening on :3000", the service said Ready, the health endpoint said healthy, and nothing was listening — a deployment that looked fine and answered nothing. The REST, WebSocket, SSE, SOAP and GraphQL servers now take their port before reporting success. (gRPC, TCP, the admin server and the workflow API already did.)
