@@ -379,6 +379,12 @@ if command -v go > /dev/null 2>&1; then
     ./internal/connector/mq/kafka/ 'SinglePublishDoesNot|LongerLingerIs|OffsetMoves|OffsetStays'
   run_go_tests "auth stores against postgres and mysql" \
     ./internal/auth/ 'AccountsInPostgres|AccountsInMySQL|SessionsInMySQL|RevokedTokensInMySQL'
+  run_go_tests "reading and writing against postgres" \
+    ./internal/connector/database/postgres/ 'PostgresRoundTrip|CastIsNotAParameter'
+  run_go_tests "reading and writing against mysql" \
+    ./internal/connector/database/mysql/ 'MySQLRoundTrip|WriteWithItsOwnSQL'
+  run_go_tests "files over sftp" \
+    ./internal/connector/ftp/ 'FileGoesUp|PlainFile|DirectoryIsMade'
   run_go_tests "postgres read replicas" \
     ./internal/connector/database/postgres/ 'ReadGoesToThe|ReplicaThatCannotBeReached'
   run_go_tests "mysql read replicas" \
