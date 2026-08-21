@@ -62,6 +62,10 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **A server that could not take its port reported itself ready.** `ListenAndServe` was called inside the goroutine, so a port already in use was an error logged from a background thread while startup carried on: the banner said "listening on :3000", the service said Ready, the health endpoint said healthy, and nothing was listening — a deployment that looked fine and answered nothing. The REST, WebSocket, SSE, SOAP and GraphQL servers now take their port before reporting success. (gRPC, TCP, the admin server and the workflow API already did.)
+
+- **A second `service` block replaced the first entirely.** A project that put `service { admin_port = … }` in one file and the name, version and `workflow { }` in another ended up with a service that had no name, no version and no workflow engine, and the workflow endpoints were simply not there. Every `.mycel` file is merged and the file names are for the reader's benefit — so splitting that block is the obvious thing to do with it. It is folded field by field now.
+
 - **A read flow could not render its answer through a connector that only writes.** Serving a generated document — the PDF connector's whole purpose — was refused with "destination connector does not support required operation", or, with steps, answered with the gathered JSON. A destination that can only be written to is a renderer, and a read flow now hands it the answer.
 
 - **A step's `params` written as a block was ignored.** `enrich` declares it as a block and a step read it as an attribute, so the two siblings took opposite syntax and the wrong one was swept away silently: a step written the way the enrich block beside it is written ran its query with the parameter unbound. Both forms are read now.

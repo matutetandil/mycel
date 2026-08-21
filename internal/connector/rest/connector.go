@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -224,9 +225,20 @@ func (c *Connector) Start(ctx context.Context) error {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// Start server in goroutine
+	// Take the port before reporting success.
+	//
+	// ListenAndServe was called inside the goroutine, so a port already in use
+	// was an error logged from a background thread while startup carried on:
+	// the banner said "listening on :3000", the service said "Ready", the
+	// health endpoint said healthy, and nothing was listening. A deployment
+	// looked fine and answered nothing.
+	listener, err := net.Listen("tcp", c.server.Addr)
+	if err != nil {
+		return fmt.Errorf("rest connector %q cannot listen on port %d: %w", c.name, c.port, err)
+	}
+
 	go func() {
-		if err := c.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := c.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			c.logger.Error("HTTP server error", slog.Any("error", err))
 		}
 	}()

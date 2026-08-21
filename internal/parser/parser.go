@@ -242,7 +242,16 @@ func (c *Configuration) Merge(other *Configuration) {
 	c.Sagas = append(c.Sagas, other.Sagas...)
 	c.StateMachines = append(c.StateMachines, other.StateMachines...)
 	if other.ServiceConfig != nil {
-		c.ServiceConfig = other.ServiceConfig
+		// Field by field, not wholesale.
+		//
+		// A second `service` block replaced the first entirely, so a project
+		// that put `service { admin_port = … }` in one file and
+		// `service { name, version, workflow { … } }` in another — which the
+		// documentation invites, since every .mycel file is merged and the
+		// names are for the reader's benefit — ended up with a service that
+		// had no name, no version and no workflow engine. Nothing said so; the
+		// workflow endpoints simply were not there.
+		c.ServiceConfig = mergeServiceConfig(c.ServiceConfig, other.ServiceConfig)
 	}
 	if other.MockConfig != nil {
 		c.MockConfig = other.MockConfig
@@ -686,6 +695,35 @@ func rootSchema() *hcl.BodySchema {
 		})
 	}
 	return schema
+}
+
+// mergeServiceConfig folds a later service block into an earlier one: what it
+// sets wins, what it leaves alone is kept.
+func mergeServiceConfig(base, overlay *ServiceConfig) *ServiceConfig {
+	if base == nil {
+		return overlay
+	}
+	if overlay == nil {
+		return base
+	}
+
+	merged := *base
+	if overlay.Name != "" {
+		merged.Name = overlay.Name
+	}
+	if overlay.Version != "" {
+		merged.Version = overlay.Version
+	}
+	if overlay.AdminPort != 0 {
+		merged.AdminPort = overlay.AdminPort
+	}
+	if overlay.RateLimit != nil {
+		merged.RateLimit = overlay.RateLimit
+	}
+	if overlay.Workflow != nil {
+		merged.Workflow = overlay.Workflow
+	}
+	return &merged
 }
 
 // parseServiceBlock parses a service block.
