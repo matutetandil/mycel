@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/matutetandil/mycel/v2/internal/plugin"
+	"github.com/matutetandil/mycel/v3/internal/plugin"
 )
 
 // parsePluginBlock parses a plugin declaration block.

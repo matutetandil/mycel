@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/flow"
 )
 
 // The two gates in front of a flow.

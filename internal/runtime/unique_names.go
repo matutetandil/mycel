@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/parser"
 )
 
 // Names that have to be unique because something is keyed by them.

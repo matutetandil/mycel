@@ -3,7 +3,7 @@ package runtime
 import (
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/flow"
 )
 
 // A GraphQL field publishes the arguments a caller may pass. Mycel works them

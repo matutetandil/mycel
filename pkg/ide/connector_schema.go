@@ -1,6 +1,6 @@
 package ide
 
-import "github.com/matutetandil/mycel/v2/pkg/schema"
+import "github.com/matutetandil/mycel/v3/pkg/schema"
 
 // connectorTypeAttrsFromRegistry returns connector-type-specific attributes
 // from the registry. Returns nil if not found.

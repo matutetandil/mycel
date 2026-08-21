@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/connector/cache/memory"
-	cachetypes "github.com/matutetandil/mycel/v2/internal/connector/cache/types"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector/cache/memory"
+	cachetypes "github.com/matutetandil/mycel/v3/internal/connector/cache/types"
 )
 
 // An aspect that caches has to actually cache.

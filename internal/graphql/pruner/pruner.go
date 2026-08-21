@@ -4,7 +4,7 @@
 package pruner
 
 import (
-	"github.com/matutetandil/mycel/v2/internal/graphql/analyzer"
+	"github.com/matutetandil/mycel/v3/internal/graphql/analyzer"
 )
 
 // Prune removes fields not in the requested set from the data.

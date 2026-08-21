@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/graphql-go/graphql"
-	"github.com/matutetandil/mycel/v2/internal/validate"
+	"github.com/matutetandil/mycel/v3/internal/validate"
 )
 
 // SDLGenerator generates GraphQL SDL from various sources.

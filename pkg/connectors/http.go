@@ -1,6 +1,6 @@
 package connectors
 
-import "github.com/matutetandil/mycel/v2/pkg/schema"
+import "github.com/matutetandil/mycel/v3/pkg/schema"
 
 // HTTPSchema implements ConnectorSchemaProvider for HTTP client.
 type HTTPSchema struct{}

@@ -6,9 +6,9 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/graphql/analyzer"
-	"github.com/matutetandil/mycel/v2/internal/graphql/pruner"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/graphql/analyzer"
+	"github.com/matutetandil/mycel/v3/internal/graphql/pruner"
 )
 
 // contextKey is a type for context keys in this package.

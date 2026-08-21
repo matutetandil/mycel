@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/envdefaults"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/envdefaults"
 )
 
 // Factory creates GraphQL connectors from configuration.

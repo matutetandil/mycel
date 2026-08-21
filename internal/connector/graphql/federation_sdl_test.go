@@ -7,7 +7,7 @@ import (
 
 	"github.com/graphql-go/graphql"
 
-	"github.com/matutetandil/mycel/v2/internal/graphql/analyzer"
+	"github.com/matutetandil/mycel/v3/internal/graphql/analyzer"
 )
 
 // What a federated service publishes about itself, and what a resolver is

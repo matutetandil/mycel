@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/aspect"
-	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/aspect"
+	"github.com/matutetandil/mycel/v3/internal/parser"
 )
 
 // An aspect that cannot run is worse than one that is missing: it parses, it

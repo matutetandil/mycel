@@ -3,12 +3,12 @@ package runtime
 import (
 	"context"
 
-	"github.com/matutetandil/mycel/v2/internal/aspect"
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/parser"
-	"github.com/matutetandil/mycel/v2/internal/transform"
-	"github.com/matutetandil/mycel/v2/internal/validate"
+	"github.com/matutetandil/mycel/v3/internal/aspect"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/transform"
+	"github.com/matutetandil/mycel/v3/internal/validate"
 )
 
 // A hot reload replaces everything a service is built from at once, and until

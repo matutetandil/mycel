@@ -8,7 +8,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"github.com/matutetandil/mycel/v2/internal/connector/mq/types"
+	"github.com/matutetandil/mycel/v3/internal/connector/mq/types"
 )
 
 // Publish publishes a message to RabbitMQ.

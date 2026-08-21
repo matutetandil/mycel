@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/validate"
+	"github.com/matutetandil/mycel/v3/internal/validate"
 )
 
 // A type declared in HCL becomes the schema a client sees. Everything about it

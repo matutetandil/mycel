@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/parser"
 )
 
 // The last two namespaces a configuration can point into by name.

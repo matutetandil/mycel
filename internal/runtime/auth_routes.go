@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/matutetandil/mycel/v2/internal/connector/rest"
-	"github.com/matutetandil/mycel/v2/internal/connector/webhook"
+	"github.com/matutetandil/mycel/v3/internal/connector/rest"
+	"github.com/matutetandil/mycel/v3/internal/connector/webhook"
 )
 
 // mountAuthEndpoints attaches the auth endpoints to every REST server.

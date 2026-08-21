@@ -6,7 +6,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 
-	"github.com/matutetandil/mycel/v2/internal/saga"
+	"github.com/matutetandil/mycel/v3/internal/saga"
 )
 
 // parseSagaBlock parses a saga block from HCL.

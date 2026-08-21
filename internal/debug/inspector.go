@@ -3,10 +3,10 @@ package debug
 import (
 	"context"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/transform"
-	"github.com/matutetandil/mycel/v2/internal/validate"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/transform"
+	"github.com/matutetandil/mycel/v3/internal/validate"
 )
 
 // RuntimeInspector provides read-only access to runtime configuration.

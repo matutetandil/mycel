@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/dap"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/internal/dap"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // The gutter offers a place to stop; the runtime has to have one there.

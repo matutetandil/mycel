@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/parser"
 )
 
 // Validators a type names.

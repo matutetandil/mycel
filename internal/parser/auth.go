@@ -6,7 +6,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
-	"github.com/matutetandil/mycel/v2/internal/auth"
+	"github.com/matutetandil/mycel/v3/internal/auth"
 	"github.com/zclconf/go-cty/cty"
 )
 

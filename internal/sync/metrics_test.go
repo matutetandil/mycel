@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/metrics"
+	"github.com/matutetandil/mycel/v3/internal/metrics"
 )
 
 // scrape runs the real Prometheus handler and returns the exposition text, so

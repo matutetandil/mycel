@@ -4,8 +4,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/matutetandil/mycel/v2/internal/trace"
-	"github.com/matutetandil/mycel/v2/internal/transform"
+	"github.com/matutetandil/mycel/v3/internal/trace"
+	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
 // resumeAction controls what happens when a paused thread is resumed.

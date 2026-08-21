@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	gql "github.com/matutetandil/mycel/v2/internal/connector/graphql"
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/validate"
+	gql "github.com/matutetandil/mycel/v3/internal/connector/graphql"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/validate"
 )
 
 // Federation entity resolvers.

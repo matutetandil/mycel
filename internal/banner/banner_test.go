@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/mock"
+	"github.com/matutetandil/mycel/v3/internal/mock"
 )
 
 // What a service prints when it starts.

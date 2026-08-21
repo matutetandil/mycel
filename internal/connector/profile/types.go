@@ -3,7 +3,7 @@
 package profile
 
 import (
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // Config holds the profile configuration for a connector.

@@ -13,7 +13,7 @@ import (
 
 	"github.com/lmittmann/tint"
 
-	"github.com/matutetandil/mycel/v2/internal/tracing"
+	"github.com/matutetandil/mycel/v3/internal/tracing"
 )
 
 // Environment variable names

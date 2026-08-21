@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/matutetandil/mycel/v2/internal/wasm"
+	"github.com/matutetandil/mycel/v3/internal/wasm"
 )
 
 // WASMRule is a sanitization rule backed by a WebAssembly module.

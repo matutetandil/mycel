@@ -3,7 +3,7 @@ package runtime
 import (
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/pkg/ide"
+	"github.com/matutetandil/mycel/v3/pkg/ide"
 )
 
 // What the editor offers, the runtime has to be able to serve.

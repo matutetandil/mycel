@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector/cache/types"
+	"github.com/matutetandil/mycel/v3/internal/connector/cache/types"
 )
 
 // A cache that lives in the process.

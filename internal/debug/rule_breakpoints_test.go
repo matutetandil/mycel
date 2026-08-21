@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/trace"
-	"github.com/matutetandil/mycel/v2/internal/transform"
+	"github.com/matutetandil/mycel/v3/internal/trace"
+	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
 // Stopping inside a transform, on one rule.

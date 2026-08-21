@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/aspect"
-	"github.com/matutetandil/mycel/v2/internal/runtime"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/internal/aspect"
+	"github.com/matutetandil/mycel/v3/internal/runtime"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // The generated skeleton comes from the connector's own schema rather than a

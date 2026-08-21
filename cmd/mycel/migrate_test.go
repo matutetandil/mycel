@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector/database"
+	"github.com/matutetandil/mycel/v3/internal/connector/database"
 )
 
 // `mycel migrate` runs SQL against a live database, which is as consequential

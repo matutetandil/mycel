@@ -3,7 +3,7 @@ package dap
 import (
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/trace"
+	"github.com/matutetandil/mycel/v3/internal/trace"
 )
 
 // A debug client sets breakpoints by line, so a stage with no line is a stage a

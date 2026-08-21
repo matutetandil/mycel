@@ -6,7 +6,7 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/matutetandil/mycel/v2/internal/mock"
+	"github.com/matutetandil/mycel/v3/internal/mock"
 )
 
 // ANSI color codes

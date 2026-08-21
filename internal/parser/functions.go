@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/matutetandil/mycel/v2/internal/functions"
+	"github.com/matutetandil/mycel/v3/internal/functions"
 )
 
 // parseFunctionsBlock parses a functions block.

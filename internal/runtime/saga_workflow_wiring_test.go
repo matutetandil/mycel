@@ -9,10 +9,10 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/parser"
-	"github.com/matutetandil/mycel/v2/internal/saga"
-	"github.com/matutetandil/mycel/v2/internal/workflow"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/saga"
+	"github.com/matutetandil/mycel/v3/internal/workflow"
 )
 
 // A saga with a delay or an await step is a long-running workflow: it pauses,

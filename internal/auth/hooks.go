@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/matutetandil/mycel/v2/internal/transform"
+	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
 // What happens around a sign-in, a registration or a password change.

@@ -128,7 +128,7 @@ docker run -v $(pwd):/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
 ### From source (requires Go 1.21+)
 
 ```bash
-go install github.com/matutetandil/mycel/v2/cmd/mycel@latest
+go install github.com/matutetandil/mycel/v3/cmd/mycel@latest
 
 mycel migrate
 mycel start
@@ -147,7 +147,7 @@ You should see:
     ██║╚██╔╝██║  ╚██╔╝  ██║     ██╔══╝  ██║
     ██║ ╚═╝ ██║   ██║   ╚██████╗███████╗███████╗
     ╚═╝     ╚═╝   ╚═╝    ╚═════╝╚══════╝╚══════╝
-    Declarative Microservice Runtime v2.18.0
+    Declarative Microservice Runtime v3.0.0
 
     Service: my-first-api v1.0.0
     Environment: development

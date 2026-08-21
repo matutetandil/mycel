@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/parser"
 )
 
 // Every complete configuration the documentation shows, parsed.

@@ -4,9 +4,9 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/parser"
-	"github.com/matutetandil/mycel/v2/pkg/connectors"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/internal/parser"
+	"github.com/matutetandil/mycel/v3/pkg/connectors"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // A connector schema is what tooling offers as completions and what `mycel add`

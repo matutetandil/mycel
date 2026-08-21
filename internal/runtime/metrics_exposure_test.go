@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/metrics"
+	"github.com/matutetandil/mycel/v3/internal/metrics"
 )
 
 // TestFlowMetricsExposedOnAdminServer guards a production bug: on a service

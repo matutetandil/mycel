@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/matutetandil/mycel/v2/internal/auth"
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/auth"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // Factory creates OAuth connectors from configuration.

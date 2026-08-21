@@ -1,6 +1,6 @@
 package connectors
 
-import "github.com/matutetandil/mycel/v2/pkg/schema"
+import "github.com/matutetandil/mycel/v3/pkg/schema"
 
 // WebhookSchema implements ConnectorSchemaProvider for Webhook.
 type WebhookSchema struct{}

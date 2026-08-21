@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/auth"
+	"github.com/matutetandil/mycel/v3/internal/auth"
 )
 
 // Which stores the auth manager ends up with.

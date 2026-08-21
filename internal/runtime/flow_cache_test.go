@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	cachepkg "github.com/matutetandil/mycel/v2/internal/connector/cache"
-	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	cachepkg "github.com/matutetandil/mycel/v3/internal/connector/cache"
+	"github.com/matutetandil/mycel/v3/internal/flow"
 )
 
 // A flow's own cache block is the one way a cache is reached today, and every

@@ -11,11 +11,11 @@ import (
 
 	"github.com/segmentio/kafka-go"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/connector/mq/types"
-	"github.com/matutetandil/mycel/v2/internal/connector/mq/undispatched"
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/tracing"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector/mq/types"
+	"github.com/matutetandil/mycel/v3/internal/connector/mq/undispatched"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/tracing"
 )
 
 // HandlerFunc is the function signature for message handlers.

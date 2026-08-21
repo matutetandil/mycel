@@ -3,7 +3,7 @@ package parser
 import (
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/auth"
+	"github.com/matutetandil/mycel/v3/internal/auth"
 )
 
 // Moving the prefix must not close the doors.

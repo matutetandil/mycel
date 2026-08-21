@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector"
 )
 
 // Factory creates S3 connectors.

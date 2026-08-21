@@ -10,7 +10,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 
-	"github.com/matutetandil/mycel/v2/internal/metrics"
+	"github.com/matutetandil/mycel/v3/internal/metrics"
 )
 
 // TriggerType represents the type of flow trigger.

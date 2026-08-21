@@ -3,7 +3,7 @@ package email
 import (
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector/notifytest"
+	"github.com/matutetandil/mycel/v3/internal/connector/notifytest"
 )
 
 // Every field an email can carry, against what the reader reads. See

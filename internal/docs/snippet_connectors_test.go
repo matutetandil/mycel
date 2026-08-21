@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/pkg/connectors"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/pkg/connectors"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // Every attribute a documented connector block writes has to be one the

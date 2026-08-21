@@ -5,8 +5,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // The three lists that have to agree about which connectors exist.

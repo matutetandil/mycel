@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/health"
-	"github.com/matutetandil/mycel/v2/internal/metrics"
+	"github.com/matutetandil/mycel/v3/internal/health"
+	"github.com/matutetandil/mycel/v3/internal/metrics"
 )
 
 // What the runtime hands this connector before it starts.

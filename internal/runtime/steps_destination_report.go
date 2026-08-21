@@ -3,8 +3,8 @@ package runtime
 import (
 	"log/slog"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/flow"
 )
 
 // reportIgnoredDestinations says which `to` blocks are not going to be used.

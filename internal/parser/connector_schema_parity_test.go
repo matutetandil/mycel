@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/pkg/connectors"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/pkg/connectors"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // Connector schemas are what completions, `mycel add` and the exported

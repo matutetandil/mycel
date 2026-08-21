@@ -8,7 +8,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/matutetandil/mycel/v2/internal/saga"
+	"github.com/matutetandil/mycel/v3/internal/saga"
 )
 
 func newTestEngine(t *testing.T) (*Engine, *SQLStore) {

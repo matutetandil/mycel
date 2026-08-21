@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/transform"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
 // Connector wraps a real connector with mock capabilities.

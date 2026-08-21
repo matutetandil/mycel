@@ -12,7 +12,7 @@
 // connectors themselves need. One file per connector.
 package connectors
 
-import "github.com/matutetandil/mycel/v2/pkg/schema"
+import "github.com/matutetandil/mycel/v3/pkg/schema"
 
 // RegisterAll registers every built-in connector schema provider into the registry.
 func RegisterAll(reg *schema.Registry) {
@@ -70,8 +70,8 @@ func RegisterAll(reg *schema.Registry) {
 // Usage from Studio:
 //
 //	import (
-//	    "github.com/matutetandil/mycel/v2/pkg/connectors"
-//	    "github.com/matutetandil/mycel/v2/pkg/ide"
+//	    "github.com/matutetandil/mycel/v3/pkg/connectors"
+//	    "github.com/matutetandil/mycel/v3/pkg/ide"
 //	)
 //
 //	reg := connectors.FullRegistry()

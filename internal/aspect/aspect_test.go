@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	httpconn "github.com/matutetandil/mycel/v2/internal/connector/http"
-	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	httpconn "github.com/matutetandil/mycel/v3/internal/connector/http"
+	"github.com/matutetandil/mycel/v3/internal/flow"
 )
 
 func TestConfig_Validate(t *testing.T) {

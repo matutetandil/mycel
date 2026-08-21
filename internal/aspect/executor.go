@@ -10,15 +10,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/circuitbreaker"
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/connector/cache"
-	gqlconn "github.com/matutetandil/mycel/v2/internal/connector/graphql"
-	httpconn "github.com/matutetandil/mycel/v2/internal/connector/http"
-	"github.com/matutetandil/mycel/v2/internal/flow"
-	"github.com/matutetandil/mycel/v2/internal/ratelimit"
-	"github.com/matutetandil/mycel/v2/internal/transform"
-	myerrors "github.com/matutetandil/mycel/v2/pkg/errors"
+	"github.com/matutetandil/mycel/v3/internal/circuitbreaker"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector/cache"
+	gqlconn "github.com/matutetandil/mycel/v3/internal/connector/graphql"
+	httpconn "github.com/matutetandil/mycel/v3/internal/connector/http"
+	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/ratelimit"
+	"github.com/matutetandil/mycel/v3/internal/transform"
+	myerrors "github.com/matutetandil/mycel/v3/pkg/errors"
 )
 
 // FlowFunc is a function that executes a flow and returns the result.

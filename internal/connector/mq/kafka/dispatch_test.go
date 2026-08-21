@@ -9,7 +9,7 @@ import (
 
 	kafkago "github.com/segmentio/kafka-go"
 
-	"github.com/matutetandil/mycel/v2/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/flow"
 )
 
 // Two decisions a consumer makes before anything is written anywhere: which

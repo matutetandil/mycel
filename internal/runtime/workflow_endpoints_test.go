@@ -13,9 +13,9 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/matutetandil/mycel/v2/internal/connector"
-	"github.com/matutetandil/mycel/v2/internal/saga"
-	"github.com/matutetandil/mycel/v2/internal/workflow"
+	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/saga"
+	"github.com/matutetandil/mycel/v3/internal/workflow"
 )
 
 // A long-running workflow outlives the request that started it, so the only way

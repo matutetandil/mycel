@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matutetandil/mycel/v2/internal/plugin"
+	"github.com/matutetandil/mycel/v3/internal/plugin"
 )
 
 // The plugin commands are how somebody sees what a service will load and takes

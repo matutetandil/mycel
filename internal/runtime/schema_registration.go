@@ -1,8 +1,8 @@
 package runtime
 
 import (
-	"github.com/matutetandil/mycel/v2/pkg/connectors"
-	"github.com/matutetandil/mycel/v2/pkg/schema"
+	"github.com/matutetandil/mycel/v3/pkg/connectors"
+	"github.com/matutetandil/mycel/v3/pkg/schema"
 )
 
 // RegisterBuiltinSchemas populates a schema registry with all built-in

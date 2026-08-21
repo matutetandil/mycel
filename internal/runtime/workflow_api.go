@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/matutetandil/mycel/v2/internal/connector/rest"
-	"github.com/matutetandil/mycel/v2/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/connector/rest"
+	"github.com/matutetandil/mycel/v3/internal/parser"
 )
 
 // The workflow endpoints — read one, wake one, cancel one — used to be mounted
