@@ -27,7 +27,7 @@ var (
 
 var addCmd = &cobra.Command{
 	Use:   "add",
-	Short: "Add a connector or flow to an existing project",
+	Short: "Add a connector, flow, type or other block to an existing project",
 	Long: `Add a piece to an existing project, in its own file.
 
 Mycel merges every .mycel file under the config directory, so where a
