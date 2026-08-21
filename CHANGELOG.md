@@ -82,6 +82,8 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **An aspect's `cache` block did nothing at all.** It asked the connector to be a `Reader` and a `Writer`; a cache connector is neither — it has `Get`, `Set` and `Delete` — so the type assertions found nothing and the block read nothing, stored nothing and invalidated nothing, quietly, while looking exactly like the flow-level cache that does work. An aspect declared to spare an expensive call made every one of them. Both use the same interface now.
+
 - **Using a TCP client after it was closed took the process down.** `Close` drains the connection pool and closes its channel, and a receive on a closed channel hands back a nil connection straight away — which was then used. A flow still in flight during a hot reload or a shutdown panicked the whole service with a nil dereference; returning a connection to the closed pool panicked with "send on closed channel". A closed client refuses now, saying so.
 
 - **A step could not address a REST API by path.** `GET /customers/:id` was concatenated as written and every parameter went to the query string or the body, so fetching /customers/42 could not be expressed — which is why the documentation had invented `"GET /customers/${step.order.customer_id}"` in eight places: HCL interpolation of a CEL variable, which does not exist when the configuration is read, so the attribute could not be evaluated and the step ended up with no operation at all. Path parameters are filled from `params` now, in both spellings, and the one that names a segment is spent there rather than repeated in the query string.

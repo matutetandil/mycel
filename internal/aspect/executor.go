@@ -2,6 +2,7 @@ package aspect
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/matutetandil/mycel/v2/internal/circuitbreaker"
 	"github.com/matutetandil/mycel/v2/internal/connector"
+	"github.com/matutetandil/mycel/v2/internal/connector/cache"
 	gqlconn "github.com/matutetandil/mycel/v2/internal/connector/graphql"
 	httpconn "github.com/matutetandil/mycel/v2/internal/connector/http"
 	"github.com/matutetandil/mycel/v2/internal/flow"
@@ -712,23 +714,25 @@ func (e *Executor) executeCache(ctx context.Context, cache *CacheConfig, input m
 		return next(ctx, input)
 	}
 
-	// Get cache connector
-	cacheConn, err := e.connectors.Get(cache.Storage)
-	if err != nil {
-		slog.Warn("cache connector not found", "storage", cache.Storage, "error", err)
+	// The cache's own contract, not Reader and Writer.
+	//
+	// A cache connector has Get, Set and Delete; it is not a Reader and not a
+	// Writer, so asking it to be one found nothing — an aspect's cache block
+	// read nothing, stored nothing and invalidated nothing, quietly, while
+	// looking exactly like the flow-level cache that does work. Both use the
+	// same interface now.
+	store, ok := e.cacheOf(cache.Storage)
+	if !ok {
 		return next(ctx, input)
 	}
 
-	// Try to read from cache
-	reader, ok := cacheConn.(connector.Reader)
-	if ok {
-		result, err := reader.Read(ctx, connector.Query{
-			Target: key,
-		})
-		if err == nil && result != nil && len(result.Rows) > 0 {
+	if held, found, err := store.Get(ctx, key); err == nil && found {
+		var rows []map[string]interface{}
+		if err := json.Unmarshal(held, &rows); err == nil {
 			slog.Debug("cache hit", "key", key)
-			return result, nil
+			return &connector.Result{Rows: rows, Affected: int64(len(rows))}, nil
 		}
+		slog.Warn("cached entry could not be read back", "key", key, "error", err)
 	}
 
 	// Execute flow
@@ -737,20 +741,13 @@ func (e *Executor) executeCache(ctx context.Context, cache *CacheConfig, input m
 		return result, err
 	}
 
-	// Store in cache
-	writer, ok := cacheConn.(connector.Writer)
-	if ok && result != nil && len(result.Rows) > 0 {
-		ttl := parseDuration(cache.TTL)
-		// Store the result data as payload
-		payload := map[string]interface{}{
-			"data": result.Rows,
-			"ttl":  ttl.Seconds(),
+	if result != nil && len(result.Rows) > 0 {
+		encoded, encodeErr := json.Marshal(result.Rows)
+		if encodeErr != nil {
+			slog.Warn("cache write error", "key", key, "error", encodeErr)
+			return result, nil
 		}
-		_, writeErr := writer.Write(ctx, &connector.Data{
-			Target:  key,
-			Payload: payload,
-		})
-		if writeErr != nil {
+		if writeErr := store.Set(ctx, key, encoded, parseDuration(cache.TTL)); writeErr != nil {
 			slog.Warn("cache write error", "key", key, "error", writeErr)
 		} else {
 			slog.Debug("cache store", "key", key, "ttl", cache.TTL)
@@ -760,12 +757,26 @@ func (e *Executor) executeCache(ctx context.Context, cache *CacheConfig, input m
 	return result, nil
 }
 
+// cacheOf looks a cache connector up by name.
+func (e *Executor) cacheOf(name string) (cache.Cache, bool) {
+	conn, err := e.connectors.Get(name)
+	if err != nil {
+		slog.Warn("cache connector not found", "storage", name, "error", err)
+		return nil, false
+	}
+	store, ok := conn.(cache.Cache)
+	if !ok {
+		slog.Warn("connector is not a cache", "storage", name, "type", conn.Type())
+		return nil, false
+	}
+	return store, true
+}
+
 // executeInvalidate invalidates cache entries.
 func (e *Executor) executeInvalidate(ctx context.Context, invalidate *InvalidateConfig, input map[string]interface{}, result *connector.Result) error {
-	// Get cache connector
-	cacheConn, err := e.connectors.Get(invalidate.Storage)
-	if err != nil {
-		return fmt.Errorf("cache connector %s not found: %w", invalidate.Storage, err)
+	store, ok := e.cacheOf(invalidate.Storage)
+	if !ok {
+		return fmt.Errorf("cache connector %s is not usable", invalidate.Storage)
 	}
 
 	// Add result to context
@@ -788,16 +799,10 @@ func (e *Executor) executeInvalidate(ctx context.Context, invalidate *Invalidate
 			continue
 		}
 
-		// Delete key via Call if available
-		if caller, ok := cacheConn.(interface {
-			Call(ctx context.Context, operation string, params map[string]interface{}) (interface{}, error)
-		}); ok {
-			_, err := caller.Call(ctx, "delete", map[string]interface{}{"key": key})
-			if err != nil {
-				slog.Warn("cache invalidate error", "key", key, "error", err)
-			} else {
-				slog.Debug("cache invalidated", "key", key)
-			}
+		if err := store.Delete(ctx, key); err != nil {
+			slog.Warn("cache invalidate error", "key", key, "error", err)
+		} else {
+			slog.Debug("cache invalidated", "key", key)
 		}
 	}
 
@@ -809,15 +814,10 @@ func (e *Executor) executeInvalidate(ctx context.Context, invalidate *Invalidate
 			continue
 		}
 
-		if caller, ok := cacheConn.(interface {
-			Call(ctx context.Context, operation string, params map[string]interface{}) (interface{}, error)
-		}); ok {
-			_, err := caller.Call(ctx, "delete_pattern", map[string]interface{}{"pattern": pattern})
-			if err != nil {
-				slog.Warn("cache pattern invalidate error", "pattern", pattern, "error", err)
-			} else {
-				slog.Debug("cache pattern invalidated", "pattern", pattern)
-			}
+		if err := store.DeletePattern(ctx, pattern); err != nil {
+			slog.Warn("cache pattern invalidate error", "pattern", pattern, "error", err)
+		} else {
+			slog.Debug("cache pattern invalidated", "pattern", pattern)
 		}
 	}
 
