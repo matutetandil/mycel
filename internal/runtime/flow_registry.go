@@ -1942,8 +1942,24 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 		// Check for multi-destination writes
 		result, err = h.handleMultiDestWrite(ctx, input, operation)
 	} else if h.Dest == nil {
-		// Echo flow (no "to" block) — return transformed input as-is
-		result = input
+		// No destination: the flow's answer is what it computed.
+		//
+		// This said "return transformed input" and returned the input, so a
+		// flow with no `to` ignored its transform and its enrich blocks
+		// entirely — a gateway that calls somebody else's API and shapes the
+		// answer, which is what a flow without a destination is usually for,
+		// echoed the request back instead, headers and all.
+		if (h.Config.Transform != nil && len(h.Config.Transform.Mappings) > 0) || len(h.Config.Enrichments) > 0 {
+			var computed map[string]interface{}
+			computed, err = h.applyTransforms(ctx, input)
+			if err != nil {
+				return nil, fmt.Errorf("transform error: %w", err)
+			}
+			delete(computed, "headers")
+			result = computed
+		} else {
+			result = input
+		}
 	} else {
 		// Single destination (original behavior)
 		// Get the destination as a reader/writer
@@ -3775,8 +3791,21 @@ func (h *FlowHandler) executeEnrichmentsCore(ctx context.Context, input map[stri
 		// Execute the enrichment based on connector capabilities
 		var result interface{}
 
-		// Try as a Reader first
-		if reader, ok := conn.(connector.Reader); ok {
+		// A call before a read, where the connector can do both.
+		//
+		// An enrichment asks a service a question — it has params, not filters
+		// — and the read path flattens the answer: a GraphQL field holding a
+		// list of one came back as the object, and the same field holding two
+		// came back as the list, so a gateway forwarding it answered a
+		// different shape depending on how many rows existed upstream. The
+		// call path hands back what the service actually said.
+		if caller, ok := conn.(Caller); ok {
+			callResult, err := meteredCall(ctx, caller, enrich.GetOperation(), params)
+			if err != nil {
+				return nil, fmt.Errorf("enrich %s: call failed: %w", enrich.Name, err)
+			}
+			result = callResult
+		} else if reader, ok := conn.(connector.Reader); ok {
 			query := connector.Query{
 				Target:    enrich.GetOperation(),
 				Operation: "SELECT",
@@ -3792,13 +3821,6 @@ func (h *FlowHandler) executeEnrichmentsCore(ctx context.Context, input map[stri
 			} else {
 				result = readResult.Rows
 			}
-		} else if caller, ok := conn.(Caller); ok {
-			// Try as a Caller (for TCP, HTTP, etc.)
-			callResult, err := meteredCall(ctx, caller, enrich.GetOperation(), params)
-			if err != nil {
-				return nil, fmt.Errorf("enrich %s: call failed: %w", enrich.Name, err)
-			}
-			result = callResult
 		} else {
 			return nil, fmt.Errorf("enrich %s: connector %s does not support read or call operations", enrich.Name, enrich.Connector)
 		}

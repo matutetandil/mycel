@@ -59,9 +59,4 @@ flow "get_enriched_data" {
     status    = "enriched.external_data.status"
     timestamp = "enriched.external_data.timestamp"
   }
-
-  to {
-    connector = "api"
-    target    = ""
-  }
 }

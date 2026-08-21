@@ -308,3 +308,71 @@ func (c *recordingReadWriter) Write(_ context.Context, _ *connector.Data) (*conn
 	// A text primary key, so what the driver reports is the row's position.
 	return &connector.Result{Affected: 1, LastID: 7}, nil
 }
+
+// A flow with no destination answers with what it computed.
+//
+// The dispatch said "return transformed input" and returned the input, so a
+// flow without a `to` ignored its transform and its enrich blocks entirely —
+// and a flow without a destination is usually a gateway, which calls somebody
+// else's API and shapes the answer. It echoed the request back instead,
+// headers and all.
+func TestAFlowWithNoDestinationAnswersWithItsTransform(t *testing.T) {
+	h := &FlowHandler{
+		Config: &flow.Config{
+			Name: "get_products",
+			From: &flow.FromConfig{
+				Connector:       "api",
+				ConnectorParams: map[string]interface{}{"operation": "GET /products"},
+			},
+			Transform: &flow.TransformConfig{
+				Mappings: map[string]string{"name": "upper(input.name)", "source": "'gateway'"},
+				Order:    []string{"name", "source"},
+			},
+		},
+		SourceType: "rest",
+	}
+
+	result, err := h.executeFlowCoreInternal(context.Background(), map[string]interface{}{
+		"name":    "widget",
+		"headers": map[string]interface{}{"user-agent": "curl"},
+	})
+	if err != nil {
+		t.Fatalf("flow failed: %v", err)
+	}
+
+	answer, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("answered %#v", result)
+	}
+	if answer["name"] != "WIDGET" || answer["source"] != "gateway" {
+		t.Errorf("answered %#v, want what the transform built", answer)
+	}
+	// The request's headers are not part of the answer.
+	if _, leaked := answer["headers"]; leaked {
+		t.Errorf("the request's headers came back with the answer: %#v", answer)
+	}
+}
+
+// One that computes nothing still echoes, which is what an echo flow is for.
+func TestAFlowWithNoDestinationAndNoTransformStillEchoes(t *testing.T) {
+	h := &FlowHandler{
+		Config: &flow.Config{
+			Name: "echo",
+			From: &flow.FromConfig{
+				Connector:       "api",
+				ConnectorParams: map[string]interface{}{"operation": "POST /echo"},
+			},
+		},
+		SourceType: "rest",
+	}
+
+	result, err := h.executeFlowCoreInternal(context.Background(),
+		map[string]interface{}{"message": "hello"})
+	if err != nil {
+		t.Fatalf("flow failed: %v", err)
+	}
+	answer, _ := result.(map[string]interface{})
+	if answer["message"] != "hello" {
+		t.Errorf("answered %#v, want the request back", result)
+	}
+}

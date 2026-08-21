@@ -60,6 +60,10 @@ behaviour was what you wanted:
 
 ### Fixed
 
+- **A flow with no destination ignored its transform and its enrichments.** The dispatch said "return transformed input" and returned the input, so a gateway — which is what a flow without a `to` usually is — echoed the request back, headers and all, instead of answering with what it built.
+
+- **An enrichment flattened a list of one into an object.** It preferred the read path for a connector that can also be called, and that path turns a response into rows: a GraphQL field holding one element came back as the element and the same field holding two came back as the list, so a gateway forwarding it answered a different shape depending on how many rows existed upstream. An enrichment is a call, and is made as one where the connector allows it.
+
 - **A GraphQL mutation returning `Boolean` always said `false`.** `deleteUser(id: ID!): Boolean!` is served by a flow whose result is `{"affected": 1}`, and nothing turned that into a boolean — so a row was deleted and the caller was told it was not. It now answers whether the write happened.
 
 - **A GraphQL mutation could not return the record it created** when the flow assigned its own key. The read-back used the driver's last insert id, which for a table keyed by anything but an autoincrementing integer is the row's position, so it found nothing and GraphQL answered "Cannot return null for non-nullable field User.email" for a record that had just been written.

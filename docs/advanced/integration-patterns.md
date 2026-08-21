@@ -222,6 +222,11 @@ connector "products_api" {
 }
 ```
 
+A gateway flow has **no `to` block**: what it answers with is what its
+transform builds. Writing `to { connector = "api" }` to mean "reply with this"
+is refused — the REST connector is where the request came from, not somewhere
+to write to.
+
 ```hcl
 # flows.mycel
 
@@ -241,9 +246,6 @@ flow "get_products" {
     products = "enriched.products.products"
   }
 
-  to {
-    connector = "api"  # Returns response
-  }
 }
 
 # GET /products/:id -> GraphQL query with variable
@@ -268,9 +270,6 @@ flow "get_product" {
     description = "enriched.product.product.description"
   }
 
-  to {
-    connector = "api"
-  }
 }
 
 # POST /products -> GraphQL mutation
@@ -293,9 +292,6 @@ flow "create_product" {
     name = "enriched.created.createProduct.name"
   }
 
-  to {
-    connector = "api"
-  }
 }
 ```
 
@@ -384,6 +380,9 @@ type Mutation {
 }
 ```
 
+These flows answer with what their transform builds, so they have no `to`
+block: the GraphQL server is where the request arrived, not a destination.
+
 ```hcl
 # flows.mycel
 
@@ -403,9 +402,6 @@ flow "get_users" {
     result = "enriched.users"
   }
 
-  to {
-    connector = "api"
-  }
 }
 
 # Query.user(id) -> GET /users/:id
@@ -427,9 +423,6 @@ flow "get_user" {
     avatar = "enriched.user.avatar"
   }
 
-  to {
-    connector = "api"
-  }
 }
 
 # Mutation.createUser -> POST /users
@@ -454,9 +447,6 @@ flow "create_user" {
     name  = "enriched.created.name"
   }
 
-  to {
-    connector = "api"
-  }
 }
 ```
 
