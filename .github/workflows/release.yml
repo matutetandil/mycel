@@ -204,9 +204,69 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # Lifts this version's Breaking and Security sections out of the
+      # changelog so the release page leads with them.
+      #
+      # The 3.0.0 release went out with GitHub's generated notes alone: a list
+      # of pull request titles that said nothing about `mfa { required }`
+      # starting to require it, or about the module path moving to /v3. A major
+      # version exists to make someone read before they upgrade, and the page
+      # they land on has to be the one that tells them.
+      #
+      # Only Breaking and Security are lifted, not the whole section: 3.0.0's
+      # runs to 117 KB against a 125 KB limit on the release body, so a bigger
+      # release would fail to publish. Everything else is one link away.
+      - name: Assemble the release notes
+        id: notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+
+          section=$(awk -v hdr="## [$version]" '
+            index($0, hdr) == 1 { f = 1; next }
+            /^## \[/ { if (f) exit }
+            f { print }
+          ' CHANGELOG.md)
+
+          if [ -z "$(printf '%s' "$section" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG.md has no section for $version. Add one before tagging." >&2
+            exit 1
+          fi
+
+          warnings=$(printf '%s\n' "$section" | awk '
+            /^### / { keep = ($0 ~ /^### (Breaking|Security)/) }
+            keep
+          ')
+
+          changelog="https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/CHANGELOG.md"
+
+          {
+            if [ -n "$(printf '%s' "$warnings" | tr -d '[:space:]')" ]; then
+              echo "**Read this before upgrading.** The full detail for every change is in [CHANGELOG.md]($changelog)."
+              echo
+              printf '%s\n' "$warnings"
+            else
+              echo "Every change in this release is listed in [CHANGELOG.md]($changelog)."
+            fi
+            echo
+            echo "---"
+            echo
+          } > release-notes.md
+
+          size=$(wc -c < release-notes.md)
+          echo "Assembled $size bytes of notes for $version."
+          # The generated pull request list is appended to this by the API, so
+          # leave room for it under the 125,000 character ceiling.
+          if [ "$size" -gt 100000 ]; then
+            echo "::error::Release notes are $size bytes; the release body caps at 125,000." >&2
+            exit 1
+          fi
+
+      # `body_path` with `generate_release_notes` puts the changelog warnings
+      # first and GitHub's generated pull request list underneath.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          body_path: release-notes.md
           generate_release_notes: true
 
   # Keeps the Homebrew tap pointing at the release just published.
@@ -304,7 +364,10 @@ jobs:
       - name: Build archives and packages
         uses: goreleaser/goreleaser-action@v7
         with:
-          version: latest
+          # `latest` warns that it locks to the current major anyway. Naming
+          # the major keeps the pin and drops the warning; .goreleaser.yml
+          # declares `version: 2`, which is that same major.
+          version: "~> v2"
           args: release --clean
 
       - name: Attach to release
