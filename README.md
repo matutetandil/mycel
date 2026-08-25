@@ -3,6 +3,7 @@
 [![CI](https://github.com/matutetandil/mycel/actions/workflows/ci.yml/badge.svg)](https://github.com/matutetandil/mycel/actions/workflows/ci.yml)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/matutetandil/mycel)](https://go.dev/)
 [![Release](https://img.shields.io/github/v/release/matutetandil/mycel)](https://github.com/matutetandil/mycel/releases)
+[![Go Reference](https://pkg.go.dev/badge/github.com/matutetandil/mycel/v3.svg)](https://pkg.go.dev/github.com/matutetandil/mycel/v3)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io%2Fmatutetandil%2Fmycel-blue?logo=docker)](https://ghcr.io/matutetandil/mycel)
 
@@ -131,6 +132,35 @@ Prefer to start from a generated skeleton? `mycel init my-service` writes the sa
 Most microservice code is plumbing — routing, database queries, data transformations, protocol translation, error handling, retries. The same patterns repeated across every service, in every team, in every company. Mycel extracts that into configuration so teams can focus on what's actually unique to their service.
 
 It's for backend teams building microservices of any kind — APIs, integrations, event processors, protocol bridges — who'd rather declare the service than rewrite its plumbing.
+
+## When Mycel Fits
+
+Mycel is at its best when the service's job is moving and reshaping data between systems:
+
+- **Ingestion and integration** — a queue, a webhook or a file drop lands somewhere else, reshaped and validated on the way.
+- **APIs over existing data** — expose a database, a SOAP service or an internal API as REST or GraphQL, with validation, auth and rate limiting.
+- **Event-driven pipelines** — CDC, MQTT or Kafka events routed, filtered and fanned out to the systems that care.
+- **Orchestration across services** — multi-step flows, sagas with compensation, transactions, retries and circuit breakers.
+
+It's a worse fit when the service's value *is* the code:
+
+- **The logic doesn't fit an expression.** Transforms are [CEL](docs/reference/cel-functions.md) — good at reshaping a payload, not at implementing an algorithm. Custom logic goes into a [WASM plugin](docs/advanced/wasm.md), which today runs pure functions only (validators, transforms, CEL functions — no I/O of its own).
+- **You need a system Mycel doesn't speak.** Connectors ship with the runtime, so a protocol that isn't in the list is a change to Mycel, not a change to your config.
+- **The domain model is the point.** If most of the service is business rules rather than data movement, you'd be writing that logic somewhere anyway — write it in Go and let Mycel handle the edges, or don't use it at all.
+
+## Performance
+
+The [benchmark suite](benchmark/) runs three tests in parallel — each against its own Mycel instance — on the cheapest hardware available: $5 VPS with 1 vCPU and 1 GB of RAM, with PostgreSQL on a *separate* machine over the public network. It calibrates itself to the hardware first, then loads it.
+
+| Test | What it measures | Result |
+|------|------------------|--------|
+| **Standard** | Mycel itself — HTTP, CEL transforms, JSON, array processing, no external I/O | **8,437 RPS**, p99 151 ms, 0.000% errors |
+| **Realistic** | Full CRUD against PostgreSQL over the network | **204 RPS**, median **2.0 ms**, p95 4.9 ms, 0.010% errors |
+| **Stress** | 3× the calibrated safe limit, 100 KB payloads, chaos mix | **402 RPS**, 0.011% errors, **0 crashes, 0 restarts, 0 OOM kills** |
+
+3.2 million requests across the three simultaneous tests, 12 minutes wall clock, under 0.01% errors overall. In the realistic test the bottleneck is the PostgreSQL connection over the public network, not Mycel — the median of 2 ms is the runtime; the p99 is the database.
+
+Full methodology, per-phase numbers and resource usage in [`benchmark/RESULTS.md`](benchmark/RESULTS.md). Measured on v1.12.0; the suite is reproducible (Terraform + k6) if you want to run it against your own hardware.
 
 ## Features
 
