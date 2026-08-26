@@ -28,18 +28,28 @@ RUN CGO_ENABLED=0 GOOS=linux go build ${COVERAGE:+-cover -coverpkg=./...} \
     -ldflags="-s -w" -o mycel ./cmd/mycel
 
 # Final stage
-# alpine 3.22, and staying there for now on purpose: 3.23 and 3.24 ship the
-# same openssl (libcrypto3 3.5.7-r0), so bumping the base moves nothing that
-# a scanner reports. What clears the one HIGH finding this image carries —
-# CVE-2026-14456, against libcrypto3 and libssl3 — is alpine shipping
-# 3.5.8-r0, which no branch has done yet. Rebuild when it does.
+# alpine 3.22, and staying there on purpose: 3.23 and 3.24 have the same
+# packages, so bumping the base moves nothing a scanner reports.
 FROM alpine:3.22
 
+# Upgrade before installing anything.
+#
+# A base image is built once and then sits there: alpine:3.22 currently bakes
+# in libcrypto3 3.5.7-r0 while the repository it points at has 3.5.8-r0, the
+# one that fixes CVE-2026-14456. Nothing here used that repository for the
+# packages already present, so the image shipped a vulnerability whose patch
+# was one fetch away — twenty findings, two of them HIGH, in an image that
+# scans clean the moment the packages it already has are brought up to date.
+#
+# The cost is that two builds a week apart are not byte-identical, which was
+# already true: apk add fetches current versions for everything below.
+#
 # ca-certificates for HTTPS, tzdata for timezones, and the ssh client for
 # `exec { driver = "ssh" }` — that connector runs the client rather than
 # speaking the protocol itself, so without this the documented feature cannot
 # work in the image Mycel is documented to run in.
-RUN apk add --no-cache ca-certificates tzdata openssh-client
+RUN apk upgrade --no-cache && \
+    apk add --no-cache ca-certificates tzdata openssh-client
 
 # Create non-root user
 RUN adduser -D -u 1000 mycel

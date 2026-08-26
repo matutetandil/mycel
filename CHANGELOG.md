@@ -24,7 +24,7 @@ running service does. Read these before upgrading.
 
 ### Security
 
-- **The image carries one openssl finding that alpine has not fixed.** `CVE-2026-14456` (a denial of service through unbounded memory) is reported against `libcrypto3` and `libssl3` — two packages, one CVE, both at 3.5.7-r0 with the fix in 3.5.8-r0. Alpine has not shipped it: 3.22, 3.23 and 3.24 all carry the same version, so moving the base image forward changes nothing a scanner reports. It is in the published 3.0.0 image too, and clears on a rebuild once alpine ships the patch. The ssh client added to the image in this release costs nothing here — the scan is byte for byte the same with and without it.
+- **The image scans clean.** It carried twenty findings, two of them HIGH — `CVE-2026-14456` against `libcrypto3` and `libssl3` — and the patch was one fetch away the whole time: `alpine:3.22` bakes in openssl 3.5.7-r0 while the repository it points at has 3.5.8-r0. A base image is built once and then sits there, and nothing in this Dockerfile brought the packages it already had up to date. `apk upgrade` before installing, and the count is zero. The same twenty are in the published 3.0.0 image and clear on the next build.
 
 ### Added
 
