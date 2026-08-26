@@ -91,3 +91,8 @@ tests/integration/coverage.out
 # beside its manifest and is committed; this is everything else cargo writes.
 examples/plugin/plugins/*/target/
 tests/integration/config/plugins/*/target/
+
+# The SSH key pair the integration suite generates per run
+tests/integration/ssh/id_ed25519
+tests/integration/ssh/id_ed25519.pub
+tests/integration/ssh/authorized_keys

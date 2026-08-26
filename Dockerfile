@@ -30,8 +30,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build ${COVERAGE:+-cover -coverpkg=./...} \
 # Final stage
 FROM alpine:3.22
 
-# Add ca-certificates for HTTPS and tzdata for timezones
-RUN apk add --no-cache ca-certificates tzdata
+# ca-certificates for HTTPS, tzdata for timezones, and the ssh client for
+# `exec { driver = "ssh" }` — that connector runs the client rather than
+# speaking the protocol itself, so without this the documented feature cannot
+# work in the image Mycel is documented to run in.
+RUN apk add --no-cache ca-certificates tzdata openssh-client
 
 # Create non-root user
 RUN adduser -D -u 1000 mycel

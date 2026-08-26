@@ -121,6 +121,17 @@ func (c *Connector) Connect(ctx context.Context) error {
 				"set ssh.key_file; ssh.password cannot be used without a terminal to type it into", c.name)
 		}
 
+		// This driver runs the ssh client rather than speaking the protocol
+		// itself, so the binary has to be there. It was found at the moment a
+		// flow ran, in the shape `exec: "ssh": executable file not found in
+		// $PATH` — a 500 per request, from a service that had started
+		// cleanly and said the connector was ready. Asked for here, it is one
+		// line at start-up naming what to install.
+		if _, err := exec.LookPath("ssh"); err != nil {
+			return fmt.Errorf("exec connector %s: the ssh driver runs the ssh client, and there is none on PATH — "+
+				"install openssh-client in the image this runs in", c.name)
+		}
+
 		if c.config.SSH.KnownHosts == "" {
 			slog.Warn("ssh host key checking is off: set ssh.known_hosts to verify the host",
 				"connector", c.name, "host", c.config.SSH.Host)

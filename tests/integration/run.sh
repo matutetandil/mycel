@@ -90,6 +90,7 @@ PORT_DEFS=(
   PORT_REDIS_SENTINEL:36380
   PORT_MQTT:31883
   PORT_SFTP:32222
+  PORT_SSH_EXEC:32223
 )
 
 echo "Checking ports..."
@@ -111,6 +112,9 @@ else
   echo -e "  ${CYAN}$REMAPPED port(s) remapped${NC}"
 fi
 echo ""
+
+# The exec connector signs in with a key; see the script.
+bash scripts/ssh-keypair.sh
 
 # The push connector needs a service account to sign with; see the script.
 if [ -z "${FCM_SERVICE_ACCOUNT:-}" ]; then
@@ -354,6 +358,7 @@ if command -v go > /dev/null 2>&1; then
         MYCEL_TEST_REDIS_SENTINEL="127.0.0.1:${PORT_REDIS_SENTINEL}" \
         MYCEL_TEST_MQTT_BROKER="tcp://127.0.0.1:${PORT_MQTT}" \
         MYCEL_TEST_SFTP_ADDR="127.0.0.1:${PORT_SFTP}" \
+        MYCEL_TEST_SSH_ADDR="127.0.0.1:${PORT_SSH_EXEC}" \
         MYCEL_TEST_TLS_URL="https://localhost:${PORT_MOCK_TLS}" \
         MYCEL_TEST_TLS_CA_URL="http://localhost:${PORT_MOCK}/ca.pem" \
         go test "$pkg" -run "$pattern" -count=1 -v 2>&1); then

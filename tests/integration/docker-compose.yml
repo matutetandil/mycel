@@ -22,6 +22,8 @@ services:
       - "${PORT_WORKFLOW:-9101}:9091" # Workflow api (its own port, authenticated)
     volumes:
       - ./config:/etc/mycel
+      # The key the exec connector signs in with. Generated per run.
+      - ./ssh/id_ed25519:/etc/mycel-ssh/id_ed25519:ro
       # Always mounted; the binary only writes here when built with -cover.
       - ./.coverage:/covdata
     # A -cover binary writes its counters as it exits, and the default ten
@@ -99,6 +101,8 @@ services:
       mock:
         condition: service_healthy
       mosquitto:
+        condition: service_healthy
+      ssh-exec:
         condition: service_healthy
       sftp:
         condition: service_started
@@ -363,6 +367,23 @@ services:
       - "${PORT_SFTP:-32222}:22"
     volumes:
       - ./sftp/sftp.json:/app/config/sftp.json:ro
+
+  # A server that will run a command, which the SFTP one above will not: it is
+  # restricted to the sftp subsystem. Keys only — the exec connector refuses a
+  # password, since there is no terminal to type one into.
+  ssh-exec:
+    build:
+      context: ./ssh
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT_SSH_EXEC:-32223}:22"
+    volumes:
+      - ./ssh/authorized_keys:/home/runner/.ssh/authorized_keys:ro
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 22 || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
 
   # ==========================================================================
   # Cosmo Router - GraphQL Federation Gateway

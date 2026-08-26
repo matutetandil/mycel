@@ -216,6 +216,27 @@ curl -X POST http://localhost:3000/echo -d '{"message":"hello"}'
 curl http://localhost:3000/enriched/42
 ```
 
+## Running somewhere else
+
+`driver = "ssh"` runs the command on the machine the `ssh` block names instead
+of on this one. The `remote_server` connector in `connectors.mycel` is pointed
+at `SSH_HOST` with a key from `SSH_KEY`, so it needs a machine you can reach —
+which is why the flow that uses it is not among the requests above. The
+integration suite exercises the same block against an SSH server of its own.
+
+Two things worth knowing before pointing it at something real:
+
+- **The key is the only way in.** A password is refused: a service has no
+  terminal to type one into, and Mycel says so at startup rather than failing
+  at the first request.
+- **`known_hosts` is what stops somebody standing in the middle.** Name a file
+  and host key checking is on; name none and it is off, which Mycel also says
+  at startup.
+
+The connector runs the `ssh` client rather than speaking the protocol itself,
+so the image it runs in needs one. The official image has it; a service whose
+image does not will refuse to start rather than fail at the first request.
+
 ## See Also
 
 - [TCP Example](../tcp/README.md) - TCP connector usage

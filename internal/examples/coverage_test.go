@@ -173,7 +173,6 @@ func reusableKinds() []string {
 // behaviour is covered another way, the reason says where.
 var connectorBlocksWithoutAnExample = map[string]string{
 	"cluster": "needs a Redis cluster; the test stack runs a single node",
-	"ssh":     "needs a host that will run commands over SSH. The stack's SFTP server is restricted to the sftp subsystem, which is the point of it",
 }
 
 // A connector's blocks are features too: `consumer`, `producer`, `headers`,
