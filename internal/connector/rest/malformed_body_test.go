@@ -2,9 +2,13 @@ package rest
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/matutetandil/mycel/v3/internal/sanitize"
 )
 
 // A body that does not parse is a bad request, not an empty one.
@@ -58,5 +62,45 @@ func TestEmptyBodyStillReachesTheFlow(t *testing.T) {
 	}
 	if !called {
 		t.Error("the flow did not run for an empty body")
+	}
+}
+
+// Input the sanitizer turned away is a bad request, not a server failure.
+//
+// It came back as a 500, which reads as Mycel breaking and — because 5xx is
+// the retryable class — had clients and load balancers re-sending a payload
+// that could never be accepted.
+func TestSanitizerRejectionIsABadRequest(t *testing.T) {
+	conn := New("test", 3000, nil, nil)
+	conn.RegisterRoute("POST /things", func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return nil, fmt.Errorf("input sanitization failed: %w", sanitize.ErrRejected)
+	})
+	conn.setupRoutes()
+
+	req := httptest.NewRequest("POST", "/things", strings.NewReader(`{"ok":1}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	conn.mux.ServeHTTP(rr, req)
+
+	if rr.Code != 400 {
+		t.Errorf("status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+// A genuine failure inside the flow is still ours to own.
+func TestFlowFailureIsStillAServerError(t *testing.T) {
+	conn := New("test", 3000, nil, nil)
+	conn.RegisterRoute("POST /things", func(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+		return nil, errors.New("connection refused")
+	})
+	conn.setupRoutes()
+
+	req := httptest.NewRequest("POST", "/things", strings.NewReader(`{"ok":1}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	conn.mux.ServeHTTP(rr, req)
+
+	if rr.Code != 500 {
+		t.Errorf("status = %d, want 500 (body: %s)", rr.Code, rr.Body.String())
 	}
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/matutetandil/mycel/v3/internal/health"
 	"github.com/matutetandil/mycel/v3/internal/metrics"
 	"github.com/matutetandil/mycel/v3/internal/ratelimit"
+	"github.com/matutetandil/mycel/v3/internal/sanitize"
 )
 
 // HandlerFunc is a function that handles a flow request.
@@ -705,6 +706,12 @@ func (c *Connector) writeError(w http.ResponseWriter, err error) int {
 	if strings.Contains(errStr, "validation") ||
 		strings.Contains(errStr, "required") ||
 		strings.Contains(errStr, "invalid") {
+		status = http.StatusBadRequest
+	}
+	// Input the sanitizer turned away is the sender's to fix. Reported as a
+	// 500 it read as Mycel breaking, and 5xx is the retryable class — so a
+	// client posting an oversized field retried it forever.
+	if errors.Is(err, sanitize.ErrRejected) {
 		status = http.StatusBadRequest
 	}
 
