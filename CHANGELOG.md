@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The `response` block dropped structured values.** Its rules were converted with a shallow `val.Value()`, which for a list or a map hands back CEL's own wrappers — they JSON-encode as `{"Adapter":{}}`. A flow shaping its output with `response { expensive = "input.items.filter(x, x.price > 50)" }` answered 200 with the data replaced by an empty struct. Every other rule loop already unwrapped; this one was the exception, which is why `transform` blocks were unaffected.
+
+- **`hash_sha256` was not SHA-256.** It returned a 64-bit djb2 hash, hex encoded, under a comment saying to use `crypto/sha256` in production — while the reference documents it as "SHA-256 hash (hex encoded)" and the transforms guide shows it hashing a password. It is now SHA-256. **This changes the value the function returns**, so anything that stored or compared its output — a dedupe fingerprint, an idempotency key — recomputes once after upgrade.
+
+- **A request body that does not parse is now a 400 instead of being treated as empty.** The decode error was dropped, so corrupt JSON was indistinguishable from no JSON: `POST /echo` with `{"broken":` answered 200 and echoed nothing, and the same body on a flow with a transform came back as a 500 blaming a missing key. An empty body still reaches the flow, as before.
+
+- **A webhook delivery that is not the JSON it claims is now refused.** A truncated body — the shape a connection cut in flight produces — got `{"received": true}` back with a nil payload. Providers retry on a non-2xx and only on a non-2xx, so answering 200 discarded the event permanently.
+
+- **Input the sanitizer turns away answers 400, not 500.** An oversized field came back as `500 input sanitization failed`, which reads as Mycel breaking — and 5xx is the retryable class, so a client posting a payload that can never be accepted kept re-sending it. Rejections are now marked (`sanitize.ErrRejected`) rather than recognised by searching the error text.
+
+- **SQLite failed most writes under any concurrency.** The connector opened with the driver defaults: no busy timeout, so a write that found the database locked gave up immediately with `SQLITE_BUSY` instead of waiting, and the rollback journal, so readers and writers excluded each other. With ten concurrent writers, 195 of 200 writes were lost; under a 10-VU load test, 63% of requests failed. `busy_timeout`, `journal_mode(WAL)` and `foreign_keys` are now set on the DSN. SQLite is what the quick start and 36 of the examples use.
+
+- **Foreign keys were enforced on one connection out of the pool.** `PRAGMA foreign_keys = ON` ran once after opening, and SQLite applies a pragma to the connection that ran it — so every connection opened afterwards had them off, and the same violating write was accepted or rejected depending on where it landed.
+
+### Changed
+
+- **The benchmark suite is published** (`benchmark/`), minus the Linode token, Terraform state and past results. The README's performance section linked to files that only existed on the machine that wrote them.
+
+- **The benchmark checks the answer before timing it.** Every k6 check in the suite was `status === 200`, which counts a 200 carrying an empty body as a success; the suite would have reported the `{"Adapter":{}}` bug above as 8,000 successful requests per second. `benchmark/scripts/preflight.sh` now asserts the bodies and `run.sh` refuses to measure a target that fails it. The targets also deployed `.hcl` files, which the runtime has not read since v1.18 — so they came up with no flows at all.
+
+- **A benchmark result now says which build produced it.** The image is a Terraform variable instead of `:latest`, the targets record what they run, and each run writes `provenance.txt` next to Mycel's own flow counters.
+
 ## [3.0.0] - 2026-08-21
 
 ### Added
