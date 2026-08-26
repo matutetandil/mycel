@@ -3,7 +3,7 @@
 # The stack's SFTP server will not: it is restricted to the sftp subsystem,
 # which is the point of it. `exec { driver = "ssh" }` opens a session and runs
 # something, so it needs a server that allows one.
-FROM alpine:3.22
+FROM alpine:3.24
 
 RUN apk add --no-cache openssh-server && \
     adduser -D -s /bin/sh runner && \

@@ -24,7 +24,7 @@ running service does. Read these before upgrading.
 
 ### Security
 
-- **The image scans clean.** It carried twenty findings, two of them HIGH — `CVE-2026-14456` against `libcrypto3` and `libssl3` — and the patch was one fetch away the whole time: `alpine:3.22` bakes in openssl 3.5.7-r0 while the repository it points at has 3.5.8-r0. A base image is built once and then sits there, and nothing in this Dockerfile brought the packages it already had up to date. `apk upgrade` before installing, and the count is zero. The same twenty are in the published 3.0.0 image and clear on the next build.
+- **The image scans clean.** It carried twenty findings, two of them HIGH — `CVE-2026-14456` against `libcrypto3` and `libssl3` — and the patch was one fetch away the whole time: `alpine:3.22` bakes in openssl 3.5.7-r0 while the repository it points at has 3.5.8-r0. A base image is built once and then sits there, and nothing in this Dockerfile brought the packages it already had up to date. `apk upgrade` before installing, and the count is zero. The base also moves from alpine 3.22 to 3.24 — which changes nothing a scanner reports, both come out clean, but a newer branch has a longer runway of patches ahead of it, and once a branch stops receiving them there is nothing left to upgrade to. The same twenty findings are in the published 3.0.0 image and clear on the next build.
 
 ### Added
 

@@ -28,9 +28,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build ${COVERAGE:+-cover -coverpkg=./...} \
     -ldflags="-s -w" -o mycel ./cmd/mycel
 
 # Final stage
-# alpine 3.22, and staying there on purpose: 3.23 and 3.24 have the same
-# packages, so bumping the base moves nothing a scanner reports.
-FROM alpine:3.22
+# The current stable branch. Which one hardly matters for what a scanner
+# reports — with the upgrade below, 3.22 and 3.24 both come out clean — but a
+# newer branch has a longer runway of patches ahead of it, and once a branch
+# stops receiving them there is nothing left for `apk upgrade` to fetch.
+FROM alpine:3.24
 
 # Upgrade before installing anything.
 #

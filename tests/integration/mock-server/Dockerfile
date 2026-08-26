@@ -8,7 +8,7 @@ COPY *.go ./
 # single-file version was.
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o mock-server *.go
 
-FROM alpine:3.22
+FROM alpine:3.24
 COPY --from=builder /build/mock-server /app/mock-server
 EXPOSE 8888
 EXPOSE 8443
