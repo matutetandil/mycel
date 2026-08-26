@@ -1021,7 +1021,7 @@ func AuthSchema() Block {
 					{Name: "max_attempts", Doc: "Failures allowed inside the window before locking out", Type: TypeNumber},
 					{Name: "window", Doc: "How long failures are remembered for, such as 15m", Type: TypeString},
 					{Name: "lockout_time", Doc: "How long an account stays locked, such as 30m", Type: TypeString},
-					{Name: "track_by", Doc: "What failures are counted against", Type: TypeString, Values: []string{"ip", "email", "both"}},
+					{Name: "track_by", Doc: "What failures are counted against; the pair unless written", Type: TypeString, Values: []string{"ip", "user", "ip+user"}},
 					{Name: "fail_delay", Doc: "A flat wait added to every refusal, such as 500ms, so an attacker cannot tell a wrong password from a missing account by timing", Type: TypeString},
 				}, Children: []Block{
 					{Type: "progressive_delay", Doc: "Make each successive failure wait longer than the last", Attrs: []Attr{
@@ -1046,7 +1046,7 @@ func AuthSchema() Block {
 					{Name: "rate", Doc: "Calls allowed per window", Type: TypeNumber},
 					{Name: "burst", Doc: "How far above the rate a short burst may go", Type: TypeNumber},
 					{Name: "window", Doc: "The period the rate is counted over, such as 1m", Type: TypeString},
-					{Name: "key_by", Doc: "What calls are counted against", Type: TypeString, Values: []string{"ip", "user", "both"}},
+					{Name: "key_by", Doc: "What calls are counted against", Type: TypeString, Values: []string{"ip", "user", "ip+user"}},
 				}, Children: authRateLimitBlocks()},
 				{Type: "impossible_travel", Doc: "Notice two sign-ins too far apart for the time between them", Attrs: []Attr{
 					{Name: "enabled", Doc: "Whether distances are measured at all; needs a geoip block", Type: TypeBool},
@@ -1119,7 +1119,7 @@ func AuthSchema() Block {
 				}},
 			}},
 			{Type: "account_linking", Doc: "Joining identities that belong to one person", Attrs: accountLinkingAttrs()},
-			{Type: "endpoints", Doc: "Paths the auth routes are served on. Writing the block replaces the defaults, so an endpoint not named here is not served", Attrs: []Attr{
+			{Type: "endpoints", Doc: "Paths the auth routes are served on. Naming one overrides that one; the rest keep their defaults. Turning one off is enabled = false inside its own block", Attrs: []Attr{
 				{Name: "prefix", Doc: "Path every auth route hangs off; /auth unless written", Type: TypeString},
 			}, Children: authEndpointBlocks()},
 			{Type: "hooks", Doc: "Flows invoked around auth events", Children: []Block{
@@ -1281,7 +1281,7 @@ func oauthProviderAttrs() []Attr {
 func accountLinkingAttrs() []Attr {
 	return []Attr{
 		{Name: "enabled", Doc: "Whether identities are joined at all", Type: TypeBool},
-		{Name: "match_by", Doc: "What decides two identities are one person", Type: TypeString, Values: []string{"email", "custom"}},
+		{Name: "match_by", Doc: "What decides two identities are one person", Type: TypeString, Values: []string{"email", "phone", "custom"}},
 		{Name: "require_verification", Doc: "Only join when the provider says the address is verified", Type: TypeBool},
 		{Name: "on_match", Doc: "What happens when an existing account matches", Type: TypeString, Values: []string{"link", "reject", "prompt"}},
 		{Name: "custom_match", Doc: "CEL expression deciding the match, when match_by is custom", Type: TypeString},

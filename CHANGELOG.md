@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Three things that used to be quiet now speak, and each can change what a
 running service does. Read these before upgrading.
 
+- **A second factor Mycel cannot provide is now refused at startup.** `mfa { methods = ["sms"] }` was accepted, counted towards `min_factors` and never dispatched on; `mfa { sms { } }`, `mfa { email { } }` and `mfa { push { } }` parsed into fields nothing reads. Enrolment offers TOTP and WebAuthn whatever any of that says — so a service could be configured for SMS two-factor, start cleanly, and have no second factor at all. A configuration naming one of them now fails to start and says which two are provided.
+
 - **A dropped message answers differently.** Where a gate — `filter`, `accept`, `dedupe`, `sequence_guard`, a `coordinate` timeout — turned a request away, the HTTP response was Mycel's internal struct: `{"Filtered":true,"Policy":"ack","MessageID":"","MaxRequeue":0,"Reason":"accept","Detail":"…"}`. It is now `{"status":"dropped","reason":"accept"}`. Anything parsing `Filtered` has to be updated. Queue consumers are unaffected: they read the value inside the process, not over HTTP.
 
 - **A `response` block on a flow whose destination is a transaction now runs.** It was ignored, so such a flow replied with the write's own row counts. If the block references a field the transaction result does not carry, the request now fails with a 500 where it previously answered — a transaction exposes `output.affected` and `output.captured.<name>`, not the row it wrote. `validate { output }` starts being enforced on these flows for the same reason.
@@ -34,6 +36,8 @@ running service does. Read these before upgrading.
 
 - **The GraphQL selection helpers are shown working.** `requested_fields`, `requested_top_fields` and `field_requested` let a flow read the query's field selection rather than be optimised by it; `explainProduct` in `examples/graphql-optimization` reports what it was asked for.
 
+- **The `auth` block is described.** Six of its fourteen children were a name and a doc string with nothing in them — `jwt`, `social`, `sso`, `provider`, `account_linking`, `endpoints` — so completions inside them offered nothing and `mycel export` had nothing to export. All six are transcribed from the structs the parser decodes, along with `base_url` and the four `security` children that were missing (`brute_force`, `replay_protection`, `ip_rules`, `rate_limit`).
+
 - **`driver` is declared by the five connectors built from it.** A GraphQL connector is a server or a client depending on that attribute, and so is a gRPC one and a TCP one; an exec connector runs locally or over SSH by it; a CDC connector cannot be built without it. None said so in its schema, so `mycel add` did not generate it and the editor did not complete it. CDC's is now required, which moves the failure from connect time to `mycel validate`.
 
 - **`examples/reusable-blocks` shows all twelve kinds**, including a flow that declares no policy of its own: the key it locks on, the ceiling it waits under, the order it observes, the sequence it refuses to go backwards on and the statements it writes are every one of them a reference.
@@ -49,6 +53,8 @@ running service does. Read these before upgrading.
 - **`federation { enabled = false }` did nothing.** The attribute was parsed into the config and never read: the GraphQL server enabled federation unconditionally, so a server told not to federate still published its whole schema through `_service { sdl }` — which is the one reason anybody writes that setting.
 
 - **An HTTP connector whose TLS could not be built started anyway.** The build error was discarded and the connector fell back to the default transport, so a mistyped `ca_cert` path meant verifying against the system roots instead of the CA that was named, and a client certificate that would not load meant connecting without one. Both look like working TLS from outside. It now refuses at startup.
+
+- **The schema offered values the code rejects.** `track_by` and `key_by` were listed as accepting `both` where the runtime wants `ip+user`, and `match_by` was missing `phone` — so a completion suggested a setting that would be refused. A test in `internal/auth` compares the two: the values a schema attribute offers must be the values the struct comment beside its hcl tag says are understood.
 
 - **`coalesce` was not the alias it is documented as.** `default(input.missing, "x")` is rewritten with a `has()` guard so it survives a field that is not there — the case the function exists for — and `coalesce`, the same function under the other name, was not: it failed with "no such key".
 

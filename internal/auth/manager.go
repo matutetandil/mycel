@@ -154,6 +154,16 @@ func NewManager(config *Config, opts ...ManagerOption) (*Manager, error) {
 		}
 	}
 
+	// A second factor this cannot provide is worse than none: the
+	// configuration says the account is protected and nothing protects it.
+	// `mfa { methods = ["sms"] }` was accepted, counted towards min_factors
+	// and never dispatched on, and `mfa { sms { } }`, `mfa { email { } }` and
+	// `mfa { push { } }` parsed into fields nothing reads. Enrolment offers
+	// TOTP and WebAuthn whatever any of that says.
+	if err := checkMFAMethodsAreProvided(config); err != nil {
+		return nil, err
+	}
+
 	m := &Manager{
 		config: config,
 		logger: slog.Default(),
@@ -1225,5 +1235,39 @@ func (m *Manager) RemoveWebAuthnCredential(ctx context.Context, userID, credenti
 	}
 
 	m.logger.Info("WebAuthn credential removed", "user_id", userID, "credential_id", credentialID)
+	return nil
+}
+
+// providedMFAMethods are the second factors this can actually enrol and check.
+// recovery is not among them: it is a fallback for somebody who has lost one,
+// configured in its own block rather than chosen as a method.
+var providedMFAMethods = map[string]bool{
+	string(MFAMethodTOTP):     true,
+	string(MFAMethodWebAuthn): true,
+}
+
+// checkMFAMethodsAreProvided refuses a configuration that asks for a second
+// factor nothing here can give.
+func checkMFAMethodsAreProvided(config *Config) error {
+	if config == nil || config.MFA == nil {
+		return nil
+	}
+
+	for _, method := range config.MFA.Methods {
+		if !providedMFAMethods[method] {
+			return fmt.Errorf("mfa: methods names %q, which this does not provide; it can enrol totp and webauthn", method)
+		}
+	}
+
+	for name, configured := range map[string]bool{
+		"sms":   config.MFA.SMS != nil,
+		"email": config.MFA.Email != nil,
+		"push":  config.MFA.Push != nil,
+	} {
+		if configured {
+			return fmt.Errorf("mfa: a %s block is configured, and %s is not a second factor this provides; it can enrol totp and webauthn", name, name)
+		}
+	}
+
 	return nil
 }
