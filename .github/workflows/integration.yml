@@ -179,7 +179,17 @@ jobs:
 
       - name: Mycel logs on failure
         if: failure()
-        run: docker compose logs mycel 2>/dev/null || true
+        # No 2>/dev/null: when this step printed nothing, the silence was the
+        # only thing it told us, and the reason it printed nothing was hidden
+        # by the redirect. The services beside it are here because a connector
+        # that cannot reach one is how Mycel fails at startup.
+        run: |
+          echo "--- mycel ---"
+          docker compose logs --no-color --tail 100 mycel || true
+          echo "--- what the stack made of itself ---"
+          docker compose ps -a || true
+          echo "--- the one-shot setup containers ---"
+          docker compose logs --no-color redis-cluster-init kafka-init minio-init || true
 
       - name: All service logs on failure
         if: failure()
