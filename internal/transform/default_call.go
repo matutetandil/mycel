@@ -21,8 +21,24 @@ import "strings"
 //
 // Anything else — a function call, an index, arithmetic — is left alone, since
 // has() cannot wrap it and the caller has to guarantee it evaluates.
+//
+// `coalesce` gets the same treatment. The reference calls it an alias for
+// `default`, and it was one everywhere except here: `coalesce(input.missing,
+// "x")` failed with "no such key" on precisely the case the function is for,
+// while the same expression written with the other name worked.
 func RewriteDefault(expr string) string {
-	if !strings.Contains(expr, "default(") {
+	for _, name := range defaultNames {
+		expr = rewriteDefaultCalls(expr, name)
+	}
+	return expr
+}
+
+// defaultNames are the two spellings of the same function.
+var defaultNames = []string{"default", "coalesce"}
+
+func rewriteDefaultCalls(expr, name string) string {
+	call := name + "("
+	if !strings.Contains(expr, call) {
 		return expr
 	}
 
@@ -38,13 +54,13 @@ func RewriteDefault(expr string) string {
 			continue
 		}
 
-		if !strings.HasPrefix(expr[i:], "default(") || (i > 0 && isIdentChar(expr[i-1])) {
+		if !strings.HasPrefix(expr[i:], call) || (i > 0 && isIdentChar(expr[i-1])) {
 			out.WriteByte(expr[i])
 			i++
 			continue
 		}
 
-		open := i + len("default")
+		open := i + len(name)
 		close := findClose(expr, open, '(', ')')
 		if close < 0 {
 			out.WriteString(expr[i:])
@@ -62,12 +78,12 @@ func RewriteDefault(expr string) string {
 		path := strings.TrimSpace(args[0])
 		fallback := strings.TrimSpace(RewriteDefault(args[1]))
 		if !isSafePath(path) {
-			out.WriteString("default(" + strings.TrimSpace(RewriteDefault(args[0])) + ", " + fallback + ")")
+			out.WriteString(call + strings.TrimSpace(RewriteDefault(args[0])) + ", " + fallback + ")")
 			i = close + 1
 			continue
 		}
 
-		out.WriteString("((" + buildHasChain(path) + ") ? default(" + path + ", " + fallback + ") : " + fallback + ")")
+		out.WriteString("((" + buildHasChain(path) + ") ? " + call + path + ", " + fallback + ") : " + fallback + ")")
 		i = close + 1
 	}
 

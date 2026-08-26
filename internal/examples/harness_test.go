@@ -705,6 +705,7 @@ var selfContained = []string{
 	"soap",
 	"security",
 	"transactional-write",
+	"transforms",
 	"validators",
 	"wasm-functions",
 	"wasm-validator",

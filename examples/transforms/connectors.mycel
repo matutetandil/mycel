@@ -1,0 +1,10 @@
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = "./data/contacts.db"
+}
