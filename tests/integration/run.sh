@@ -392,6 +392,11 @@ if command -v go > /dev/null 2>&1; then
     ./internal/connector/mq/rabbitmq/ 'RejectedMessage|BatchIsPublished'
   run_go_tests "publishing and receiving over redis" \
     ./internal/connector/mq/redis/ 'PublishedMessage|PatternSubscription|ClosedConnector'
+  # A call that succeeds with a certificate authority named proves nothing
+  # unless the same call without one fails, so the pair is asserted together —
+  # and the failing half is one the README harness is told to leave alone.
+  run_go_tests "the tls example trusts only what it was told" \
+    ./internal/examples/ 'TLSExampleTrustsOnly'
   # HTTP in, Kafka out, Kafka in, database out. The consumer between the two
   # halves runs on its own schedule, so the round trip needs a wait the README
   # can only describe.
