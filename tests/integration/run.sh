@@ -84,6 +84,7 @@ PORT_DEFS=(
   PORT_MONGO:37017
   PORT_MINIO:39000
   PORT_KAFKA:29092
+  PORT_KAFKA_SASL:29094
   PORT_ES:39200
   PORT_REDIS:36379
   PORT_MQTT:31883
@@ -346,6 +347,7 @@ if command -v go > /dev/null 2>&1; then
         MYCEL_TEST_MONGO_URI="mongodb://mongo:mycel@127.0.0.1:${PORT_MONGO}/mycel_test?authSource=admin" \
         MYCEL_TEST_S3_ENDPOINT="http://127.0.0.1:${PORT_MINIO}" \
         MYCEL_TEST_KAFKA_BROKERS="localhost:${PORT_KAFKA}" \
+        MYCEL_TEST_KAFKA_SASL_BROKERS="localhost:${PORT_KAFKA_SASL}" \
         MYCEL_TEST_ELASTICSEARCH_URL="http://127.0.0.1:${PORT_ES}" \
         MYCEL_TEST_REDIS_URL="redis://127.0.0.1:${PORT_REDIS}" \
         MYCEL_TEST_MQTT_BROKER="tcp://127.0.0.1:${PORT_MQTT}" \
@@ -392,6 +394,10 @@ if command -v go > /dev/null 2>&1; then
     ./internal/connector/mq/rabbitmq/ 'RejectedMessage|BatchIsPublished'
   run_go_tests "publishing and receiving over redis" \
     ./internal/connector/mq/redis/ 'PublishedMessage|PatternSubscription|ClosedConnector'
+  # A broker that authenticates, so the sasl block is presented to something
+  # that checks it rather than merely built into a mechanism.
+  run_go_tests "kafka sasl: the right credentials, and the wrong ones" \
+    ./internal/connector/mq/kafka/ 'Credentials|WrongPassword|ConsumerPresentsItsCredentials'
   # A call that succeeds with a certificate authority named proves nothing
   # unless the same call without one fails, so the pair is asserted together —
   # and the failing half is one the README harness is told to leave alone.

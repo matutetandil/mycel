@@ -32,6 +32,8 @@ running service does. Read these before upgrading.
 
 - **`examples/pdf`** — an invoice from a database row and an HTML template, both ways the connector produces one: `generate` hands the bytes to the caller, `save` writes the file.
 
+- **`examples/kafka-sasl`** — credentials a broker actually checks, on both halves of the connector. The test stack's Kafka grew a second listener that authenticates, so the `sasl` block is presented to something that verifies it rather than merely built into a mechanism: the right credentials get in, the wrong password does not, and neither does presenting nothing.
+
 - **`examples/tls`** — how Mycel decides whether to trust the service it is calling: the same HTTPS endpoint verified against a certificate authority you name, against the machine's trust store, and not at all. Nothing in the test stack spoke TLS, so the `tls` block — which five connectors have — could not be exercised anywhere; the mock server now serves the same handlers over HTTPS with a certificate it signs itself and hands out at `/ca.pem`.
 
 - **`examples/transforms`** — a contact arriving in whatever shape a form or a partner sent it and leaving in one shape. Fifteen of the thirty-five CEL functions appeared in no example at all; these are the ones a first transform reaches for.
@@ -55,6 +57,8 @@ running service does. Read these before upgrading.
 - **A dropped message answered an HTTP caller with Mycel's internal struct**: `{"Filtered":true,"Policy":"ack","MessageID":"","MaxRequeue":0,…}` — Go field names over the wire, fields that mean nothing to an HTTP client, and a `Detail` carrying the very expression that rejected them. It is now `{"status":"dropped","reason":"accept"}`; the requeue counts a queue consumer needs and the detail meant for the log stay inside.
 
 - **`mycel migrate` could not create a database whose directory did not exist** — "unable to open database file: out of memory", SQLite's words for it. The data directory is gitignored, so that is the state of every fresh clone, and `mycel migrate` is the first command most example READMEs tell you to run. The connector created the directory on the way up; migrate opened the bare path. Both now build the address the same way, so migrate gets the busy timeout and foreign keys too.
+
+- **A Kafka consumer with SASL and no TLS never presented its credentials.** The mechanism was attached to the reader's dialer only inside the TLS branch, so against a SASL_PLAINTEXT listener — how an internal broker is usually reached — the group coordinator lookup answered EOF and the consumer read nothing for as long as the service ran, logging "Unable to establish connection to consumer group coordinator". The producer beside it had it right, so the same configuration published happily and consumed nothing.
 
 - **`federation { enabled = false }` did nothing.** The attribute was parsed into the config and never read: the GraphQL server enabled federation unconditionally, so a server told not to federate still published its whole schema through `_service { sdl }` — which is the one reason anybody writes that setting.
 

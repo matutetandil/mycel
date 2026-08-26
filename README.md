@@ -186,6 +186,7 @@ The A's and B's of any flow. Use any as a source, a target, or both.
 | [gRPC Load Balancing](examples/grpc-loadbalancing) | Round-robin and weighted balancing |
 | [RabbitMQ / Redis Pub/Sub](examples/mq) | Message queue producers and consumers |
 | [Kafka](examples/kafka) | Topics, consumer groups, offsets and acks ([docs](docs/connectors/message-queues.md)) |
+| [Kafka with SASL](examples/kafka-sasl) | Credentials a broker checks, on both the producer and the consumer |
 | [MQTT](examples/mqtt) | IoT messaging protocol (QoS 0/1/2, TLS, auto-reconnect) ([docs](docs/connectors/mqtt.md)) |
 | [WebSocket](examples/websocket) | Bidirectional real-time communication with rooms and per-user targeting ([docs](docs/connectors/websocket.md)) |
 | [SSE (Server-Sent Events)](examples/sse) | Unidirectional HTTP push with rooms and per-user targeting ([docs](docs/connectors/sse.md)) |

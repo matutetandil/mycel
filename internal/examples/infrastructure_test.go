@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -738,6 +739,18 @@ var needsInfrastructure = []infrastructure{
 		needs:   []string{"MYCEL_TEST_KAFKA_BROKERS"},
 		env: func(t *testing.T) []string {
 			return []string{"KAFKA_BROKERS=" + address(t, "MYCEL_TEST_KAFKA_BROKERS")}
+		},
+	},
+	{
+		// The same broker as the kafka example, reached through a listener
+		// that authenticates.
+		example: "kafka-sasl",
+		needs:   []string{"MYCEL_TEST_KAFKA_SASL_BROKERS"},
+		env: func(t *testing.T) []string {
+			return []string{
+				"KAFKA_SASL_BROKERS=" + address(t, "MYCEL_TEST_KAFKA_SASL_BROKERS"),
+				"KAFKA_GROUP=" + fmt.Sprintf("mycel-secure-test-%d", time.Now().UnixNano()),
+			}
 		},
 	},
 	{

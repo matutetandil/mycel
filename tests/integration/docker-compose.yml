@@ -214,9 +214,19 @@ services:
       # client is told where to reconnect by the advertised address, so a
       # single listener cannot serve both — from the host, "kafka:9092" does
       # not resolve.
-      KAFKA_LISTENERS: PLAINTEXT://:9092,HOST://:29092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:${PORT_KAFKA:-29092}
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      #
+      # A third listener speaks SASL, so the `sasl` block a Kafka connector
+      # takes can be exercised against a broker that actually asks who you
+      # are. Same broker, same topics — only the door is different.
+      KAFKA_LISTENERS: PLAINTEXT://:9092,HOST://:29092,SASL://:29094,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:${PORT_KAFKA:-29092},SASL://localhost:${PORT_KAFKA_SASL:-29094}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT,SASL:SASL_PLAINTEXT
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_LISTENER_NAME_SASL_SASL_ENABLED_MECHANISMS: PLAIN
+      # The credentials the listener accepts, in the broker's own JAAS syntax.
+      # Test credentials for a broker that lives as long as a test run.
+      KAFKA_LISTENER_NAME_SASL_PLAIN_SASL_JAAS_CONFIG: |
+        org.apache.kafka.common.security.plain.PlainLoginModule required username="mycel" password="mycel-secret" user_mycel="mycel-secret";
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
@@ -226,6 +236,7 @@ services:
       CLUSTER_ID: "dGVzdC1jbHVzdGVyLWlkMQ"
     ports:
       - "${PORT_KAFKA:-29092}:29092"
+      - "${PORT_KAFKA_SASL:-29094}:29094"
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
       interval: 5s
@@ -241,7 +252,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        for topic in test_topic dlq_topic dlq_topic.dlq orders; do
+        for topic in test_topic dlq_topic dlq_topic.dlq orders secure_orders; do
           /opt/kafka/bin/kafka-topics.sh --create --if-not-exists \
             --bootstrap-server kafka:9092 \
             --topic "$$topic" --partitions 1 --replication-factor 1

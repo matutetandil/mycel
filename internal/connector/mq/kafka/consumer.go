@@ -64,20 +64,31 @@ func (c *Connector) startConsumer(ctx context.Context) error {
 		readerConfig.CommitInterval = time.Second
 	}
 
-	// Handle TLS if configured
-	if c.config.TLS != nil && c.config.TLS.Enabled {
+	// The connections this reader makes — to a broker, and to the coordinator
+	// of its group — carry whatever the connector was told to present.
+	//
+	// SASL used to be attached only inside the TLS branch, so a consumer
+	// configured with credentials and no TLS never presented them: a
+	// SASL_PLAINTEXT listener, which is how an internal broker is usually
+	// reached, answered EOF to the group coordinator lookup and the consumer
+	// sat there logging "Unable to establish connection to consumer group
+	// coordinator" and reading nothing, for as long as the service ran. The
+	// producer beside it had it right, so the same configuration published
+	// happily and consumed nothing.
+	if c.config.TLS != nil || c.config.SASL != nil {
 		dialer := &kafka.Dialer{
 			Timeout:   10 * time.Second,
 			DualStack: true,
 		}
 
-		tlsConfig, err := c.config.TLS.BuildTLSConfig()
-		if err != nil {
-			return fmt.Errorf("failed to build TLS config: %w", err)
+		if c.config.TLS != nil && c.config.TLS.Enabled {
+			tlsConfig, err := c.config.TLS.BuildTLSConfig()
+			if err != nil {
+				return fmt.Errorf("failed to build TLS config: %w", err)
+			}
+			dialer.TLS = tlsConfig
 		}
-		dialer.TLS = tlsConfig
 
-		// Handle SASL if configured
 		if c.config.SASL != nil {
 			mechanism, err := c.buildSASLMechanism()
 			if err != nil {
