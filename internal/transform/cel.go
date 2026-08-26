@@ -3,6 +3,8 @@ package transform
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 
@@ -308,9 +310,8 @@ func baseCELOptions() []cel.EnvOption {
 				cel.StringType,
 				cel.UnaryBinding(func(val ref.Val) ref.Val {
 					s := string(val.(types.String))
-					// Simple hash - in production use crypto/sha256
-					hash := fmt.Sprintf("%x", hashString(s))
-					return types.String(hash)
+					sum := sha256.Sum256([]byte(s))
+					return types.String(hex.EncodeToString(sum[:]))
 				}),
 			),
 		),
@@ -1090,15 +1091,6 @@ func (t *CELTransformer) ValidateExpression(expr string) error {
 	return err
 }
 
-// hashString is a simple string hash (for demo - use crypto/sha256 in production)
-func hashString(s string) uint64 {
-	var h uint64 = 5381
-	for _, c := range s {
-		h = ((h << 5) + h) + uint64(c)
-	}
-	return h
-}
-
 // goTimeFormat converts common format strings to Go time format.
 func goTimeFormat(format string) string {
 	replacements := map[string]string{
@@ -1417,7 +1409,11 @@ func (t *CELTransformer) TransformResponseWithSteps(ctx context.Context, input m
 			return nil, fmt.Errorf("failed to evaluate expression for '%s': %w", rule.Target, err)
 		}
 
-		value := val.Value()
+		// CELValueToNative, not val.Value(): a shallow Value() on a CEL list
+		// or map hands back the ref.Val children, which JSON-encode as
+		// {"Adapter":{}} instead of the data. Every other rule loop in this
+		// file already unwraps; this one did not.
+		value := CELValueToNative(val)
 		if hook != nil {
 			hook.AfterRule(ctx, i, rule, value, nil)
 		}
