@@ -8,6 +8,7 @@ type GraphQLSchema struct{}
 func (GraphQLSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "driver", Doc: "Which half of the connector this is: a server that serves GraphQL, or a client that calls one", Type: schema.TypeString, Values: []string{"server", "client"}, Default: "server"},
 			{Name: "port", Doc: "GraphQL server port", Type: schema.TypeNumber},
 			{Name: "host", Doc: "Server host or client endpoint", Type: schema.TypeString},
 			{Name: "endpoint", Doc: "Client endpoint URL", Type: schema.TypeString},

@@ -1,0 +1,52 @@
+# Published with the credentials the connector carries.
+flow "publish_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+
+  transform {
+    id       = "input.id"
+    customer = "input.customer"
+  }
+
+  to {
+    connector = "orders"
+  }
+
+  response {
+    id     = "input.id"
+    status = "'published'"
+  }
+}
+
+# Consumed with the same ones. A queue message arrives wrapped, so this reads
+# through `body`.
+flow "store_order" {
+  from {
+    connector = "orders"
+  }
+
+  transform {
+    id       = "input.body.id"
+    customer = "input.body.customer"
+    written  = "now()"
+  }
+
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+
+flow "list_orders" {
+  from {
+    connector = "api"
+    operation = "GET /orders"
+  }
+
+  to {
+    connector = "db"
+    query     = "SELECT id, customer, written FROM orders ORDER BY written DESC LIMIT 20"
+  }
+}

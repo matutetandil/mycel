@@ -1,0 +1,43 @@
+# Call the internal service, verifying it against the CA we were given.
+flow "call_internal" {
+  from {
+    connector = "api"
+    operation = "GET /internal"
+  }
+
+  to {
+    connector = "internal"
+    operation = "GET"
+    target    = "/requests"
+  }
+}
+
+# The same endpoint with nothing configured: refused, because a certificate it
+# signed itself is not one the machine has any reason to trust.
+flow "call_untrusted" {
+  from {
+    connector = "api"
+    operation = "GET /untrusted"
+  }
+
+  to {
+    connector = "untrusted"
+    operation = "GET"
+    target    = "/requests"
+  }
+}
+
+# The same call with verification off, so the difference can be seen rather
+# than described.
+flow "call_unverified" {
+  from {
+    connector = "api"
+    operation = "GET /unverified"
+  }
+
+  to {
+    connector = "unverified"
+    operation = "GET"
+    target    = "/requests"
+  }
+}

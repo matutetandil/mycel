@@ -58,8 +58,19 @@ CLAUDE.md
 CLAUDE.local.md
 .claude/
 
-# Benchmark / load testing
-benchmark/
+# Benchmark / load testing — the suite is published, its state and output are not
+benchmark/.terraform/
+benchmark/terraform.tfstate
+benchmark/terraform.tfstate.backup
+benchmark/terraform.tfvars
+benchmark/results/
+
+# SQLite databases the examples create when they run, and the WAL sidecars
+# that come with them. Nothing tracked ends in .db, and `git add -A` in this
+# repo has picked up untracked local files before.
+*.db
+*.db-wal
+*.db-shm
 
 # MkDocs build output
 site/
@@ -80,3 +91,8 @@ tests/integration/coverage.out
 # beside its manifest and is committed; this is everything else cargo writes.
 examples/plugin/plugins/*/target/
 tests/integration/config/plugins/*/target/
+
+# The SSH key pair the integration suite generates per run
+tests/integration/ssh/id_ed25519
+tests/integration/ssh/id_ed25519.pub
+tests/integration/ssh/authorized_keys

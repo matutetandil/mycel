@@ -31,6 +31,7 @@ type Connector struct {
 	client     *http.Client
 	auth       *AuthConfig
 	tlsConfig  *TLSConfig
+	tlsErr     error
 	headers    map[string]string
 	retryCount int
 	retry      RetryPolicy
@@ -180,11 +181,22 @@ func NewWithTLS(name, baseURL string, timeout time.Duration, auth *AuthConfig, t
 		headers = make(map[string]string)
 	}
 
-	// Build HTTP client with optional TLS
+	// Build HTTP client with optional TLS.
+	//
+	// A failure here used to be discarded, and the connector carried on with
+	// the default transport — so a mistyped ca_cert path meant verifying
+	// against the system roots instead of the CA that was named, and a client
+	// certificate that would not load meant connecting without one. Both look
+	// like working TLS from the outside. The error is kept and returned from
+	// Connect, which runs at startup.
 	transport := &http.Transport{}
+	var tlsErr error
 	if tlsCfg != nil {
 		tlsConf, err := buildTLSConfig(tlsCfg)
-		if err == nil && tlsConf != nil {
+		switch {
+		case err != nil:
+			tlsErr = err
+		case tlsConf != nil:
 			transport.TLSClientConfig = tlsConf
 		}
 	}
@@ -195,6 +207,7 @@ func NewWithTLS(name, baseURL string, timeout time.Duration, auth *AuthConfig, t
 		timeout:    timeout,
 		auth:       auth,
 		tlsConfig:  tlsCfg,
+		tlsErr:     tlsErr,
 		headers:    headers,
 		retryCount: retryCount,
 		retry:      DefaultRetryPolicy(retryCount),
@@ -263,6 +276,11 @@ func (c *Connector) Connect(ctx context.Context) error {
 	// Validate base URL
 	if _, err := url.Parse(c.baseURL); err != nil {
 		return fmt.Errorf("invalid base URL: %w", err)
+	}
+
+	// TLS that could not be built is TLS that is not in force.
+	if c.tlsErr != nil {
+		return fmt.Errorf("tls configuration for connector %q: %w", c.name, c.tlsErr)
 	}
 
 	// Loud, single-shot warning when TLS verification is disabled. Connect()

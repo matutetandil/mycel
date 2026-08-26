@@ -475,19 +475,37 @@ func TestCommittingWithoutAConsumerIsReported(t *testing.T) {
 	}
 }
 
-func TestASchemaRegistryIsBuiltWhenItIsConfigured(t *testing.T) {
-	// Reachable from the connector, because encoding a record needs the id the
-	// registry issued.
-	c := producer(t, &Config{
+// A schema registry that nothing serialises through is refused.
+//
+// This test used to assert the opposite — that the client is built — on the
+// reasoning that "encoding a record needs the id the registry issued". Nothing
+// encodes: the client's three methods have no call sites, and messages are
+// written and read by the ordinary JSON codec whatever the block says. So a
+// connector configured for Avro put JSON on the topic, and every consumer
+// expecting the registry's wire format read something else.
+//
+// Until there is a serialiser behind it, saying no is the honest answer.
+func TestASchemaRegistryIsRefusedUntilSomethingSerialisesThroughIt(t *testing.T) {
+	c, err := NewConnector("orders_kafka", &Config{
 		Brokers:        []string{"kafka:9092"},
 		Producer:       &ProducerConfig{Topic: "orders", Acks: "all"},
 		SchemaRegistry: &SchemaRegistryConfig{URL: "http://registry:8081"},
-	})
-
-	if c.GetSchemaRegistry() == nil {
-		t.Error("a connector configured with a schema registry has none")
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("NewConnector: %v", err)
 	}
 
+	err = c.Connect(context.Background())
+	if err == nil {
+		t.Fatal("a connector started with a schema registry nothing serialises through")
+	}
+	if !strings.Contains(err.Error(), "schema_registry") {
+		t.Errorf("the error does not name the block: %v", err)
+	}
+}
+
+// A connector without one is unaffected.
+func TestAConnectorWithNoSchemaRegistryIsFine(t *testing.T) {
 	plain := producer(t, &Config{
 		Brokers:  []string{"kafka:9092"},
 		Producer: &ProducerConfig{Topic: "orders", Acks: "all"},

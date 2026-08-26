@@ -168,8 +168,15 @@ func renderConnector(name, connType, driver string, blk schema.Block) string {
 	var required, optional []schema.Attr
 	for _, a := range blk.Attrs {
 		switch {
-		case a.Name == "type" || a.Name == "driver":
+		case a.Name == "type":
 			// Already emitted above.
+		case a.Name == "driver" && (driver != "" || a.Required):
+			// Already emitted above, or refused before we got here.
+		case a.Name == "driver":
+			// An optional driver decides what the connector is — a GraphQL
+			// server or a GraphQL client — so a file generated without one
+			// still has to say the choice exists.
+			optional = append(optional, a)
 		case a.Required:
 			required = append(required, a)
 		default:

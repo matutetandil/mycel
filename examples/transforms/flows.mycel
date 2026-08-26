@@ -1,0 +1,101 @@
+# Turning a messy record into a tidy one.
+#
+# The payload a form or a partner sends is rarely the shape you want to store:
+# an address in whatever case it was typed, a name that may be missing, tags
+# that arrive as a list or as a single string, a date in one format and needed
+# in another. That reshaping is what a `transform` block is for, and this flow
+# is one of each.
+flow "add_contact" {
+  from {
+    connector = "api"
+    operation = "POST /contacts"
+  }
+
+  transform {
+    id = "uuid()"
+
+    # Addresses are compared lowercase, whatever was typed.
+    email = "lower(trim(input.email))"
+
+    # split cuts on a separator and answers a list; [1] is what follows the @.
+    domain = "split(lower(trim(input.email)), '@')[1]"
+
+    # default falls back when a field is missing or empty — not merely null,
+    # which is what makes it useful against a form. coalesce is the same
+    # function under the other name.
+    display = "default(input.nickname, default(input.name, 'friend'))"
+
+    # substring counts bytes, so this is the first letter of the display name.
+    initials = "upper(substring(default(input.nickname, default(input.name, 'friend')), 0, 1))"
+
+    # as_list accepts either shape: a list stays a list, one string becomes a
+    # list of one, a missing field becomes the empty list. Then join writes it
+    # back out as one column.
+    #
+    # `size` counts a list; `len` counts the bytes of a string. They are two
+    # functions because they answer two questions, and `len` on a list is a
+    # compile error rather than a wrong number.
+    tags       = "join(as_list(input.tags), ',')"
+    tag_count  = "size(as_list(input.tags))"
+    email_len  = "len(lower(trim(input.email)))"
+
+    # format_date reads an ISO date and writes the tokens you ask for.
+    signed_up = "format_date(default(input.signed_up, now()), 'YYYY-MM-DD')"
+
+    # coalesce is default under its other name, and reads better when the
+    # fallback is a constant rather than another field.
+    source = "coalesce(input.source, 'web')"
+
+    # A stable fingerprint of the address: the same input always gives the same
+    # 64 hex characters, which is what makes it usable as a dedupe key. Not a
+    # password hash — see the note in the README.
+    fingerprint = "hash_sha256(lower(trim(input.email)))"
+
+    # now() is a timestamp to read; now_unix() is seconds to compare and sort.
+    received_at = "now_unix()"
+  }
+
+  to {
+    connector = "db"
+    target    = "contacts"
+  }
+
+  # `output` here is what the database returned, not the row the transform
+  # built — inside a response block the word means "what came back". So the id
+  # of the new row is available, and the shaped fields are read back with
+  # GET /contacts.
+  response {
+    id     = "output.id"
+    status = "'stored'"
+  }
+}
+
+# Lists of lists, and the order they come back in.
+#
+# A payload that arrives grouped — tags per source, say — is one call away
+# from being a single list, and reverse gives newest-first without a query.
+flow "flatten_tags" {
+  from {
+    connector = "api"
+    operation = "POST /tags/flatten"
+  }
+
+  response {
+    flat     = "flatten(input.groups)"
+    newest   = "reverse(flatten(input.groups))"
+    distinct = "unique(flatten(input.groups))"
+    total    = "size(flatten(input.groups))"
+  }
+}
+
+flow "list_contacts" {
+  from {
+    connector = "api"
+    operation = "GET /contacts"
+  }
+
+  to {
+    connector = "db"
+    query     = "SELECT id, email, domain, display, initials, tags, tag_count, email_len, source, signed_up, fingerprint FROM contacts ORDER BY received_at DESC LIMIT 20"
+  }
+}

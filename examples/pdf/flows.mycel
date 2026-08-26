@@ -1,0 +1,79 @@
+# Download the invoice.
+#
+# The pdf connector answers with the bytes, and the REST connector recognises
+# them: the response goes out as application/pdf with a Content-Disposition
+# header, not as JSON describing a PDF.
+flow "download_invoice" {
+  from {
+    connector = "api"
+    operation = "GET /invoices/:id/pdf"
+  }
+
+  step "invoice" {
+    connector = "db"
+    query     = "SELECT number, customer, issued, total FROM invoices WHERE id = :id"
+    params = {
+      id = "input.id"
+    }
+  }
+
+  # Everything here except `filename` becomes a template variable: {{.number}},
+  # {{.customer}} and so on.
+  transform {
+    filename = "'invoice-' + step.invoice.number + '.pdf'"
+    number   = "step.invoice.number"
+    customer = "step.invoice.customer"
+    issued   = "step.invoice.issued"
+    total    = "string(step.invoice.total)"
+  }
+
+  to {
+    connector = "invoice_pdf"
+    operation = "generate"
+  }
+}
+
+# Archive the same invoice instead of sending it.
+#
+# `save` writes into the connector's output_dir and answers with where it put
+# the file — the flow for a nightly run that files documents rather than
+# serving them.
+flow "archive_invoice" {
+  from {
+    connector = "api"
+    operation = "POST /invoices/:id/archive"
+  }
+
+  step "invoice" {
+    connector = "db"
+    query     = "SELECT number, customer, issued, total FROM invoices WHERE id = :id"
+    params = {
+      id = "input.id"
+    }
+  }
+
+  transform {
+    filename = "'invoice-' + step.invoice.number + '.pdf'"
+    number   = "step.invoice.number"
+    customer = "step.invoice.customer"
+    issued   = "step.invoice.issued"
+    total    = "string(step.invoice.total)"
+  }
+
+  to {
+    connector = "invoice_pdf"
+    operation = "save"
+  }
+}
+
+flow "list_invoices" {
+  from {
+    connector = "api"
+    operation = "GET /invoices"
+  }
+
+  to {
+    connector = "db"
+    query     = "SELECT id, number, customer, issued, total FROM invoices ORDER BY number"
+  }
+}

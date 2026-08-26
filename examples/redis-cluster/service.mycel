@@ -9,21 +9,35 @@ service {
 # ============================================
 # Option 1: Redis Cluster Mode
 # ============================================
+# A cluster is named by its nodes, not by one address: the client asks them
+# which of them holds each key and talks to that one. `url` here would be a
+# plain connection to a single server, which is a different thing wearing the
+# same name — as this example had it until somebody read the two side by side.
 connector "redis_cluster" {
-  type     = "cache"
-  driver   = "redis"
-  url      = env("REDIS_CLUSTER_URL", "redis://localhost:6379")
-  password = env("REDIS_PASSWORD", "")
+  type   = "cache"
+  driver = "redis"
+
+  cluster {
+    nodes    = ["redis-1:6379", "redis-2:6379", "redis-3:6379"]
+    password = env("REDIS_PASSWORD", "")
+  }
 }
 
 # ============================================
 # Option 2: Redis Sentinel Mode
 # ============================================
+# Sentinel is not the server: it is asked which server is master, and the
+# connection is made to whatever it answers. Pointing a plain `url` at
+# port 26379 connects to Sentinel itself, which does not answer GET or SET.
 connector "redis_sentinel" {
-  type     = "cache"
-  driver   = "redis"
-  url      = env("REDIS_SENTINEL_URL", "redis://localhost:26379")
-  password = env("REDIS_PASSWORD", "")
+  type   = "cache"
+  driver = "redis"
+
+  sentinel {
+    master_name = env("REDIS_MASTER_NAME", "mymaster")
+    nodes       = ["sentinel-1:26379", "sentinel-2:26379", "sentinel-3:26379"]
+    password    = env("REDIS_PASSWORD", "")
+  }
 }
 
 # ============================================

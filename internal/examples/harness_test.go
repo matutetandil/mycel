@@ -131,9 +131,11 @@ func startDir(t *testing.T, source, label string, environment ...string) *servic
 		}
 		return nil
 	})
-	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
-		t.Fatalf("data directory: %v", err)
-	}
+	// The data directory is deliberately NOT created here. It is gitignored,
+	// so a reader who has just cloned the repository does not have it either —
+	// and while the harness made it, nothing noticed that `mycel migrate`, the
+	// first command most of these READMEs tell you to run, could not create a
+	// database whose directory was missing.
 
 	svc := &service{dir: dir, ports: map[int]int{}}
 
@@ -214,6 +216,11 @@ var listensWhenServing = map[string]bool{
 	"soap":    true,
 }
 
+// workflowAPIPort matches the `port = N` inside a workflow api block. The
+// block is short and its only numeric attribute is the port, so matching the
+// attribute after the `api {` that opens it is enough.
+var workflowAPIPort = regexp.MustCompile(`(?s)(api\s*\{[^}]*?port\s*=\s*)(\d+)`)
+
 // movePorts rewrites the ports the service will listen on, and leaves alone the
 // ports it will connect to.
 func movePorts(t *testing.T, source string, moved map[int]int) (string, int) {
@@ -221,6 +228,24 @@ func movePorts(t *testing.T, source string, moved map[int]int) (string, int) {
 
 	graphQL := 0
 	var out strings.Builder
+
+	// The workflow API binds a port of its own, and it is not a connector — it
+	// lives in `service { workflow { api { port = N } } }`, so the loop below
+	// never saw it. The workflows example left it on its declared 9091 while
+	// its README's requests were moved along with everything else, and two
+	// examples could not run at once. Anything already holding 9091 turned the
+	// example into a thirty-second timeout.
+	source = workflowAPIPort.ReplaceAllStringFunc(source, func(match string) string {
+		parts := workflowAPIPort.FindStringSubmatch(match)
+		declared, _ := strconv.Atoi(parts[2])
+		to, seen := moved[declared]
+		if !seen {
+			to = freePort(t)
+			moved[declared] = to
+		}
+		return parts[1] + strconv.Itoa(to)
+	})
+
 	remaining := source
 
 	for {
@@ -657,6 +682,7 @@ func (s *service) runStream(t *testing.T, command string) (int, string) {
 // likely to start with, and every one of them was broken.
 var selfContained = []string{
 	"aspects",
+	"async-jobs",
 	"exec",
 	"graphql",
 	"mocks",
@@ -670,13 +696,16 @@ var selfContained = []string{
 	"constants",
 	"files",
 	"format",
+	"pdf",
 	"plugin",
 	"query-method",
 	"rate-limit",
+	"reusable-blocks",
 	"scheduled",
 	"soap",
 	"security",
 	"transactional-write",
+	"transforms",
 	"validators",
 	"wasm-functions",
 	"wasm-validator",
@@ -689,6 +718,11 @@ var selfContained = []string{
 // the same thing to whoever is reading it.
 var cannotBeRunHere = map[string]string{
 	`/products/enrich`: "the enrichment step calls a legacy SOAP service at a host that does not exist, which its README says",
+	`/jobs/$JOB_ID`:    "the job id comes from the answer to the request before it; the two-step is asserted in async_test.go",
+	`"id":"p1"`:        "writes to a downstream service the example does not ship; the flow beside it, which writes to its own database, is the one run here",
+	`"id":"o1"`:        "the same downstream",
+	`/ca.pem`:          "a setup step rather than a demonstration: it fetches the certificate to trust, which the test supplies itself",
+	`/untrusted`:       "meant to fail — it is the demonstration that a certificate nobody vouches for is refused, and the failure is asserted in tls_test.go",
 }
 
 // refusedInTheBody reports an answer that failed while saying 200.

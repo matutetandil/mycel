@@ -141,15 +141,21 @@ func (c *InboundConnector) HandleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse JSON payload
-	if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+	if strings.Contains(r.Header.Get("Content-Type"), "application/json") && len(body) > 0 {
 		var payload map[string]interface{}
-		if err := json.Unmarshal(body, &payload); err == nil {
-			event.Payload = payload
+		if err := json.Unmarshal(body, &payload); err != nil {
+			// A delivery that says it is JSON and is not is a failed delivery.
+			// Ignoring the error handed the sender {"received": true} for a
+			// payload that never reached a flow — and providers retry on a
+			// non-2xx, so answering 200 threw the event away for good.
+			http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+			return
+		}
+		event.Payload = payload
 
-			// Try to extract event type from payload
-			if event.Type == "" {
-				event.Type = c.extractEventTypeFromPayload(payload)
-			}
+		// Try to extract event type from payload
+		if event.Type == "" {
+			event.Type = c.extractEventTypeFromPayload(payload)
 		}
 	}
 

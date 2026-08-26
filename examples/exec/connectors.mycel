@@ -12,6 +12,14 @@ connector "local_exec" {
   command       = "echo"
   output_format = "text"
   timeout       = "10s"
+
+  # What the command runs with. A command started by a service does not
+  # inherit the shell you were in, so anything it needs — a PATH entry, a
+  # locale, a token — is named here.
+  env {
+    LANG        = "C"
+    MYCEL_STAGE = env("STAGE", "local")
+  }
 }
 
 # Execute a JSON-outputting command
@@ -36,21 +44,34 @@ connector "disk_usage" {
   timeout       = "5s"
 }
 
-# Example: SSH remote execution (requires SSH key setup)
-# connector "remote_server" {
-#   type   = "exec"
-#   driver = "ssh"
+# The same connector, running the command somewhere else.
 #
-#   command = "uptime"
-#   timeout = "30s"
+# `driver = "ssh"` opens a session on the machine the block names and runs the
+# command there. The key is the only way in: a password is refused, because a
+# service has no terminal to type one into.
 #
-#   ssh {
-#     host     = "server.example.com"
-#     port     = 22
-#     user     = "admin"
-#     key_file = "/path/to/private_key"
-#   }
-# }
+# Set SSH_HOST to a machine you can reach and SSH_KEY to a key it authorises.
+# Without them this connector is pointed at nothing — which is why the flow
+# using it is the one command this example's README does not ask you to run.
+connector "remote_server" {
+  type    = "exec"
+  driver  = "ssh"
+  command = "uptime"
+  timeout = "30s"
+
+  ssh {
+    host     = env("SSH_HOST", "localhost")
+    port     = 22
+    user     = env("SSH_USER", "runner")
+    key_file = env("SSH_KEY", "./ssh/id_ed25519")
+
+    # Naming a file turns host key checking on and points ssh at it. Naming
+    # none leaves it off — and Mycel says so at startup, because the setting
+    # whose whole purpose is to stop somebody standing in the middle of this
+    # connection is not one to leave off by accident.
+    known_hosts = env("SSH_KNOWN_HOSTS", "")
+  }
+}
 
 # Example: Execute a script that outputs JSON
 connector "json_script" {

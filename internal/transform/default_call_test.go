@@ -133,3 +133,42 @@ func TestACommaInsideACallIsNotASeparator(t *testing.T) {
 		}
 	}
 }
+
+// coalesce is documented as an alias for default, and has to behave like one.
+//
+// It was an alias everywhere except in the rewriter: `default(input.missing,
+// "x")` was guarded with has() and answered "x", while `coalesce(input.missing,
+// "x")` — the same function under the other name — failed with "no such key"
+// on precisely the case the function exists for.
+func TestCoalesceSurvivesAMissingFieldTheWayDefaultDoes(t *testing.T) {
+	tr := newT(t)
+	input := map[string]interface{}{"name": "Ada"}
+
+	for _, expr := range []string{
+		`default(input.source, 'web')`,
+		`coalesce(input.source, 'web')`,
+	} {
+		got, err := tr.Evaluate(context.Background(), expr, input)
+		if err != nil {
+			t.Errorf("%s: %v", expr, err)
+			continue
+		}
+		if got != "web" {
+			t.Errorf("%s = %v, want the fallback", expr, got)
+		}
+	}
+}
+
+// And a field that is there is still the one that wins.
+func TestCoalescePrefersTheValueThatIsThere(t *testing.T) {
+	tr := newT(t)
+	input := map[string]interface{}{"source": "partner"}
+
+	got, err := tr.Evaluate(context.Background(), `coalesce(input.source, 'web')`, input)
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if got != "partner" {
+		t.Errorf("got %v, want the value that is there", got)
+	}
+}

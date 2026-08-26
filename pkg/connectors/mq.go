@@ -119,12 +119,6 @@ func (KafkaSchema) ConnectorSchema() schema.Block {
 				{Name: "acks", Doc: "Ack requirement (none, leader, all)", Type: schema.TypeString, Values: []string{"none", "leader", "all"}},
 				{Name: "compression", Doc: "Compression codec", Type: schema.TypeString, Values: []string{"none", "gzip", "snappy", "lz4", "zstd"}},
 			}},
-			{Type: "schema_registry", Doc: "Schema Registry settings", Attrs: []schema.Attr{
-				{Name: "url", Doc: "Schema Registry URL", Type: schema.TypeString},
-				{Name: "username", Doc: "Username", Type: schema.TypeString},
-				{Name: "password", Doc: "Password", Type: schema.TypeString},
-				{Name: "format", Doc: "Serialization format", Type: schema.TypeString, Values: []string{"avro", "protobuf", "json"}},
-			}},
 		},
 	}
 }

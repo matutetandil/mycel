@@ -52,7 +52,7 @@ now_unix()    // 1735488245
 | `join(list, sep)` | `(list(string), string) → string` | Join list items with separator |
 | `substring(s, start, end)` | `(string, int, int) → string` | Extract substring (byte indices) |
 | `len(s)` | `(string) → int` | String length in bytes |
-| `hash_sha256(s)` | `(string) → string` | SHA-256 hash (hex encoded) |
+| `hash_sha256(s)` | `(string) → string` | SHA-256 hash, hex encoded (64 characters). For fingerprints — passwords belong to [auth](../guides/auth.md), which uses Argon2id |
 | `format_date(date, fmt)` | `(string, string) → string` | Reformat ISO date string |
 
 ```cel
@@ -64,7 +64,7 @@ split("a,b,c", ",")                     // ["a", "b", "c"]
 join(["a", "b", "c"], "-")              // "a-b-c"
 substring("hello", 1, 4)               // "ell"
 len("hello")                           // 5
-hash_sha256("password")                // hex string
+hash_sha256("abc")                     // "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
 
 // format_date tokens: YYYY MM DD HH mm ss
 format_date("2025-01-15T10:30:00Z", "YYYY-MM-DD")  // "2025-01-15"

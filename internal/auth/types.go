@@ -168,7 +168,7 @@ type PasswordConfig struct {
 type MFAConfig struct {
 	Enabled    bool     `hcl:"enabled,optional"`  // Enables MFA support
 	Required   string   `hcl:"required,optional"` // true, false, optional, admin_only
-	Methods    []string `hcl:"methods,optional"`  // totp, webauthn, sms, email, push
+	Methods    []string `hcl:"methods,optional"`  // totp, webauthn
 	RequireFor []string `hcl:"require_for,optional"`
 
 	// Multiple factors
@@ -348,7 +348,7 @@ type SessionsConfig struct {
 	AllowList        bool     `hcl:"allow_list,optional"`
 	AllowRevoke      bool     `hcl:"allow_revoke,optional"`
 	Track            []string `hcl:"track,optional"`
-	OnMaxReached     string   `hcl:"on_max_reached,optional"` // revoke_oldest, reject_new
+	OnMaxReached     string   `hcl:"on_max_reached,optional"` // revoke_oldest, reject_new, deny
 	ExtendOnActivity bool     `hcl:"extend_on_activity,optional"`
 }
 

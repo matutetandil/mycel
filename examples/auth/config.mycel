@@ -52,6 +52,20 @@ auth {
   users {
     connector = "postgres"
     table     = "users"
+
+    # When the table already exists under somebody else's column names, say
+    # which is which. Two of these do more than rename: naming `roles` turns
+    # roles on for a database-backed store, and naming `password_changed_at`
+    # is what makes `password { max_age }` able to expire anything.
+    fields {
+      id                  = "id"
+      email               = "email"
+      password_hash       = "password_hash"
+      created_at          = "created_at"
+      updated_at          = "updated_at"
+      roles               = "roles"
+      password_changed_at = "password_changed_at"
+    }
   }
 
   # JWT signing. Use a strong secret in production (env, not a literal).
@@ -105,11 +119,63 @@ auth {
       window       = "15m"
       lockout_time = "30m"
       track_by     = "ip+user"
+
+      # Each failure waits longer than the last, so guessing gets expensive
+      # long before the lockout at five.
+      progressive_delay {
+        enabled    = true
+        initial    = "1s"
+        multiplier = 2
+        max        = "30s"
+      }
+    }
+
+    # Who may reach the auth endpoints at all. Naming an allowlist refuses
+    # everything else, so this one only blocks.
+    ip_rules {
+      blocklist = env("AUTH_BLOCKED_IPS", "") == "" ? [] : split(env("AUTH_BLOCKED_IPS", ""), ",")
+    }
+
+    # How often the endpoints may be called. The general limit applies to all
+    # of them; a block names one that needs its own.
+    rate_limit {
+      enabled = true
+      rate    = 60
+      burst   = 10
+      window  = "1m"
+      key_by  = "ip+user"
+
+      change_password {
+        rate   = 5
+        window = "1h"
+      }
     }
 
     replay_protection {
       enabled = true
       window  = "5m"
+    }
+
+    # Two sign-ins too far apart for the time between them are not the same
+    # person. This needs somewhere to turn an address into a location: a
+    # MaxMind database you have downloaded, or an HTTP service.
+    impossible_travel {
+      enabled       = true
+      max_speed_kmh = 900
+      on_detect     = "challenge"
+
+      geoip {
+        api = env("GEOIP_API", "https://geo.example/{ip}")
+      }
+    }
+
+    # A sign-in from something this account has not used before.
+    device_binding {
+      enabled        = true
+      fingerprint    = ["user_agent", "ip"]
+      trust_duration = "30d"
+      max_devices    = 5
+      on_new_device  = "notify"
     }
   }
 
@@ -135,6 +201,46 @@ auth {
     }
   }
 
+  # Somebody who registered with a password and later signs in with Google is
+  # one person. `match_by` decides what makes them the same, and
+  # `require_verification` refuses to join on an address the provider has not
+  # checked — without which an account can be taken over by registering with
+  # its address somewhere careless.
+  account_linking {
+    enabled              = true
+    match_by             = "email"
+    require_verification = true
+    on_match             = "link"
+  }
+
+  # Flows invoked around auth events. Each names a flow in this configuration;
+  # `on_error = "fail"` on a before_ hook lets it refuse the thing it runs
+  # before.
+  hooks {
+    after_register {
+      flow = "welcome_new_account"
+    }
+
+    on_failed_login {
+      flow = "note_failed_sign_in"
+    }
+
+    # A before_ hook runs before the thing it is named for and, with
+    # on_error = "fail", can refuse it — which is how a sign-in is turned away
+    # for a reason of your own.
+    before_login {
+      flow     = "check_account_is_allowed"
+      on_error = "fail"
+    }
+
+    # This one has a contract of its own: it is handed auth.reset_token and is
+    # what gets it to the person. Without a flow here, nothing is delivered
+    # and the token is only in the response.
+    on_password_reset {
+      flow = "deliver_reset_token"
+    }
+  }
+
   # Persist authentication events for auditing.
   audit {
     enabled   = true
@@ -144,5 +250,96 @@ auth {
   # All endpoints are served under this prefix (e.g. POST /auth/login).
   endpoints {
     prefix = "/auth"
+
+    # Naming one overrides that one; the other sixteen keep their defaults.
+    # Turning one off is `enabled = false` inside its own block — which is
+    # what to do with the two callbacks while no social or SSO provider is
+    # configured, rather than leaving a route nothing can complete.
+    password_forgot {
+      path = "/forgot"
+    }
+
+    sso_callback {
+      enabled = false
+    }
+  }
+}
+
+# The flows the hooks call.
+#
+# A hook is given what happened under `auth.*` — the account for a register,
+# the address and address-of-origin for a failed sign-in — and is an ordinary
+# flow otherwise.
+flow "welcome_new_account" {
+  from {
+    connector = "api"
+    operation = "POST /internal/welcome"
+  }
+
+  transform {
+    user_id    = "auth.user_id"
+    email      = "auth.email"
+    greeted_at = "now()"
+  }
+
+  to {
+    connector = "postgres"
+    target    = "welcome_log"
+  }
+}
+
+flow "note_failed_sign_in" {
+  from {
+    connector = "api"
+    operation = "POST /internal/failed-sign-in"
+  }
+
+  transform {
+    email      = "auth.email"
+    ip         = "auth.ip"
+    noticed_at = "now()"
+  }
+
+  to {
+    connector = "postgres"
+    target    = "failed_sign_ins"
+  }
+}
+
+# A before_ hook that can refuse. Anything it answers with an error stops the
+# sign-in, because the hook declares on_error = "fail".
+flow "check_account_is_allowed" {
+  from {
+    connector = "api"
+    operation = "POST /internal/check-allowed"
+  }
+
+  accept {
+    when      = "!auth.email.endsWith('@blocked.example')"
+    on_reject = "reject"
+  }
+
+  response {
+    allowed = "true"
+  }
+}
+
+# The reset hook is handed auth.reset_token and is what gets it to the person.
+# Here it is written down; in a real service this is an email or an SMS.
+flow "deliver_reset_token" {
+  from {
+    connector = "api"
+    operation = "POST /internal/deliver-reset"
+  }
+
+  transform {
+    email       = "auth.email"
+    reset_token = "auth.reset_token"
+    sent_at     = "now()"
+  }
+
+  to {
+    connector = "postgres"
+    target    = "reset_deliveries"
   }
 }

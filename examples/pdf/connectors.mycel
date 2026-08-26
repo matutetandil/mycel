@@ -1,0 +1,24 @@
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+connector "db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = "./data/invoices.db"
+}
+
+# The same template, rendered two ways. `generate` hands the bytes back to the
+# caller; `save` writes a file. Which one a flow wants is its `operation`, not
+# a second connector.
+connector "invoice_pdf" {
+  type         = "pdf"
+  template     = "./templates/invoice.html"
+  output_dir   = "./out"
+  page_size    = "A4"
+  font         = "Helvetica"
+  margin_left  = 15
+  margin_top   = 15
+  margin_right = 15
+}

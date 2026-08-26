@@ -4,3 +4,22 @@ connector "exec" {
   command       = "echo"
   output_format = "text"
 }
+
+# The same connector, running the command somewhere else.
+#
+# `driver = "ssh"` opens a session on another machine and runs it there. The
+# key is the only way in: a password is refused, because a service has no
+# terminal to type one into.
+connector "remote_exec" {
+  type          = "exec"
+  driver        = "ssh"
+  command       = "echo"
+  output_format = "text"
+
+  ssh {
+    host     = "ssh-exec"
+    port     = 22
+    user     = "runner"
+    key_file = "/etc/mycel-ssh/id_ed25519"
+  }
+}

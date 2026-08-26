@@ -7,7 +7,7 @@
  |_|  |_|\__, |\___\___| |_|
          |___/
 
-  Declarative Microservice Framework
+  Declarative Microservice Runtime
 ===============================================================================
 
 Thank you for installing {{ .Chart.Name }}!
@@ -48,14 +48,22 @@ Then visit: http://localhost:{{ .Values.service.port }}
 ENDPOINTS
 -------------------------------------------------------------------------------
 
+Flows are served on port {{ .Values.service.port }} by whichever connector
+listens for them. Health and metrics are served by the admin server on port
+{{ .Values.service.adminPort }}, whatever the connectors are doing:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "mycel.fullname" . }} {{ .Values.service.adminPort }}:{{ .Values.service.adminPort }}
+
 {{- if .Values.healthCheck.enabled }}
-Health Checks:
+
+Health Checks (port {{ .Values.service.adminPort }}):
   - Liveness:  {{ .Values.healthCheck.liveness.path }}
   - Readiness: {{ .Values.healthCheck.readiness.path }}
 {{- end }}
 
 {{- if .Values.metrics.enabled }}
-Metrics:
+
+Metrics (port {{ .Values.service.adminPort }}):
   - Prometheus: {{ .Values.metrics.path }}
 {{- end }}
 

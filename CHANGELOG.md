@@ -5,6 +5,109 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking
+
+Three things that used to be quiet now speak, and each can change what a
+running service does. Read these before upgrading.
+
+- **A `schema_registry` block on a Kafka connector is refused.** It parsed, built a client, logged "schema registry enabled" — and nothing was ever serialised through it: the client's three methods have no call sites, and messages are written and read by the ordinary JSON codec whatever the block says. So a connector configured for Avro put JSON on the topic, and every consumer expecting the registry's wire format read something else. The documentation described subject naming strategies, three formats and per-topic schemas, none of which existed.
+
+- **A second factor Mycel cannot provide is now refused at startup.** `mfa { methods = ["sms"] }` was accepted, counted towards `min_factors` and never dispatched on; `mfa { sms { } }`, `mfa { email { } }` and `mfa { push { } }` parsed into fields nothing reads. Enrolment offers TOTP and WebAuthn whatever any of that says — so a service could be configured for SMS two-factor, start cleanly, and have no second factor at all. A configuration naming one of them now fails to start and says which two are provided.
+
+- **A dropped message answers differently.** Where a gate — `filter`, `accept`, `dedupe`, `sequence_guard`, a `coordinate` timeout — turned a request away, the HTTP response was Mycel's internal struct: `{"Filtered":true,"Policy":"ack","MessageID":"","MaxRequeue":0,"Reason":"accept","Detail":"…"}`. It is now `{"status":"dropped","reason":"accept"}`. Anything parsing `Filtered` has to be updated. Queue consumers are unaffected: they read the value inside the process, not over HTTP.
+
+- **A `response` block on a flow whose destination is a transaction now runs.** It was ignored, so such a flow replied with the write's own row counts. If the block references a field the transaction result does not carry, the request now fails with a 500 where it previously answered — a transaction exposes `output.affected` and `output.captured.<name>`, not the row it wrote. `validate { output }` starts being enforced on these flows for the same reason.
+
+- **`hash_sha256` returns a different value.** It was a 64-bit djb2 hash under that name; it is SHA-256 now. Anything that stored or compared its output — a dedupe fingerprint, an idempotency key — recomputes once after the upgrade, so expect one round of cache misses.
+
+### Security
+
+- **The image scans clean.** It carried twenty findings, two of them HIGH — `CVE-2026-14456` against `libcrypto3` and `libssl3` — and the patch was one fetch away the whole time: `alpine:3.22` bakes in openssl 3.5.7-r0 while the repository it points at has 3.5.8-r0. A base image is built once and then sits there, and nothing in this Dockerfile brought the packages it already had up to date. `apk upgrade` before installing, and the count is zero. The base also moves from alpine 3.22 to 3.24 — which changes nothing a scanner reports, both come out clean, but a newer branch has a longer runway of patches ahead of it, and once a branch stops receiving them there is nothing left to upgrade to. The same twenty findings are in the published 3.0.0 image and clear on the next build.
+
+### Added
+
+- **Examples are held to the same standard as tests.** Three parity tests read the connector registry and the flow schema and name the parts no example uses — an example is how a feature is seen, and because the harness runs the commands in every README, how it is exercised end to end. On their first run: `async`, `idempotency`, `mq/kafka` and `pdf` had no example at all, and five of the twelve block kinds that can be named and reused were shown by nothing. All are closed.
+
+- **`examples/async-jobs`** — a report that answers `202` with a job id rather than holding the connection open, and an order whose retry carries an `Idempotency-Key` and does not write twice.
+
+- **`examples/kafka`** — the round trip: posted over HTTP, published to a topic, consumed back out of it and written to a database, by one connector with both a producer and a consumer block. Kafka's connectors were written out in another example's README and no configuration in the repository declared one.
+
+- **`examples/pdf`** — an invoice from a database row and an HTML template, both ways the connector produces one: `generate` hands the bytes to the caller, `save` writes the file.
+
+- **`examples/kafka-sasl`** — credentials a broker actually checks, on both halves of the connector. The test stack's Kafka grew a second listener that authenticates, so the `sasl` block is presented to something that verifies it rather than merely built into a mechanism: the right credentials get in, the wrong password does not, and neither does presenting nothing.
+
+- **Every block a connector takes now has an example that runs.** The allow-list the coverage test keeps is empty. It held six — `tls`, `sasl`, `schema_registry`, `cluster`, `sentinel`, `ssh` — each with a note saying the test stack had nothing to point them at. Five were a container away: a TLS listener on the mock server, a SASL listener on the broker, a Sentinel, a three-node cluster, and an SSH server that will run a command. Every one of them, once there was something to run against, turned up a bug in the code it exercised. The sixth serialised nothing and was taken out of the language.
+
+- **`examples/tls`** — how Mycel decides whether to trust the service it is calling: the same HTTPS endpoint verified against a certificate authority you name, against the machine's trust store, and not at all. Nothing in the test stack spoke TLS, so the `tls` block — which five connectors have — could not be exercised anywhere; the mock server now serves the same handlers over HTTPS with a certificate it signs itself and hands out at `/ca.pem`.
+
+- **`examples/transforms`** — a contact arriving in whatever shape a form or a partner sent it and leaving in one shape. Fifteen of the thirty-five CEL functions appeared in no example at all; these are the ones a first transform reaches for.
+
+- **`examples/pdf`, `examples/kafka`, `examples/async-jobs`** and the seven blocks `examples/reusable-blocks` was missing — see above.
+
+- **The GraphQL selection helpers are shown working.** `requested_fields`, `requested_top_fields` and `field_requested` let a flow read the query's field selection rather than be optimised by it; `explainProduct` in `examples/graphql-optimization` reports what it was asked for.
+
+- **`examples/redis-cluster` declared none of what it described.** Its three connectors were all plain `url` connections whatever their names said — a cluster is named by its nodes and Sentinel is asked which server is master, and neither is one address. The README had it right; the configuration beside it did not.
+
+- **`examples/auth` shows what it configures.** Its security blocks were two of six, its hooks none of eight, and the tables it needs were a block of SQL in the README for the reader to paste — so nothing kept them in step with the configuration beside them. It now writes the column mapping, impossible travel with a geoip source, device binding, progressive delay, IP rules, per-endpoint rate limits, account linking, an endpoint override and three hooks with the flows they call, and its tables live in `migrations/` like every other example's.
+
+- **The `auth` block is described.** Six of its fourteen children were a name and a doc string with nothing in them — `jwt`, `social`, `sso`, `provider`, `account_linking`, `endpoints` — so completions inside them offered nothing and `mycel export` had nothing to export. All six are transcribed from the structs the parser decodes, along with `base_url` and the four `security` children that were missing (`brute_force`, `replay_protection`, `ip_rules`, `rate_limit`).
+
+- **`driver` is declared by the five connectors built from it.** A GraphQL connector is a server or a client depending on that attribute, and so is a gRPC one and a TCP one; an exec connector runs locally or over SSH by it; a CDC connector cannot be built without it. None said so in its schema, so `mycel add` did not generate it and the editor did not complete it. CDC's is now required, which moves the failure from connect time to `mycel validate`.
+
+- **`examples/reusable-blocks` shows all twelve kinds**, including a flow that declares no policy of its own: the key it locks on, the ceiling it waits under, the order it observes, the sequence it refuses to go backwards on and the statements it writes are every one of them a reference.
+
+### Fixed
+
+- **A flow whose destination is a transaction never got to say what it answers.** The transactional write returned straight out of the dispatch, past everything that happens to an answer on its way out — so a `response` block was parsed, offered completions and ignored, and the flow replied with the write's own row counts. `validate { output }` was skipped for the same reason. **This can turn a silent no-op into a 500**: a response block referencing a field the transaction result does not carry now fails instead of being discarded. A transaction exposes `output.affected` and `output.captured.<name>`.
+
+- **A dropped message answered an HTTP caller with Mycel's internal struct**: `{"Filtered":true,"Policy":"ack","MessageID":"","MaxRequeue":0,…}` — Go field names over the wire, fields that mean nothing to an HTTP client, and a `Detail` carrying the very expression that rejected them. It is now `{"status":"dropped","reason":"accept"}`; the requeue counts a queue consumer needs and the detail meant for the log stay inside.
+
+- **`mycel migrate` could not create a database whose directory did not exist** — "unable to open database file: out of memory", SQLite's words for it. The data directory is gitignored, so that is the state of every fresh clone, and `mycel migrate` is the first command most example READMEs tell you to run. The connector created the directory on the way up; migrate opened the bare path. Both now build the address the same way, so migrate gets the busy timeout and foreign keys too.
+
+- **`exec { driver = "ssh" }` could not work in the official image.** The connector runs the `ssh` client rather than speaking the protocol itself, and the image had none — so a flow using it answered `exec: "ssh": executable file not found in $PATH`, a 500 per request from a service that had started cleanly and reported the connector ready. The image now carries the client (which adds no vulnerabilities to it — the scan is identical with and without), and a service whose image lacks one refuses to start with a line naming what to install.
+
+- **Writing a `sentinel` or `cluster` block on a cache connector now chooses that mode.** Which client got built was decided by a `mode` attribute that neither the cache page nor the redis-cluster example mentioned, so a connector written the way they showed — a `sentinel` block and nothing else — was built as a standalone one and refused with "redis standalone mode requires 'url' or 'host'", which sends you looking for the wrong thing. `mode` remains as an explicit override.
+
+- **A Kafka consumer with SASL and no TLS never presented its credentials.** The mechanism was attached to the reader's dialer only inside the TLS branch, so against a SASL_PLAINTEXT listener — how an internal broker is usually reached — the group coordinator lookup answered EOF and the consumer read nothing for as long as the service ran, logging "Unable to establish connection to consumer group coordinator". The producer beside it had it right, so the same configuration published happily and consumed nothing.
+
+- **`federation { enabled = false }` did nothing.** The attribute was parsed into the config and never read: the GraphQL server enabled federation unconditionally, so a server told not to federate still published its whole schema through `_service { sdl }` — which is the one reason anybody writes that setting.
+
+- **An HTTP connector whose TLS could not be built started anyway.** The build error was discarded and the connector fell back to the default transport, so a mistyped `ca_cert` path meant verifying against the system roots instead of the CA that was named, and a client certificate that would not load meant connecting without one. Both look like working TLS from outside. It now refuses at startup.
+
+- **The schema offered values the code rejects.** `track_by` and `key_by` were listed as accepting `both` where the runtime wants `ip+user`, and `match_by` was missing `phone` — so a completion suggested a setting that would be refused. A test in `internal/auth` compares the two: the values a schema attribute offers must be the values the struct comment beside its hcl tag says are understood.
+
+- **`coalesce` was not the alias it is documented as.** `default(input.missing, "x")` is rewritten with a `has()` guard so it survives a field that is not there — the case the function exists for — and `coalesce`, the same function under the other name, was not: it failed with "no such key".
+
+- **The `response` block dropped structured values.** Its rules were converted with a shallow `val.Value()`, which for a list or a map hands back CEL's own wrappers — they JSON-encode as `{"Adapter":{}}`. A flow shaping its output with `response { expensive = "input.items.filter(x, x.price > 50)" }` answered 200 with the data replaced by an empty struct. Every other rule loop already unwrapped; this one was the exception, which is why `transform` blocks were unaffected.
+
+- **`hash_sha256` was not SHA-256.** It returned a 64-bit djb2 hash, hex encoded, under a comment saying to use `crypto/sha256` in production — while the reference documents it as "SHA-256 hash (hex encoded)" and the transforms guide shows it hashing a password. It is now SHA-256. **This changes the value the function returns**, so anything that stored or compared its output — a dedupe fingerprint, an idempotency key — recomputes once after upgrade.
+
+- **A request body that does not parse is now a 400 instead of being treated as empty.** The decode error was dropped, so corrupt JSON was indistinguishable from no JSON: `POST /echo` with `{"broken":` answered 200 and echoed nothing, and the same body on a flow with a transform came back as a 500 blaming a missing key. An empty body still reaches the flow, as before.
+
+- **A webhook delivery that is not the JSON it claims is now refused.** A truncated body — the shape a connection cut in flight produces — got `{"received": true}` back with a nil payload. Providers retry on a non-2xx and only on a non-2xx, so answering 200 discarded the event permanently.
+
+- **Input the sanitizer turns away answers 400, not 500.** An oversized field came back as `500 input sanitization failed`, which reads as Mycel breaking — and 5xx is the retryable class, so a client posting a payload that can never be accepted kept re-sending it. Rejections are now marked (`sanitize.ErrRejected`) rather than recognised by searching the error text.
+
+- **SQLite failed most writes under any concurrency.** The connector opened with the driver defaults: no busy timeout, so a write that found the database locked gave up immediately with `SQLITE_BUSY` instead of waiting, and the rollback journal, so readers and writers excluded each other. With ten concurrent writers, 195 of 200 writes were lost; under a 10-VU load test, 63% of requests failed. `busy_timeout`, `journal_mode(WAL)` and `foreign_keys` are now set on the DSN. SQLite is what the quick start and 36 of the examples use.
+
+- **The Helm chart's default install could not pass its own probes.** Liveness and readiness hit `/health/live` and `/health/ready` on the app port, which only exists if a connector listens on it — and the chart's default configuration declares no connector. The pod never became ready and liveness restarted it, so `helm install mycel` with the defaults did not start. Health, readiness and metrics are served by the admin server whatever the connectors are doing, so `service.adminPort` (9090) is now a named container port and is what the probes target, what the Service publishes and what the ServiceMonitor scrapes — `/metrics` was being scraped off the app port for the same reason.
+
+- **Foreign keys were enforced on one connection out of the pool.** `PRAGMA foreign_keys = ON` ran once after opening, and SQLite applies a pragma to the connection that ran it — so every connection opened afterwards had them off, and the same violating write was accepted or rejected depending on where it landed.
+
+### Changed
+
+- **`hash_sha256` is documented as a fingerprint, not a password hash.** The transforms guide showed it hashing a password on registration; one unsalted pass of SHA-256 is what an attacker with the table wants. Passwords belong to the auth system, which uses Argon2id.
+
+- **The SQLite section says what the connector does.** WAL mode, the busy timeout, the two sidecar files a WAL database keeps next to it, and that an in-memory database is per connection — the pool opens several, so what one request writes the next will not find.
+
+- **The benchmark suite is published** (`benchmark/`), minus the Linode token, Terraform state and past results. The README's performance section linked to files that only existed on the machine that wrote them.
+
+- **The benchmark checks the answer before timing it.** Every k6 check in the suite was `status === 200`, which counts a 200 carrying an empty body as a success; the suite would have reported the `{"Adapter":{}}` bug above as 8,000 successful requests per second. `benchmark/scripts/preflight.sh` now asserts the bodies and `run.sh` refuses to measure a target that fails it. The targets also deployed `.hcl` files, which the runtime has not read since v1.18 — so they came up with no flows at all.
+
+- **A benchmark result now says which build produced it.** The image is a Terraform variable instead of `:latest`, the targets record what they run, and each run writes `provenance.txt` next to Mycel's own flow counters.
+
 ## [3.0.0] - 2026-08-21
 
 ### Added

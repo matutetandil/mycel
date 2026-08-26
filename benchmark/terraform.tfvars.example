@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars and fill in your values
+linode_token   = "your-linode-api-token"
+region         = "us-east"            # https://api.linode.com/v4/regions
+plan           = "g6-nanode-1"        # $5/mo: 1 vCPU, 1GB RAM
+ssh_public_key = "~/.ssh/id_rsa.pub"
+
+# Set to true to deploy a second VPS as the load generator
+# (recommended for accurate network latency measurements)
+deploy_attacker = false

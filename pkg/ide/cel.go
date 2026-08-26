@@ -48,7 +48,7 @@ func celFunctionList() []celFunction {
 		{"string", "string(v)", "Convert to string", `string(1)`},
 		{"timestamp", "timestamp(s)", "Parse string as timestamp", `timestamp("2020-01-01T00:00:00Z")`},
 		{"duration", "duration(s)", "Parse string as duration", `duration("5s")`},
-		{"hash_sha256", "hash_sha256(s)", "SHA-256 hash, hex encoded", `hash_sha256("a")`},
+		{"hash_sha256", "hash_sha256(s)", "SHA-256 hash, hex encoded (64 chars) — a fingerprint, not a password hash", `hash_sha256("a")`},
 
 		{"coalesce", "coalesce(v, fallback)", "First value that is not null", `coalesce("", "x")`},
 		{"default", "default(v, fallback)", "Fallback when v is null", `default("", "x")`},

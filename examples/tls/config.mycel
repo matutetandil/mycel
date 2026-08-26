@@ -1,0 +1,4 @@
+service {
+  name    = "tls-client"
+  version = "1.0.0"
+}

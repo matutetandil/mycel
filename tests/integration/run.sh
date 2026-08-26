@@ -75,6 +75,7 @@ PORT_DEFS=(
   PORT_ADMIN:9090
   PORT_COSMO:5000
   PORT_MOCK:8888
+  PORT_MOCK_TLS:8443
   PORT_RABBIT:5672
   PORT_AUTH:3003
   PORT_WORKFLOW:9101
@@ -83,10 +84,13 @@ PORT_DEFS=(
   PORT_MONGO:37017
   PORT_MINIO:39000
   PORT_KAFKA:29092
+  PORT_KAFKA_SASL:29094
   PORT_ES:39200
   PORT_REDIS:36379
+  PORT_REDIS_SENTINEL:36380
   PORT_MQTT:31883
   PORT_SFTP:32222
+  PORT_SSH_EXEC:32223
 )
 
 echo "Checking ports..."
@@ -108,6 +112,9 @@ else
   echo -e "  ${CYAN}$REMAPPED port(s) remapped${NC}"
 fi
 echo ""
+
+# The exec connector signs in with a key; see the script.
+bash scripts/ssh-keypair.sh
 
 # The push connector needs a service account to sign with; see the script.
 if [ -z "${FCM_SERVICE_ACCOUNT:-}" ]; then
@@ -345,10 +352,15 @@ if command -v go > /dev/null 2>&1; then
         MYCEL_TEST_MONGO_URI="mongodb://mongo:mycel@127.0.0.1:${PORT_MONGO}/mycel_test?authSource=admin" \
         MYCEL_TEST_S3_ENDPOINT="http://127.0.0.1:${PORT_MINIO}" \
         MYCEL_TEST_KAFKA_BROKERS="localhost:${PORT_KAFKA}" \
+        MYCEL_TEST_KAFKA_SASL_BROKERS="localhost:${PORT_KAFKA_SASL}" \
         MYCEL_TEST_ELASTICSEARCH_URL="http://127.0.0.1:${PORT_ES}" \
         MYCEL_TEST_REDIS_URL="redis://127.0.0.1:${PORT_REDIS}" \
+        MYCEL_TEST_REDIS_SENTINEL="127.0.0.1:${PORT_REDIS_SENTINEL}" \
         MYCEL_TEST_MQTT_BROKER="tcp://127.0.0.1:${PORT_MQTT}" \
         MYCEL_TEST_SFTP_ADDR="127.0.0.1:${PORT_SFTP}" \
+        MYCEL_TEST_SSH_ADDR="127.0.0.1:${PORT_SSH_EXEC}" \
+        MYCEL_TEST_TLS_URL="https://localhost:${PORT_MOCK_TLS}" \
+        MYCEL_TEST_TLS_CA_URL="http://localhost:${PORT_MOCK}/ca.pem" \
         go test "$pkg" -run "$pattern" -count=1 -v 2>&1); then
       if echo "$out" | grep -q -- "--- SKIP"; then
         echo "  ✗ $label skipped itself"
@@ -389,6 +401,20 @@ if command -v go > /dev/null 2>&1; then
     ./internal/connector/mq/rabbitmq/ 'RejectedMessage|BatchIsPublished'
   run_go_tests "publishing and receiving over redis" \
     ./internal/connector/mq/redis/ 'PublishedMessage|PatternSubscription|ClosedConnector'
+  # A broker that authenticates, so the sasl block is presented to something
+  # that checks it rather than merely built into a mechanism.
+  run_go_tests "kafka sasl: the right credentials, and the wrong ones" \
+    ./internal/connector/mq/kafka/ 'Credentials|WrongPassword|ConsumerPresentsItsCredentials'
+  # A call that succeeds with a certificate authority named proves nothing
+  # unless the same call without one fails, so the pair is asserted together —
+  # and the failing half is one the README harness is told to leave alone.
+  run_go_tests "the tls example trusts only what it was told" \
+    ./internal/examples/ 'TLSExampleTrustsOnly'
+  # HTTP in, Kafka out, Kafka in, database out. The consumer between the two
+  # halves runs on its own schedule, so the round trip needs a wait the README
+  # can only describe.
+  run_go_tests "the kafka example goes all the way round" \
+    ./internal/examples/ 'KafkaExampleGoesAllTheWayRound'
   run_go_tests "files over sftp" \
     ./internal/connector/ftp/ 'FileGoesUp|PlainFile|DirectoryIsMade'
   run_go_tests "postgres read replicas" \

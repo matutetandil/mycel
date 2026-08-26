@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector/database"
 
 	_ "modernc.org/sqlite" // SQLite driver (pure Go)
 )
@@ -58,7 +59,7 @@ func (c *Connector) Connect(ctx context.Context) error {
 	}
 
 	// Open database
-	db, err := sql.Open("sqlite", c.path)
+	db, err := sql.Open("sqlite", database.SQLiteDSN(c.path))
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -67,11 +68,6 @@ func (c *Connector) Connect(ctx context.Context) error {
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
 		return fmt.Errorf("failed to ping database: %w", err)
-	}
-
-	// Enable foreign keys
-	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
-		c.logger.Warn("Failed to enable foreign keys", slog.Any("error", err))
 	}
 
 	c.db = db

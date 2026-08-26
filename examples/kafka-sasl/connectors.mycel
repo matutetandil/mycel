@@ -1,0 +1,44 @@
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+# A broker that asks who you are.
+#
+# The `sasl` block is the credentials this connector presents. Both halves use
+# them: the producer authenticates when it publishes and the consumer when it
+# joins its group, so one block covers the whole connector.
+#
+# PLAIN sends the password as it is, which is why it belongs behind TLS in
+# production — add a `tls` block beside this one and the broker's listener
+# becomes SASL_SSL rather than SASL_PLAINTEXT. SCRAM-SHA-256 and
+# SCRAM-SHA-512 are the other two mechanisms, and are a straight swap.
+connector "orders" {
+  type      = "mq"
+  driver    = "kafka"
+  brokers   = [env("KAFKA_SASL_BROKERS", "localhost:29094")]
+  client_id = "mycel-secure"
+
+  sasl {
+    mechanism = "PLAIN"
+    username  = env("KAFKA_USER", "mycel")
+    password  = env("KAFKA_PASSWORD", "mycel-secret")
+  }
+
+  producer {
+    topic = "secure_orders"
+    acks  = "all"
+  }
+
+  consumer {
+    group_id          = env("KAFKA_GROUP", "mycel-secure-writers")
+    topics            = ["secure_orders"]
+    auto_offset_reset = "earliest"
+  }
+}
+
+connector "db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = "./data/secure_orders.db"
+}

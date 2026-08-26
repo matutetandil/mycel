@@ -23,6 +23,7 @@ import (
 	"github.com/matutetandil/mycel/v3/internal/health"
 	"github.com/matutetandil/mycel/v3/internal/metrics"
 	"github.com/matutetandil/mycel/v3/internal/ratelimit"
+	"github.com/matutetandil/mycel/v3/internal/sanitize"
 )
 
 // HandlerFunc is a function that handles a flow request.
@@ -370,7 +371,14 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 	}
 
 	// Build input from request
-	input := c.buildInput(r, paramNames)
+	input, err := c.buildInput(r, paramNames)
+	if err != nil {
+		if c.metrics != nil {
+			c.metrics.RecordRequest(r.Method, path, "400", time.Since(start))
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Execute flow handler
 	result, err := handler(r.Context(), input)
@@ -381,6 +389,16 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 	// can suppress losers; for sync REST there is no fan-out, so this
 	// just fires inline as before.
 	flow.FireDropAspect(r.Context(), result)
+
+	// A gate that dropped the message answers in Mycel's words, not in Go's.
+	//
+	// The value a drop produces is an internal struct, and it went to the
+	// caller as one: capitalised field names, a MessageID and a MaxRequeue
+	// that mean nothing over HTTP, and a Detail carrying the very expression
+	// that rejected them — `input.tenant == 'acme'` handed to the client that
+	// just failed it. Renaming a field would also have changed the API
+	// silently, since nothing here was ever chosen.
+	result = describeDrop(result)
 
 	if err != nil {
 		status := c.writeError(w, err)
@@ -417,7 +435,7 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 }
 
 // buildInput extracts input data from the HTTP request.
-func (c *Connector) buildInput(r *http.Request, paramNames []string) map[string]interface{} {
+func (c *Connector) buildInput(r *http.Request, paramNames []string) (map[string]interface{}, error) {
 	input := make(map[string]interface{})
 
 	// Path parameters (from Go 1.22+ pattern matching)
@@ -466,17 +484,43 @@ func (c *Connector) buildInput(r *http.Request, paramNames []string) map[string]
 			}
 
 			bodyBytes, err := io.ReadAll(r.Body)
-			if err == nil && len(bodyBytes) > 0 {
-				if decoded, err := bodyCodec.Decode(bodyBytes); err == nil {
-					for k, v := range decoded {
-						input[k] = v
-					}
+			if err != nil {
+				return nil, fmt.Errorf("could not read request body: %w", err)
+			}
+			if len(bodyBytes) > 0 {
+				decoded, decodeErr := bodyCodec.Decode(bodyBytes)
+				if decodeErr != nil {
+					// A body that does not parse is a bad request, not an
+					// empty one. Dropping the error here made a corrupt
+					// payload indistinguishable from no payload: the flow ran
+					// against an empty input and answered 200, or blamed a
+					// missing key in a 500.
+					return nil, fmt.Errorf("could not decode request body: %w", decodeErr)
+				}
+				for k, v := range decoded {
+					input[k] = v
 				}
 			}
 		}
 	}
 
-	return input
+	return input, nil
+}
+
+// describeDrop turns the internal result of a dropped message into the answer
+// an HTTP caller gets: that it was not processed, and which gate decided so.
+// Anything else — the requeue counts a queue consumer needs, the detail meant
+// for the log — stays inside.
+func describeDrop(result interface{}) interface{} {
+	dropped, ok := result.(*flow.FilteredResultWithPolicy)
+	if !ok {
+		return result
+	}
+	answer := map[string]interface{}{"status": "dropped"}
+	if dropped.Reason != "" {
+		answer["reason"] = dropped.Reason
+	}
+	return answer
 }
 
 // extractParamNames extracts parameter names from a path pattern.
@@ -688,6 +732,12 @@ func (c *Connector) writeError(w http.ResponseWriter, err error) int {
 	if strings.Contains(errStr, "validation") ||
 		strings.Contains(errStr, "required") ||
 		strings.Contains(errStr, "invalid") {
+		status = http.StatusBadRequest
+	}
+	// Input the sanitizer turned away is the sender's to fix. Reported as a
+	// 500 it read as Mycel breaking, and 5xx is the retryable class — so a
+	// client posting an oversized field retried it forever.
+	if errors.Is(err, sanitize.ErrRejected) {
 		status = http.StatusBadRequest
 	}
 

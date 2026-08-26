@@ -15,7 +15,8 @@ assert_contains "Region stored correctly" "us-east" "$body"
 
 # Request with non-matching region should be rejected by accept gate
 body=$(http_body POST "$BASE/test/accept" '{"action":"update","region":"eu-west"}')
-assert_contains "Non-matching region rejected" "Filtered|filtered" "$body"
+assert_contains "Non-matching region rejected" '"status":"dropped"' "$body"
+assert_contains "Rejection names the gate that decided" '"reason":"accept"' "$body"
 
 # Verify rejected request was NOT stored
 body=$(http_body GET "$BASE/test/accept/results")
@@ -23,6 +24,6 @@ assert_not_contains "Rejected request not in DB" "update" "$body"
 
 # Request that fails filter (no action field) should also not pass
 body=$(http_body POST "$BASE/test/accept" '{"region":"us-east"}')
-assert_contains "Missing action filtered out" "Filtered|filtered" "$body"
+assert_contains "Missing action filtered out" '"status":"dropped"' "$body"
 
 report

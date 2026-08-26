@@ -55,6 +55,14 @@ service:
   port: 8080
   # -- Service target port
   targetPort: 8080
+  # -- Admin port: health, readiness and metrics.
+  # Mycel serves /health, /health/live, /health/ready and /metrics here
+  # whatever the connectors are doing — the app port only exists if a
+  # connector listens on it. The probes and the metrics scrape both use this,
+  # so a chart with no REST connector still becomes ready. If you bring your
+  # own configuration, keep its `service { admin_port = ... }` in step with
+  # this number.
+  adminPort: 9090
   # -- Node port (only used if type is NodePort)
   nodePort: ""
   # -- Annotations to add to the service
@@ -137,8 +145,9 @@ mycel:
     # belongs to the connector that listens, not here.
     service: |
       service {
-        name    = "mycel"
-        version = "1.0.0"
+        name       = "mycel"
+        version    = "1.0.0"
+        admin_port = {{ .Values.service.adminPort }}
       }
     # -- Connectors configuration (connectors.mycel content)
     connectors: ""
@@ -191,8 +200,9 @@ healthCheck:
 metrics:
   # -- Enable Prometheus metrics endpoint
   enabled: true
-  # -- Metrics port
-  port: 8080
+  # -- Metrics port. /metrics is served by the admin server, not by a
+  # connector, so this follows service.adminPort.
+  port: 9090
   # -- Metrics path
   path: /metrics
   # ServiceMonitor for Prometheus Operator

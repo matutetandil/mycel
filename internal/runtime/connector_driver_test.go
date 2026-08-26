@@ -44,14 +44,18 @@ func TestAConnectorThatDoesNotSayWhichDatabase(t *testing.T) {
 func TestEveryTypeThatNeedsADriverIsChecked(t *testing.T) {
 	reg := NewSchemaRegistry()
 
-	for _, connType := range []string{"database", "mq", "cache", "oauth"} {
+	// cdc is here rather than below: a change-data-capture connector with no
+	// driver cannot run — the factory answers "unsupported CDC driver:
+	// (supported: postgres)" at connect time — so the schema asks for it at
+	// validate time instead, where the answer is cheaper to act on.
+	for _, connType := range []string{"database", "mq", "cache", "oauth", "cdc"} {
 		if errs := ValidateConnectorSchemas(configWith(&connector.Config{Name: "x", Type: connType}), reg); len(errs) == 0 {
 			t.Errorf("a %s connector with no driver was accepted", connType)
 		}
 	}
 
 	// And types that are one thing are left alone.
-	for _, connType := range []string{"rest", "http", "s3", "exec", "cdc", "webhook"} {
+	for _, connType := range []string{"rest", "http", "s3", "exec", "webhook"} {
 		if errs := ValidateConnectorSchemas(configWith(&connector.Config{Name: "x", Type: connType}), reg); len(errs) != 0 {
 			t.Errorf("a %s connector was asked for a driver it does not have: %v", connType, errs)
 		}

@@ -2,6 +2,7 @@ package transform
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -169,18 +170,20 @@ func TestGoTimeFormat(t *testing.T) {
 	}
 }
 
-func TestHashStringIsStableAndDistinguishes(t *testing.T) {
-	// Used for bucketing; the only properties that matter are that the same
-	// input always lands in the same place and that different inputs mostly
-	// do not.
-	if hashString("abc") != hashString("abc") {
-		t.Error("the same string hashed to two different values")
+func TestHashSHA256IsActuallySHA256(t *testing.T) {
+	// The function is named hash_sha256 and the documentation offers it for
+	// hashing a password. It was neither: it returned a 64-bit djb2 hash, with
+	// a comment saying to use crypto/sha256 in production. Anyone who took the
+	// name at its word got 16 hex characters of a non-cryptographic hash.
+	tr := newT(t)
+	out, err := tr.Evaluate(context.Background(), `hash_sha256("abc")`, map[string]interface{}{})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
 	}
-	if hashString("abc") == hashString("abd") {
-		t.Error("two different strings collided")
-	}
-	if hashString("") != hashString("") {
-		t.Error("the empty string is not stable")
+	// The published SHA-256 of "abc".
+	const want = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+	if out != want {
+		t.Errorf("hash_sha256(\"abc\") = %v, want %s", out, want)
 	}
 }
 
@@ -215,5 +218,37 @@ func TestTransformWithStepsCombinesEverything(t *testing.T) {
 		if got[k] != want {
 			t.Errorf("%s = %#v, want %#v", k, got[k], want)
 		}
+	}
+}
+
+func TestResponseTransformUnwrapsStructuredValues(t *testing.T) {
+	// The response block ran its rules through a shallow val.Value(), so an
+	// expression returning a list of objects — anything built with filter, map
+	// or sort_by — handed back CEL's own wrappers. They JSON-encode as
+	// {"Adapter":{}}, so a flow shaping its output with a response block
+	// answered 200 with the data replaced by an empty struct. Every other rule
+	// loop in cel.go already unwrapped; this one was the exception.
+	tr := newT(t)
+	input := map[string]interface{}{
+		"items": []interface{}{
+			map[string]interface{}{"name": "a", "price": 10},
+			map[string]interface{}{"name": "b", "price": 80},
+		},
+	}
+	rules := RulesFromMappings(map[string]string{
+		"expensive": "input.items.filter(x, x.price > 50)",
+	}, []string{"expensive"})
+
+	out, err := tr.TransformResponseWithSteps(context.Background(), input, map[string]interface{}{}, nil, rules)
+	if err != nil {
+		t.Fatalf("transform response: %v", err)
+	}
+	encoded, err := json.Marshal(out["expensive"])
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	const want = `[{"name":"b","price":80}]`
+	if string(encoded) != want {
+		t.Errorf("response gave %s, want %s", encoded, want)
 	}
 }

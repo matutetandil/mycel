@@ -155,7 +155,48 @@ query {
 }
 ```
 
-### Test 2: Step Skipping
+### Test 2: Reading the selection yourself
+
+The optimizer decides what to run by looking at the query. The same
+information is available to an expression, for a flow that wants to act on it
+rather than be optimised by it:
+
+```graphql
+query {
+  explainProduct(id: "prod-1") {
+    id
+    name
+    asked_for
+    asked_count
+    wants_price
+  }
+}
+```
+
+```json
+{ "id": "prod-1", "name": "Pro Laptop 15\"",
+  "asked_for": "asked_count,wants_price,id,name,asked_for",
+  "asked_count": 5, "wants_price": false }
+```
+
+Ask for `price` and `wants_price` turns true — `field_requested(input, 'price')`
+is reading the query, not the row:
+
+```graphql
+query {
+  explainProduct(id: "prod-1") {
+    id
+    price
+    asked_for
+    wants_price
+  }
+}
+```
+
+`requested_fields(input)` answers every path the query named, nested ones
+included; `requested_top_fields(input)` answers only the outermost level.
+
+### Test 3: Step Skipping
 
 ```graphql
 # Base fields only - NO external API calls
@@ -203,7 +244,7 @@ query {
 }
 ```
 
-### Test 3: Siblings resolved together
+### Test 4: Siblings resolved together
 
 ```graphql
 query {

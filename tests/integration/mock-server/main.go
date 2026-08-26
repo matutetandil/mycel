@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,18 @@ var (
 	requests []CapturedRequest
 	mu       sync.Mutex
 )
+
+// The ports are settable so the server can be run beside something already
+// holding the defaults, which is what happens on a machine with the stack up.
+func plainAddress() string { return addressFrom("MOCK_PORT", ":8888") }
+func tlsAddress() string   { return addressFrom("MOCK_TLS_PORT", ":8443") }
+
+func addressFrom(variable, fallback string) string {
+	if port := os.Getenv(variable); port != "" {
+		return ":" + port
+	}
+	return fallback
+}
 
 func main() {
 	mux := http.NewServeMux()
@@ -107,6 +120,12 @@ func main() {
 		w.Write([]byte(`{"ok": true}`))
 	})
 
-	fmt.Println("Mock server listening on :8888")
-	log.Fatal(http.ListenAndServe(":8888", mux))
+	// The same handlers over HTTPS, with a certificate this server signs
+	// itself and hands out at /ca.pem. See tls.go.
+	if err := serveTLS(mux, tlsAddress()); err != nil {
+		log.Fatalf("starting the TLS listener: %v", err)
+	}
+
+	fmt.Printf("Mock server listening on %s, and on %s over TLS\n", plainAddress(), tlsAddress())
+	log.Fatal(http.ListenAndServe(plainAddress(), mux))
 }

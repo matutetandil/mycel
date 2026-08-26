@@ -22,6 +22,8 @@ services:
       - "${PORT_WORKFLOW:-9101}:9091" # Workflow api (its own port, authenticated)
     volumes:
       - ./config:/etc/mycel
+      # The key the exec connector signs in with. Generated per run.
+      - ./ssh/id_ed25519:/etc/mycel-ssh/id_ed25519:ro
       # Always mounted; the binary only writes here when built with -cover.
       - ./.coverage:/covdata
     # A -cover binary writes its counters as it exits, and the default ten
@@ -100,6 +102,18 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
+      ssh-exec:
+        condition: service_healthy
+      # Named here for the same reason as everything else in this list: a
+      # connector resolves the hostname at startup, and a name with no
+      # container behind it yet is not a slow answer but "server misbehaving"
+      # from docker's resolver — which is a connector that cannot start, and a
+      # service that exits. The cluster below is covered through its init
+      # container, which already waits on all three nodes.
+      redis-sentinel:
+        condition: service_healthy
+      redis-cluster-init:
+        condition: service_completed_successfully
       sftp:
         condition: service_started
     healthcheck:
@@ -185,6 +199,81 @@ services:
       timeout: 3s
       retries: 10
 
+  # Sentinel watches the redis above and tells a client which server is master.
+  #
+  # It exists so the `sentinel` block a cache connector takes can be pointed at
+  # something that answers — without it the block could be parsed and turned
+  # into a client that was never asked anything. One sentinel is not a quorum
+  # and would not fail anything over in earnest; what it does provide is the
+  # master lookup, which is what the connector actually performs.
+  redis-sentinel:
+    image: redis:7-alpine
+    depends_on:
+      redis:
+        condition: service_healthy
+    # Copied out of the mount because Sentinel rewrites its own configuration
+    # as it learns the topology, and the mount is read-only.
+    command: sh -c "cp /etc/sentinel.conf /tmp/sentinel.conf && redis-server /tmp/sentinel.conf --sentinel"
+    volumes:
+      - ./redis/sentinel.conf:/etc/sentinel.conf:ro
+    ports:
+      - "${PORT_REDIS_SENTINEL:-36380}:26379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # A three-node cluster, which is the smallest one Redis will form: the key
+  # space is split into slots and each node owns a share, so a client is not
+  # given an address but a list of them and asked to find out who holds what.
+  #
+  # Internal only. A cluster answers a client with the addresses of its nodes,
+  # and those are addresses on this network — which is why the test that uses
+  # it runs inside the network too.
+  redis-cluster-1: &redis-cluster-node
+    image: redis:7-alpine
+    command: >
+      redis-server --cluster-enabled yes --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000 --appendonly no --save ""
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  redis-cluster-2:
+    <<: *redis-cluster-node
+
+  redis-cluster-3:
+    <<: *redis-cluster-node
+
+  # Forms the cluster once the three are answering. `--cluster-yes` because
+  # there is nobody here to confirm the slot allocation.
+  redis-cluster-init:
+    image: redis:7-alpine
+    depends_on:
+      redis-cluster-1:
+        condition: service_healthy
+      redis-cluster-2:
+        condition: service_healthy
+      redis-cluster-3:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if redis-cli -h redis-cluster-1 cluster info | grep -q 'cluster_state:ok'; then
+          echo "cluster already formed"
+          exit 0
+        fi
+        redis-cli --cluster create \
+          redis-cluster-1:6379 redis-cluster-2:6379 redis-cluster-3:6379 \
+          --cluster-yes
+        until redis-cli -h redis-cluster-1 cluster info | grep -q 'cluster_state:ok'; do
+          sleep 1
+        done
+        echo "cluster formed"
+
   # ==========================================================================
   # Message Queues (internal only)
   # ==========================================================================
@@ -214,9 +303,19 @@ services:
       # client is told where to reconnect by the advertised address, so a
       # single listener cannot serve both — from the host, "kafka:9092" does
       # not resolve.
-      KAFKA_LISTENERS: PLAINTEXT://:9092,HOST://:29092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:${PORT_KAFKA:-29092}
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      #
+      # A third listener speaks SASL, so the `sasl` block a Kafka connector
+      # takes can be exercised against a broker that actually asks who you
+      # are. Same broker, same topics — only the door is different.
+      KAFKA_LISTENERS: PLAINTEXT://:9092,HOST://:29092,SASL://:29094,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:${PORT_KAFKA:-29092},SASL://localhost:${PORT_KAFKA_SASL:-29094}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT,SASL:SASL_PLAINTEXT
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_LISTENER_NAME_SASL_SASL_ENABLED_MECHANISMS: PLAIN
+      # The credentials the listener accepts, in the broker's own JAAS syntax.
+      # Test credentials for a broker that lives as long as a test run.
+      KAFKA_LISTENER_NAME_SASL_PLAIN_SASL_JAAS_CONFIG: |
+        org.apache.kafka.common.security.plain.PlainLoginModule required username="mycel" password="mycel-secret" user_mycel="mycel-secret";
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
@@ -226,6 +325,7 @@ services:
       CLUSTER_ID: "dGVzdC1jbHVzdGVyLWlkMQ"
     ports:
       - "${PORT_KAFKA:-29092}:29092"
+      - "${PORT_KAFKA_SASL:-29094}:29094"
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
       interval: 5s
@@ -241,7 +341,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        for topic in test_topic dlq_topic dlq_topic.dlq; do
+        for topic in test_topic dlq_topic dlq_topic.dlq orders secure_orders; do
           /opt/kafka/bin/kafka-topics.sh --create --if-not-exists \
             --bootstrap-server kafka:9092 \
             --topic "$$topic" --partitions 1 --replication-factor 1
@@ -325,6 +425,23 @@ services:
     volumes:
       - ./sftp/sftp.json:/app/config/sftp.json:ro
 
+  # A server that will run a command, which the SFTP one above will not: it is
+  # restricted to the sftp subsystem. Keys only — the exec connector refuses a
+  # password, since there is no terminal to type one into.
+  ssh-exec:
+    build:
+      context: ./ssh
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT_SSH_EXEC:-32223}:22"
+    volumes:
+      - ./ssh/authorized_keys:/home/runner/.ssh/authorized_keys:ro
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 22 || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
   # ==========================================================================
   # Cosmo Router - GraphQL Federation Gateway
   # ==========================================================================
@@ -371,6 +488,10 @@ services:
       dockerfile: Dockerfile
     ports:
       - "${PORT_MOCK:-8888}:8888"
+      # The same handlers over TLS, with a certificate the server signs itself
+      # and hands out at http://mock:8888/ca.pem. Nothing else in this stack
+      # speaks TLS, so without it the `tls` block cannot be exercised anywhere.
+      - "${PORT_MOCK_TLS:-8443}:8443"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8888/health"]
       interval: 3s

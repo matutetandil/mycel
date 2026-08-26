@@ -44,6 +44,12 @@ jobs:
           # The push connector signs a JWT with this at startup, and refuses to
           # start without one. run.sh does the same; this job does not use it.
           export FCM_SERVICE_ACCOUNT=$(bash scripts/fcm-service-account.sh)
+          # The exec connector signs in to the ssh server with this key, and
+          # the compose file mounts both halves. Without them docker creates
+          # directories where the files should be, and a connector handed a
+          # directory for a key file takes the whole service down at startup.
+          # Same reason as above: this job builds the stack itself.
+          bash scripts/ssh-keypair.sh
           docker compose up -d --build --wait 2>&1 | tail -10
           bash scripts/wait-for-services.sh 120
 
@@ -113,6 +119,29 @@ jobs:
       # this has to come after the services are stopped and before anything
       # removes the volume.
       # ---------------------------------------------------------------
+      # Before the teardown, not after it. These ran after `docker compose
+      # down -v`, so every one of them reported on a stack that no longer
+      # existed: the log step printed nothing, `ps -a` printed a header and no
+      # rows, and a failing run said nothing about why. Two CI rounds were
+      # spent guessing at a container whose log was there the whole time.
+      - name: Mycel logs on failure
+        if: failure()
+        # No 2>/dev/null: when this step printed nothing, the silence was the
+        # only thing it told us, and the reason it printed nothing was hidden
+        # by the redirect. The services beside it are here because a connector
+        # that cannot reach one is how Mycel fails at startup.
+        run: |
+          echo "--- mycel ---"
+          docker compose logs --no-color --tail 100 mycel || true
+          echo "--- what the stack made of itself ---"
+          docker compose ps -a || true
+          echo "--- the one-shot setup containers ---"
+          docker compose logs --no-color redis-sentinel redis-cluster-init kafka-init minio-init || true
+
+      - name: All service logs on failure
+        if: failure()
+        run: docker compose logs 2>/dev/null || true
+
       - name: Stop services
         if: always()
         run: docker compose down -v
@@ -171,10 +200,3 @@ jobs:
           path: tests/integration/coverage.out
           if-no-files-found: ignore
 
-      - name: Mycel logs on failure
-        if: failure()
-        run: docker compose logs mycel 2>/dev/null || true
-
-      - name: All service logs on failure
-        if: failure()
-        run: docker compose logs 2>/dev/null || true

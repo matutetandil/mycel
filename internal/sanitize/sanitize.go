@@ -6,6 +6,7 @@ package sanitize
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -84,9 +85,22 @@ func (p *Pipeline) AddRule(r Rule) {
 	p.rules = append(p.rules, r)
 }
 
+// ErrRejected marks an error as the pipeline turning input away, rather than
+// the pipeline itself failing. Callers use it to answer the client instead of
+// reporting a server error: a payload that is too large, too deeply nested or
+// carrying control characters is the sender's problem to fix, and a 5xx tells
+// them — and every load balancer between — to retry it forever.
+var ErrRejected = errors.New("input rejected")
+
 // Sanitize runs the full sanitization pipeline on input data.
 // Returns sanitized data or an error if input is rejected.
-func (p *Pipeline) Sanitize(input map[string]interface{}) (map[string]interface{}, error) {
+func (p *Pipeline) Sanitize(input map[string]interface{}) (result map[string]interface{}, err error) {
+	defer func() {
+		if err != nil && !errors.Is(err, ErrRejected) {
+			err = fmt.Errorf("%w: %w", ErrRejected, err)
+		}
+	}()
+
 	if input == nil {
 		return nil, nil
 	}

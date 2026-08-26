@@ -288,6 +288,15 @@ shows.
 
 ### Multi-Factor Authentication
 
+Two second factors are provided: **TOTP** (an authenticator app) and
+**WebAuthn** (a passkey or a hardware key). Recovery codes are a fallback for
+somebody who has lost one, configured in their own block rather than chosen as
+a method.
+
+A configuration naming anything else is refused at startup rather than
+accepted and ignored — a service that believes it has SMS two-factor and has
+none is worse off than one that will not start.
+
 ```hcl
 mfa {
   required     = "optional"  # "true", "optional", "false", "admin_only"

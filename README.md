@@ -3,6 +3,7 @@
 [![CI](https://github.com/matutetandil/mycel/actions/workflows/ci.yml/badge.svg)](https://github.com/matutetandil/mycel/actions/workflows/ci.yml)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/matutetandil/mycel)](https://go.dev/)
 [![Release](https://img.shields.io/github/v/release/matutetandil/mycel)](https://github.com/matutetandil/mycel/releases)
+[![Go Reference](https://pkg.go.dev/badge/github.com/matutetandil/mycel/v3.svg)](https://pkg.go.dev/github.com/matutetandil/mycel/v3)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io%2Fmatutetandil%2Fmycel-blue?logo=docker)](https://ghcr.io/matutetandil/mycel)
 
@@ -132,6 +133,35 @@ Most microservice code is plumbing — routing, database queries, data transform
 
 It's for backend teams building microservices of any kind — APIs, integrations, event processors, protocol bridges — who'd rather declare the service than rewrite its plumbing.
 
+## When Mycel Fits
+
+Mycel is at its best when the service's job is moving and reshaping data between systems:
+
+- **Ingestion and integration** — a queue, a webhook or a file drop lands somewhere else, reshaped and validated on the way.
+- **APIs over existing data** — expose a database, a SOAP service or an internal API as REST or GraphQL, with validation, auth and rate limiting.
+- **Event-driven pipelines** — CDC, MQTT or Kafka events routed, filtered and fanned out to the systems that care.
+- **Orchestration across services** — multi-step flows, sagas with compensation, transactions, retries and circuit breakers.
+
+It's a worse fit when the service's value *is* the code:
+
+- **The logic doesn't fit an expression.** Transforms are [CEL](docs/reference/cel-functions.md) — good at reshaping a payload, not at implementing an algorithm. Custom logic goes into a [WASM plugin](docs/advanced/wasm.md), which today runs pure functions only (validators, transforms, CEL functions — no I/O of its own).
+- **You need a system Mycel doesn't speak.** Connectors ship with the runtime, so a protocol that isn't in the list is a change to Mycel, not a change to your config.
+- **The domain model is the point.** If most of the service is business rules rather than data movement, you'd be writing that logic somewhere anyway — write it in Go and let Mycel handle the edges, or don't use it at all.
+
+## Performance
+
+The [benchmark suite](benchmark/) runs three tests in parallel — each against its own Mycel instance — on the cheapest hardware available: $5 VPS with 1 vCPU and 1 GB of RAM, with PostgreSQL on a *separate* machine over the public network. It calibrates itself to the hardware first, then loads it.
+
+| Test | What it measures | Result |
+|------|------------------|--------|
+| **Standard** | Mycel itself — HTTP, CEL transforms, JSON, array processing, no external I/O | **8,437 RPS**, p99 151 ms, 0.000% errors |
+| **Realistic** | Full CRUD against PostgreSQL over the network | **204 RPS**, median **2.0 ms**, p95 4.9 ms, 0.010% errors |
+| **Stress** | 3× the calibrated safe limit, 100 KB payloads, chaos mix | **402 RPS**, 0.011% errors, **0 crashes, 0 restarts, 0 OOM kills** |
+
+3.2 million requests across the three simultaneous tests, 12 minutes wall clock, under 0.01% errors overall. In the realistic test the bottleneck is the PostgreSQL connection over the public network, not Mycel — the median of 2 ms is the runtime; the p99 is the database.
+
+Full methodology, per-phase numbers and resource usage in [`benchmark/RESULTS.md`](benchmark/RESULTS.md). Measured on v1.12.0; the suite is reproducible (Terraform + k6) if you want to run it against your own hardware.
+
 ## Features
 
 The simple case is trivial — connect A to B, like above. What follows is the complexity that's *there when you need it*: a transform, a lock, a cache, a saga, a circuit breaker, a new protocol. Each one is a block of configuration you declare inside a flow, never machinery you have to build. You don't need any of it to start; you reach for it the day your service does.
@@ -154,7 +184,9 @@ The A's and B's of any flow. Use any as a source, a target, or both.
 | [GraphQL Subscription Client](examples/graphql-subscription-client) | Subscribe to external GraphQL events via WebSocket ([docs](docs/guides/real-time.md)) |
 | [gRPC Server & Client](examples/grpc) | Protocol Buffers based RPC |
 | [gRPC Load Balancing](examples/grpc-loadbalancing) | Round-robin and weighted balancing |
-| [RabbitMQ / Kafka / Redis Pub/Sub](examples/mq) | Message queue producers and consumers |
+| [RabbitMQ / Redis Pub/Sub](examples/mq) | Message queue producers and consumers |
+| [Kafka](examples/kafka) | Topics, consumer groups, offsets and acks ([docs](docs/connectors/message-queues.md)) |
+| [Kafka with SASL](examples/kafka-sasl) | Credentials a broker checks, on both the producer and the consumer |
 | [MQTT](examples/mqtt) | IoT messaging protocol (QoS 0/1/2, TLS, auto-reconnect) ([docs](docs/connectors/mqtt.md)) |
 | [WebSocket](examples/websocket) | Bidirectional real-time communication with rooms and per-user targeting ([docs](docs/connectors/websocket.md)) |
 | [SSE (Server-Sent Events)](examples/sse) | Unidirectional HTTP push with rooms and per-user targeting ([docs](docs/connectors/sse.md)) |
@@ -165,7 +197,7 @@ The A's and B's of any flow. Use any as a source, a target, or both.
 | [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
 | [FTP / SFTP](examples/ftp) | Remote file transfer (FTP, FTPS, SFTP with key auth) ([docs](docs/connectors/ftp.md)) |
 | [Notifications](examples/notifications) | Email, Slack, Discord, SMS, Push, Webhook ([docs](docs/guides/notifications.md)) |
-| [PDF](docs/connectors/pdf.md) | Render a flow's result as a PDF document |
+| [PDF](examples/pdf) | Render a flow's result as a PDF document ([docs](docs/connectors/pdf.md)) |
 
 </details>
 
@@ -199,6 +231,8 @@ The A's and B's of any flow. Use any as a source, a target, or both.
 | [Long-Running Workflows](examples/workflows) | Persistent workflows with delay timers, await/signal events, timeout enforcement, an authenticated HTTP interface on its own port ([docs](docs/guides/sagas.md#long-running-workflows)) |
 | [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([docs](docs/guides/batch-processing.md)) |
 | [Scheduled Jobs](examples/scheduled) | Cron expressions and interval-based flow triggers |
+| [Transforms](examples/transforms) | Reshaping a messy record: fallbacks, splitting, list handling, dates, fingerprints ([docs](docs/core-concepts/transforms.md)) |
+| [Async Jobs & Idempotency](examples/async-jobs) | A slow request answered with `202` and a job id, and a retry that does not write twice |
 | [Aspects (AOP)](examples/aspects) | Cross-cutting concerns (audit, metrics, alerting) applied across flows by name pattern ([docs](docs/core-concepts/aspects.md)) |
 
 </details>
@@ -210,6 +244,7 @@ The A's and B's of any flow. Use any as a source, a target, or both.
 |------------|-------------|
 | [Error Handling](examples/error-handling) | Retry, DLQ, circuit breaker, custom error responses, on_error aspects ([docs](docs/guides/error-handling.md)) |
 | [Resilience & Failure Recovery](docs/guides/resilience.md) | What survives a crash: availability vs durability, broker redelivery, sync vs async ingestion, idempotency, locks with TTL |
+| [TLS](examples/tls) | Verifying the services Mycel calls: a named CA, the system roots, and turning it off ([docs](docs/connectors/rest.md#tls)) |
 | [Rate Limiting / Circuit Breaker](examples/rate-limit) | Traffic control and fault tolerance |
 | [Synchronization](examples/sync) | Distributed locks, semaphores, coordination ([docs](docs/guides/synchronization.md)) |
 | [Connector Profiles](examples/profiles) | Multiple backends with fallback |

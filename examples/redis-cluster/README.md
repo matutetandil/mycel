@@ -6,6 +6,12 @@ This example demonstrates high-availability Redis configurations in Mycel.
 
 For horizontal scaling with automatic sharding across nodes.
 
+> The `.mycel` beside this page used to declare all three connectors with a
+> plain `url`, whatever their names said — a cluster is named by its nodes and
+> Sentinel is asked which server is master, and neither is one address. It
+> matches this page now. The Sentinel path is exercised for real in the
+> integration suite, against a Sentinel watching the stack's Redis.
+
 ```hcl
 connector "redis_cluster" {
   type   = "cache"

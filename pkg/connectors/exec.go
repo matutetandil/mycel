@@ -8,6 +8,7 @@ type ExecSchema struct{}
 func (ExecSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "driver", Doc: "Where the command runs: on this machine, or over SSH on another (defaults to ssh when an ssh block is present)", Type: schema.TypeString, Values: []string{"local", "ssh"}, Default: "local"},
 			{Name: "command", Doc: "Command to execute", Type: schema.TypeString, Required: true},
 			{Name: "working_dir", Doc: "Working directory for the command", Type: schema.TypeString},
 			{Name: "args", Doc: "Arguments passed to the command", Type: schema.TypeList},

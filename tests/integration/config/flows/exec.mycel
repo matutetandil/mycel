@@ -21,3 +21,25 @@ flow "run_command" {
     target    = "step_results"
   }
 }
+
+# The same, run on the machine the ssh block names rather than on this one.
+flow "run_remote_command" {
+  from {
+    connector = "api"
+    operation = "GET /test/exec/remote"
+  }
+
+  step "result" {
+    connector = "remote_exec"
+    operation = "hello-from-the-other-side"
+  }
+
+  transform {
+    output = "step.result"
+  }
+
+  to {
+    connector = "postgres"
+    target    = "step_results"
+  }
+}

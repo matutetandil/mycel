@@ -1701,6 +1701,10 @@ func (r *Runtime) startAdminServer() error {
 	// Register debug protocol (Mycel Studio IDE)
 	r.debugServer.RegisterHandlers(mux)
 
+	// What the process was started with, names always and values only where
+	// the name says plainly that it holds no secret. See admin_env.go.
+	registerEnvHandler(mux)
+
 	// Optional pprof profiling endpoints under /debug/pprof/. Opt-in via
 	// MYCEL_PPROF: off by default because pprof exposes runtime internals and
 	// the profile/trace endpoints are CPU-heavy. The admin port is internal
