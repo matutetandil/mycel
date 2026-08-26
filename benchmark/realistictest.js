@@ -28,8 +28,22 @@ const ENDURANCE_VUS  = Math.round(MAX_VUS * 0.5);
 // Scenarios — real CRUD with PostgreSQL (adaptive scaling)
 // ---------------------------------------------------------------------------
 
+// SMOKE trades the full phase plan for one short run, so the harness itself can
+// be exercised without waiting out a real test.
+const SMOKE = __ENV.SMOKE === 'true' || __ENV.SMOKE === '1';
+const SMOKE_VUS = parseInt(__ENV.SMOKE_VUS || '10', 10);
+const SMOKE_DURATION = __ENV.SMOKE_DURATION || '30s';
+
 export const options = {
-  scenarios: {
+  scenarios: SMOKE ? {
+    smoke: {
+      executor: 'constant-vus',
+      vus: SMOKE_VUS,
+      duration: SMOKE_DURATION,
+      exec: 'mixedCrud',
+      tags: { phase: 'smoke' },
+    },
+  } : {
     // Phase 1: Seed the database (30s)
     seed: {
       executor: 'constant-vus',

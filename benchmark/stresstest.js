@@ -76,8 +76,22 @@ const largePayload = buildLargePayload();
 // Scenarios -- designed to find the breaking point (adaptive scaling)
 // ---------------------------------------------------------------------------
 
+// SMOKE trades the full phase plan for one short run, so the harness itself can
+// be exercised without waiting out a real test.
+const SMOKE = __ENV.SMOKE === 'true' || __ENV.SMOKE === '1';
+const SMOKE_VUS = parseInt(__ENV.SMOKE_VUS || '10', 10);
+const SMOKE_DURATION = __ENV.SMOKE_DURATION || '30s';
+
 export const options = {
-  scenarios: {
+  scenarios: SMOKE ? {
+    smoke: {
+      executor: 'constant-vus',
+      vus: SMOKE_VUS,
+      duration: SMOKE_DURATION,
+      exec: 'chaosRequest',
+      tags: { phase: 'smoke' },
+    },
+  } : {
     // Phase 1: Warmup with heavy transforms (30s)
     warmup_heavy: {
       executor: 'constant-vus',
