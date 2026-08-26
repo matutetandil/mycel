@@ -104,6 +104,14 @@ services:
         condition: service_healthy
       ssh-exec:
         condition: service_healthy
+      # Named here for the same reason as everything else in this list: a
+      # connector resolves the hostname at startup, and a name with no
+      # container behind it yet is not a slow answer but "server misbehaving"
+      # from docker's resolver — which is a connector that cannot start, and a
+      # service that exits. The cluster below is covered through its init
+      # container, which already waits on all three nodes.
+      redis-sentinel:
+        condition: service_healthy
       redis-cluster-init:
         condition: service_completed_successfully
       sftp:
