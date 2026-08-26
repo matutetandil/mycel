@@ -28,6 +28,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build ${COVERAGE:+-cover -coverpkg=./...} \
     -ldflags="-s -w" -o mycel ./cmd/mycel
 
 # Final stage
+# alpine 3.22, and staying there for now on purpose: 3.23 and 3.24 ship the
+# same openssl (libcrypto3 3.5.7-r0), so bumping the base moves nothing that
+# a scanner reports. What clears the one HIGH finding this image carries —
+# CVE-2026-14456, against libcrypto3 and libssl3 — is alpine shipping
+# 3.5.8-r0, which no branch has done yet. Rebuild when it does.
 FROM alpine:3.22
 
 # ca-certificates for HTTPS, tzdata for timezones, and the ssh client for

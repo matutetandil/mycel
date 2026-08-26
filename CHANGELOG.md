@@ -22,6 +22,10 @@ running service does. Read these before upgrading.
 
 - **`hash_sha256` returns a different value.** It was a 64-bit djb2 hash under that name; it is SHA-256 now. Anything that stored or compared its output — a dedupe fingerprint, an idempotency key — recomputes once after the upgrade, so expect one round of cache misses.
 
+### Security
+
+- **The image carries one openssl finding that alpine has not fixed.** `CVE-2026-14456` (a denial of service through unbounded memory) is reported against `libcrypto3` and `libssl3` — two packages, one CVE, both at 3.5.7-r0 with the fix in 3.5.8-r0. Alpine has not shipped it: 3.22, 3.23 and 3.24 all carry the same version, so moving the base image forward changes nothing a scanner reports. It is in the published 3.0.0 image too, and clears on a rebuild once alpine ships the patch. The ssh client added to the image in this release costs nothing here — the scan is byte for byte the same with and without it.
+
 ### Added
 
 - **Examples are held to the same standard as tests.** Three parity tests read the connector registry and the flow schema and name the parts no example uses — an example is how a feature is seen, and because the harness runs the commands in every README, how it is exercised end to end. On their first run: `async`, `idempotency`, `mq/kafka` and `pdf` had no example at all, and five of the twelve block kinds that can be named and reused were shown by nothing. All are closed.
