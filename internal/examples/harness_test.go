@@ -696,6 +696,7 @@ var selfContained = []string{
 	"constants",
 	"files",
 	"format",
+	"pdf",
 	"plugin",
 	"query-method",
 	"rate-limit",

@@ -1,0 +1,4 @@
+service {
+  name    = "pdf-invoices"
+  version = "1.0.0"
+}
