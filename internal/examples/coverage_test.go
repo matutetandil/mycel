@@ -264,3 +264,66 @@ func TestEveryCELFunctionHasAnExample(t *testing.T) {
 		t.Errorf("no example calls these CEL functions: %s", strings.Join(missing, ", "))
 	}
 }
+
+// authBlocksWithoutAnExample: a block inside auth that no example writes.
+var authBlocksWithoutAnExample = map[string]string{
+	"sso":   "needs a real identity provider — an OIDC issuer or a SAML metadata URL — which the test stack does not run",
+	"apple": "needs an Apple developer team, a services ID and a signing key; the other two social providers are shown",
+	// The seventeen endpoint blocks take the same three attributes and differ
+	// only in which route they move. The example moves one, which is the shape;
+	// the other sixteen would be repetition.
+	"logout":          "one endpoint block is shown; the rest take the same three attributes",
+	"register":        "one endpoint block is shown; the rest take the same three attributes",
+	"refresh":         "one endpoint block is shown; the rest take the same three attributes",
+	"me":              "one endpoint block is shown; the rest take the same three attributes",
+	"password_forgot": "one endpoint block is shown; the rest take the same three attributes",
+	"password_reset":  "one endpoint block is shown; the rest take the same three attributes",
+	"password_change": "one endpoint block is shown; the rest take the same three attributes",
+	"sessions_list":   "one endpoint block is shown; the rest take the same three attributes",
+	"sessions_revoke": "one endpoint block is shown; the rest take the same three attributes",
+	"mfa_setup":       "one endpoint block is shown; the rest take the same three attributes",
+	"mfa_verify":      "one endpoint block is shown; the rest take the same three attributes",
+	"mfa_disable":     "one endpoint block is shown; the rest take the same three attributes",
+	"mfa_recovery":    "one endpoint block is shown; the rest take the same three attributes",
+	"social_callback": "one endpoint block is shown; the rest take the same three attributes",
+	"sso_callback":    "one endpoint block is shown; the rest take the same three attributes",
+	// Per-endpoint rate limits, likewise: three attributes, six copies.
+	"login": "shown as an endpoint override; the per-endpoint rate limits take the same shape",
+	// The eight hooks take the same two attributes and differ in when they
+	// run. The example shows the three kinds that differ in more than that: an
+	// after_ hook, a before_ one that can refuse, and the reset hook, which is
+	// handed a token it has to deliver.
+	"after_login":            "three of the eight hooks are shown, covering the kinds that differ in more than their name",
+	"before_password_change": "three of the eight hooks are shown, covering the kinds that differ in more than their name",
+	"after_password_change":  "three of the eight hooks are shown, covering the kinds that differ in more than their name",
+	"on_suspicious_activity": "three of the eight hooks are shown, covering the kinds that differ in more than their name",
+}
+
+// auth is the largest block in the language and the one where a setting that
+// does nothing costs the most. Its parts have to be shown working, not just
+// described.
+func TestEveryAuthBlockHasAnExample(t *testing.T) {
+	config := everyExampleConfig(t)
+
+	var missing []string
+	var walk func(path string, block schema.Block)
+	walk = func(path string, block schema.Block) {
+		for _, child := range block.Children {
+			if _, allowed := authBlocksWithoutAnExample[child.Type]; allowed {
+				continue
+			}
+			used := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(child.Type) + `\s*("[^"]*"\s*)?\{`).MatchString(config)
+			if !used {
+				missing = append(missing, path+"."+child.Type)
+				continue // its own children cannot be written either
+			}
+			walk(path+"."+child.Type, child)
+		}
+	}
+	walk("auth", schema.AuthSchema())
+
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Errorf("no example writes these auth blocks: %s", strings.Join(missing, ", "))
+	}
+}

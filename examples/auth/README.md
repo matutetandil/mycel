@@ -187,7 +187,14 @@ The auth system comes with presets for common security levels:
 
 ## Database Schema
 
-Create these tables in your PostgreSQL database:
+The tables live in `migrations/`, so they are created the same way as in every
+other example:
+
+```bash
+mycel migrate --config ./examples/auth
+```
+
+What that applies:
 
 ```sql
 CREATE TABLE users (
