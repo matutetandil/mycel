@@ -18,5 +18,9 @@ spec:
       {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
       nodePort: {{ .Values.service.nodePort }}
       {{- end }}
+    - port: {{ .Values.service.adminPort }}
+      targetPort: admin
+      protocol: TCP
+      name: admin
   selector:
     {{- include "mycel.selectorLabels" . | nindent 4 }}

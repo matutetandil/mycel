@@ -72,11 +72,14 @@ spec:
             - name: http
               containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
+            - name: admin
+              containerPort: {{ .Values.service.adminPort }}
+              protocol: TCP
           {{- if .Values.healthCheck.enabled }}
           livenessProbe:
             httpGet:
               path: {{ .Values.healthCheck.liveness.path }}
-              port: http
+              port: admin
             initialDelaySeconds: {{ .Values.healthCheck.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.healthCheck.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.healthCheck.liveness.timeoutSeconds }}
@@ -84,7 +87,7 @@ spec:
           readinessProbe:
             httpGet:
               path: {{ .Values.healthCheck.readiness.path }}
-              port: http
+              port: admin
             initialDelaySeconds: {{ .Values.healthCheck.readiness.initialDelaySeconds }}
             periodSeconds: {{ .Values.healthCheck.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.healthCheck.readiness.timeoutSeconds }}

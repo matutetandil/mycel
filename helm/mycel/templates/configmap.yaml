@@ -29,7 +29,7 @@ data:
   {{- if and (not $mycelFiles) (not $legacyFiles) }}
   {{- if .Values.mycel.config.service }}
   service.mycel: |
-    {{- .Values.mycel.config.service | nindent 4 }}
+    {{- tpl .Values.mycel.config.service $ | nindent 4 }}
   {{- end }}
   {{- if .Values.mycel.config.connectors }}
   connectors.mycel: |

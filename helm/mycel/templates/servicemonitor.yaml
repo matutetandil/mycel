@@ -16,7 +16,7 @@ spec:
     matchLabels:
       {{- include "mycel.selectorLabels" . | nindent 6 }}
   endpoints:
-    - port: http
+    - port: admin
       path: {{ .Values.metrics.path }}
       interval: {{ .Values.metrics.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}

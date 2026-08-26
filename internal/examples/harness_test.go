@@ -214,6 +214,11 @@ var listensWhenServing = map[string]bool{
 	"soap":    true,
 }
 
+// workflowAPIPort matches the `port = N` inside a workflow api block. The
+// block is short and its only numeric attribute is the port, so matching the
+// attribute after the `api {` that opens it is enough.
+var workflowAPIPort = regexp.MustCompile(`(?s)(api\s*\{[^}]*?port\s*=\s*)(\d+)`)
+
 // movePorts rewrites the ports the service will listen on, and leaves alone the
 // ports it will connect to.
 func movePorts(t *testing.T, source string, moved map[int]int) (string, int) {
@@ -221,6 +226,24 @@ func movePorts(t *testing.T, source string, moved map[int]int) (string, int) {
 
 	graphQL := 0
 	var out strings.Builder
+
+	// The workflow API binds a port of its own, and it is not a connector — it
+	// lives in `service { workflow { api { port = N } } }`, so the loop below
+	// never saw it. The workflows example left it on its declared 9091 while
+	// its README's requests were moved along with everything else, and two
+	// examples could not run at once. Anything already holding 9091 turned the
+	// example into a thirty-second timeout.
+	source = workflowAPIPort.ReplaceAllStringFunc(source, func(match string) string {
+		parts := workflowAPIPort.FindStringSubmatch(match)
+		declared, _ := strconv.Atoi(parts[2])
+		to, seen := moved[declared]
+		if !seen {
+			to = freePort(t)
+			moved[declared] = to
+		}
+		return parts[1] + strconv.Itoa(to)
+	})
+
 	remaining := source
 
 	for {
