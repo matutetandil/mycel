@@ -1,6 +1,7 @@
 package examples
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -739,6 +741,19 @@ var needsInfrastructure = []infrastructure{
 		},
 	},
 	{
+		// Nothing else in the stack speaks TLS: the mock server grew an HTTPS
+		// listener with a certificate it signs itself, and hands that
+		// certificate out over plain HTTP so a client can be told to trust it.
+		example: "tls",
+		needs:   []string{"MYCEL_TEST_TLS_URL"},
+		env: func(t *testing.T) []string {
+			return []string{
+				"TLS_URL=" + os.Getenv("MYCEL_TEST_TLS_URL"),
+				"TLS_CA_CERT=" + fetchTestCA(t),
+			}
+		},
+	},
+	{
 		example: "workflows",
 		needs:   []string{"MYCEL_TEST_POSTGRES_DSN"},
 		env: func(t *testing.T) []string {
@@ -825,4 +840,38 @@ func calledSomething(calls []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// fetchTestCA downloads the certificate the mock server signs itself with and
+// writes it where a connector can be pointed at it.
+//
+// Over plain HTTP, which is the only way round: a client that does not trust
+// the server yet cannot fetch the thing that would let it.
+func fetchTestCA(t *testing.T) string {
+	t.Helper()
+
+	from := os.Getenv("MYCEL_TEST_TLS_CA_URL")
+	if from == "" {
+		t.Skip("MYCEL_TEST_TLS_CA_URL is not set")
+	}
+
+	response, err := http.Get(from)
+	if err != nil {
+		t.Skipf("nothing answers at %s: %v", from, err)
+	}
+	defer response.Body.Close()
+
+	certificate, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("reading the certificate: %v", err)
+	}
+	if !bytes.Contains(certificate, []byte("BEGIN CERTIFICATE")) {
+		t.Fatalf("%s did not answer with a certificate: %.60q", from, certificate)
+	}
+
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(path, certificate, 0o600); err != nil {
+		t.Fatalf("writing the certificate: %v", err)
+	}
+	return path
 }

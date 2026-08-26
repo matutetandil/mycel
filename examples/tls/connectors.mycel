@@ -1,0 +1,47 @@
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+# Verified against a certificate authority you name.
+#
+# This is the case that matters inside a company: the service you are calling
+# presents a certificate signed by an internal CA, which the machine's trust
+# store has never heard of. Point `ca_cert` at the CA bundle and it is the one
+# used — the system roots are not consulted for this connector.
+#
+# A path that cannot be read, or a file that is not a certificate, stops the
+# service at startup rather than quietly leaving the system roots in charge.
+connector "internal" {
+  type     = "http"
+  base_url = env("TLS_URL", "https://localhost:8443")
+  timeout  = "10s"
+
+  tls {
+    ca_cert = env("TLS_CA_CERT", "./certs/ca.pem")
+  }
+}
+
+# No tls block at all, which means the machine's trust store. That is right
+# for a public certificate and wrong here: this endpoint signs its own, so the
+# call is refused. Pointed at a real service on the internet, the same
+# connector would work with nothing configured.
+connector "untrusted" {
+  type     = "http"
+  base_url = env("TLS_URL", "https://localhost:8443")
+  timeout  = "10s"
+}
+
+# Verification turned off. Never in production: it accepts any certificate at
+# all, including one an attacker in the middle presents, which is the whole
+# thing certificates exist to prevent. Mycel logs a warning naming the
+# connector every time a service starts with this.
+connector "unverified" {
+  type     = "http"
+  base_url = env("TLS_URL", "https://localhost:8443")
+  timeout  = "10s"
+
+  tls {
+    insecure_skip_verify = true
+  }
+}

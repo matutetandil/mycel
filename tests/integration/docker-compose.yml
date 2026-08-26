@@ -371,6 +371,10 @@ services:
       dockerfile: Dockerfile
     ports:
       - "${PORT_MOCK:-8888}:8888"
+      # The same handlers over TLS, with a certificate the server signs itself
+      # and hands out at http://mock:8888/ca.pem. Nothing else in this stack
+      # speaks TLS, so without it the `tls` block cannot be exercised anywhere.
+      - "${PORT_MOCK_TLS:-8443}:8443"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8888/health"]
       interval: 3s

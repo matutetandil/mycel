@@ -243,6 +243,7 @@ The A's and B's of any flow. Use any as a source, a target, or both.
 |------------|-------------|
 | [Error Handling](examples/error-handling) | Retry, DLQ, circuit breaker, custom error responses, on_error aspects ([docs](docs/guides/error-handling.md)) |
 | [Resilience & Failure Recovery](docs/guides/resilience.md) | What survives a crash: availability vs durability, broker redelivery, sync vs async ingestion, idempotency, locks with TTL |
+| [TLS](examples/tls) | Verifying the services Mycel calls: a named CA, the system roots, and turning it off ([docs](docs/connectors/rest.md#tls)) |
 | [Rate Limiting / Circuit Breaker](examples/rate-limit) | Traffic control and fault tolerance |
 | [Synchronization](examples/sync) | Distributed locks, semaphores, coordination ([docs](docs/guides/synchronization.md)) |
 | [Connector Profiles](examples/profiles) | Multiple backends with fallback |

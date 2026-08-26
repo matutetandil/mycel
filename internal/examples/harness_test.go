@@ -721,6 +721,8 @@ var cannotBeRunHere = map[string]string{
 	`/jobs/$JOB_ID`:    "the job id comes from the answer to the request before it; the two-step is asserted in async_test.go",
 	`"id":"p1"`:        "writes to a downstream service the example does not ship; the flow beside it, which writes to its own database, is the one run here",
 	`"id":"o1"`:        "the same downstream",
+	`/ca.pem`:          "a setup step rather than a demonstration: it fetches the certificate to trust, which the test supplies itself",
+	`/untrusted`:       "meant to fail — it is the demonstration that a certificate nobody vouches for is refused, and the failure is asserted in tls_test.go",
 }
 
 // refusedInTheBody reports an answer that failed while saying 200.

@@ -75,6 +75,7 @@ PORT_DEFS=(
   PORT_ADMIN:9090
   PORT_COSMO:5000
   PORT_MOCK:8888
+  PORT_MOCK_TLS:8443
   PORT_RABBIT:5672
   PORT_AUTH:3003
   PORT_WORKFLOW:9101
@@ -349,6 +350,8 @@ if command -v go > /dev/null 2>&1; then
         MYCEL_TEST_REDIS_URL="redis://127.0.0.1:${PORT_REDIS}" \
         MYCEL_TEST_MQTT_BROKER="tcp://127.0.0.1:${PORT_MQTT}" \
         MYCEL_TEST_SFTP_ADDR="127.0.0.1:${PORT_SFTP}" \
+        MYCEL_TEST_TLS_URL="https://localhost:${PORT_MOCK_TLS}" \
+        MYCEL_TEST_TLS_CA_URL="http://localhost:${PORT_MOCK}/ca.pem" \
         go test "$pkg" -run "$pattern" -count=1 -v 2>&1); then
       if echo "$out" | grep -q -- "--- SKIP"; then
         echo "  ✗ $label skipped itself"

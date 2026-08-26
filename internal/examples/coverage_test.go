@@ -172,7 +172,6 @@ func reusableKinds() []string {
 // Every entry needs infrastructure the test stack does not run. Where the
 // behaviour is covered another way, the reason says where.
 var connectorBlocksWithoutAnExample = map[string]string{
-	"tls":             "needs an endpoint serving TLS. The client half is covered against a real HTTPS server in internal/connector/http/tls_test.go, including a CA that is used, one that is not trusted, and a configuration that cannot be built",
 	"sasl":            "needs a broker with SASL enabled; the Kafka in the test stack is PLAINTEXT",
 	"schema_registry": "needs a Schema Registry alongside the broker",
 	"cluster":         "needs a Redis cluster; the test stack runs a single node",

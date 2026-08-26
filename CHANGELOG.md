@@ -30,6 +30,8 @@ running service does. Read these before upgrading.
 
 - **`examples/pdf`** — an invoice from a database row and an HTML template, both ways the connector produces one: `generate` hands the bytes to the caller, `save` writes the file.
 
+- **`examples/tls`** — how Mycel decides whether to trust the service it is calling: the same HTTPS endpoint verified against a certificate authority you name, against the machine's trust store, and not at all. Nothing in the test stack spoke TLS, so the `tls` block — which five connectors have — could not be exercised anywhere; the mock server now serves the same handlers over HTTPS with a certificate it signs itself and hands out at `/ca.pem`.
+
 - **`examples/transforms`** — a contact arriving in whatever shape a form or a partner sent it and leaving in one shape. Fifteen of the thirty-five CEL functions appeared in no example at all; these are the ones a first transform reaches for.
 
 - **`examples/pdf`, `examples/kafka`, `examples/async-jobs`** and the seven blocks `examples/reusable-blocks` was missing — see above.
