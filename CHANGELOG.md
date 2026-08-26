@@ -28,6 +28,14 @@ running service does. Read these before upgrading.
 
 - **`examples/pdf`** — an invoice from a database row and an HTML template, both ways the connector produces one: `generate` hands the bytes to the caller, `save` writes the file.
 
+- **`examples/transforms`** — a contact arriving in whatever shape a form or a partner sent it and leaving in one shape. Fifteen of the thirty-five CEL functions appeared in no example at all; these are the ones a first transform reaches for.
+
+- **`examples/pdf`, `examples/kafka`, `examples/async-jobs`** and the seven blocks `examples/reusable-blocks` was missing — see above.
+
+- **The GraphQL selection helpers are shown working.** `requested_fields`, `requested_top_fields` and `field_requested` let a flow read the query's field selection rather than be optimised by it; `explainProduct` in `examples/graphql-optimization` reports what it was asked for.
+
+- **`driver` is declared by the five connectors built from it.** A GraphQL connector is a server or a client depending on that attribute, and so is a gRPC one and a TCP one; an exec connector runs locally or over SSH by it; a CDC connector cannot be built without it. None said so in its schema, so `mycel add` did not generate it and the editor did not complete it. CDC's is now required, which moves the failure from connect time to `mycel validate`.
+
 - **`examples/reusable-blocks` shows all twelve kinds**, including a flow that declares no policy of its own: the key it locks on, the ceiling it waits under, the order it observes, the sequence it refuses to go backwards on and the statements it writes are every one of them a reference.
 
 ### Fixed
@@ -37,6 +45,12 @@ running service does. Read these before upgrading.
 - **A dropped message answered an HTTP caller with Mycel's internal struct**: `{"Filtered":true,"Policy":"ack","MessageID":"","MaxRequeue":0,…}` — Go field names over the wire, fields that mean nothing to an HTTP client, and a `Detail` carrying the very expression that rejected them. It is now `{"status":"dropped","reason":"accept"}`; the requeue counts a queue consumer needs and the detail meant for the log stay inside.
 
 - **`mycel migrate` could not create a database whose directory did not exist** — "unable to open database file: out of memory", SQLite's words for it. The data directory is gitignored, so that is the state of every fresh clone, and `mycel migrate` is the first command most example READMEs tell you to run. The connector created the directory on the way up; migrate opened the bare path. Both now build the address the same way, so migrate gets the busy timeout and foreign keys too.
+
+- **`federation { enabled = false }` did nothing.** The attribute was parsed into the config and never read: the GraphQL server enabled federation unconditionally, so a server told not to federate still published its whole schema through `_service { sdl }` — which is the one reason anybody writes that setting.
+
+- **An HTTP connector whose TLS could not be built started anyway.** The build error was discarded and the connector fell back to the default transport, so a mistyped `ca_cert` path meant verifying against the system roots instead of the CA that was named, and a client certificate that would not load meant connecting without one. Both look like working TLS from outside. It now refuses at startup.
+
+- **`coalesce` was not the alias it is documented as.** `default(input.missing, "x")` is rewritten with a `has()` guard so it survives a field that is not there — the case the function exists for — and `coalesce`, the same function under the other name, was not: it failed with "no such key".
 
 - **The `response` block dropped structured values.** Its rules were converted with a shallow `val.Value()`, which for a list or a map hands back CEL's own wrappers — they JSON-encode as `{"Adapter":{}}`. A flow shaping its output with `response { expensive = "input.items.filter(x, x.price > 50)" }` answered 200 with the data replaced by an empty struct. Every other rule loop already unwrapped; this one was the exception, which is why `transform` blocks were unaffected.
 

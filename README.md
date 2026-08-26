@@ -230,6 +230,7 @@ The A's and B's of any flow. Use any as a source, a target, or both.
 | [Long-Running Workflows](examples/workflows) | Persistent workflows with delay timers, await/signal events, timeout enforcement, an authenticated HTTP interface on its own port ([docs](docs/guides/sagas.md#long-running-workflows)) |
 | [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([docs](docs/guides/batch-processing.md)) |
 | [Scheduled Jobs](examples/scheduled) | Cron expressions and interval-based flow triggers |
+| [Transforms](examples/transforms) | Reshaping a messy record: fallbacks, splitting, list handling, dates, fingerprints ([docs](docs/core-concepts/transforms.md)) |
 | [Async Jobs & Idempotency](examples/async-jobs) | A slow request answered with `202` and a job id, and a retry that does not write twice |
 | [Aspects (AOP)](examples/aspects) | Cross-cutting concerns (audit, metrics, alerting) applied across flows by name pattern ([docs](docs/core-concepts/aspects.md)) |
 
