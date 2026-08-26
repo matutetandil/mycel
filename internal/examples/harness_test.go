@@ -131,9 +131,11 @@ func startDir(t *testing.T, source, label string, environment ...string) *servic
 		}
 		return nil
 	})
-	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
-		t.Fatalf("data directory: %v", err)
-	}
+	// The data directory is deliberately NOT created here. It is gitignored,
+	// so a reader who has just cloned the repository does not have it either —
+	// and while the harness made it, nothing noticed that `mycel migrate`, the
+	// first command most of these READMEs tell you to run, could not create a
+	// database whose directory was missing.
 
 	svc := &service{dir: dir, ports: map[int]int{}}
 
@@ -680,6 +682,7 @@ func (s *service) runStream(t *testing.T, command string) (int, string) {
 // likely to start with, and every one of them was broken.
 var selfContained = []string{
 	"aspects",
+	"async-jobs",
 	"exec",
 	"graphql",
 	"mocks",
@@ -712,6 +715,7 @@ var selfContained = []string{
 // the same thing to whoever is reading it.
 var cannotBeRunHere = map[string]string{
 	`/products/enrich`: "the enrichment step calls a legacy SOAP service at a host that does not exist, which its README says",
+	`/jobs/$JOB_ID`:    "the job id comes from the answer to the request before it; the two-step is asserted in async_test.go",
 }
 
 // refusedInTheBody reports an answer that failed while saying 200.

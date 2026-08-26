@@ -10,9 +10,12 @@ import (
 	"testing"
 
 	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector/database"
 )
 
 func TestDSNCarriesThePragmas(t *testing.T) {
+	dsn := database.SQLiteDSN
+
 	for name, tc := range map[string]struct {
 		path     string
 		wants    []string

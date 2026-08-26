@@ -73,8 +73,9 @@ func DSN(configured string, props map[string]interface{}) (string, error) {
 
 	case "sqlite", "sqlite3":
 		// SQLite addresses a file, which the connector takes from the same
-		// `database` property rather than a separate one.
-		return database, nil
+		// `database` property rather than a separate one. Same address the
+		// connector uses, pragmas and all — see SQLiteDSN.
+		return SQLiteDSN(database), nil
 	}
 
 	return "", fmt.Errorf("no migrations support for driver %q", configured)

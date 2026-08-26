@@ -1,0 +1,4 @@
+service {
+  name    = "async-jobs"
+  version = "1.0.0"
+}

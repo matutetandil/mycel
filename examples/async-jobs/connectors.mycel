@@ -1,0 +1,20 @@
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+# Both features keep their state here. In production this is a Redis cache, so
+# every replica of the service sees the same jobs and the same idempotency
+# keys — with an in-memory one, a client that polls a different pod is told its
+# job does not exist.
+connector "jobs" {
+  type        = "cache"
+  driver      = "memory"
+  default_ttl = "1h"
+}
+
+connector "db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = "./data/async_jobs.db"
+}

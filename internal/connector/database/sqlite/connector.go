@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/matutetandil/mycel/v3/internal/connector"
+	"github.com/matutetandil/mycel/v3/internal/connector/database"
 
 	_ "modernc.org/sqlite" // SQLite driver (pure Go)
 )
@@ -58,7 +59,7 @@ func (c *Connector) Connect(ctx context.Context) error {
 	}
 
 	// Open database
-	db, err := sql.Open("sqlite", dsn(c.path))
+	db, err := sql.Open("sqlite", database.SQLiteDSN(c.path))
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
@@ -71,45 +72,6 @@ func (c *Connector) Connect(ctx context.Context) error {
 
 	c.db = db
 	return nil
-}
-
-// dsn attaches the pragmas every connection needs to the path.
-//
-// They used to be one `PRAGMA foreign_keys = ON` executed after opening, which
-// SQLite applies to whichever pooled connection happened to serve it — so
-// foreign keys were enforced or not depending on which connection a query
-// landed on. Setting them on the DSN applies them to every connection the pool
-// opens, now and later.
-//
-// The other two are why a SQLite-backed service fell over the moment two
-// requests overlapped. Without a busy timeout, a write that finds the database
-// locked fails immediately with SQLITE_BUSY instead of waiting its turn; under
-// ten concurrent writers that was the majority of requests. WAL lets readers
-// and writers work at the same time rather than excluding each other.
-func dsn(path string) string {
-	pragmas := []string{
-		"_pragma=busy_timeout(5000)",
-		"_pragma=foreign_keys(1)",
-	}
-	// WAL is a second file next to the database, so it means nothing to an
-	// in-memory one.
-	if !isMemory(path) {
-		pragmas = append(pragmas, "_pragma=journal_mode(WAL)")
-	}
-
-	separator := "?"
-	base := path
-	if !strings.HasPrefix(path, "file:") {
-		base = "file:" + path
-	}
-	if strings.Contains(base, "?") {
-		separator = "&"
-	}
-	return base + separator + strings.Join(pragmas, "&")
-}
-
-func isMemory(path string) bool {
-	return path == ":memory:" || strings.Contains(path, "mode=memory")
 }
 
 // Close closes the database connection.

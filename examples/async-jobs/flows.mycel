@@ -1,0 +1,87 @@
+# A slow request the caller should not wait on.
+#
+# With an `async` block the flow answers 202 and a job id straight away, then
+# runs in the background. Mycel registers GET /jobs/:job_id on the same
+# connector to report the outcome — you do not write that flow.
+flow "request_report" {
+  from {
+    connector = "api"
+    operation = "POST /reports"
+  }
+
+  async {
+    storage = "jobs"
+    ttl     = "1h"
+  }
+
+  transform {
+    id         = "uuid()"
+    month      = "input.month"
+    orders     = "12"
+    revenue    = "48120.55"
+    created_at = "now()"
+  }
+
+  to {
+    connector = "db"
+    target    = "reports"
+  }
+}
+
+# A write the caller may send twice.
+#
+# A client that times out does not know whether the order was placed, so it
+# retries. With an `idempotency` block the second request carries the same key,
+# and Mycel answers with the stored result of the first instead of writing a
+# second order.
+#
+# A request without the header is not idempotent: the key evaluates to empty
+# and the flow runs normally.
+flow "place_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+
+  idempotency {
+    storage = "jobs"
+    key     = "input.headers['idempotency-key']"
+    ttl     = "24h"
+  }
+
+  transform {
+    id         = "uuid()"
+    customer   = "input.customer"
+    total      = "input.total"
+    created_at = "now()"
+  }
+
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+
+flow "list_orders" {
+  from {
+    connector = "api"
+    operation = "GET /orders"
+  }
+
+  to {
+    connector = "db"
+    query     = "SELECT id, customer, total, created_at FROM orders ORDER BY created_at DESC LIMIT 20"
+  }
+}
+
+flow "list_reports" {
+  from {
+    connector = "api"
+    operation = "GET /reports"
+  }
+
+  to {
+    connector = "db"
+    query     = "SELECT id, month, orders, revenue, created_at FROM reports ORDER BY created_at DESC LIMIT 20"
+  }
+}
