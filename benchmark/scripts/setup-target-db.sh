@@ -150,6 +150,11 @@ flow "create_user" {
   }
 }
 
+# A read has to stay a read. `target = "users"` is SELECT * with no bound, so
+# every request shipped the whole table — and the write phases keep growing it.
+# Measured locally at 7,500 rows: 1 MB per response, against 14 KB for a page.
+# That is what the read phase was timing, and it is why the tail latencies in
+# the old results climb the longer the run goes.
 flow "get_users" {
   from {
     connector = "api"
@@ -158,7 +163,7 @@ flow "get_users" {
 
   to {
     connector = "db"
-    target    = "users"
+    query     = "SELECT id, email, name, created_at FROM users ORDER BY created_at DESC LIMIT 100"
   }
 }
 HCL

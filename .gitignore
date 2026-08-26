@@ -58,8 +58,19 @@ CLAUDE.md
 CLAUDE.local.md
 .claude/
 
-# Benchmark / load testing
-benchmark/
+# Benchmark / load testing — the suite is published, its state and output are not
+benchmark/.terraform/
+benchmark/terraform.tfstate
+benchmark/terraform.tfstate.backup
+benchmark/terraform.tfvars
+benchmark/results/
+
+# SQLite databases the examples create when they run, and the WAL sidecars
+# that come with them. Nothing tracked ends in .db, and `git add -A` in this
+# repo has picked up untracked local files before.
+*.db
+*.db-wal
+*.db-shm
 
 # MkDocs build output
 site/
