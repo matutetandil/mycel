@@ -184,7 +184,8 @@ The A's and B's of any flow. Use any as a source, a target, or both.
 | [GraphQL Subscription Client](examples/graphql-subscription-client) | Subscribe to external GraphQL events via WebSocket ([docs](docs/guides/real-time.md)) |
 | [gRPC Server & Client](examples/grpc) | Protocol Buffers based RPC |
 | [gRPC Load Balancing](examples/grpc-loadbalancing) | Round-robin and weighted balancing |
-| [RabbitMQ / Kafka / Redis Pub/Sub](examples/mq) | Message queue producers and consumers |
+| [RabbitMQ / Redis Pub/Sub](examples/mq) | Message queue producers and consumers |
+| [Kafka](examples/kafka) | Topics, consumer groups, offsets and acks ([docs](docs/connectors/message-queues.md)) |
 | [MQTT](examples/mqtt) | IoT messaging protocol (QoS 0/1/2, TLS, auto-reconnect) ([docs](docs/connectors/mqtt.md)) |
 | [WebSocket](examples/websocket) | Bidirectional real-time communication with rooms and per-user targeting ([docs](docs/connectors/websocket.md)) |
 | [SSE (Server-Sent Events)](examples/sse) | Unidirectional HTTP push with rooms and per-user targeting ([docs](docs/connectors/sse.md)) |
@@ -195,7 +196,7 @@ The A's and B's of any flow. Use any as a source, a target, or both.
 | [Files / S3](examples/files) | Local filesystem and AWS S3 / MinIO |
 | [FTP / SFTP](examples/ftp) | Remote file transfer (FTP, FTPS, SFTP with key auth) ([docs](docs/connectors/ftp.md)) |
 | [Notifications](examples/notifications) | Email, Slack, Discord, SMS, Push, Webhook ([docs](docs/guides/notifications.md)) |
-| [PDF](docs/connectors/pdf.md) | Render a flow's result as a PDF document |
+| [PDF](examples/pdf) | Render a flow's result as a PDF document ([docs](docs/connectors/pdf.md)) |
 
 </details>
 
@@ -229,6 +230,7 @@ The A's and B's of any flow. Use any as a source, a target, or both.
 | [Long-Running Workflows](examples/workflows) | Persistent workflows with delay timers, await/signal events, timeout enforcement, an authenticated HTTP interface on its own port ([docs](docs/guides/sagas.md#long-running-workflows)) |
 | [Batch Processing](examples/batch) | Chunked data processing for migrations, ETL, reindexing ([docs](docs/guides/batch-processing.md)) |
 | [Scheduled Jobs](examples/scheduled) | Cron expressions and interval-based flow triggers |
+| [Async Jobs & Idempotency](examples/async-jobs) | A slow request answered with `202` and a job id, and a retry that does not write twice |
 | [Aspects (AOP)](examples/aspects) | Cross-cutting concerns (audit, metrics, alerting) applied across flows by name pattern ([docs](docs/core-concepts/aspects.md)) |
 
 </details>

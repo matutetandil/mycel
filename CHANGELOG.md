@@ -7,7 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Examples are held to the same standard as tests.** Three parity tests read the connector registry and the flow schema and name the parts no example uses — an example is how a feature is seen, and because the harness runs the commands in every README, how it is exercised end to end. On their first run: `async`, `idempotency`, `mq/kafka` and `pdf` had no example at all, and five of the twelve block kinds that can be named and reused were shown by nothing. All are closed.
+
+- **`examples/async-jobs`** — a report that answers `202` with a job id rather than holding the connection open, and an order whose retry carries an `Idempotency-Key` and does not write twice.
+
+- **`examples/kafka`** — the round trip: posted over HTTP, published to a topic, consumed back out of it and written to a database, by one connector with both a producer and a consumer block. Kafka's connectors were written out in another example's README and no configuration in the repository declared one.
+
+- **`examples/pdf`** — an invoice from a database row and an HTML template, both ways the connector produces one: `generate` hands the bytes to the caller, `save` writes the file.
+
+- **`examples/reusable-blocks` shows all twelve kinds**, including a flow that declares no policy of its own: the key it locks on, the ceiling it waits under, the order it observes, the sequence it refuses to go backwards on and the statements it writes are every one of them a reference.
+
 ### Fixed
+
+- **A flow whose destination is a transaction never got to say what it answers.** The transactional write returned straight out of the dispatch, past everything that happens to an answer on its way out — so a `response` block was parsed, offered completions and ignored, and the flow replied with the write's own row counts. `validate { output }` was skipped for the same reason. **This can turn a silent no-op into a 500**: a response block referencing a field the transaction result does not carry now fails instead of being discarded. A transaction exposes `output.affected` and `output.captured.<name>`.
+
+- **A dropped message answered an HTTP caller with Mycel's internal struct**: `{"Filtered":true,"Policy":"ack","MessageID":"","MaxRequeue":0,…}` — Go field names over the wire, fields that mean nothing to an HTTP client, and a `Detail` carrying the very expression that rejected them. It is now `{"status":"dropped","reason":"accept"}`; the requeue counts a queue consumer needs and the detail meant for the log stay inside.
+
+- **`mycel migrate` could not create a database whose directory did not exist** — "unable to open database file: out of memory", SQLite's words for it. The data directory is gitignored, so that is the state of every fresh clone, and `mycel migrate` is the first command most example READMEs tell you to run. The connector created the directory on the way up; migrate opened the bare path. Both now build the address the same way, so migrate gets the busy timeout and foreign keys too.
 
 - **The `response` block dropped structured values.** Its rules were converted with a shallow `val.Value()`, which for a list or a map hands back CEL's own wrappers — they JSON-encode as `{"Adapter":{}}`. A flow shaping its output with `response { expensive = "input.items.filter(x, x.price > 50)" }` answered 200 with the data replaced by an empty struct. Every other rule loop already unwrapped; this one was the exception, which is why `transform` blocks were unaffected.
 
