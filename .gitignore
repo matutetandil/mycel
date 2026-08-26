@@ -96,3 +96,7 @@ tests/integration/config/plugins/*/target/
 tests/integration/ssh/id_ed25519
 tests/integration/ssh/id_ed25519.pub
 tests/integration/ssh/authorized_keys
+
+# Notes and drafts left in the working tree on purpose. `git add -A` has swept
+# this one into two commits already; ignoring it is cheaper than remembering.
+MEJORAS_README_MYCEL_V3.md
