@@ -296,3 +296,45 @@ func TestAGitHubSignatureIsChecked(t *testing.T) {
 		t.Error("a payload changed after it was signed was accepted")
 	}
 }
+
+func TestADeliveryThatIsNotTheJSONItClaimsIsRefused(t *testing.T) {
+	// The JSON parse error was dropped, so a truncated delivery — the shape a
+	// connection cut in flight produces — got {"received": true} back with an
+	// empty payload. Providers retry on a non-2xx and only on a non-2xx, so
+	// answering 200 was how the event got thrown away for good.
+	c := listening(t, &InboundConfig{Path: "/webhooks/stripe"})
+
+	handled := false
+	c.SetHandler(func(ctx context.Context, event *WebhookEvent) error {
+		handled = true
+		return nil
+	})
+
+	recorder := deliver(c, `{"id":"evt_1","amount":`, nil)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want the delivery refused so the sender retries", recorder.Code)
+	}
+	if handled {
+		t.Error("a flow ran on a payload that never parsed")
+	}
+}
+
+func TestADeliveryWithNoBodyIsStillDelivered(t *testing.T) {
+	// Some providers ping an endpoint with nothing in it. That is not corrupt,
+	// and it has always reached the flow.
+	c := listening(t, &InboundConfig{Path: "/webhooks/stripe"})
+
+	handled := false
+	c.SetHandler(func(ctx context.Context, event *WebhookEvent) error {
+		handled = true
+		return nil
+	})
+
+	if recorder := deliver(c, "", nil); recorder.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", recorder.Code)
+	}
+	if !handled {
+		t.Error("an empty delivery did not reach the flow")
+	}
+}

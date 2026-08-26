@@ -370,7 +370,14 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 	}
 
 	// Build input from request
-	input := c.buildInput(r, paramNames)
+	input, err := c.buildInput(r, paramNames)
+	if err != nil {
+		if c.metrics != nil {
+			c.metrics.RecordRequest(r.Method, path, "400", time.Since(start))
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Execute flow handler
 	result, err := handler(r.Context(), input)
@@ -417,7 +424,7 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 }
 
 // buildInput extracts input data from the HTTP request.
-func (c *Connector) buildInput(r *http.Request, paramNames []string) map[string]interface{} {
+func (c *Connector) buildInput(r *http.Request, paramNames []string) (map[string]interface{}, error) {
 	input := make(map[string]interface{})
 
 	// Path parameters (from Go 1.22+ pattern matching)
@@ -466,17 +473,27 @@ func (c *Connector) buildInput(r *http.Request, paramNames []string) map[string]
 			}
 
 			bodyBytes, err := io.ReadAll(r.Body)
-			if err == nil && len(bodyBytes) > 0 {
-				if decoded, err := bodyCodec.Decode(bodyBytes); err == nil {
-					for k, v := range decoded {
-						input[k] = v
-					}
+			if err != nil {
+				return nil, fmt.Errorf("could not read request body: %w", err)
+			}
+			if len(bodyBytes) > 0 {
+				decoded, decodeErr := bodyCodec.Decode(bodyBytes)
+				if decodeErr != nil {
+					// A body that does not parse is a bad request, not an
+					// empty one. Dropping the error here made a corrupt
+					// payload indistinguishable from no payload: the flow ran
+					// against an empty input and answered 200, or blamed a
+					// missing key in a 500.
+					return nil, fmt.Errorf("could not decode request body: %w", decodeErr)
+				}
+				for k, v := range decoded {
+					input[k] = v
 				}
 			}
 		}
 	}
 
-	return input
+	return input, nil
 }
 
 // extractParamNames extracts parameter names from a path pattern.
