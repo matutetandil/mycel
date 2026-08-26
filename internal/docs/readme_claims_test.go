@@ -2,6 +2,7 @@ package docs
 
 import (
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -32,18 +33,21 @@ func section(t *testing.T, doc, title string) string {
 	return rest
 }
 
-// A link the README offers has to point at something that exists.
+// A link the README offers has to point at something a reader can open.
 //
 // The README is the one page every reader opens, and it links out to about
-// sixty files: documentation pages, examples, connector references. Those files
-// get renamed and moved — `guides/extending.md` lost the aspects page, examples
-// get restructured — and a link that used to work becomes a 404 that nobody
-// notices, because nobody reads their own README twice.
+// sixty files. Two ways for one of those to break: the file gets renamed, or
+// the file is not published at all. The second is the quiet one — the
+// benchmark suite sat in .gitignore, so a link to it resolved on the machine
+// that wrote it and 404ed on GitHub for everybody else. So the check is
+// against what git tracks, not against what happens to be on this disk.
 //
 // Anchors are not checked here, only the file a link points at.
 func TestReadmeRelativeLinksResolve(t *testing.T) {
 	doc := readReadme(t)
 	link := regexp.MustCompile(`]\(([^)\s]+)\)`)
+
+	tracked := trackedFiles(t)
 
 	var broken []string
 	for _, match := range link.FindAllStringSubmatch(doc, -1) {
@@ -61,8 +65,20 @@ func TestReadmeRelativeLinksResolve(t *testing.T) {
 		if path == "" {
 			continue
 		}
-		if _, err := os.Stat("../../" + path); err != nil {
-			broken = append(broken, target)
+		info, err := os.Stat("../../" + path)
+		if err != nil {
+			broken = append(broken, target+" (no such file)")
+			continue
+		}
+		if info.IsDir() {
+			// A directory link is published if anything under it is.
+			if !tracked.hasPrefix(strings.TrimSuffix(path, "/") + "/") {
+				broken = append(broken, target+" (directory is not published)")
+			}
+			continue
+		}
+		if !tracked.has(path) {
+			broken = append(broken, target+" (not tracked by git)")
 		}
 	}
 	if len(broken) > 0 {
@@ -103,4 +119,34 @@ func TestReadmePerformanceNumbersComeFromTheBenchmark(t *testing.T) {
 		t.Errorf("README reports figures that benchmark/RESULTS.md does not contain: %s",
 			strings.Join(unmeasured, ", "))
 	}
+}
+
+type trackedSet map[string]bool
+
+func (t trackedSet) has(path string) bool { return t[strings.TrimPrefix(path, "./")] }
+
+func (t trackedSet) hasPrefix(prefix string) bool {
+	prefix = strings.TrimPrefix(prefix, "./")
+	for path := range t {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// trackedFiles lists what git has, which is what a reader on GitHub can open.
+func trackedFiles(t *testing.T) trackedSet {
+	t.Helper()
+	out, err := exec.Command("git", "-C", "../..", "ls-files").Output()
+	if err != nil {
+		t.Skipf("git ls-files unavailable: %v", err)
+	}
+	set := make(trackedSet)
+	for _, line := range strings.Split(string(out), "\n") {
+		if line != "" {
+			set[line] = true
+		}
+	}
+	return set
 }
