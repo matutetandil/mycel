@@ -946,6 +946,7 @@ func AuthSchema() Block {
 		Doc:  "Authentication configuration",
 		Attrs: []Attr{
 			{Name: "preset", Doc: "Baseline to start from", Type: TypeString, Values: []string{"strict", "standard", "relaxed", "development"}},
+			{Name: "base_url", Doc: "Where this service is reached at. A social or SSO provider sends people back here, so declaring one without this is refused at startup", Type: TypeString},
 			{Name: "secret", Doc: "Signing secret for issued tokens", Type: TypeString},
 			{Name: "storage", Doc: "Connector used to store users and sessions", Type: TypeString, Ref: RefConnector},
 		},
@@ -972,7 +973,18 @@ func AuthSchema() Block {
 					{Name: "password_changed_at", Doc: "Column recording when a password was last set. Naming one turns password max_age on for a database-backed store; without it nothing expires", Type: TypeString},
 				}},
 			}},
-			{Type: "jwt", Doc: "Token issuing and validation"},
+			{Type: "jwt", Doc: "Token issuing and validation", Attrs: []Attr{
+				{Name: "algorithm", Doc: "Signing algorithm. HS256 signs with a shared secret; RS256 and ES256 sign with private_key and are verified with public_key", Type: TypeString, Values: []string{"HS256", "HS384", "HS512", "RS256", "RS384", "RS512", "ES256", "ES384"}},
+				{Name: "secret", Doc: "Shared signing secret, for the HS algorithms", Type: TypeString},
+				{Name: "private_key", Doc: "Path to the key tokens are signed with, for the RS and ES algorithms", Type: TypeString},
+				{Name: "public_key", Doc: "Path to the key tokens are verified with", Type: TypeString},
+				{Name: "access_lifetime", Doc: "How long an access token is good for, such as 15m", Type: TypeString},
+				{Name: "refresh_lifetime", Doc: "How long a refresh token is good for, such as 720h", Type: TypeString},
+				{Name: "issuer", Doc: "The iss claim written into every token", Type: TypeString},
+				{Name: "audience", Doc: "The aud claim written into every token", Type: TypeList},
+				{Name: "rotation", Doc: "Issue a new refresh token each time one is used, and retire the old one", Type: TypeBool},
+				{Name: "claims", Doc: "Extra claims to write into a token, as name to CEL expression", Type: TypeMap},
+			}},
 			{Type: "password", Doc: "What a password has to be, how long it may be used for, and how it is hashed", Attrs: []Attr{
 				{Name: "required", Doc: "Whether registering requires a password at all", Type: TypeBool},
 				{Name: "min_length", Doc: "Shortest password accepted", Type: TypeNumber},
@@ -1004,6 +1016,38 @@ func AuthSchema() Block {
 				{Name: "grace_period", Doc: "How long a new account may go without enrolling, such as 7d; without it, from the start", Type: TypeString},
 			}},
 			{Type: "security", Doc: "Lockout, rate limiting and related defences", Children: []Block{
+				{Type: "brute_force", Doc: "Slow down and then lock out repeated failures", Attrs: []Attr{
+					{Name: "enabled", Doc: "Whether failures are counted at all", Type: TypeBool},
+					{Name: "max_attempts", Doc: "Failures allowed inside the window before locking out", Type: TypeNumber},
+					{Name: "window", Doc: "How long failures are remembered for, such as 15m", Type: TypeString},
+					{Name: "lockout_time", Doc: "How long an account stays locked, such as 30m", Type: TypeString},
+					{Name: "track_by", Doc: "What failures are counted against", Type: TypeString, Values: []string{"ip", "email", "both"}},
+					{Name: "fail_delay", Doc: "A flat wait added to every refusal, such as 500ms, so an attacker cannot tell a wrong password from a missing account by timing", Type: TypeString},
+				}, Children: []Block{
+					{Type: "progressive_delay", Doc: "Make each successive failure wait longer than the last", Attrs: []Attr{
+						{Name: "enabled", Doc: "Whether the wait grows", Type: TypeBool},
+						{Name: "initial", Doc: "Wait after the first failure, such as 1s", Type: TypeString},
+						{Name: "multiplier", Doc: "What the wait is multiplied by each time", Type: TypeNumber},
+						{Name: "max", Doc: "Cap on the wait however far it grows, such as 30s", Type: TypeString},
+					}},
+				}},
+				{Type: "replay_protection", Doc: "Refuse a token that has already been presented", Attrs: []Attr{
+					{Name: "enabled", Doc: "Whether tokens are remembered", Type: TypeBool},
+					{Name: "window", Doc: "How long one is remembered for, such as 5m", Type: TypeString},
+				}},
+				{Type: "ip_rules", Doc: "Who may reach the auth endpoints at all", Attrs: []Attr{
+					{Name: "allowlist", Doc: "Addresses or ranges allowed; naming any refuses everything else", Type: TypeList},
+					{Name: "blocklist", Doc: "Addresses or ranges refused", Type: TypeList},
+					{Name: "block_countries", Doc: "Country codes refused; needs a geoip source", Type: TypeList},
+					{Name: "allow_countries", Doc: "Country codes allowed; naming any refuses everything else", Type: TypeList},
+				}},
+				{Type: "rate_limit", Doc: "How often the auth endpoints may be called, in general and one by one", Attrs: []Attr{
+					{Name: "enabled", Doc: "Whether calls are counted at all", Type: TypeBool},
+					{Name: "rate", Doc: "Calls allowed per window", Type: TypeNumber},
+					{Name: "burst", Doc: "How far above the rate a short burst may go", Type: TypeNumber},
+					{Name: "window", Doc: "The period the rate is counted over, such as 1m", Type: TypeString},
+					{Name: "key_by", Doc: "What calls are counted against", Type: TypeString, Values: []string{"ip", "user", "both"}},
+				}, Children: authRateLimitBlocks()},
 				{Type: "impossible_travel", Doc: "Notice two sign-ins too far apart for the time between them", Attrs: []Attr{
 					{Name: "enabled", Doc: "Whether distances are measured at all; needs a geoip block", Type: TypeBool},
 					{Name: "max_speed_kmh", Doc: "Above this, two sign-ins are not the same person; 900 unless written, which is faster than a flight", Type: TypeNumber},
@@ -1032,11 +1076,52 @@ func AuthSchema() Block {
 				{Name: "allow_revoke", Doc: "Serve DELETE /auth/sessions/{id}, letting somebody end one; on unless written false", Type: TypeBool},
 				{Name: "track", Doc: "What to record about a sign-in. Naming none records address and browser both; naming some records only those", Type: TypeList, Values: []string{"ip", "user_agent"}},
 			}},
-			{Type: "social", Doc: "Social login providers"},
-			{Type: "sso", Doc: "Single sign-on"},
-			{Type: "provider", Doc: "Validate a credential against an external HTTP endpoint", Labels: 1},
-			{Type: "account_linking", Doc: "Joining identities that belong to one person"},
-			{Type: "endpoints", Doc: "Paths the auth routes are served on"},
+			{Type: "social", Doc: "Social login providers", Children: []Block{
+				{Type: "google", Doc: "Sign in with Google", Attrs: oauthProviderAttrs()},
+				{Type: "github", Doc: "Sign in with GitHub", Attrs: oauthProviderAttrs()},
+				{Type: "apple", Doc: "Sign in with Apple, which signs its client secret rather than handing you one", Attrs: []Attr{
+					{Name: "client_id", Doc: "Services ID from Apple", Type: TypeString, Required: true},
+					{Name: "team_id", Doc: "Apple developer team identifier", Type: TypeString, Required: true},
+					{Name: "key_id", Doc: "Identifier of the signing key", Type: TypeString, Required: true},
+					{Name: "private_key", Doc: "Path to the .p8 signing key", Type: TypeString, Required: true},
+				}},
+			}},
+			{Type: "sso", Doc: "Single sign-on against an identity provider", Children: []Block{
+				{Type: "oidc", Doc: "An OpenID Connect provider", Labels: 1, Attrs: []Attr{
+					{Name: "issuer", Doc: "Issuer URL, whose /.well-known/openid-configuration describes the rest", Type: TypeString, Required: true},
+					{Name: "client_id", Doc: "Client identifier registered with the provider", Type: TypeString, Required: true},
+					{Name: "client_secret", Doc: "Client secret registered with the provider", Type: TypeString, Required: true},
+					{Name: "scopes", Doc: "Scopes to ask for; openid, profile and email unless written", Type: TypeList},
+					{Name: "claims", Doc: "Which claim fills which user field, as field to claim name", Type: TypeMap},
+				}},
+				{Type: "saml", Doc: "A SAML identity provider", Labels: 1, Attrs: []Attr{
+					{Name: "metadata_url", Doc: "Provider metadata URL, which supplies the SSO URL and certificate", Type: TypeString},
+					{Name: "idp_sso_url", Doc: "Sign-in URL, when there is no metadata to read it from", Type: TypeString},
+					{Name: "idp_certificate", Doc: "Path to the certificate assertions are verified with", Type: TypeString},
+					{Name: "entity_id", Doc: "This service's entity ID, as registered with the provider", Type: TypeString, Required: true},
+					{Name: "acs_url", Doc: "Where the provider posts its assertion back to", Type: TypeString, Required: true},
+					{Name: "attributes", Doc: "Which assertion attribute fills which user field", Type: TypeMap},
+				}},
+				{Type: "linking", Doc: "How an identity from this provider joins an account that already exists", Attrs: accountLinkingAttrs()},
+			}},
+			{Type: "provider", Doc: "Validate a credential against an external HTTP endpoint", Labels: 1, Attrs: []Attr{
+				{Name: "type", Doc: "What kind of credential this provider checks", Type: TypeString, Required: true},
+				{Name: "validate", Doc: "URL the credential is sent to, with {token} standing for it", Type: TypeString, Required: true},
+				{Name: "request", Doc: "Headers to send, with {token} standing for the credential", Type: TypeMap},
+				{Name: "sync_to", Doc: "Connector to copy the identity into. Not implemented; naming one logs a warning", Type: TypeString, Ref: RefConnector},
+			}, Children: []Block{
+				{Type: "response", Doc: "How the endpoint's answer becomes a user. Each is a CEL expression over status and body", Attrs: []Attr{
+					{Name: "success", Doc: "Whether the credential is good, such as status == 200", Type: TypeString, Required: true},
+					{Name: "token", Doc: "Expression yielding the token to carry forward", Type: TypeString},
+					{Name: "user_id", Doc: "Expression yielding the identifier of whoever presented it", Type: TypeString},
+					{Name: "email", Doc: "Expression yielding their address", Type: TypeString},
+					{Name: "roles", Doc: "Expression yielding their roles", Type: TypeString},
+				}},
+			}},
+			{Type: "account_linking", Doc: "Joining identities that belong to one person", Attrs: accountLinkingAttrs()},
+			{Type: "endpoints", Doc: "Paths the auth routes are served on. Writing the block replaces the defaults, so an endpoint not named here is not served", Attrs: []Attr{
+				{Name: "prefix", Doc: "Path every auth route hangs off; /auth unless written", Type: TypeString},
+			}, Children: authEndpointBlocks()},
 			{Type: "hooks", Doc: "Flows invoked around auth events", Children: []Block{
 				{Type: "before_login", Doc: "Runs before a sign-in is checked; with on_error = \"fail\" it can refuse one", Attrs: hookAttrs()},
 				{Type: "after_login", Doc: "Runs once somebody has signed in", Attrs: hookAttrs()},
@@ -1179,4 +1264,82 @@ func connectorTypes() []string {
 		"websocket", "sse", "elasticsearch", "oauth", "profiled",
 		"email", "slack", "discord", "sms", "push", "webhook", "pdf",
 	}
+}
+
+// oauthProviderAttrs are what a social provider that hands out a client secret
+// takes — Google and GitHub both.
+func oauthProviderAttrs() []Attr {
+	return []Attr{
+		{Name: "client_id", Doc: "Client identifier registered with the provider", Type: TypeString, Required: true},
+		{Name: "client_secret", Doc: "Client secret registered with the provider", Type: TypeString, Required: true},
+		{Name: "scopes", Doc: "Scopes to ask for", Type: TypeList},
+	}
+}
+
+// accountLinkingAttrs describe how a second identity joins an account that
+// already exists. The same block appears at the top of auth and inside sso.
+func accountLinkingAttrs() []Attr {
+	return []Attr{
+		{Name: "enabled", Doc: "Whether identities are joined at all", Type: TypeBool},
+		{Name: "match_by", Doc: "What decides two identities are one person", Type: TypeString, Values: []string{"email", "custom"}},
+		{Name: "require_verification", Doc: "Only join when the provider says the address is verified", Type: TypeBool},
+		{Name: "on_match", Doc: "What happens when an existing account matches", Type: TypeString, Values: []string{"link", "reject", "prompt"}},
+		{Name: "custom_match", Doc: "CEL expression deciding the match, when match_by is custom", Type: TypeString},
+	}
+}
+
+// authEndpointBlocks are the seventeen routes the auth system serves, each of
+// which can be moved, renamed or switched off.
+func authEndpointBlocks() []Block {
+	routes := []struct{ name, doc string }{
+		{"login", "Sign in"},
+		{"logout", "Sign out"},
+		{"register", "Create an account"},
+		{"refresh", "Exchange a refresh token for a new access token"},
+		{"me", "Who the caller is"},
+		{"password_forgot", "Ask for a reset token"},
+		{"password_reset", "Set a new password with a reset token"},
+		{"password_change", "Change a password from inside a session"},
+		{"sessions_list", "Where this account is signed in"},
+		{"sessions_revoke", "End one of those sessions"},
+		{"mfa_setup", "Begin enrolling a second factor"},
+		{"mfa_verify", "Finish enrolling, or answer a challenge"},
+		{"mfa_disable", "Remove a second factor"},
+		{"mfa_recovery", "Use a recovery code"},
+		{"social_callback", "Where a social provider returns to"},
+		{"sso_callback", "Where an SSO provider returns to"},
+	}
+
+	blocks := make([]Block, 0, len(routes))
+	for _, route := range routes {
+		blocks = append(blocks, Block{Type: route.name, Doc: route.doc, Attrs: []Attr{
+			{Name: "path", Doc: "Path this route is served on", Type: TypeString},
+			{Name: "method", Doc: "HTTP method it answers", Type: TypeString},
+			{Name: "enabled", Doc: "Whether it is served at all", Type: TypeBool},
+		}})
+	}
+	return blocks
+}
+
+// authRateLimitBlocks are the per-endpoint limits, which take the same three
+// attributes as the general one they override.
+func authRateLimitBlocks() []Block {
+	endpoints := []struct{ name, doc string }{
+		{"login", "Sign-in attempts"},
+		{"register", "Account creation"},
+		{"refresh", "Token refreshes"},
+		{"logout", "Sign-outs"},
+		{"change_password", "Password changes"},
+		{"sessions", "Session listing and revocation"},
+	}
+
+	blocks := make([]Block, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		blocks = append(blocks, Block{Type: endpoint.name, Doc: endpoint.doc, Attrs: []Attr{
+			{Name: "rate", Doc: "Calls allowed per window", Type: TypeNumber, Required: true},
+			{Name: "burst", Doc: "How far above the rate a short burst may go", Type: TypeNumber},
+			{Name: "window", Doc: "The period the rate is counted over, such as 1m", Type: TypeString},
+		}})
+	}
+	return blocks
 }
