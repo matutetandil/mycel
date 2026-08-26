@@ -12,6 +12,15 @@ connector "db" {
 }
 ```
 
+Mycel opens the database in [WAL mode](https://www.sqlite.org/wal.html) with a
+five-second busy timeout and foreign keys on, so concurrent requests queue for
+the write lock instead of failing, and readers do not block the writer. WAL
+keeps two files next to the database — `app.db-wal` and `app.db-shm` — which
+belong in `.gitignore` along with the database itself.
+
+An in-memory database (`":memory:"`) is per connection, and the pool opens
+several: what one request writes, the next one will not find. Use a file.
+
 ## PostgreSQL
 
 ```hcl

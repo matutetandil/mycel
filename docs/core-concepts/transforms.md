@@ -136,7 +136,7 @@ now_unix()    // 1735488245
 | `split(s, sep)` | (string, string) → list | Split string into list |
 | `join(list, sep)` | (list, string) → string | Join list items into string |
 | `len(s)` | (string) → int | String length in bytes |
-| `hash_sha256(s)` | (string) → string | SHA-256 hash (hex encoded) |
+| `hash_sha256(s)` | (string) → string | SHA-256 hash (hex encoded). A fingerprint, not a password hash — see below |
 | `format_date(date, fmt)` | (string, string) → string | Reformat an ISO date string |
 
 ```cel
@@ -144,7 +144,7 @@ lower(trim(input.email))
 replace(lower(input.name), " ", "_")
 split(input.email, "@")[1]           // Get domain part
 join(input.tags, ", ")
-hash_sha256(input.password)
+hash_sha256(input.order_id + input.line_no)   // a stable fingerprint
 
 // format_date tokens: YYYY MM DD HH mm ss
 format_date(input.created_at, "YYYY-MM-DD")
@@ -339,12 +339,19 @@ transform {
   id           = "uuid()"
   email        = "lower(trim(input.email))"
   username     = "lower(replace(trim(input.username), ' ', '_'))"
-  password     = "hash_sha256(input.password)"
   role         = "default(input.role, 'user')"
   is_active    = "true"
   created_at   = "now()"
 }
 ```
+
+!!! warning "Do not hash passwords with `hash_sha256`"
+
+    It is a single pass of SHA-256: fast by design, unsalted, and therefore
+    exactly what an attacker with the table wants. Passwords belong to the
+    [auth system](../guides/auth.md), which stores them with Argon2id.
+    `hash_sha256` is for fingerprints — a dedupe key, an idempotency key, a
+    checksum over a payload.
 
 ### Order Summary
 

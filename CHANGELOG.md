@@ -21,9 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **SQLite failed most writes under any concurrency.** The connector opened with the driver defaults: no busy timeout, so a write that found the database locked gave up immediately with `SQLITE_BUSY` instead of waiting, and the rollback journal, so readers and writers excluded each other. With ten concurrent writers, 195 of 200 writes were lost; under a 10-VU load test, 63% of requests failed. `busy_timeout`, `journal_mode(WAL)` and `foreign_keys` are now set on the DSN. SQLite is what the quick start and 36 of the examples use.
 
+- **The Helm chart's default install could not pass its own probes.** Liveness and readiness hit `/health/live` and `/health/ready` on the app port, which only exists if a connector listens on it — and the chart's default configuration declares no connector. The pod never became ready and liveness restarted it, so `helm install mycel` with the defaults did not start. Health, readiness and metrics are served by the admin server whatever the connectors are doing, so `service.adminPort` (9090) is now a named container port and is what the probes target, what the Service publishes and what the ServiceMonitor scrapes — `/metrics` was being scraped off the app port for the same reason.
+
 - **Foreign keys were enforced on one connection out of the pool.** `PRAGMA foreign_keys = ON` ran once after opening, and SQLite applies a pragma to the connection that ran it — so every connection opened afterwards had them off, and the same violating write was accepted or rejected depending on where it landed.
 
 ### Changed
+
+- **`hash_sha256` is documented as a fingerprint, not a password hash.** The transforms guide showed it hashing a password on registration; one unsalted pass of SHA-256 is what an attacker with the table wants. Passwords belong to the auth system, which uses Argon2id.
+
+- **The SQLite section says what the connector does.** WAL mode, the busy timeout, the two sidecar files a WAL database keeps next to it, and that an in-memory database is per connection — the pool opens several, so what one request writes the next will not find.
 
 - **The benchmark suite is published** (`benchmark/`), minus the Linode token, Terraform state and past results. The README's performance section linked to files that only existed on the machine that wrote them.
 
