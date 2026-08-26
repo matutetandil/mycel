@@ -12,8 +12,10 @@ assert_status "Active status passes filter (200)" "200" "$status"
 body=$(http_body GET "$BASE/test/filter/results")
 assert_contains "Filter result stored correctly" "passed" "$body"
 
-# Inactive status should be rejected by filter (returns 200 with Filtered:true)
+# Inactive status should be rejected by filter (200, and the body says which
+# gate decided rather than spilling the internal struct)
 body=$(http_body POST "$BASE/test/filter" '{"status":"inactive","data":"test"}')
-assert_contains "Inactive status filtered" "Filtered|filtered" "$body"
+assert_contains "Inactive status filtered" '"status":"dropped"' "$body"
+assert_contains "Drop names the gate that decided" '"reason":"filter"' "$body"
 
 report

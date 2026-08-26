@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+Three things that used to be quiet now speak, and each can change what a
+running service does. Read these before upgrading.
+
+- **A dropped message answers differently.** Where a gate — `filter`, `accept`, `dedupe`, `sequence_guard`, a `coordinate` timeout — turned a request away, the HTTP response was Mycel's internal struct: `{"Filtered":true,"Policy":"ack","MessageID":"","MaxRequeue":0,"Reason":"accept","Detail":"…"}`. It is now `{"status":"dropped","reason":"accept"}`. Anything parsing `Filtered` has to be updated. Queue consumers are unaffected: they read the value inside the process, not over HTTP.
+
+- **A `response` block on a flow whose destination is a transaction now runs.** It was ignored, so such a flow replied with the write's own row counts. If the block references a field the transaction result does not carry, the request now fails with a 500 where it previously answered — a transaction exposes `output.affected` and `output.captured.<name>`, not the row it wrote. `validate { output }` starts being enforced on these flows for the same reason.
+
+- **`hash_sha256` returns a different value.** It was a 64-bit djb2 hash under that name; it is SHA-256 now. Anything that stored or compared its output — a dedupe fingerprint, an idempotency key — recomputes once after the upgrade, so expect one round of cache misses.
+
 ### Added
 
 - **Examples are held to the same standard as tests.** Three parity tests read the connector registry and the flow schema and name the parts no example uses — an example is how a feature is seen, and because the harness runs the commands in every README, how it is exercised end to end. On their first run: `async`, `idempotency`, `mq/kafka` and `pdf` had no example at all, and five of the twelve block kinds that can be named and reused were shown by nothing. All are closed.

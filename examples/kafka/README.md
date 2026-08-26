@@ -26,6 +26,16 @@ mycel migrate --config ./examples/kafka
 mycel start --config ./examples/kafka
 ```
 
+The `orders` topic has to exist. Brokers with `auto.create.topics.enable` will
+make it, but the first publish can still be refused while the broker is
+creating it — and a consumer group cannot subscribe to a topic that is not
+there yet. Create it up front:
+
+```bash
+kafka-topics.sh --create --if-not-exists --bootstrap-server localhost:29092 \
+  --topic orders --partitions 1 --replication-factor 1
+```
+
 The startup banner lists `store_order` as a flow with no HTTP route: it is the
 consumer, and it runs for as long as the service does.
 

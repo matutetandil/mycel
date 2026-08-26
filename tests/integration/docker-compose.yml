@@ -241,7 +241,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        for topic in test_topic dlq_topic dlq_topic.dlq; do
+        for topic in test_topic dlq_topic dlq_topic.dlq orders; do
           /opt/kafka/bin/kafka-topics.sh --create --if-not-exists \
             --bootstrap-server kafka:9092 \
             --topic "$$topic" --partitions 1 --replication-factor 1
