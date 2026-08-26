@@ -1,0 +1,38 @@
+connector "api" {
+  type = "rest"
+  port = 3000
+}
+
+# One connector, both directions. The producer block says where a flow writing
+# to this connector publishes; the consumer block says what a flow reading from
+# it subscribes to, and under which group.
+connector "orders" {
+  type      = "mq"
+  driver    = "kafka"
+  brokers   = [env("KAFKA_BROKERS", "localhost:9092")]
+  client_id = "mycel-orders"
+
+  producer {
+    topic = "orders"
+    # Wait for every in-sync replica before calling the write done. `leader` is
+    # faster and loses a message when the leader dies before replicating it.
+    acks        = "all"
+    compression = "snappy"
+  }
+
+  consumer {
+    group_id = "mycel-order-writers"
+    topics   = ["orders"]
+    # Where a group with no committed offset starts. `earliest` reads the
+    # backlog on first run; `latest` ignores everything published before the
+    # consumer existed.
+    auto_offset_reset = "earliest"
+    auto_commit       = true
+  }
+}
+
+connector "db" {
+  type     = "database"
+  driver   = "sqlite"
+  database = "./data/orders.db"
+}

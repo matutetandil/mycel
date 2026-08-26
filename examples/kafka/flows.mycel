@@ -1,0 +1,64 @@
+# HTTP in, Kafka out.
+#
+# The write goes to the producer's topic. Nothing here names a topic, because
+# the connector already does — a flow that needs a different one writes
+# `target = "<topic>"`.
+flow "publish_order" {
+  from {
+    connector = "api"
+    operation = "POST /orders"
+  }
+
+  transform {
+    id       = "input.id"
+    customer = "input.customer"
+    total    = "input.total"
+  }
+
+  to {
+    connector = "orders"
+  }
+
+  response {
+    id     = "input.id"
+    status = "'published'"
+  }
+}
+
+# Kafka in, database out.
+#
+# This is the consumer: it runs for every message on the topic, for as long as
+# the service is up. `operation` is the topic; the group in the connector is
+# what makes two replicas of this service share the partitions rather than each
+# processing everything.
+flow "store_order" {
+  from {
+    connector = "orders"
+    operation = "orders"
+  }
+
+  transform {
+    id       = "input.id"
+    customer = "input.customer"
+    total    = "input.total"
+    written  = "now()"
+  }
+
+  to {
+    connector = "db"
+    target    = "orders"
+  }
+}
+
+# What the consumer wrote, so the round trip can be followed.
+flow "list_orders" {
+  from {
+    connector = "api"
+    operation = "GET /orders"
+  }
+
+  to {
+    connector = "db"
+    query     = "SELECT id, customer, total, written FROM orders ORDER BY written DESC LIMIT 20"
+  }
+}

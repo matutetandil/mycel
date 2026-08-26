@@ -729,6 +729,16 @@ var needsInfrastructure = []infrastructure{
 		},
 	},
 	{
+		// The round trip is HTTP in, Kafka out, Kafka in, database out, so the
+		// README's own two commands cover it — with the wait the consumer
+		// needs, which kafka_test.go does rather than sleeping here.
+		example: "kafka",
+		needs:   []string{"MYCEL_TEST_KAFKA_BROKERS"},
+		env: func(t *testing.T) []string {
+			return []string{"KAFKA_BROKERS=" + address(t, "MYCEL_TEST_KAFKA_BROKERS")}
+		},
+	},
+	{
 		example: "workflows",
 		needs:   []string{"MYCEL_TEST_POSTGRES_DSN"},
 		env: func(t *testing.T) []string {

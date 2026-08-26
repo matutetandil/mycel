@@ -1,0 +1,4 @@
+service {
+  name    = "kafka-orders"
+  version = "1.0.0"
+}

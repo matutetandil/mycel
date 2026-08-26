@@ -389,6 +389,11 @@ if command -v go > /dev/null 2>&1; then
     ./internal/connector/mq/rabbitmq/ 'RejectedMessage|BatchIsPublished'
   run_go_tests "publishing and receiving over redis" \
     ./internal/connector/mq/redis/ 'PublishedMessage|PatternSubscription|ClosedConnector'
+  # HTTP in, Kafka out, Kafka in, database out. The consumer between the two
+  # halves runs on its own schedule, so the round trip needs a wait the README
+  # can only describe.
+  run_go_tests "the kafka example goes all the way round" \
+    ./internal/examples/ 'KafkaExampleGoesAllTheWayRound'
   run_go_tests "files over sftp" \
     ./internal/connector/ftp/ 'FileGoesUp|PlainFile|DirectoryIsMade'
   run_go_tests "postgres read replicas" \
