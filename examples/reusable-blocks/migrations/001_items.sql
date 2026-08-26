@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS items (
+  id   TEXT PRIMARY KEY,
+  name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS prices (
+  item_id TEXT NOT NULL,
+  amount  REAL NOT NULL
+);

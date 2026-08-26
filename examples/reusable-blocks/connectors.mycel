@@ -16,3 +16,11 @@ connector "fingerprints" {
   type   = "cache"
   driver = "memory"
 }
+
+# Where the transaction writes. The two statements in `transaction
+# "item_and_price"` land here, together or not at all.
+connector "catalog" {
+  type     = "database"
+  driver   = "sqlite"
+  database = "./data/catalog.db"
+}

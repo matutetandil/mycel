@@ -76,3 +76,74 @@ flow "ingest_orders" {
     status = "'created'" # override the status; id inherited
   }
 }
+
+# The other seven kinds, all by reference.
+#
+# Nothing here declares a policy: the key this flow locks on, the ceiling it
+# waits under, the order it observes, the sequence it refuses to go backwards
+# on and the statements it writes are all named in reusable.mycel. Swap the
+# storage in one place and every flow that names it follows.
+flow "ingest_stock" {
+  from {
+    connector = "api"
+    operation = "POST /stock"
+  }
+
+  accept {
+    use = "accept.mine"
+  }
+
+  coordinate {
+    use = "coordinate.item_first"
+  }
+
+  semaphore {
+    use = "semaphore.pricing_api"
+  }
+
+  lock {
+    use = "lock.per_item"
+  }
+
+  transform {
+    id    = "input.id"
+    name  = "input.name"
+    price = "input.price"
+  }
+
+  sequence_guard {
+    use = "sequence_guard.by_job"
+  }
+
+  to {
+    connector = "catalog"
+
+    transaction {
+      use = "transaction.item_and_price"
+    }
+  }
+
+  # A transaction answers with what it did, not with the row it wrote, so this
+  # flow shapes its own reply rather than reusing response.envelope: `affected`
+  # counts the statements that ran, and `captured` holds whatever an `exec`
+  # asked to keep.
+  response {
+    id      = "input.id"
+    written = "output.affected"
+    rows    = "output.captured.item_rows"
+    status  = "'ok'"
+  }
+}
+
+# What the transaction wrote, so the example can be followed to the end.
+flow "list_stock" {
+  from {
+    connector = "api"
+    operation = "GET /stock"
+  }
+
+  to {
+    connector = "catalog"
+    query     = "SELECT i.id, i.name, p.amount FROM items i JOIN prices p ON p.item_id = i.id ORDER BY i.id"
+  }
+}

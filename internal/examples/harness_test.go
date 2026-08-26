@@ -699,6 +699,7 @@ var selfContained = []string{
 	"plugin",
 	"query-method",
 	"rate-limit",
+	"reusable-blocks",
 	"scheduled",
 	"soap",
 	"security",
@@ -716,6 +717,8 @@ var selfContained = []string{
 var cannotBeRunHere = map[string]string{
 	`/products/enrich`: "the enrichment step calls a legacy SOAP service at a host that does not exist, which its README says",
 	`/jobs/$JOB_ID`:    "the job id comes from the answer to the request before it; the two-step is asserted in async_test.go",
+	`"id":"p1"`:        "writes to a downstream service the example does not ship; the flow beside it, which writes to its own database, is the one run here",
+	`"id":"o1"`:        "the same downstream",
 }
 
 // refusedInTheBody reports an answer that failed while saying 200.

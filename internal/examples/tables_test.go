@@ -40,6 +40,12 @@ var sqlDrivers = map[string]bool{
 var (
 	createTable = regexp.MustCompile("(?i)CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?[\"'`]?([a-zA-Z_][a-zA-Z0-9_]*)")
 	fromTable   = regexp.MustCompile("(?i)\\b(?:FROM|JOIN|INTO|UPDATE)\\s+[\"'`]?([a-zA-Z_][a-zA-Z0-9_]*)")
+
+	// `DO UPDATE SET` is the tail of an upsert, and the UPDATE in it is not a
+	// statement against a table called SET. Read as one, this test demanded a
+	// table nobody had any reason to create. RE2 has no lookbehind, so the
+	// clause is taken out of the query before the names are read from it.
+	upsertTail = regexp.MustCompile(`(?i)\bDO\s+UPDATE\s+SET\b`)
 	// A target naming a field of the message is decided per message, not here.
 	expressionTarget = regexp.MustCompile(`^(input|step|output)\.`)
 )
@@ -133,7 +139,7 @@ func tablesNamed(
 		seen[name] = true
 	}
 	addFromSQL = func(query string) {
-		for _, match := range fromTable.FindAllStringSubmatch(query, -1) {
+		for _, match := range fromTable.FindAllStringSubmatch(upsertTail.ReplaceAllString(query, "DO UPSERT"), -1) {
 			add(match[1])
 		}
 	}

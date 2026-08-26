@@ -48,3 +48,94 @@ response "envelope" {
   id     = "output.id"
   status = "'ok'"
 }
+
+# --- The other five kinds -------------------------------------------------
+#
+# Ten block types can be named and reused. The five above are the ones an
+# ingestion flow reaches for first; these are the rest, and they are declared
+# exactly the same way.
+
+# One writer at a time per item. Every flow that touches an item's stock takes
+# this same lock, which is the point: the key has to agree across flows, and a
+# name is how it agrees.
+lock "per_item" {
+  key     = "'item:' + input.id"
+  timeout = "30s"
+  wait    = true
+
+  storage {
+    driver = "memory"
+  }
+}
+
+# A ceiling on how much of the service may be calling the pricing API at once,
+# shared by everything that calls it — a limit written per flow is not a limit.
+semaphore "pricing_api" {
+  key         = "'pricing'"
+  max_permits = 4
+  timeout     = "10s"
+  lease       = "1m"
+
+  storage {
+    driver = "memory"
+  }
+}
+
+# Order matters between two flows: nothing may price an item before that item
+# has been ingested. The waiting flow and the signalling flow have to name the
+# same signal, so it is written once.
+coordinate "item_first" {
+  timeout    = "20s"
+  on_timeout = "fail"
+
+  storage {
+    driver = "memory"
+  }
+
+  wait {
+    when = "input.stage == 'price'"
+    for  = "'item:' + input.id"
+  }
+
+  signal {
+    when = "input.stage == 'ingest'"
+    emit = "'item:' + input.id"
+    ttl  = "1h"
+  }
+}
+
+# The guard that keeps a late message from overwriting a newer one: a sequence
+# that is not strictly greater than the one already stored is not applied. The
+# key and the sequence expression have to agree everywhere the resource is
+# written, so they are written once.
+sequence_guard "by_job" {
+  key       = "'item:' + input.id"
+  sequence  = "input.job_id"
+  on_older  = "ack"
+  ttl       = "30d"
+
+  storage {
+    driver = "memory"
+  }
+}
+
+# The write itself, as one transaction: the item and its price move together or
+# not at all. Named, because more than one flow writes this same pair.
+transaction "item_and_price" {
+  exec {
+    query   = "INSERT INTO items (id, name) VALUES (:id, :name) ON CONFLICT(id) DO UPDATE SET name = :name"
+    capture = "item_rows"
+    params  = {
+      id   = "output.id"
+      name = "output.name"
+    }
+  }
+
+  exec {
+    query  = "INSERT INTO prices (item_id, amount) VALUES (:id, :price)"
+    params = {
+      id    = "output.id"
+      price = "output.price"
+    }
+  }
+}

@@ -113,19 +113,20 @@ func TestEveryFlowBlockHasAnExample(t *testing.T) {
 	}
 }
 
-// Ten block types can be declared at the top level and referred to by name,
-// and the documentation calls that the recommended style. An example that
-// shows five of them shows half a feature.
+// A block that can be declared at the top level with a name and referred to by
+// `use` is a feature in its own right, and the documentation calls that style
+// the recommended one. An example that shows five of the twelve shows half of
+// it.
+//
+// The list is derived rather than typed: a block is reusable exactly when its
+// schema declares a `use` attribute. Written by hand it was wrong — it had
+// `validate` and `enrich`, which are not reusable, and was missing
+// `sequence_guard` and `transaction`, which are.
 func TestEveryReusableBlockKindHasAnExample(t *testing.T) {
 	config := everyExampleConfig(t)
 
-	kinds := []string{
-		"accept", "coordinate", "dedupe", "enrich", "error_handling",
-		"lock", "response", "retry", "semaphore", "validate",
-	}
-
 	var missing []string
-	for _, kind := range kinds {
+	for _, kind := range reusableKinds() {
 		named := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(kind) + `\s+"[^"]+"\s*\{`)
 		if !named.MatchString(config) {
 			missing = append(missing, kind)
@@ -136,4 +137,29 @@ func TestEveryReusableBlockKindHasAnExample(t *testing.T) {
 	if len(missing) > 0 {
 		t.Errorf("no example declares these as named, reusable blocks: %s", strings.Join(missing, ", "))
 	}
+}
+
+// reusableKinds reads the flow schema for every block that accepts `use`.
+func reusableKinds() []string {
+	seen := map[string]bool{}
+
+	var walk func(schema.Block)
+	walk = func(block schema.Block) {
+		for _, attr := range block.Attrs {
+			if attr.Name == "use" {
+				seen[block.Type] = true
+			}
+		}
+		for _, child := range block.Children {
+			walk(child)
+		}
+	}
+	walk(schema.FlowSchema())
+
+	kinds := make([]string, 0, len(seen))
+	for kind := range seen {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return kinds
 }

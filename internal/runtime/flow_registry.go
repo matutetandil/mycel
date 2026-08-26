@@ -1920,9 +1920,14 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	// Transactional multi-statement write: runs as "the write" of the flow,
 	// regardless of the derived operation method, so it is wrapped by the same
 	// dedupe / aspects / error_handling envelope as a classic to-write.
-	if h.Config.To != nil && h.Config.To.Transaction != nil {
-		return h.handleTransaction(ctx, input)
-	}
+	//
+	// It returned straight from here, which took the flow past everything that
+	// happens to an answer on its way out: a `response` block was ignored, so
+	// a flow that shaped its reply got the write's row counts instead, and the
+	// `validate { output }` contract was never checked. The write is the
+	// write; what the flow says about it is decided below, the same as for any
+	// other destination.
+	transactional := h.Config.To != nil && h.Config.To.Transaction != nil
 
 	// For flows with steps, execute steps + transform instead of reading from destination
 	// This supports orchestration flows where data comes from multiple sources.
@@ -1932,7 +1937,9 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	// three things, answer with what they said — skipped every step it
 	// declared and echoed the request back, headers and all. A flow that does
 	// have a destination already runs its steps on the way to writing.
-	if len(h.Config.Steps) > 0 && (operation.IsRead() || h.Dest == nil) {
+	if transactional {
+		result, err = h.handleTransaction(ctx, input)
+	} else if len(h.Config.Steps) > 0 && (operation.IsRead() || h.Dest == nil) {
 		var gathered map[string]interface{}
 		result, gathered, err = h.handleStepsFlow(ctx, input)
 		// What the steps gathered travels with the request, so the response

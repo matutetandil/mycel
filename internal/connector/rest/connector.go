@@ -390,6 +390,16 @@ func (c *Connector) handleRequest(w http.ResponseWriter, r *http.Request, handle
 	// just fires inline as before.
 	flow.FireDropAspect(r.Context(), result)
 
+	// A gate that dropped the message answers in Mycel's words, not in Go's.
+	//
+	// The value a drop produces is an internal struct, and it went to the
+	// caller as one: capitalised field names, a MessageID and a MaxRequeue
+	// that mean nothing over HTTP, and a Detail carrying the very expression
+	// that rejected them — `input.tenant == 'acme'` handed to the client that
+	// just failed it. Renaming a field would also have changed the API
+	// silently, since nothing here was ever chosen.
+	result = describeDrop(result)
+
 	if err != nil {
 		status := c.writeError(w, err)
 		if c.metrics != nil {
@@ -495,6 +505,22 @@ func (c *Connector) buildInput(r *http.Request, paramNames []string) (map[string
 	}
 
 	return input, nil
+}
+
+// describeDrop turns the internal result of a dropped message into the answer
+// an HTTP caller gets: that it was not processed, and which gate decided so.
+// Anything else — the requeue counts a queue consumer needs, the detail meant
+// for the log — stays inside.
+func describeDrop(result interface{}) interface{} {
+	dropped, ok := result.(*flow.FilteredResultWithPolicy)
+	if !ok {
+		return result
+	}
+	answer := map[string]interface{}{"status": "dropped"}
+	if dropped.Reason != "" {
+		answer["reason"] = dropped.Reason
+	}
+	return answer
 }
 
 // extractParamNames extracts parameter names from a path pattern.
