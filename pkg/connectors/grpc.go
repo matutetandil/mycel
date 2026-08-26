@@ -8,6 +8,7 @@ type GRPCSchema struct{}
 func (GRPCSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "driver", Doc: "Which half of the connector this is: a server that serves gRPC, or a client that calls one", Type: schema.TypeString, Values: []string{"server", "client"}, Default: "server"},
 			// Both are read by the factory and were described by nothing, so
 			// completions and `mycel add` did not know they existed.
 			{Name: "timeout", Doc: "How long a call may take", Type: schema.TypeDuration},

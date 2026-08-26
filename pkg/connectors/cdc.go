@@ -8,6 +8,7 @@ type CDCSchema struct{}
 func (CDCSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "driver", Doc: "Database whose changes are streamed", Type: schema.TypeString, Values: []string{"postgres"}, Required: true},
 			{Name: "host", Doc: "PostgreSQL host", Type: schema.TypeString, Required: true},
 			{Name: "port", Doc: "PostgreSQL port", Type: schema.TypeNumber},
 			{Name: "database", Doc: "Database name", Type: schema.TypeString, Required: true},

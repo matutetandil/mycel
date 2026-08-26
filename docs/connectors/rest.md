@@ -24,6 +24,12 @@ connector "api" {
 | `cors.methods` | list | — | Allowed HTTP methods |
 | `cors.headers` | list | — | Allowed headers |
 
+The server speaks plain HTTP. There is no `tls` block on it and no certificate
+to configure: terminate TLS in front of Mycel — an ingress, a load balancer, a
+reverse proxy — which is where certificate renewal and cipher policy already
+live in most deployments. The `tls` block below belongs to the **client**
+half, and configures how Mycel verifies the servers it calls.
+
 ## Client Configuration
 
 ```hcl

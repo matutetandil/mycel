@@ -8,6 +8,7 @@ type TCPSchema struct{}
 func (TCPSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
+			{Name: "driver", Doc: "Which half of the connector this is: a server that listens, or a client that connects", Type: schema.TypeString, Values: []string{"server", "client"}, Default: "server"},
 			{Name: "port", Doc: "TCP server port", Type: schema.TypeNumber, Required: true},
 			{Name: "host", Doc: "TCP server hostname", Type: schema.TypeString},
 			{Name: "protocol", Doc: "Wire protocol", Type: schema.TypeString, Values: []string{"json", "msgpack", "nestjs"}},

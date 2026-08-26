@@ -163,3 +163,62 @@ func reusableKinds() []string {
 	sort.Strings(kinds)
 	return kinds
 }
+
+// connectorBlocksWithoutAnExample: a block inside a connector that no example
+// writes. Keyed by block name, since the same one appears on several
+// connectors — a `tls` block is the same block whether it is on grpc or on
+// kafka.
+//
+// Every entry needs infrastructure the test stack does not run. Where the
+// behaviour is covered another way, the reason says where.
+var connectorBlocksWithoutAnExample = map[string]string{
+	"tls":             "needs an endpoint serving TLS. The client half is covered against a real HTTPS server in internal/connector/http/tls_test.go, including a CA that is used, one that is not trusted, and a configuration that cannot be built",
+	"sasl":            "needs a broker with SASL enabled; the Kafka in the test stack is PLAINTEXT",
+	"schema_registry": "needs a Schema Registry alongside the broker",
+	"cluster":         "needs a Redis cluster; the test stack runs a single node",
+	"sentinel":        "needs Redis Sentinel; the test stack runs a single node",
+	"ssh":             "needs a host that will run commands over SSH. The stack's SFTP server is restricted to the sftp subsystem, which is the point of it",
+}
+
+// A connector's blocks are features too: `consumer`, `producer`, `headers`,
+// `federation`, `env`. An example that declares the connector and none of them
+// shows the connector's front door and nothing behind it.
+func TestEveryConnectorBlockHasAnExample(t *testing.T) {
+	registry := schema.NewRegistry()
+	connectors.RegisterAll(registry)
+
+	config := everyExampleConfig(t)
+
+	missing := map[string][]string{}
+	for _, reg := range registry.AllRegistrations() {
+		provider := registry.Lookup(reg.Type, reg.Driver)
+		if provider == nil {
+			continue
+		}
+		name := reg.Type
+		if reg.Driver != "" {
+			name = reg.Type + "/" + reg.Driver
+		}
+		for _, child := range provider.ConnectorSchema().Children {
+			if _, allowed := connectorBlocksWithoutAnExample[child.Type]; allowed {
+				continue
+			}
+			// `profile "magento" {` carries a label; `headers {` does not.
+			used := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(child.Type) + `\s*("[^"]*"\s*)?\{`).MatchString(config)
+			if !used {
+				missing[child.Type] = append(missing[child.Type], name)
+			}
+		}
+	}
+
+	if len(missing) == 0 {
+		return
+	}
+	var report []string
+	for block, on := range missing {
+		sort.Strings(on)
+		report = append(report, block+" (on "+strings.Join(on, ", ")+")")
+	}
+	sort.Strings(report)
+	t.Errorf("no example writes these connector blocks: %s", strings.Join(report, "; "))
+}

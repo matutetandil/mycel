@@ -76,15 +76,26 @@ func (c *ServerConnector) Type() string {
 
 // Connect initializes the GraphQL server.
 func (c *ServerConnector) Connect(ctx context.Context) error {
-	// Always enable Federation — every GraphQL server exposes _service { sdl }
-	// so gateways (Apollo Router, Cosmo) can discover and compose it automatically.
-	// The federation block is optional and only needed to override the version.
+	// Federation is on unless the configuration says otherwise: every GraphQL
+	// server exposes _service { sdl } so gateways (Apollo Router, Cosmo) can
+	// discover and compose it without being told to.
+	//
+	// `enabled` was parsed and then never read, so a server told
+	// `federation { enabled = false }` published its whole schema through
+	// _service anyway — which is the one reason anybody writes that.
 	version := 2
-	if c.config.Federation != nil && c.config.Federation.Version > 0 {
-		version = c.config.Federation.Version
+	federate := true
+	if c.config.Federation != nil {
+		federate = c.config.Federation.Enabled
+		if c.config.Federation.Version > 0 {
+			version = c.config.Federation.Version
+		}
 	}
-	c.schemaBuilder.EnableFederation(version)
-	c.logger.Debug("federation enabled",
+	if federate {
+		c.schemaBuilder.EnableFederation(version)
+	}
+	c.logger.Debug("federation",
+		"enabled", federate,
 		"version", version,
 		"connector", c.name,
 	)

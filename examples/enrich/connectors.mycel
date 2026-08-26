@@ -22,6 +22,15 @@ connector "pricing_service" {
 
   base_url = env("PRICING_URL", "http://localhost:9001")
   timeout  = "5s"
+
+  # Sent with every request this connector makes. What belongs here is what
+  # never changes per call — who is asking, what it accepts — rather than
+  # anything a flow computes, which goes on the step instead.
+  headers {
+    Accept       = "application/json"
+    User-Agent   = "mycel-enrich/1.0"
+    X-Api-Key    = env("PRICING_API_KEY", "demo-key")
+  }
 }
 
 # Inventory service, likewise.

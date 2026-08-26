@@ -12,6 +12,14 @@ connector "local_exec" {
   command       = "echo"
   output_format = "text"
   timeout       = "10s"
+
+  # What the command runs with. A command started by a service does not
+  # inherit the shell you were in, so anything it needs — a PATH entry, a
+  # locale, a token — is named here.
+  env {
+    LANG        = "C"
+    MYCEL_STAGE = env("STAGE", "local")
+  }
 }
 
 # Execute a JSON-outputting command

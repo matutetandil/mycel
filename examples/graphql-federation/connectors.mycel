@@ -1,9 +1,9 @@
 # GraphQL Federation Connectors
 
 # GraphQL Server with Subscriptions
-# Federation v2 is enabled automatically on every GraphQL server —
-# gateways (Apollo Router, Cosmo) can discover and compose this subgraph
-# without any extra configuration.
+# Federation v2 is on by default on every GraphQL server — gateways (Apollo
+# Router, Cosmo) discover and compose this subgraph without being told to. The
+# block below is only needed to pin the version, or to turn it off.
 
 connector "api" {
   type   = "graphql"
@@ -17,6 +17,22 @@ connector "api" {
     origins = ["*"]
     methods = ["GET", "POST", "OPTIONS"]
     headers = ["Content-Type", "Authorization"]
+  }
+
+  # The schema this server serves. `auto_generate` builds it from the flows
+  # and types in this directory, which is what makes the configuration the
+  # single description of the service; `path` reads an .graphql file instead,
+  # for a schema somebody else owns.
+  schema {
+    auto_generate = true
+  }
+
+  # Federation is on by default. Written out, the block pins the version — and
+  # `enabled = false` turns it off, which is what you want on a server that
+  # should not publish its schema through `_service { sdl }`.
+  federation {
+    enabled = true
+    version = 2
   }
 
   # Enable GraphQL Subscriptions over WebSocket
