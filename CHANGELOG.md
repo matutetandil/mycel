@@ -34,6 +34,8 @@ running service does. Read these before upgrading.
 
 - **`examples/kafka-sasl`** — credentials a broker actually checks, on both halves of the connector. The test stack's Kafka grew a second listener that authenticates, so the `sasl` block is presented to something that verifies it rather than merely built into a mechanism: the right credentials get in, the wrong password does not, and neither does presenting nothing.
 
+- **Every block a connector takes now has an example that runs.** The allow-list the coverage test keeps is empty. It held six — `tls`, `sasl`, `schema_registry`, `cluster`, `sentinel`, `ssh` — each with a note saying the test stack had nothing to point them at. Five were a container away: a TLS listener on the mock server, a SASL listener on the broker, a Sentinel, a three-node cluster, and an SSH server that will run a command. Every one of them, once there was something to run against, turned up a bug in the code it exercised. The sixth serialised nothing and was taken out of the language.
+
 - **`examples/tls`** — how Mycel decides whether to trust the service it is calling: the same HTTPS endpoint verified against a certificate authority you name, against the machine's trust store, and not at all. Nothing in the test stack spoke TLS, so the `tls` block — which five connectors have — could not be exercised anywhere; the mock server now serves the same handlers over HTTPS with a certificate it signs itself and hands out at `/ca.pem`.
 
 - **`examples/transforms`** — a contact arriving in whatever shape a form or a partner sent it and leaving in one shape. Fifteen of the thirty-five CEL functions appeared in no example at all; these are the ones a first transform reaches for.

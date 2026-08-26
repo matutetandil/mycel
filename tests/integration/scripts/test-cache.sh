@@ -36,6 +36,19 @@ assert_contains "Sentinel-backed response has data" "CacheUser|cache@test.com" "
 cached=$(docker compose -f "$COMPOSE_FILE" exec -T redis redis-cli EXISTS cached_users_sentinel 2>/dev/null | tr -d '\r')
 assert_contains "The value was written to the master Sentinel named" "1" "$cached"
 
+# And across a cluster, where the key belongs to whichever node owns its slot.
+status=$(http_status GET "$BASE/cache/cluster/users")
+assert_status "Cluster-backed cached GET returns 200" "200" "$status"
+
+body=$(http_body GET "$BASE/cache/cluster/users")
+assert_contains "Cluster-backed response has data" "CacheUser|cache@test.com" "$body"
+
+# The value is on one of the three, not on all of them: a cluster shards.
+found=$(for node in redis-cluster-1 redis-cluster-2 redis-cluster-3; do
+  docker compose -f "$COMPOSE_FILE" exec -T "$node" redis-cli EXISTS cached_users_cluster 2>/dev/null | tr -d '\r'
+done | grep -c '^1$')
+assert_contains "The value landed on the node that owns its slot" "1" "$found"
+
 # Memory cached GET
 status=$(http_status GET "$BASE/cache/memory/users")
 assert_status "Memory cached GET returns 200" "200" "$status"

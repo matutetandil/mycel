@@ -27,3 +27,18 @@ connector "sentinel_cache" {
     nodes       = ["redis-sentinel:26379"]
   }
 }
+
+# Redis in cluster mode.
+#
+# A cluster is not one server: the key space is split into slots and each node
+# owns a share, so the client is given the nodes and asks them who holds what.
+# Writing the block is what builds that client — one address would be a plain
+# connection to a single node, which is a different thing.
+connector "cluster_cache" {
+  type   = "cache"
+  driver = "redis"
+
+  cluster {
+    nodes = ["redis-cluster-1:6379", "redis-cluster-2:6379", "redis-cluster-3:6379"]
+  }
+}

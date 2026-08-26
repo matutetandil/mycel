@@ -52,3 +52,20 @@ flow "cached_sentinel_get" {
     target    = "users"
   }
 }
+
+# GET users cached across the cluster's nodes.
+flow "cached_cluster_get" {
+  from {
+    connector = "api"
+    operation = "GET /cache/cluster/users"
+  }
+  cache {
+    storage = "cluster_cache"
+    key     = "cached_users_cluster"
+    ttl     = "30s"
+  }
+  to {
+    connector = "postgres"
+    target    = "users"
+  }
+}

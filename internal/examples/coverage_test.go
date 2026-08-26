@@ -169,11 +169,18 @@ func reusableKinds() []string {
 // connectors — a `tls` block is the same block whether it is on grpc or on
 // kafka.
 //
-// Every entry needs infrastructure the test stack does not run. Where the
-// behaviour is covered another way, the reason says where.
-var connectorBlocksWithoutAnExample = map[string]string{
-	"cluster": "needs a Redis cluster; the test stack runs a single node",
-}
+// Empty, and worth keeping empty. It held six: tls, sasl, schema_registry,
+// cluster, sentinel and ssh, each with a note saying the test stack had
+// nothing to point them at. Five of those turned out to be a container away —
+// a TLS listener on the mock server, a SASL listener on the broker, a
+// Sentinel, a three-node cluster, an SSH server that will run a command — and
+// every one of them, once there was something to run against, turned up a bug
+// in the code it exercised. The sixth, schema_registry, turned out to
+// serialise nothing and was taken out of the language instead.
+//
+// An entry here needs infrastructure that genuinely cannot be run, not
+// infrastructure nobody has got round to running.
+var connectorBlocksWithoutAnExample = map[string]string{}
 
 // A connector's blocks are features too: `consumer`, `producer`, `headers`,
 // `federation`, `env`. An example that declares the connector and none of them

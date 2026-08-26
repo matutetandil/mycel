@@ -104,6 +104,8 @@ services:
         condition: service_healthy
       ssh-exec:
         condition: service_healthy
+      redis-cluster-init:
+        condition: service_completed_successfully
       sftp:
         condition: service_started
     healthcheck:
@@ -216,6 +218,56 @@ services:
       interval: 3s
       timeout: 3s
       retries: 10
+
+  # A three-node cluster, which is the smallest one Redis will form: the key
+  # space is split into slots and each node owns a share, so a client is not
+  # given an address but a list of them and asked to find out who holds what.
+  #
+  # Internal only. A cluster answers a client with the addresses of its nodes,
+  # and those are addresses on this network — which is why the test that uses
+  # it runs inside the network too.
+  redis-cluster-1: &redis-cluster-node
+    image: redis:7-alpine
+    command: >
+      redis-server --cluster-enabled yes --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000 --appendonly no --save ""
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  redis-cluster-2:
+    <<: *redis-cluster-node
+
+  redis-cluster-3:
+    <<: *redis-cluster-node
+
+  # Forms the cluster once the three are answering. `--cluster-yes` because
+  # there is nobody here to confirm the slot allocation.
+  redis-cluster-init:
+    image: redis:7-alpine
+    depends_on:
+      redis-cluster-1:
+        condition: service_healthy
+      redis-cluster-2:
+        condition: service_healthy
+      redis-cluster-3:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if redis-cli -h redis-cluster-1 cluster info | grep -q 'cluster_state:ok'; then
+          echo "cluster already formed"
+          exit 0
+        fi
+        redis-cli --cluster create \
+          redis-cluster-1:6379 redis-cluster-2:6379 redis-cluster-3:6379 \
+          --cluster-yes
+        until redis-cli -h redis-cluster-1 cluster info | grep -q 'cluster_state:ok'; do
+          sleep 1
+        done
+        echo "cluster formed"
 
   # ==========================================================================
   # Message Queues (internal only)
