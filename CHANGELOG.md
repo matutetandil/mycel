@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Three things that used to be quiet now speak, and each can change what a
 running service does. Read these before upgrading.
 
+- **A `schema_registry` block on a Kafka connector is refused.** It parsed, built a client, logged "schema registry enabled" — and nothing was ever serialised through it: the client's three methods have no call sites, and messages are written and read by the ordinary JSON codec whatever the block says. So a connector configured for Avro put JSON on the topic, and every consumer expecting the registry's wire format read something else. The documentation described subject naming strategies, three formats and per-topic schemas, none of which existed.
+
 - **A second factor Mycel cannot provide is now refused at startup.** `mfa { methods = ["sms"] }` was accepted, counted towards `min_factors` and never dispatched on; `mfa { sms { } }`, `mfa { email { } }` and `mfa { push { } }` parsed into fields nothing reads. Enrolment offers TOTP and WebAuthn whatever any of that says — so a service could be configured for SMS two-factor, start cleanly, and have no second factor at all. A configuration naming one of them now fails to start and says which two are provided.
 
 - **A dropped message answers differently.** Where a gate — `filter`, `accept`, `dedupe`, `sequence_guard`, a `coordinate` timeout — turned a request away, the HTTP response was Mycel's internal struct: `{"Filtered":true,"Policy":"ack","MessageID":"","MaxRequeue":0,"Reason":"accept","Detail":"…"}`. It is now `{"status":"dropped","reason":"accept"}`. Anything parsing `Filtered` has to be updated. Queue consumers are unaffected: they read the value inside the process, not over HTTP.

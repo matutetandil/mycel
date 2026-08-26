@@ -101,10 +101,18 @@ func (c *Connector) Connect(ctx context.Context) error {
 		}
 	}
 
-	// Initialize Schema Registry client if configured
-	if c.config.SchemaRegistry != nil && c.config.SchemaRegistry.URL != "" {
-		c.schemaRegistry = NewSchemaRegistryClient(c.config.SchemaRegistry)
-		c.logger.Info("schema registry enabled", "url", c.config.SchemaRegistry.URL)
+	// A schema registry that nothing serialises through is worse than none.
+	//
+	// The client was built here, logged "schema registry enabled", and was
+	// never called: its three methods have no call sites, and messages are
+	// encoded and decoded by the ordinary JSON codec whatever the block says.
+	// So a connector configured for Avro put JSON on the topic, and every
+	// consumer expecting the registry's wire format — the magic byte and the
+	// schema id — read something else.
+	//
+	// Refused rather than accepted, until there is a serialiser behind it.
+	if c.config.SchemaRegistry != nil {
+		return fmt.Errorf("connector %q: a schema_registry block is configured, and nothing is serialised through it yet — messages are encoded as JSON whatever it says, so it is refused rather than quietly ignored", c.name)
 	}
 
 	// Initialize producer if configured

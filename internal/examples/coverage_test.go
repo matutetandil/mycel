@@ -172,11 +172,10 @@ func reusableKinds() []string {
 // Every entry needs infrastructure the test stack does not run. Where the
 // behaviour is covered another way, the reason says where.
 var connectorBlocksWithoutAnExample = map[string]string{
-	"sasl":            "needs a broker with SASL enabled; the Kafka in the test stack is PLAINTEXT",
-	"schema_registry": "needs a Schema Registry alongside the broker",
-	"cluster":         "needs a Redis cluster; the test stack runs a single node",
-	"sentinel":        "needs Redis Sentinel; the test stack runs a single node",
-	"ssh":             "needs a host that will run commands over SSH. The stack's SFTP server is restricted to the sftp subsystem, which is the point of it",
+	"sasl":     "needs a broker with SASL enabled; the Kafka in the test stack is PLAINTEXT",
+	"cluster":  "needs a Redis cluster; the test stack runs a single node",
+	"sentinel": "needs Redis Sentinel; the test stack runs a single node",
+	"ssh":      "needs a host that will run commands over SSH. The stack's SFTP server is restricted to the sftp subsystem, which is the point of it",
 }
 
 // A connector's blocks are features too: `consumer`, `producer`, `headers`,

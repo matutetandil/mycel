@@ -339,55 +339,18 @@ connector "kafka" {
 
 ### Schema Registry
 
-Integrate with Confluent Schema Registry for schema validation and evolution.
+**Not implemented.** A `schema_registry` block is refused at startup.
 
-```hcl
-connector "kafka_avro" {
-  type   = "mq"
-  driver = "kafka"
-  brokers = ["localhost:9092"]
+The block parsed, built a client, and logged "schema registry enabled" — and
+nothing was ever serialised through it. Messages are written and read by the
+ordinary JSON codec whatever it says, so a connector configured for Avro put
+JSON on the topic and every consumer expecting the registry's wire format (the
+magic byte, then the schema id) read something else. Refusing it is the honest
+answer until there is a serialiser behind it.
 
-  schema_registry {
-    url                   = "http://localhost:8081"
-    username              = env("SR_USER")
-    password              = env("SR_PASS")
-    subject_name_strategy = "topic"      # topic, record, topic_record
-    auto_register         = false
-    format                = "avro"       # avro, json, protobuf
-
-    schemas {
-      orders {
-        key_schema      = "{\"type\":\"string\"}"
-        value_schema    = "{\"type\":\"record\",\"name\":\"Order\",\"fields\":[...]}"
-        value_schema_id = 1
-      }
-    }
-  }
-
-  consumer {
-    group_id = "avro-consumer"
-    topics   = ["orders"]
-  }
-}
-```
-
-| Option | Type | Required | Default | Description |
-|--------|------|----------|---------|-------------|
-| `schema_registry.url` | string | **yes** | — | Schema Registry endpoint |
-| `schema_registry.username` | string | optional | — | Authentication username |
-| `schema_registry.password` | string | optional | — | Authentication password |
-| `schema_registry.subject_name_strategy` | string | optional | `topic` | Strategy: `topic`, `record`, `topic_record` |
-| `schema_registry.auto_register` | bool | optional | `false` | Auto-register new schemas |
-| `schema_registry.format` | string | optional | `avro` | Schema format: `avro`, `json`, `protobuf` |
-
-Per-topic schemas (nested under `schema_registry.schemas.<topic>`):
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `key_schema` | string | Key schema definition |
-| `key_schema_id` | int | Key schema ID in registry |
-| `value_schema` | string | Value schema definition |
-| `value_schema_id` | int | Value schema ID in registry |
+Until then, a message is JSON. A consumer that has to read Avro is one to put
+behind something that speaks it — or, for a schema you control, a `transform`
+that produces the shape the other side expects.
 
 ---
 
