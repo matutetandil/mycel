@@ -252,9 +252,15 @@ auth {
     prefix = "/auth"
 
     # Naming one overrides that one; the other sixteen keep their defaults.
-    # Turning one off is `enabled = false` inside its own block.
-    login {
-      path = "/sign-in"
+    # Turning one off is `enabled = false` inside its own block — which is
+    # what to do with the two callbacks while no social or SSO provider is
+    # configured, rather than leaving a route nothing can complete.
+    password_forgot {
+      path = "/forgot"
+    }
+
+    sso_callback {
+      enabled = false
     }
   }
 }

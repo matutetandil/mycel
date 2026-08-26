@@ -272,11 +272,11 @@ var authBlocksWithoutAnExample = map[string]string{
 	// The seventeen endpoint blocks take the same three attributes and differ
 	// only in which route they move. The example moves one, which is the shape;
 	// the other sixteen would be repetition.
-	"logout":          "one endpoint block is shown; the rest take the same three attributes",
-	"register":        "one endpoint block is shown; the rest take the same three attributes",
-	"refresh":         "one endpoint block is shown; the rest take the same three attributes",
-	"me":              "one endpoint block is shown; the rest take the same three attributes",
-	"password_forgot": "one endpoint block is shown; the rest take the same three attributes",
+	"logout":   "one endpoint block is shown; the rest take the same three attributes",
+	"register": "one endpoint block is shown; the rest take the same three attributes",
+	"refresh":  "one endpoint block is shown; the rest take the same three attributes",
+	"me":       "one endpoint block is shown; the rest take the same three attributes",
+
 	"password_reset":  "one endpoint block is shown; the rest take the same three attributes",
 	"password_change": "one endpoint block is shown; the rest take the same three attributes",
 	"sessions_list":   "one endpoint block is shown; the rest take the same three attributes",
