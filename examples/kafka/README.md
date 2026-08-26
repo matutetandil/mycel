@@ -65,6 +65,21 @@ curl http://localhost:3000/orders
 [{ "id": "A-1", "customer": "Acme Inc", "total": 240, "written": "2026-08-26T09:41:02Z" }]
 ```
 
+## Two things that catch people
+
+**`operation` on a queue source is not the topic.** The topic is the
+connector's `consumer { topics }`. `operation` is a pattern matched against a
+message's key, and a flow that names one sees only the messages whose key
+matches — so `operation = "orders"` on the consumer here would have received
+nothing at all, since the publisher sets no key. Omitted, the flow takes every
+message on the topic. Mycel says so at startup when a pattern would drop the
+rest.
+
+**A message off a queue arrives wrapped.** The payload is under `body`, with
+the delivery's own details beside it, so the consumer reads `input.body.id`
+where the HTTP flow above it reads `input.id`. This is why the two transforms
+in `flows.mycel` do not look alike.
+
 ## Notes
 
 **The group is what makes replicas cooperate.** Two copies of this service with

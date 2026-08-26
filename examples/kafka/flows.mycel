@@ -28,19 +28,27 @@ flow "publish_order" {
 # Kafka in, database out.
 #
 # This is the consumer: it runs for every message on the topic, for as long as
-# the service is up. `operation` is the topic; the group in the connector is
-# what makes two replicas of this service share the partitions rather than each
-# processing everything.
+# the service is up. The group in the connector is what makes two replicas of
+# this service share the partitions rather than each processing everything.
+#
+# There is no `operation` here on purpose. On a queue source it is not the
+# topic — the topic is the connector's `consumer { topics }` — but a pattern
+# matched against the message's key, and a flow that names one only sees the
+# messages whose key matches it. Omitted, the flow takes every message on the
+# topic. Mycel warns at startup when a pattern would silently drop the rest.
 flow "store_order" {
   from {
     connector = "orders"
-    operation = "orders"
   }
 
+  # `input.body`, not `input`. A message off a queue arrives wrapped — the
+  # payload under `body`, with the delivery's own details beside it — so a
+  # consumer reads through `body` where an HTTP flow reads the request
+  # directly.
   transform {
-    id       = "input.id"
-    customer = "input.customer"
-    total    = "input.total"
+    id       = "input.body.id"
+    customer = "input.body.customer"
+    total    = "input.body.total"
     written  = "now()"
   }
 

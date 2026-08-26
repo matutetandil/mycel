@@ -21,7 +21,10 @@ connector "orders" {
   }
 
   consumer {
-    group_id = "mycel-order-writers"
+    # The group is the deployment's, not the code's: two copies of this service
+    # sharing one group split the partitions, and two that want the same
+    # messages each need their own.
+    group_id = env("KAFKA_GROUP", "mycel-order-writers")
     topics   = ["orders"]
     # Where a group with no committed offset starts. `earliest` reads the
     # backlog on first run; `latest` ignores everything published before the

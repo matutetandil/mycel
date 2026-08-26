@@ -25,7 +25,15 @@ func TestTheKafkaExampleGoesAllTheWayRound(t *testing.T) {
 		t.Skip("set MYCEL_TEST_KAFKA_BROKERS to run this against a real broker")
 	}
 
-	svc := start(t, "kafka", "KAFKA_BROKERS="+address(t, "MYCEL_TEST_KAFKA_BROKERS"))
+	// A group of this run's own. The example's default is a fixed name, and a
+	// second consumer in the same group takes the partition and the message
+	// with it — which is exactly what a developer running the example beside
+	// this test would do.
+	group := fmt.Sprintf("mycel-order-writers-test-%d", time.Now().UnixNano())
+
+	svc := start(t, "kafka",
+		"KAFKA_BROKERS="+address(t, "MYCEL_TEST_KAFKA_BROKERS"),
+		"KAFKA_GROUP="+group)
 	port := svc.ports[3000]
 	if port == 0 {
 		t.Fatal("the example's REST port was not moved; nothing to talk to")
@@ -75,5 +83,5 @@ func TestTheKafkaExampleGoesAllTheWayRound(t *testing.T) {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	t.Fatalf("the order published as %s never came back out of the topic", id)
+	t.Fatalf("the order published as %s never came back out of the topic; the service log says:\n%s", id, svc.tail())
 }
