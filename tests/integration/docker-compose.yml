@@ -185,6 +185,34 @@ services:
       timeout: 3s
       retries: 10
 
+  # Sentinel watches the redis above and tells a client which server is master.
+  #
+  # It exists so the `sentinel` block a cache connector takes can be pointed at
+  # something that answers — without it the block could be parsed and turned
+  # into a client that was never asked anything. One sentinel is not a quorum
+  # and would not fail anything over in earnest; what it does provide is the
+  # master lookup, which is what the connector actually performs.
+  redis-sentinel:
+    image: redis:7-alpine
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: >
+      sh -c "printf '%s\n'
+      'port 26379'
+      'sentinel monitor mymaster redis 6379 1'
+      'sentinel down-after-milliseconds mymaster 5000'
+      'sentinel failover-timeout mymaster 10000'
+      'sentinel resolve-hostnames yes'
+      > /tmp/sentinel.conf && redis-server /tmp/sentinel.conf --sentinel"
+    ports:
+      - "${PORT_REDIS_SENTINEL:-36380}:26379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
   # ==========================================================================
   # Message Queues (internal only)
   # ==========================================================================

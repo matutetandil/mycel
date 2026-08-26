@@ -11,3 +11,19 @@ connector "memory_cache" {
   driver = "memory"
   default_ttl = "60s"
 }
+
+# Redis reached through Sentinel.
+#
+# The connector does not connect to a server it was given: it asks Sentinel
+# which server is master and connects to that. Which means the block is only
+# exercised by pointing it at a Sentinel that answers — this one watches the
+# redis above.
+connector "sentinel_cache" {
+  type   = "cache"
+  driver = "redis"
+
+  sentinel {
+    master_name = "mymaster"
+    nodes       = ["redis-sentinel:26379"]
+  }
+}

@@ -35,3 +35,20 @@ flow "cached_memory_get" {
     target    = "users"
   }
 }
+
+# GET users cached in the Redis that Sentinel names as master.
+flow "cached_sentinel_get" {
+  from {
+    connector = "api"
+    operation = "GET /cache/sentinel/users"
+  }
+  cache {
+    storage = "sentinel_cache"
+    key     = "cached_users_sentinel"
+    ttl     = "30s"
+  }
+  to {
+    connector = "postgres"
+    target    = "users"
+  }
+}

@@ -9,7 +9,7 @@ func (CacheSchema) ConnectorSchema() schema.Block {
 	return schema.Block{
 		Attrs: []schema.Attr{
 			{Name: "driver", Doc: "Cache backend driver", Type: schema.TypeString, Required: true, Values: []string{"memory", "redis"}},
-			{Name: "mode", Doc: "Cache mode", Type: schema.TypeString},
+			{Name: "mode", Doc: "Which client to build. Inferred from the sentinel or cluster block when one is written, so this is only needed to override that", Type: schema.TypeString, Values: []string{"standalone", "cluster", "sentinel"}},
 			{Name: "url", Doc: "Redis connection URL", Type: schema.TypeString},
 			{Name: "host", Doc: "Redis host (alternative to url)", Type: schema.TypeString},
 			{Name: "port", Doc: "Redis port (default: 6379)", Type: schema.TypeNumber},

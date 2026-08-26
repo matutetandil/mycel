@@ -102,6 +102,27 @@ func (f *Factory) parseConfig(cfg *connector.Config) *types.Config {
 		config.Sentinel = f.parseSentinelConfig(sentinel)
 	}
 
+	// Writing the block is what chooses the mode.
+	//
+	// `mode` decided which client was built and nothing said so: neither the
+	// cache page nor the redis-cluster example mentioned it, so a connector
+	// written the way they showed — a `sentinel` block and nothing else —
+	// was built as a standalone one and refused with "redis standalone mode
+	// requires 'url' or 'host'", which sends you looking for the wrong thing.
+	// A sentinel block can only mean sentinel; `mode` remains as an explicit
+	// override.
+	if config.Mode == "" {
+		switch {
+		case config.Sentinel != nil && config.Cluster != nil:
+			// Both is not a mode. Left to the validation below to report,
+			// which names the connector.
+		case config.Sentinel != nil:
+			config.Mode = "sentinel"
+		case config.Cluster != nil:
+			config.Mode = "cluster"
+		}
+	}
+
 	return config
 }
 
