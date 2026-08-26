@@ -136,7 +136,7 @@ jobs:
           echo "--- what the stack made of itself ---"
           docker compose ps -a || true
           echo "--- the one-shot setup containers ---"
-          docker compose logs --no-color redis-cluster-init kafka-init minio-init || true
+          docker compose logs --no-color redis-sentinel redis-cluster-init kafka-init minio-init || true
 
       - name: All service logs on failure
         if: failure()

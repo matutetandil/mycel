@@ -214,10 +214,11 @@ services:
     command: >
       sh -c "printf '%s\n'
       'port 26379'
+      'sentinel resolve-hostnames yes'
+      'sentinel announce-hostnames yes'
       'sentinel monitor mymaster redis 6379 1'
       'sentinel down-after-milliseconds mymaster 5000'
       'sentinel failover-timeout mymaster 10000'
-      'sentinel resolve-hostnames yes'
       > /tmp/sentinel.conf && redis-server /tmp/sentinel.conf --sentinel"
     ports:
       - "${PORT_REDIS_SENTINEL:-36380}:26379"
