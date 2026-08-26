@@ -25,6 +25,13 @@ type "Product" {
   stock       = number   # From inventory_api step
   rating      = number   # From reviews_api step
   reviewCount = number   # From reviews_api step
+
+  # What the query asked for, reported back. A flow can read the selection
+  # itself rather than leaving it to the optimizer — see `explain` in
+  # flows.mycel.
+  asked_for   = string
+  asked_count = number
+  wants_price = boolean
 }
 
 # Order type - demonstrates DataLoader for N+1 prevention

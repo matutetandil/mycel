@@ -222,3 +222,45 @@ func TestEveryConnectorBlockHasAnExample(t *testing.T) {
 	sort.Strings(report)
 	t.Errorf("no example writes these connector blocks: %s", strings.Join(report, "; "))
 }
+
+// celFunctionsWithoutAnExample: a function the language offers that no example
+// calls.
+var celFunctionsWithoutAnExample = map[string]string{
+	// `env` reads an environment variable, and every example that needs one
+	// writes it in HCL — `env("PORT", 3000)` — where it is HCL's function of
+	// the same name, folded in when the file is read. The CEL one is for the
+	// places where the value is not known until the expression runs, which is
+	// a connector profile's `select`.
+	"env": "written as HCL's env() in every example; the CEL one exists for expressions evaluated per message",
+}
+
+// Every function the transform language offers has to be shown working
+// somewhere. Fifteen of the thirty-five were in no example at all — split,
+// default, as_list, join, format_date, the ones a first transform reaches for
+// — and the only place to see one was the reference table.
+func TestEveryCELFunctionHasAnExample(t *testing.T) {
+	declared := regexp.MustCompile(`cel\.Function\("([a-z_0-9]+)"`)
+	source, err := os.ReadFile("../transform/cel.go")
+	if err != nil {
+		t.Fatalf("read the CEL environment: %v", err)
+	}
+
+	config := everyExampleConfig(t)
+
+	var missing []string
+	for _, match := range declared.FindAllStringSubmatch(string(source), -1) {
+		name := match[1]
+		if _, allowed := celFunctionsWithoutAnExample[name]; allowed {
+			continue
+		}
+		called := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\s*\(`)
+		if !called.MatchString(config) {
+			missing = append(missing, name)
+		}
+	}
+
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Errorf("no example calls these CEL functions: %s", strings.Join(missing, ", "))
+	}
+}

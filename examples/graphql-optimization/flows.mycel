@@ -115,6 +115,52 @@ flow "get_product" {
   returns = "Product"
 }
 
+# Reading the selection yourself.
+#
+# The optimizer decides which steps to run and which columns to select by
+# looking at the query. The same information is available to an expression, for
+# the times a flow wants to act on it rather than be optimised by it: a
+# response that changes shape, a step whose `when` turns on whether an
+# expensive field was asked for, an audit line recording what a client reads.
+flow "explain_product" {
+  from {
+    connector = "api"
+    operation = "Query.explainProduct"
+  }
+
+  step "base" {
+    connector = "db"
+    query     = "SELECT * FROM products WHERE id = :id"
+    params    = { id = "input.id" }
+  }
+
+  transform {
+    id          = "step.base.id"
+    sku         = "step.base.sku"
+    name        = "step.base.name"
+    description = "step.base.description"
+    category    = "step.base.category"
+    price       = "0"
+    stock       = "0"
+    rating      = "0"
+    reviewCount = "0"
+
+    # requested_fields answers every path the query named, nested ones
+    # included; requested_top_fields answers only the outermost level;
+    # field_requested asks about one.
+    asked_for   = "join(requested_top_fields(input), ',')"
+    asked_count = "size(requested_fields(input))"
+    wants_price = "field_requested(input, 'price')"
+  }
+
+  to {
+    connector = "db"
+    target    = "products"
+  }
+
+  returns = "Product"
+}
+
 # List products with the same optimization
 flow "get_products" {
   from {
