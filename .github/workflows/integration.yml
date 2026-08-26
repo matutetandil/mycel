@@ -44,6 +44,12 @@ jobs:
           # The push connector signs a JWT with this at startup, and refuses to
           # start without one. run.sh does the same; this job does not use it.
           export FCM_SERVICE_ACCOUNT=$(bash scripts/fcm-service-account.sh)
+          # The exec connector signs in to the ssh server with this key, and
+          # the compose file mounts both halves. Without them docker creates
+          # directories where the files should be, and a connector handed a
+          # directory for a key file takes the whole service down at startup.
+          # Same reason as above: this job builds the stack itself.
+          bash scripts/ssh-keypair.sh
           docker compose up -d --build --wait 2>&1 | tail -10
           bash scripts/wait-for-services.sh 120
 
