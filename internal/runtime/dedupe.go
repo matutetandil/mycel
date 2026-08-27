@@ -5,7 +5,9 @@
 //	Phase A (before `to`): compute a canonical fingerprint over the named
 //	    projection, GET the previously stored fingerprint for the key, and
 //	    compare byte-for-byte. On match the message is dropped according
-//	    to on_duplicate without invoking `to`.
+//	    to on_duplicate without invoking `to`. Skipped entirely when the
+//	    optional compare_when predicate is false, so a message can never be
+//	    dropped against a fingerprint the flow has declared untrustworthy.
 //
 //	Phase B (after `to`): SET the new fingerprint for the key when the
 //	    message's final disposition is terminal-as-processed — i.e. on a
@@ -29,6 +31,12 @@
 // `to`. Re-sending the same content is a no-op by construction. Cache
 // errors fail open (the message is processed) so a broken Redis cannot
 // silently swallow traffic.
+//
+// That invariant holds over the flow's own writes only. It says the content
+// was applied once, not that it is still applied: nothing here observes a
+// downstream record being removed by a path the flow never sees. compare_when
+// is how a flow says so — see DedupeConfig.CompareWhen for why the check
+// belongs there and not in the projection.
 package runtime
 
 import (
@@ -112,12 +120,57 @@ func (h *FlowHandler) dedupeAwareWrite(
 		Wait:    true,
 	}
 
+	compare := h.shouldCompareDedupe(ctx, input, payload, key)
+
 	// The stage is announced around the whole decision, so a trace shows the
 	// comparison and its verdict, and a breakpoint on dedupe stops before the
 	// fingerprint is looked up rather than never.
 	return trace.RecordStage(ctx, trace.StageDedupe, key, input, func() (interface{}, error) {
-		return h.dedupeDecide(ctx, lockCfg, lockKey, storageKey, key, fp, ttl, cfg, write)
+		return h.dedupeDecide(ctx, lockCfg, lockKey, storageKey, key, fp, ttl, cfg, compare, write)
 	})
+}
+
+// shouldCompareDedupe evaluates the optional compare_when predicate. It gates
+// Phase A only: false means "do not consult the stored fingerprint", never
+// "skip dedupe". Phase B still commits on a successful write, which is what
+// lets suppression re-establish itself on the next message — gating both
+// phases would leave the cache empty forever and the primitive permanently
+// inert on the flow.
+//
+// Every failure path returns false, i.e. process the message. That is
+// deliberately the opposite of the intuitive choice and matches the fail-open
+// convention the Get error path already follows: the cost of a wrong `false`
+// is one extra downstream call, and the cost of a wrong `true` is a message
+// silently swallowed.
+func (h *FlowHandler) shouldCompareDedupe(ctx context.Context, input, payload map[string]interface{}, key string) bool {
+	expr := h.Config.Dedupe.CompareWhen
+	if expr == "" {
+		return true
+	}
+	val, err := h.Transformer.EvaluateExpressionWithOutput(ctx, input, payload, expr)
+	if err != nil {
+		slog.Warn("dedupe compare_when evaluation failed; not comparing, message will be processed",
+			"flow", h.Config.Name,
+			"key", key,
+			"expression", expr,
+			"error", err)
+		return false
+	}
+	b, ok := val.(bool)
+	if !ok {
+		slog.Warn("dedupe compare_when did not evaluate to a boolean; not comparing, message will be processed",
+			"flow", h.Config.Name,
+			"key", key,
+			"expression", expr,
+			"value", val)
+		return false
+	}
+	if !b {
+		slog.Debug("dedupe comparison skipped by compare_when",
+			"flow", h.Config.Name,
+			"key", key)
+	}
+	return b
 }
 
 func (h *FlowHandler) dedupeDecide(
@@ -127,29 +180,32 @@ func (h *FlowHandler) dedupeDecide(
 	fp []byte,
 	ttl time.Duration,
 	cfg *flow.DedupeConfig,
+	compare bool,
 	write func() (interface{}, error),
 ) (interface{}, error) {
 	return h.SyncManager.ExecuteWithLock(ctx, lockCfg, lockKey, func() (interface{}, error) {
-		// Phase A: GET stored, compare.
-		stored, found, getErr := h.DedupeCache.Get(ctx, storageKey)
-		if getErr != nil {
-			// Fail open: cache errors should never block message processing.
-			// Worst case is one extra downstream call.
-			slog.Warn("dedupe Get failed; proceeding with message",
-				"flow", h.Config.Name,
-				"key", key,
-				"error", getErr)
-		} else if found && bytes.Equal(stored, fp) {
-			slog.Info("dedupe match; dropping duplicate",
-				"flow", h.Config.Name,
-				"key", key,
-				"policy", cfg.OnDuplicate)
-			return &flow.FilteredResultWithPolicy{
-				Filtered: true,
-				Policy:   cfg.OnDuplicate,
-				Reason:   "dedupe_match",
-				Detail:   fmt.Sprintf("key %q already seen within the dedupe window", key),
-			}, nil
+		// Phase A: GET stored, compare — unless the flow gated it.
+		if compare {
+			stored, found, getErr := h.DedupeCache.Get(ctx, storageKey)
+			if getErr != nil {
+				// Fail open: cache errors should never block message processing.
+				// Worst case is one extra downstream call.
+				slog.Warn("dedupe Get failed; proceeding with message",
+					"flow", h.Config.Name,
+					"key", key,
+					"error", getErr)
+			} else if found && bytes.Equal(stored, fp) {
+				slog.Info("dedupe match; dropping duplicate",
+					"flow", h.Config.Name,
+					"key", key,
+					"policy", cfg.OnDuplicate)
+				return &flow.FilteredResultWithPolicy{
+					Filtered: true,
+					Policy:   cfg.OnDuplicate,
+					Reason:   "dedupe_match",
+					Detail:   fmt.Sprintf("key %q already seen within the dedupe window", key),
+				}, nil
+			}
 		}
 
 		// Not a duplicate — run the actual write.

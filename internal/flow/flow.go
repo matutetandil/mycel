@@ -838,6 +838,29 @@ type DedupeConfig struct {
 	// the stored one: "ack" (default), "reject", or "requeue". Matches the
 	// sequence_guard vocabulary so MQ consumers handle it uniformly.
 	OnDuplicate string
+
+	// CompareWhen optionally gates the comparison — and only the comparison.
+	// When set and it evaluates false, the stored fingerprint is not consulted
+	// and the message can never be dropped as a duplicate; the new fingerprint
+	// is still committed after a successful write, so the NEXT message can be.
+	// Evaluated against `input.*` and `output.*`, the same scope as
+	// Fingerprint. Empty means always compare, which is the default.
+	//
+	// Use it when "already seen" and "already applied" can diverge — when the
+	// downstream record can disappear by a path this flow cannot observe (a
+	// manual delete, a restore, a data fix) and nothing clears the fingerprint:
+	//
+	//	compare_when = "output.row_exists == 1"
+	//
+	// Put that existence check HERE, never in Fingerprint. A projection field
+	// is symmetric: it also fires when the record APPEARS, which permanently
+	// breaks suppression on a create. The fingerprint committed after a write
+	// is the one computed BEFORE it, so on a create the stored reading of
+	// "does this exist" is always 0 while every later message computes 1 —
+	// duplicates stop being suppressed, and the deletion the field was added
+	// to catch still matches and still gets dropped. Both directions land
+	// backwards.
+	CompareWhen string
 }
 
 // AsyncConfig defines async execution for a flow.

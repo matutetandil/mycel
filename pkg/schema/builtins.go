@@ -430,6 +430,7 @@ func DedupeSchema() Block {
 			{Name: "key", Doc: "CEL expression for the per-resource fingerprint key (evaluated against input.*)", Type: TypeString},
 			{Name: "ttl", Doc: "How long to keep stored fingerprints after the last update", Type: TypeDuration},
 			{Name: "on_duplicate", Doc: "Behavior on fingerprint match", Type: TypeString, Values: []string{"ack", "reject", "requeue"}},
+			{Name: "compare_when", Doc: "CEL predicate gating the comparison only (input.* and output.* in scope). False: the stored fingerprint is not consulted and the message cannot be dropped, but a successful write still stores the new one. Use for an existence check the fingerprint cannot express; never put that check in fingerprint", Type: TypeString},
 		},
 		Children: []Block{
 			{

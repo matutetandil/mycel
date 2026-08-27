@@ -858,6 +858,7 @@ flow "process_payment" {
 | `fingerprint {}` | yes | Block of named CEL expressions whose values form the projection; must list every persisted field — omitting one would silently drop real changes |
 | `ttl` | no | How long to keep stored fingerprints. Supports `"30d"` and `"2w"` plus stdlib units; malformed values fail the parse |
 | `on_duplicate` | no | Behavior on match: `"ack"` (default), `"reject"`, `"requeue"` |
+| `compare_when` | no | CEL predicate gating the comparison **only**. False: the stored fingerprint is not consulted, so the message cannot be dropped — but a successful write still commits the new one. `input.*` and `output.*` in scope. Use it when the downstream record can disappear by a path the flow cannot observe; see [`compare_when`](../reference/configuration.md#dedupe-block) for why the check must not go in `fingerprint {}` |
 
 **Pipeline order:** `dedupe` runs **after** `transform` because the fingerprint references `output.*` (the transformed payload). Earlier versions ran the (key-based) dedupe before transform — see CHANGELOG v2.1.0 for migration.
 

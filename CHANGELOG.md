@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`compare_when` on the `dedupe` block — dedupe that stops trusting its own cache once the record it describes is gone.** A stored fingerprint says the content was written once; it does not say it is still written. Nothing in dedupe observes the downstream record leaving by a path the flow never sees — an admin deleting it by hand, a restore from an older backup, a data fix — and there is usually no delete flow to clear the fingerprint when it happens. The re-send meant to repair the damage then matches a fingerprint describing something that no longer exists and is acked in milliseconds having written nothing. The optional predicate gates the comparison, and only the comparison: false means the stored fingerprint is not consulted and the message cannot be dropped, while a successful write still commits the new one, so the next message can be. Evaluated against `input.*` and `output.*`, the same scope as the projection, which is what puts a `step` result within reach of it. Absent means always compare, so nothing changes for a flow that does not set it. It fails open — a predicate that cannot be evaluated, or that does not return a boolean, warns and processes the message, the same direction the cache-error path already takes.
+
+  The check has to go here and not in `fingerprint {}`, which is where it naturally gets tried first. A projection field is symmetric: it fires when the record appears as well as when it disappears. And the fingerprint committed after a write is the one computed *before* it, so on a create the stored reading of "does this exist" is `0` by definition while every later message computes `1` — real duplicates stop being suppressed, and the deletion the field was added to catch still matches and still gets dropped. Both directions land backwards. `examples/dedupe` now carries a flow using the gate, the reasoning is in the attribute's own doc comment, and a test runs the wrong version to show what it does.
+
+### Fixed
+
+- **A dropped message no longer emits its coordinate signal.** A signal asserts that the flow applied its effect, and a drop short-circuits before `to`. From the coordinator's side the two were indistinguishable: `dedupe` and `sequence_guard` both return their filtered result with a nil error, and the emit fires whenever the inner call returns no error, so a suppressed message told everything waiting on it to proceed. In the case that found this, a style dropped as a duplicate emitted `parent_ready` anyway; its twelve child items then ran against a parent that did not exist, ten writing nothing and two failing on a foreign key. It could not be worked around in configuration either — the transform has already run by the time `signal.when` is evaluated, so the output it sees on a drop is the same one it sees on a write. A `filter` or `accept` rejection returns before the sync wrappers and was never affected.
+
+- **A step naming a read verb where a table goes no longer looks like a missing table.** The parity test over the examples skips the write verbs by name and read `operation = "query"` as a table called `query`.
+
 ## [3.1.0] - 2026-08-26
 
 ### Breaking

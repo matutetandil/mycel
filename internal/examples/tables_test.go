@@ -122,6 +122,16 @@ func TestEveryTableAnExampleNamesIsCreated(t *testing.T) {
 	}
 }
 
+// isReadVerb reports whether a value written where a table goes is one of the
+// verbs a read can name. connector.IsWriteOperation covers the other half.
+func isReadVerb(operation string) bool {
+	switch strings.ToUpper(strings.TrimSpace(operation)) {
+	case "SELECT", "QUERY", "READ", "FIND", "GET", "SCAN", "COUNT":
+		return true
+	}
+	return false
+}
+
 // tablesNamed collects the tables an example's flows read from and write to.
 func tablesNamed(
 	config *parser.Configuration,
@@ -147,8 +157,11 @@ func tablesNamed(
 	// named resolves what a flow wrote where a table goes: either a table, or
 	// the name of an operation the connector declares, which holds one.
 	named := func(connectorName, value string) {
-		// A plain verb is what the flow does, not a name it refers to.
-		if connector.IsWriteOperation(value) || strings.EqualFold(value, "SELECT") {
+		// A plain verb is what the flow does, not a name it refers to. The
+		// read verbs need listing as explicitly as the write ones: read as a
+		// name, `operation = "query"` sent this test looking for a table
+		// called query.
+		if connector.IsWriteOperation(value) || isReadVerb(value) {
 			return
 		}
 		if op, isOperation := operations[connectorName][value]; isOperation {

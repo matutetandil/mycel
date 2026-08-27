@@ -928,6 +928,7 @@ dedupe {
   key          = "'sku_fp:' + input.body.payload.productItemId"  # Required: CEL expression for the per-resource key
   ttl          = "30d"                                           # Optional: supports "d" / "w" plus stdlib units; malformed values fail the parse
   on_duplicate = "ack"                                           # Optional: "ack" (default), "reject", "requeue"
+  compare_when = "output.row_exists == 1"                        # Optional: gates the comparison only (see below)
 
   fingerprint {                                                   # Required: at least one named CEL expression
     name   = "output.name"                                        # Both input.* and output.* (transform result) are in scope
@@ -938,6 +939,48 @@ dedupe {
 ```
 
 **Pipeline order:** `dedupe` runs **after** `transform` because the fingerprint expressions reference `output.*`. Earlier versions (≤ 2.0.0) ran a key-based dedupe before transform; see CHANGELOG v2.1.0 for migration.
+
+**`compare_when` — when "already seen" and "already applied" diverge.** A stored fingerprint says this content was written once, not that it is still written. If the downstream record can disappear by a path the flow never observes — a manual delete, a restore, a data fix — nothing clears the fingerprint, and the re-send that was meant to repair the damage is dropped as a duplicate instead. `compare_when` is how a flow says the stored fingerprint is no longer trustworthy:
+
+- **false** → the stored fingerprint is not consulted and the message **cannot** be dropped. It still writes, and Phase B still commits the new fingerprint, so the *next* message can be suppressed normally.
+- **true** or absent → exactly the behavior above.
+- Evaluated against `input.*` and `output.*`, the same scope as `fingerprint {}` — so a `step` result routed through `transform` is reachable from it.
+- Fails **open**: a predicate that cannot be evaluated (or does not return a boolean) logs a warning and processes the message, matching the fail-open convention for cache errors. One extra downstream call is recoverable; a silently swallowed message is not.
+
+!!! warning "Put the existence check in `compare_when`, never in `fingerprint {}`"
+    A projection field is symmetric: it fires when the record disappears **and** when it appears. The fingerprint committed after a write is the one computed *before* it, so on a create the stored reading of "does this exist" is always `0` while every later message computes `1`. Both directions land backwards — real duplicates stop being suppressed, and the deletion the field was added to catch still matches and still gets dropped.
+
+```hcl
+step "check_present" {
+  connector = "db"
+  query     = "SELECT CAST(COALESCE((SELECT 1 FROM products WHERE sku = :sku LIMIT 1), 0) AS SIGNED) AS row_exists"
+  params    = { sku = "input.body.sku" }
+  on_error  = "fail"
+}
+
+transform {
+  row_exists = "int(step.check_present.row_exists)"
+  # ... the fields actually written downstream
+}
+
+dedupe {
+  cache        = "redis_cache"
+  key          = "'sku_fp:' + input.body.sku"
+  ttl          = "30d"
+  compare_when = "output.row_exists == 1"
+  fingerprint {
+    name = "output.name"
+    # row_exists deliberately NOT here — it is a gate, not a hash input
+  }
+}
+```
+
+| situation | gate | outcome |
+|---|---|---|
+| record present, identical content | compare | dropped as a duplicate |
+| record present, content changed | compare | fingerprint differs → processed |
+| first write, record absent | skip | processed → Phase B stores the fingerprint |
+| record deleted externally, identical content | skip | **processed and rewritten** |
 
 **Canonical encoding rules:** map keys sorted alphabetically; array elements sorted by their encoded bytes (treated as order-insensitive sets); each value type-tagged and length-prefixed so `"a,b"` cannot collide with `["a","b"]`; whole-number floats normalize to ints.
 

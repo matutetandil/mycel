@@ -41,3 +41,15 @@ connector "magento" {
   base_url = env("MAGENTO_URL", "https://be.dev.mercury.waterworks.com")
   timeout  = "30s"
 }
+
+// The catalog the downstream writes into, read here only to answer one
+// question: does the record this message describes still exist?
+//
+// That question is what `compare_when` on the second flow needs, and it is
+// deliberately NOT answerable from the message: the whole point is that the
+// record can disappear by a path this consumer never sees.
+connector "catalog" {
+  type     = "database"
+  driver   = "sqlite"
+  database = env("CATALOG_DB", "./data/catalog.db")
+}
