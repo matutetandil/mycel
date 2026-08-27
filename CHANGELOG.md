@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **An apostrophe in a SQL comment no longer unbinds every parameter after it.** The binder that rewrites `:name` placeholders into what a driver accepts knew about string literals and nothing else, so a comment was read as if it were code: `-- the item's parent` opened a literal that never closed, and every placeholder past it reached the driver as literal text with no argument bound. The statement failed with `missing named argument "sku"` — naming the parameter, never the comment — and `mycel validate` does not execute SQL, so it passed a query that could not run. It went wrong the other way too, and that one is quieter: `-- ratio:sku` had its colon bound as a placeholder, so a comment consumed one of the statement's arguments and everything after it shifted by one. The scanner now knows the lexical structure that can hide a colon or a quote — line and block comments, string literals, quoted identifiers — and it is one scanner rather than three near-identical copies, one per driver, differing only in whether they wrote `?` or `$1`. Each dialect's own rules come with it: MySQL's `#` comments, its backslash escapes and its requirement that `--` be followed by whitespace; Postgres's nested block comments; SQLite's three ways of quoting an identifier. The same reading now answers "which placeholders does this statement carry", which is used to publish GraphQL arguments — a colon in a comment used to become an argument nothing could ever fill.
+
+- **A flow behaving as written no longer logs as though it were misconfigured.** Deciding not to emit a coordinate signal — because `signal.when` said no, or because the message was dropped before it reached `to` — was reported once by the code that knows the reason and then again by the emitter as `coordinate.signal.emit evaluated to empty key`, which reads as a fault in an expression that is doing its job. The two are now told apart: a deliberate decision is silent at the emitter, and an emit expression that evaluates cleanly to nothing still warns, from the code that can name which expression it was.
+
 ## [3.2.0] - 2026-08-27
 
 ### Added

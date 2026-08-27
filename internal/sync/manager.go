@@ -639,8 +639,21 @@ func (m *Manager) ExecuteWithCoordinate(ctx context.Context, cfg *FlowCoordinate
 			return result, err
 		}
 
+		// Two different things used to arrive here as one. A builder that
+		// returns ok=false has DECIDED not to emit — signal.when was false, or
+		// the message was dropped before it ever reached `to` — and has
+		// already logged why. Warning again on top of that reads as a
+		// configuration error over a flow behaving exactly as written, which
+		// is worse than saying nothing: it sends someone looking for a fault
+		// in an expression that is doing its job.
+		//
+		// An empty key WITH ok=true is the anomaly, and the one worth a
+		// warning: the builder believed it had a key and produced nothing.
 		signalKey, ok := signalKeyFn(result)
-		if !ok || signalKey == "" {
+		if !ok {
+			return result, nil
+		}
+		if signalKey == "" {
 			slog.Warn("coordinate.signal.emit evaluated to empty key, skipping emit",
 				"emit_expr", cfg.Signal.Emit)
 			return result, nil

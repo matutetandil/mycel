@@ -1810,7 +1810,16 @@ func (h *FlowHandler) evaluateSignalKey(ctx context.Context, expr string, input,
 		return "", false
 	}
 	if s, ok := val.(string); ok {
-		return s, s != ""
+		// An expression that evaluated cleanly to nothing is a real problem
+		// and is reported here, by the code that knows which expression it
+		// was. The caller no longer warns on its behalf: it cannot tell this
+		// apart from a deliberate decision not to emit.
+		if s == "" {
+			slog.Warn("coordinate.signal.emit evaluated to an empty key, signal will not be emitted",
+				"expression", expr)
+			return "", false
+		}
+		return s, true
 	}
 	return fmt.Sprintf("%v", val), true
 }
