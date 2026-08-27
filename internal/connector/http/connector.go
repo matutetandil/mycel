@@ -344,17 +344,24 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	// Build full URL
 	fullURL := c.baseURL + path
 
-	// Add query params from filters
-	if len(data.Filters) > 0 {
-		params := url.Values{}
-		for k, v := range data.Filters {
-			params.Add(k, fmt.Sprintf("%v", v))
-		}
-		if strings.Contains(fullURL, "?") {
-			fullURL += "&" + params.Encode()
-		} else {
-			fullURL += "?" + params.Encode()
-		}
+	// Filters address the request; the payload IS the request. On a verb that
+	// carries a body they are not the same thing said twice, and putting them
+	// on the URL as well was not redundancy but a size ceiling: for a flow
+	// writing to HTTP, Filters holds the inbound message, so the whole message
+	// went on the request line in addition to the body that actually mattered.
+	//
+	// Nothing read it — the receiver takes the body, and the write succeeded —
+	// so it stayed invisible until a message grew past the front-end proxy's
+	// request-line limit and came back 414 Request-URI Too Large, from the
+	// proxy, pointing at infrastructure rather than at the client. A large
+	// body on the same endpoint was accepted normally, which is what made it
+	// look like an ingress problem. Reported at ~22KB after months of ~2KB
+	// messages working.
+	//
+	// Call() a little further down has always had this switch. Write() is now
+	// the same.
+	if len(data.Filters) > 0 && !methodCarriesBody(method) {
+		fullURL = appendQuery(fullURL, data.Filters)
 	}
 
 	// Encode the request body ONCE. The retry loop below produces a fresh
@@ -363,7 +370,7 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	// with an empty body (server saw 500 once + then 400 "field required"
 	// from the retry, mistaking a transient failure for permanent).
 	var encoded []byte
-	if data.Payload != nil && (method == "POST" || method == "PUT" || method == "PATCH" || method == "QUERY") {
+	if data.Payload != nil && methodCarriesBody(method) {
 		var err error
 		encoded, err = c.codec.Encode(data.Payload)
 		if err != nil {
@@ -479,23 +486,14 @@ func (c *Connector) Call(ctx context.Context, operation string, params map[strin
 
 	var body io.Reader
 	if len(params) > 0 {
-		switch method {
-		case "POST", "PUT", "PATCH", "QUERY":
+		if methodCarriesBody(method) {
 			encoded, err := c.codec.Encode(params)
 			if err != nil {
 				return nil, fmt.Errorf("failed to encode call params: %w", err)
 			}
 			body = bytes.NewReader(encoded)
-		default:
-			q := url.Values{}
-			for k, v := range params {
-				q.Add(k, fmt.Sprintf("%v", v))
-			}
-			if strings.Contains(fullURL, "?") {
-				fullURL += "&" + q.Encode()
-			} else {
-				fullURL += "?" + q.Encode()
-			}
+		} else {
+			fullURL = appendQuery(fullURL, params)
 		}
 	}
 
@@ -958,4 +956,74 @@ func topLevelKeys(payload map[string]interface{}) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// methodCarriesBody reports whether a request with this method sends its data
+// in the body. The complement of it is the set of verbs where data has nowhere
+// to go but the query string.
+//
+// QUERY is in the list: RFC 10008 defines it as safe and idempotent like GET,
+// but with a body, which is the whole reason it exists.
+func methodCarriesBody(method string) bool {
+	switch strings.ToUpper(method) {
+	case "POST", "PUT", "PATCH", "QUERY":
+		return true
+	}
+	return false
+}
+
+// appendQuery adds values to a URL's query string, keeping whatever was
+// already written into the path.
+func appendQuery(fullURL string, values map[string]interface{}) string {
+	// Sorted so the same filters always produce the same URL: a query string
+	// built by ranging a map came out in a different order per request, which
+	// defeats any cache keyed on it and makes two identical requests look
+	// different in a log.
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	q := url.Values{}
+	for _, k := range keys {
+		if s, ok := queryValue(values[k]); ok {
+			q.Add(k, s)
+		}
+	}
+	if len(q) == 0 {
+		return fullURL
+	}
+	if strings.Contains(fullURL, "?") {
+		return fullURL + "&" + q.Encode()
+	}
+	return fullURL + "?" + q.Encode()
+}
+
+// queryValue renders one value for a query string, reporting false for the
+// ones that should not appear at all.
+//
+// A query string carries scalars. Anything else was rendered with %v, which
+// for a nested map is Go's own `map[a:map[b:c]]` — not a format any receiver
+// can parse, so it was not merely redundant but meaningless. Structured values
+// are JSON now, which at least a receiver can decode, and a nil is left out
+// rather than sent as the four characters "<nil>".
+func queryValue(v interface{}) (string, bool) {
+	switch t := v.(type) {
+	case nil:
+		return "", false
+	case string:
+		return t, true
+	case bool, int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64,
+		float32, float64:
+		return fmt.Sprintf("%v", t), true
+	}
+	encoded, err := json.Marshal(v)
+	if err != nil {
+		// Nothing sensible to send; %v at least names the type rather than
+		// dropping the field silently.
+		return fmt.Sprintf("%v", v), true
+	}
+	return string(encoded), true
 }

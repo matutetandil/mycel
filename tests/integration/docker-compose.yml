@@ -165,7 +165,18 @@ services:
     volumes:
       - ./seed/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      # 127.0.0.1, not localhost. The MySQL client reads "localhost" as "use
+      # the unix socket", and during initialization the image starts a
+      # temporary server on that socket to run the scripts in
+      # docker-entrypoint-initdb.d — so the ping is answered before the real
+      # server is listening on TCP at all. The container reported healthy,
+      # compose started mycel against it, and mycel got `connection refused`
+      # dialling 3306 and exited, because a connector that cannot reach what
+      # it was configured for is a startup failure.
+      #
+      # Nothing in the stack connects over the socket, so the check has to be
+      # made over the transport everything actually uses.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-proot"]
       interval: 5s
       timeout: 3s
       retries: 10

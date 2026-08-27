@@ -144,6 +144,15 @@ flow "magento_create_style" {
 
 **Client (target):** Same method + path syntax, resolved against `base_url`.
 
+### Where the data goes
+
+`POST`, `PUT`, `PATCH` and `QUERY` carry their data in the **body**, and nothing else is added to the URL — a query string written into the target itself is kept, since that is what the flow asked for.
+
+`GET`, `DELETE` and `HEAD` have no body, so their data is the **query string**. Values are rendered the way a query string can carry them: scalars as themselves, structured values as JSON, and a `null` omitted rather than sent. Parameters are sorted, so the same data always produces the same URL.
+
+!!! note "Fixed in 3.3.0"
+    Before 3.3.0 a write appended its data to the URL for **every** method, including the ones that carry a body. For a flow writing to HTTP that data is the inbound message, so the whole message went out twice — once as the body that mattered, once as a query string nobody read. Small messages worked, so it stayed invisible until the request line passed a front-end proxy's limit and came back `414 Request-URI Too Large` on an endpoint that accepted a large *body* without complaint. Structured values were also rendered with `%v`, arriving as Go's `map[a:map[b:c]]`.
+
 ## Debugging outbound requests
 
 When the log level is set to `debug` (`MYCEL_LOG_LEVEL=debug` or `--log-level=debug`), the HTTP connector emits one log line per `POST` / `PUT` / `PATCH` request describing the body shape:
