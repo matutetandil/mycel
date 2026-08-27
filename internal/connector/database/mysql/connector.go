@@ -549,81 +549,13 @@ func (c *Connector) buildDeleteQuery(data *connector.Data) (string, []interface{
 	return sql, args
 }
 
-// parseNamedParams replaces named parameters (:name) with MySQL positional parameters (?)
-// and returns the modified SQL along with the ordered argument values.
+// parseNamedParams rewrites :name placeholders into MySQL's own and returns
+// the arguments in order. The scan itself is shared: telling a placeholder
+// apart from a colon inside a comment, a string or a quoted identifier is the
+// same problem for every driver, and each of them used to carry its own copy
+// that knew only about string literals. See connector.BindNamedParams.
 func (c *Connector) parseNamedParams(sql string, params map[string]interface{}) (string, []interface{}) {
-	if params == nil || len(params) == 0 {
-		return sql, nil
-	}
-
-	var result strings.Builder
-	var args []interface{}
-	i := 0
-	sqlBytes := []byte(sql)
-	n := len(sqlBytes)
-
-	for i < n {
-		// Check for named parameter starting with :
-		if sqlBytes[i] == ':' {
-			// Find the end of the parameter name
-			j := i + 1
-			for j < n && isParamChar(sqlBytes[j]) {
-				j++
-			}
-
-			if j > i+1 {
-				// Extract parameter name (without the colon)
-				paramName := string(sqlBytes[i+1 : j])
-
-				// Look up the value in params
-				if val, ok := params[paramName]; ok {
-					result.WriteByte('?')
-					args = append(args, val)
-				} else {
-					// Parameter not found - keep the original text
-					result.Write(sqlBytes[i:j])
-				}
-				i = j
-				continue
-			}
-		}
-
-		// Check for string literals - don't replace inside them
-		if sqlBytes[i] == '\'' {
-			// Copy until the closing quote
-			result.WriteByte(sqlBytes[i])
-			i++
-			for i < n {
-				result.WriteByte(sqlBytes[i])
-				if sqlBytes[i] == '\'' {
-					// Check for escaped quote
-					if i+1 < n && sqlBytes[i+1] == '\'' {
-						i++
-						result.WriteByte(sqlBytes[i])
-					} else {
-						i++
-						break
-					}
-				}
-				i++
-			}
-			continue
-		}
-
-		// Regular character - just copy it
-		result.WriteByte(sqlBytes[i])
-		i++
-	}
-
-	return result.String(), args
-}
-
-// isParamChar returns true if the character is valid in a parameter name.
-func isParamChar(c byte) bool {
-	return (c >= 'a' && c <= 'z') ||
-		(c >= 'A' && c <= 'Z') ||
-		(c >= '0' && c <= '9') ||
-		c == '_'
+	return connector.BindNamedParams(sql, params, connector.MySQLDialect)
 }
 
 // sortedKeys returns a map's keys in a fixed order.

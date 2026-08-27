@@ -16,7 +16,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	goruntime "runtime"
 	"sort"
 	"strings"
@@ -2167,17 +2166,14 @@ func destinations(cfg *flow.Config) []*flow.ToConfig {
 }
 
 // namedParameters returns the :name placeholders a statement carries.
-var namedParameter = regexp.MustCompile(`:([a-zA-Z_][a-zA-Z0-9_]*)`)
-
+//
+// It reads the statement the way the driver's binder does rather than with a
+// regular expression, so a colon inside a comment or a string literal is not
+// mistaken for a placeholder — `-- ratio:sku` used to publish a GraphQL
+// argument named sku that nothing could ever fill. No driver is in hand here,
+// so the generic dialect applies.
 func namedParameters(query string) []string {
-	if query == "" {
-		return nil
-	}
-	var out []string
-	for _, match := range namedParameter.FindAllStringSubmatch(query, -1) {
-		out = append(out, match[1])
-	}
-	return out
+	return connector.NamedParamsIn(query, connector.GenericSQLDialect)
 }
 
 func extractInputArgs(value interface{}, args map[string]*ArgDef) {
