@@ -63,6 +63,22 @@ to {
 }
 ```
 
+A placeholder is only recognised where the statement is code. Colons inside a comment, a string literal or a quoted identifier are left exactly as written, and so are Postgres casts:
+
+```sql
+-- ratio:sku is a comment, not a parameter
+SELECT id, 'a:b' AS label, :sku::text
+FROM catalog
+WHERE sku = :sku          -- the item's parent may be promoted
+```
+
+Only the two `:sku` in the `SELECT` and `WHERE` bind; `ratio:sku`, `'a:b'`, and the `::text` cast are untouched. Comments are read per driver, so MySQL's `#` and its rule that `--` needs whitespace after it both apply where they should.
+
+!!! note "Fixed in 3.3.0"
+    Before 3.3.0 the binder knew about string literals and nothing else, so an apostrophe in a comment — `-- the item's parent` — opened a literal that never closed, and **every placeholder after it reached the driver unbound**. The statement failed with `missing named argument`, naming the parameter rather than the comment. In the other direction, `-- ratio:sku` was bound as if it were a placeholder and consumed one of the statement's arguments. `mycel validate` does not execute SQL, so neither showed up there.
+
+A placeholder with no matching value is left as written rather than bound to nothing, so the driver rejects the statement you wrote instead of one with an argument silently missing.
+
 ### Standard operations (no `query`)
 
 Without `query`, the operation is inferred from the HTTP method or set explicitly:
