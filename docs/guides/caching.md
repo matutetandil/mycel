@@ -223,6 +223,53 @@ flow "process_payment" {
 | `fingerprint {}` | block | yes | — | Named CEL expressions whose values form the projection. Both `input.*` and `output.*` (transform result) are in scope. Must list every persisted field — omitting one would silently drop real changes |
 | `ttl` | string | no | — | How long to keep stored fingerprints. Supports `"30d"` and `"2w"` plus stdlib units (`s`/`m`/`h`); malformed values fail the parse |
 | `on_duplicate` | string | no | `"ack"` | Behavior on fingerprint match: `"ack"`, `"reject"`, `"requeue"`. Matches the `sequence_guard` vocabulary so MQ consumers handle it uniformly |
+| `compare_when` | string | no | — | CEL predicate gating Phase A **only**. False: the stored fingerprint is not consulted, so the message cannot be dropped; Phase B still commits after a successful write. `input.*` and `output.*` in scope. See [When the record can vanish](#when-the-record-can-vanish) |
+
+### When the record can vanish
+
+A stored fingerprint says the content was written once. It does not say it is still written. Nothing in dedupe observes the downstream record being removed by a path the flow never sees — a manual delete in an admin UI, a restore, a data fix — and there is usually no flow to clear the fingerprint when that happens. The re-send meant to repair the damage then matches a fingerprint describing a record that no longer exists, and is dropped.
+
+`compare_when` gates the comparison, and only the comparison:
+
+```hcl
+step "check_present" {
+  connector = "db"
+  query     = "SELECT CAST(COALESCE((SELECT 1 FROM products WHERE sku = :sku LIMIT 1), 0) AS SIGNED) AS row_exists"
+  params    = { sku = "input.body.sku" }
+  on_error  = "fail"
+}
+
+transform {
+  row_exists = "int(step.check_present.row_exists)"
+  name       = "input.body.name"
+}
+
+dedupe {
+  cache        = "fp_cache"
+  key          = "'sku_fp:' + input.body.sku"
+  ttl          = "30d"
+  compare_when = "output.row_exists == 1"
+  fingerprint {
+    name = "output.name"
+  }
+}
+```
+
+- **false** → Phase A is skipped entirely: no `GET`, no comparison, no drop. Phase B still runs, so the write commits a fresh fingerprint and the next message *can* be suppressed. Gating both phases would leave the cache empty forever and the primitive permanently inert on the flow.
+- **true** or absent → unchanged behavior.
+- Fails **open**: a predicate that cannot be evaluated, or that does not return a boolean, logs a warning and processes the message. Same direction as the cache-error path — one extra downstream call is recoverable, a silently swallowed message is not.
+
+!!! warning "The existence check goes in `compare_when`, not in `fingerprint {}`"
+    Adding `row_exists` to the projection looks like it should work — record gone, projection differs, message reprocessed — and it does the opposite in both directions.
+
+    Phase A and Phase B share one projection: the fingerprint Phase B stores is the one Phase A computed, i.e. the **pre-write** reading. On a create, "does this record exist" is `0` by definition, so the stored value is `0` forever while every later message computes `1`.
+
+    | situation | stored | computed | result |
+    |---|---|---|---|
+    | record exists, duplicate re-send | 0 | 1 | mismatch → **duplicate reaches the destination** |
+    | record deleted externally, re-send | 0 | 0 | match → **dropped**, which is the case it was added for |
+
+    It breaks suppression exactly where suppression worked, and stays inert exactly where invalidation was needed.
 
 ### Pipeline order
 

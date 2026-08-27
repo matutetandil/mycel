@@ -87,6 +87,9 @@ func mergeDedupe(base, inline *flow.DedupeConfig) *flow.DedupeConfig {
 	if inline.OnDuplicate != "" {
 		merged.OnDuplicate = inline.OnDuplicate
 	}
+	if inline.CompareWhen != "" {
+		merged.CompareWhen = inline.CompareWhen
+	}
 	if len(inline.Fingerprint) > 0 {
 		merged.Fingerprint = make(map[string]string, len(base.Fingerprint)+len(inline.Fingerprint))
 		for k, v := range base.Fingerprint {

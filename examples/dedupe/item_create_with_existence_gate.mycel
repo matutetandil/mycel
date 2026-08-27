@@ -1,0 +1,103 @@
+// Example: dedupe that stops trusting its own cache once the record it
+// describes is gone.
+//
+// The flow next door drops a message whose content matches the last content
+// written for the same key. That is the right answer while the write it
+// remembers is still in place. It stops being the right answer the moment the
+// record leaves the downstream by a path this consumer never sees — an admin
+// deleting it by hand, a restore from an older backup, a data fix. Nothing
+// clears the fingerprint when that happens, and there is no delete flow to do
+// it, so the re-send meant to repair the damage matches a fingerprint
+// describing something that no longer exists and is acked in milliseconds
+// having written nothing.
+//
+// `compare_when` is how the flow says the stored fingerprint is no longer
+// trustworthy. It gates the comparison, and ONLY the comparison:
+//
+//   false → the stored fingerprint is not consulted, so the message cannot be
+//           dropped. It writes, and the new fingerprint is still committed
+//           afterwards — which is what lets the NEXT message be suppressed.
+//   true  → ordinary dedupe.
+//
+// Gating both phases instead would leave the cache empty forever and the
+// primitive permanently inert on this flow.
+//
+//   from(rabbit) → accept → step(check_present) → transform
+//                → dedupe(compare_when) → to(magento)
+flow "item_create_with_existence_gate" {
+  from {
+    connector = "rabbit"
+    operation = "all.in.magento.q"
+    filter {
+      condition = "input.body.metadata.headers.elementType == 'product' && input.body.metadata.headers.operation == 'create'"
+      on_reject = "requeue"
+    }
+  }
+
+  accept {
+    when      = "has(input.body.payload.productItemId) && input.body.payload.productItemId != ''"
+    on_reject = "reject"
+  }
+
+  // The one thing the message cannot tell us. COALESCE so the query always
+  // returns exactly one row: a step whose query returns a single row comes
+  // back as an object, and `step.check_present.row_exists` would fail to index
+  // a list. on_error = "fail" for the same reason — a `default = []` would
+  // reintroduce the list shape, and a database that is down should retry, not
+  // quietly answer "gone" and send every message downstream.
+  step "check_present" {
+    connector = "catalog"
+      query     = "SELECT CAST(COALESCE((SELECT 1 FROM catalog_items WHERE sku = :sku LIMIT 1), 0) AS SIGNED) AS row_exists"
+    params    = { sku = "input.body.payload.productItemId" }
+    on_error  = "fail"
+  }
+
+  transform {
+    sku  = "input.body.payload.productItemId"
+    name = "trim(input.body.payload.productItemName ?? '')"
+
+    // Carried into output.* so the gate below can read it. It is NOT product
+    // data and it is NOT in the fingerprint — see the note there.
+    row_exists = "int(step.check_present.row_exists)"
+  }
+
+  dedupe {
+    cache        = "fp_cache"
+    key          = "'sku_fp:' + input.body.payload.productItemId"
+    ttl          = "30d"
+    on_duplicate = "ack"
+
+    // Only suppress duplicates while the record this fingerprint describes is
+    // still there.
+    compare_when = "output.row_exists == 1"
+
+    fingerprint {
+      sku  = "output.sku"
+      name = "output.name"
+
+      // row_exists deliberately absent. Putting the existence check in the
+      // projection is the mistake this attribute exists to avoid: a projection
+      // field is symmetric, so it fires when the record APPEARS as well. The
+      // fingerprint committed after a write is the one computed BEFORE it, so
+      // on a create the stored reading is always 0 while every later message
+      // computes 1 — duplicates stop being suppressed, and the deletion the
+      // field was added to catch still matches and still gets dropped. Both
+      // directions land backwards.
+    }
+  }
+
+  to {
+    connector = "magento"
+    target    = "/rest/V1/mercury/products/items"
+    operation = "POST"
+    envelope  = "productData"
+  }
+
+  error_handling {
+    retry {
+      attempts = 3
+      delay    = "2s"
+      backoff  = "exponential"
+    }
+  }
+}

@@ -102,6 +102,84 @@ transform {
 Audit every array field in your `fingerprint {}` for order sensitivity
 before going to production.
 
+## When the record can vanish: `compare_when`
+
+A stored fingerprint says this content was written once. It does not say it is
+still written.
+
+Nothing in dedupe observes the downstream record being removed by a path the
+flow never sees — a manual delete, a restore from an older backup, a data fix —
+and there is usually no delete flow to clear the fingerprint when it happens.
+The re-send meant to repair the damage then matches a fingerprint describing a
+record that no longer exists, and is dropped in milliseconds having written
+nothing. Anything downstream that was waiting on that write proceeds against a
+record that is not there.
+
+`item_create_with_existence_gate.mycel` closes that hole. A step asks the one
+question the message cannot answer, and `compare_when` gates the comparison on
+it:
+
+```hcl
+step "check_present" {
+  connector = "catalog"
+  query     = "SELECT CAST(COALESCE((SELECT 1 FROM catalog_items WHERE sku = :sku LIMIT 1), 0) AS SIGNED) AS row_exists"
+  params    = { sku = "input.body.payload.productItemId" }
+  on_error  = "fail"
+}
+
+transform {
+  row_exists = "int(step.check_present.row_exists)"
+  # ... the fields actually written downstream
+}
+
+dedupe {
+  cache        = "fp_cache"
+  key          = "'sku_fp:' + input.body.payload.productItemId"
+  compare_when = "output.row_exists == 1"
+  fingerprint {
+    sku  = "output.sku"
+    name = "output.name"
+  }
+}
+```
+
+| situation | gate | outcome |
+|---|---|---|
+| record present, identical content | compare | dropped as a duplicate |
+| record present, content changed | compare | fingerprint differs → processed |
+| first write, record absent | skip | processed → the new fingerprint is stored |
+| record deleted externally, identical content | skip | **processed and rewritten** |
+
+Two properties are load-bearing:
+
+- **Only the comparison is gated.** The new fingerprint is still committed
+  after a successful write. Gating that too would leave the cache empty
+  forever, so no later message could be suppressed either and the primitive
+  would be permanently inert on this flow.
+- **It fails open.** A predicate that cannot be evaluated, or that returns
+  something other than a boolean, logs a warning and processes the message.
+  One extra downstream call is recoverable; a silently swallowed message is
+  not.
+
+### ⚠️ The existence check does not go in `fingerprint {}`
+
+Adding `row_exists` to the projection looks like it should do the same job —
+record gone, projection differs, message reprocessed — and it does the opposite
+in both directions.
+
+Phase A and Phase B share one projection: the fingerprint Phase B stores is the
+one Phase A computed, i.e. the **pre-write** reading. On a create, "does this
+record exist" is `0` by definition, so the stored value stays `0` forever while
+every later message computes `1`.
+
+| situation | stored | computed | result |
+|---|---|---|---|
+| record exists, duplicate re-send | 0 | 1 | mismatch → **the duplicate reaches the downstream** |
+| record deleted externally, re-send | 0 | 0 | match → **dropped**, which is the case it was added for |
+
+It breaks suppression exactly where suppression was working, and stays inert
+exactly where invalidation was needed. Put the check in `compare_when`.
+
 ## Composition with other primitives
 
 The flow combines several primitives that together make dedupe
@@ -125,14 +203,21 @@ full effectiveness in a clustered deployment.
 | File | Description |
 |------|-------------|
 | `config.mycel` | Service configuration |
-| `connectors.mycel` | RabbitMQ, Magento HTTP, and the in-memory cache for fingerprints |
+| `connectors.mycel` | RabbitMQ, Magento HTTP, the in-memory cache for fingerprints, and the catalog the existence gate reads |
 | `item_update_with_dedupe.mycel` | The `item_update_with_dedupe` flow |
+| `item_create_with_existence_gate.mycel` | The `item_create_with_existence_gate` flow — dedupe with `compare_when` |
+| `migrations/001_catalog.sql` | The catalog table the existence gate reads |
 
 ## Run locally
 
 ```bash
 export RABBITMQ_URL="amqp://guest:guest@localhost:5672/"
 export MAGENTO_URL="https://your-magento.example.com"
+
+# Creates the catalog table the existence gate reads. Without it the
+# check_present step fails and the create flow retries instead of starting.
+mycel migrate --config ./examples/dedupe
+
 mycel start --config ./examples/dedupe
 ```
 

@@ -1539,6 +1539,7 @@ func parseTransformMappings(block *hcl.Block, ctx *hcl.EvalContext) (map[string]
 //	  key          = "input.message_id"
 //	  ttl          = "1h"
 //	  on_duplicate = "ack"
+//	  compare_when = "output.row_exists == 1"  // optional; gates the compare only
 //	  fingerprint { id = "input.body.id" }
 //	}
 //
@@ -1579,6 +1580,7 @@ func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 			{Name: "key"},
 			{Name: "ttl"},
 			{Name: "on_duplicate"},
+			{Name: "compare_when"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "fingerprint"},
@@ -1639,6 +1641,21 @@ func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 			return nil, fmt.Errorf("dedupe on_duplicate error: %s", diags.Error())
 		}
 		dedupe.OnDuplicate = stringOrEmpty(val)
+	}
+
+	// compare_when is a CEL predicate, so it is read the same way as `key`:
+	// quoted it evaluates to a string, unquoted it fails to evaluate against
+	// the HCL context and the raw source text is what the runtime needs.
+	if attr, ok := content.Attributes["compare_when"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			dedupe.CompareWhen = extractExpressionText(attr.Expr)
+		} else {
+			dedupe.CompareWhen = stringOrEmpty(val)
+		}
+		if dedupe.CompareWhen == "" {
+			return nil, fmt.Errorf("dedupe compare_when must not be empty — omit the attribute to always compare")
+		}
 	}
 
 	// Parse the fingerprint block — named CEL expressions, same shape as a

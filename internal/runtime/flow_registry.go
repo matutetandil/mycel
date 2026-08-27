@@ -1449,6 +1449,30 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 			signalExpr := h.Config.Coordinate.Signal.Emit
 			whenExpr := h.Config.Coordinate.Signal.When
 			signalKeyFn = func(result interface{}) (string, bool) {
+				// A dropped message is not a completed one. The signal is an
+				// assertion that this flow applied its effect, and a drop
+				// short-circuits before `to` — nothing was written, so the
+				// waiters must not be released.
+				//
+				// From the coordinator's side a drop is indistinguishable from
+				// a success: dedupe and sequence_guard return a
+				// FilteredResultWithPolicy with a nil error, so the emit ran
+				// anyway. Downstream that is worse than a missing signal — a
+				// consumer waiting on `parent_ready` proceeded against a parent
+				// that had been suppressed as a duplicate and, in the case that
+				// found this, no longer existed.
+				//
+				// `signal.when` cannot cover this from configuration: the
+				// transform has already run by then, so the output it sees on a
+				// drop is identical to the one it sees on a write.
+				if drop, ok := result.(*flow.FilteredResultWithPolicy); ok && drop.Filtered {
+					slog.Info("coordinate signal skipped",
+						"flow", h.Config.Name,
+						"reason", "message dropped",
+						"drop_reason", drop.Reason,
+						"policy", drop.Policy)
+					return "", false
+				}
 				output := outputSlot.Get()
 				if output == nil {
 					// Fallback to the destination response when no
