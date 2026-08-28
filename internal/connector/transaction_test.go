@@ -39,7 +39,7 @@ func memoryDB(t *testing.T) *sql.DB {
 
 // positional turns :name placeholders into ? in the order they appear, which
 // is what each SQL connector's own parser does.
-func positional(query string, params map[string]interface{}) (string, []interface{}) {
+func positional(query string, params map[string]interface{}) (string, []interface{}, error) {
 	var args []interface{}
 	out := query
 	for {
@@ -57,7 +57,7 @@ func positional(query string, params map[string]interface{}) (string, []interfac
 		args = append(args, params[out[start+1:end]])
 		out = out[:start] + "?" + out[end:]
 	}
-	return out, args
+	return out, args, nil
 }
 
 func countRows(t *testing.T, db *sql.DB, table string) int {

@@ -213,6 +213,23 @@ flow "republish_product" {
 
     Aiming a `${...}` template at a list does not fan out either: it renders Go syntax into the key (`url-rewrite-[a b c]`), deletes that, and reports success. It now warns and points here.
 
+### When an invalidation does not happen
+
+A flow whose invalidation failed has already done and committed its own work, so it answers 200 either way — and the cache is now serving what that write made stale, with nothing to correct it. The two ways it can fail want different answers:
+
+| What failed | Response |
+|---|---|
+| The cache could not be reached (`keys`, `patterns`) | Logged at warn, counted as `mycel_cache_invalidate_errors_total`. **The request still succeeds** — the write is committed, and failing it afterwards would be wrong |
+| `keys_from` / `patterns_from` could not be evaluated, or did not yield a list of strings | Logged, counted, **and the request fails**. This is not transient: it will fail identically on every message for as long as the flow is deployed, invalidating nothing while reporting success, and `mycel validate` does not evaluate CEL so it is not caught beforehand either |
+
+```
+WARN cache invalidation did not happen
+     flow=invalidate_products cache=redis_cache attr=keys_from fatal=true
+     error="invalidate keys_from: CEL eval error: no such key: nope"
+```
+
+This matters most for a flow whose *only* job is invalidation — an endpoint a consumer calls after writing elsewhere, with steps and an `after` block and no `to`. There is nothing else to observe, so a silent no-op would answer 200 forever and the only symptom would be stale reads somewhere else entirely, hours later. `examples/cache` shows that shape as Pattern 7.
+
 ## Sharing a namespace with another service
 
 A flow's cache entries are `["json"]` unless the block says otherwise, and that is the right answer while Mycel owns the namespace. It stops being the right answer during a migration — which is exactly when a cache is most likely to be shared, because the service being replaced is still up and still reading and writing the same keys.

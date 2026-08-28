@@ -213,3 +213,16 @@ VALUES (100, 42, 3, 'main');
 
 INSERT OR IGNORE INTO orders (id, user_id, product_id, status, total, created_at)
 VALUES ('ord-123', 1, 100, 'confirmed', 59.98, '2026-01-02T00:00:00Z');
+
+-- Rows for get_order_summary, whose second step binds a LIST into
+-- `IN (:order_ids)`. That flow was in this example, and in no curl in the
+-- README, so nothing ever called it and the binding was never exercised — it
+-- could not work at all until 3.4.0.
+INSERT OR IGNORE INTO orders (id, user_id, product_id, status, total, created_at)
+VALUES ('ord-124', 1, 100, 'confirmed', 29.99,  '2026-01-03T00:00:00Z'),
+       ('ord-125', 1, 100, 'confirmed', 120.50, '2026-01-04T00:00:00Z');
+
+INSERT OR IGNORE INTO order_items (id, order_id, product_id, quantity, price)
+VALUES (1, 'ord-123', 100, 2, 29.99),
+       (2, 'ord-124', 100, 1, 29.99),
+       (3, 'ord-125', 200, 3, 40.17);

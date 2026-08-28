@@ -16,7 +16,13 @@ func TestParseNamedParams_ApostropheInComment(t *testing.T) {
 	sql := "-- the item's parent\nSELECT id FROM t WHERE sku = :sku OR sku = :orp"
 	want := "-- the item's parent\nSELECT id FROM t WHERE sku = ? OR sku = ?"
 
-	got, args := c.parseNamedParams(sql, params)
+	got, args, err := c.parseNamedParams(sql, params)
+
+	if err != nil {
+
+		t.Fatalf("bind: %v", err)
+
+	}
 	if got != want {
 		t.Errorf("sql:\n  got  %q\n  want %q", got, want)
 	}
@@ -32,7 +38,10 @@ func TestParseNamedParams_ApostropheInComment(t *testing.T) {
 // arguments.
 func TestParseNamedParams_ColonInCommentIsNotAParameter(t *testing.T) {
 	c := &Connector{}
-	got, args := c.parseNamedParams("-- ratio:sku\nSELECT :sku", map[string]interface{}{"sku": "X1"})
+	got, args, err := c.parseNamedParams("-- ratio:sku\nSELECT :sku", map[string]interface{}{"sku": "X1"})
+	if err != nil {
+		t.Fatalf("bind: %v", err)
+	}
 	if want := "-- ratio:sku\nSELECT ?"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

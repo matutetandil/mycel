@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A list bound into `IN (:name)` is expanded instead of handed over whole.** One placeholder was emitted for the entire list and the slice passed to the driver as a single argument, which `database/sql` refuses itself — `unsupported type []interface {}, a slice of interface` — so it failed the same way on every driver. `IN (:order_ids)` with three values now becomes `IN (?, ?, ?)` and three arguments, or `IN ($2, $3, $4)` on Postgres, numbered in sequence with everything around it. `NOT IN` works the same way, and a string is still one value rather than a sequence of characters. Two shapes are refused rather than guessed, both naming the parameter: an **empty** list, because `IN ()` is not valid SQL anywhere and no expansion is right for both directions — `IN (NULL)` matches nothing, which is what an empty set means, but `NOT IN (NULL)` also matches nothing, which is its opposite — and a list where a **scalar** belongs, which would otherwise reach the driver as `id = ?, ?, ?` and come back as a syntax error naming a position rather than a parameter.
+
+  `examples/steps` shipped a flow doing exactly this, and no `curl` in its README reached that flow — so it was written, shipped and read while never once being run. It now has the request that exercises it, the rows for it to return, and the `when` guard that an empty result needs, which is the answer the error message points at.
+
+- **A cache invalidation that did not happen is no longer silent.** `executeInvalidation` reported its failures correctly and the one call site discarded them, so a flow that invalidated nothing was indistinguishable from one that invalidated everything it was asked to: it answered 200, the caller believed the entries were gone, and they were still there. The same shape as the read-side fix in 3.3.0, on the write side. Both kinds are now logged at warn and counted as `mycel_cache_invalidate_errors_total{cache,attr}`, and they are answered differently: a cache that could not be reached is transient and the flow's own work is already committed, so the request still succeeds — but a `keys_from` or `patterns_from` that cannot be evaluated, or that does not yield a list of strings, **fails the request**. That one is not transient; it fails identically on every message for as long as the flow is deployed, and `mycel validate` does not evaluate CEL, so a typo there was a silent, permanent no-op. Failing loudly on the first message beats invalidating nothing for a month.
+
+  `examples/cache` gains the shape this lands hardest on: an endpoint whose only job is invalidation — steps, an `after` block, and no `to`. It was supported and exercised by nothing, and there is nothing else to observe in it, so a silent no-op would answer `200` forever with the only symptom appearing somewhere else entirely, hours later.
+
 ## [3.3.0] - 2026-08-28
 
 ### Added

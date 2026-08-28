@@ -342,10 +342,19 @@ flow "get_order_summary" {
     }
   }
 
-  # Step 2: Get all order items
+  # Step 2: Get all order items.
+  #
+  # A LIST bound into an IN. The binder expands it into as many placeholders as
+  # the list has members — one placeholder handed a slice is refused by
+  # database/sql itself, on every driver.
+  #
+  # The `when` is not optional decoration: a user with no orders leaves this an
+  # empty list, and `IN ()` is not valid SQL. Guarding the step is the answer,
+  # because there is no expansion that is right for both IN and NOT IN.
   step "items" {
     connector = "db"
     query     = "SELECT * FROM order_items WHERE order_id IN (:order_ids)"
+    when      = "size(step.orders ?? []) > 0"
     params = {
       order_ids = "pluck(step.orders, 'id')"
     }

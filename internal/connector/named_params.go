@@ -2,6 +2,7 @@ package connector
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -33,6 +34,14 @@ import (
 // line comments, block comments, string literals and quoted identifiers. It is
 // not a SQL parser and does not need to be — it only has to know which
 // stretches of a statement to copy through untouched.
+//
+// It also knows one thing about shape, for one reason. A set is bound as a
+// list, and `IN (:ids)` has to become as many placeholders as the list has
+// members: one placeholder handed a slice is refused by database/sql itself
+// ("unsupported type []interface {}, a slice of interface"), so the same
+// failure reaches every driver. That is why the scanner tracks what word
+// opened the parenthesis it is inside — enough to expand a list where a set
+// belongs, and to say so where one does not.
 
 // SQLDialect carries the lexical differences between the drivers. Everything
 // else about the scan is shared.
@@ -106,9 +115,9 @@ var GenericSQLDialect = SQLDialect{
 // That is what makes `::int` work — Postgres casts are not parameters — and it
 // leaves a genuine typo visible in the statement the driver rejects rather
 // than turning it into a silently missing argument.
-func BindNamedParams(sql string, params map[string]interface{}, d SQLDialect) (string, []interface{}) {
+func BindNamedParams(sql string, params map[string]interface{}, d SQLDialect) (string, []interface{}, error) {
 	if len(params) == 0 {
-		return sql, nil
+		return sql, nil, nil
 	}
 
 	var out strings.Builder
@@ -120,11 +129,24 @@ func BindNamedParams(sql string, params map[string]interface{}, d SQLDialect) (s
 	n := len(s)
 	i := 0
 
+	// What word opened each parenthesis still open, so a list can tell whether
+	// it is standing where a set belongs.
+	var openedBy []string
+
 	for i < n {
 		if skipped := scanSkippable(s, i, d); skipped > i {
 			out.Write(s[i:skipped])
 			i = skipped
 			continue
+		}
+
+		switch s[i] {
+		case '(':
+			openedBy = append(openedBy, wordBefore(s, i))
+		case ')':
+			if len(openedBy) > 0 {
+				openedBy = openedBy[:len(openedBy)-1]
+			}
 		}
 
 		// A cast is two colons, not a parameter named after the second one.
@@ -141,12 +163,54 @@ func BindNamedParams(sql string, params map[string]interface{}, d SQLDialect) (s
 			}
 			if j > i+1 {
 				name := string(s[i+1 : j])
-				if val, ok := params[name]; ok {
+				val, ok := params[name]
+				if !ok {
+					out.Write(s[i:j])
+					i = j
+					continue
+				}
+
+				members, isList := listMembers(val)
+				if !isList {
 					out.WriteString(d.Placeholder(argNum))
 					args = append(args, val)
 					argNum++
-				} else {
-					out.Write(s[i:j])
+					i = j
+					continue
+				}
+
+				inSet := len(openedBy) > 0 && openedBy[len(openedBy)-1] == "in"
+				if !inSet {
+					// Expanding here would produce `id = ?, ?, ?`, which the
+					// driver rejects with a syntax error naming a position in
+					// the statement rather than the parameter. Binding the
+					// slice whole is what used to happen, and database/sql
+					// refuses that too. Neither says what is wrong.
+					return "", nil, fmt.Errorf(
+						"parameter %q is a list of %d, and is not inside an IN (...): "+
+							"a list can only be bound where a set belongs",
+						name, len(members))
+				}
+				if len(members) == 0 {
+					// `IN ()` is a syntax error in MySQL, Postgres and SQLite
+					// alike, and there is no expansion that is right for both
+					// IN and NOT IN: `IN (NULL)` matches nothing, which is
+					// what an empty set means, but `NOT IN (NULL)` also
+					// matches nothing, which is the opposite of what it means.
+					// So it is said rather than guessed.
+					return "", nil, fmt.Errorf(
+						"parameter %q is an empty list, and IN () is not valid SQL: "+
+							"guard the statement with `when` on the step, or pass a value that stands for the empty set",
+						name)
+				}
+
+				for k, member := range members {
+					if k > 0 {
+						out.WriteString(", ")
+					}
+					out.WriteString(d.Placeholder(argNum))
+					args = append(args, member)
+					argNum++
 				}
 				i = j
 				continue
@@ -157,7 +221,47 @@ func BindNamedParams(sql string, params map[string]interface{}, d SQLDialect) (s
 		i++
 	}
 
-	return out.String(), args
+	return out.String(), args, nil
+}
+
+// listMembers reports the members of a value that stands for a set. A string
+// is not one, even though it is a sequence: `IN (:name)` with a name in it
+// means one name.
+func listMembers(v interface{}) ([]interface{}, bool) {
+	switch t := v.(type) {
+	case nil, string, []byte:
+		return nil, false
+	case []interface{}:
+		return t, true
+	}
+
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Array:
+		out := make([]interface{}, rv.Len())
+		for i := 0; i < rv.Len(); i++ {
+			out[i] = rv.Index(i).Interface()
+		}
+		return out, true
+	}
+	return nil, false
+}
+
+// wordBefore returns the lowercase identifier immediately preceding position
+// i, skipping whitespace. Empty when there is none.
+func wordBefore(s []byte, i int) string {
+	j := i - 1
+	for j >= 0 && (s[j] == ' ' || s[j] == '\t' || s[j] == '\n' || s[j] == '\r') {
+		j--
+	}
+	end := j + 1
+	for j >= 0 && isNamedParamChar(s[j]) {
+		j--
+	}
+	if end == j+1 {
+		return ""
+	}
+	return strings.ToLower(string(s[j+1 : end]))
 }
 
 // NamedParamsIn returns the :name placeholders a statement carries, in order

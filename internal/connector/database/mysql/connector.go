@@ -258,7 +258,11 @@ func (c *Connector) Read(ctx context.Context, query connector.Query) (*connector
 
 	// Use raw SQL if provided, otherwise build query automatically
 	if query.RawSQL != "" {
-		sqlQuery, args = c.parseNamedParams(query.RawSQL, query.Filters)
+		var bindErr error
+		sqlQuery, args, bindErr = c.parseNamedParams(query.RawSQL, query.Filters)
+		if bindErr != nil {
+			return nil, bindErr
+		}
 	} else {
 		sqlQuery, args = c.buildSelectQuery(query)
 	}
@@ -334,7 +338,11 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 		for k, v := range data.Payload {
 			params[k] = v
 		}
-		sqlQuery, args = c.parseNamedParams(data.RawSQL, params)
+		var bindErr error
+		sqlQuery, args, bindErr = c.parseNamedParams(data.RawSQL, params)
+		if bindErr != nil {
+			return nil, bindErr
+		}
 	} else {
 		// Build query automatically based on operation
 		switch data.Operation {
@@ -554,7 +562,7 @@ func (c *Connector) buildDeleteQuery(data *connector.Data) (string, []interface{
 // apart from a colon inside a comment, a string or a quoted identifier is the
 // same problem for every driver, and each of them used to carry its own copy
 // that knew only about string literals. See connector.BindNamedParams.
-func (c *Connector) parseNamedParams(sql string, params map[string]interface{}) (string, []interface{}) {
+func (c *Connector) parseNamedParams(sql string, params map[string]interface{}) (string, []interface{}, error) {
 	return connector.BindNamedParams(sql, params, connector.MySQLDialect)
 }
 

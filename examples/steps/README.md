@@ -427,6 +427,12 @@ curl "http://localhost:3000/products/100?include_price=true&include_inventory=tr
 
 # Test get_order_details
 curl http://localhost:3000/orders/ord-123
+
+# Test get_order_summary — two steps, where the second binds the ids the first
+# returned into IN (:order_ids). This one was in the example and in none of the
+# commands above, which is how it went unnoticed that a list bound into an IN
+# could not work at all before 3.4.0: nothing ever called the flow.
+curl http://localhost:3000/orders/1/summary
 ```
 
 ## Comparison: Steps vs Enrichments

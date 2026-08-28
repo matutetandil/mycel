@@ -421,3 +421,48 @@ For Redis cache, ensure Redis is running:
 redis-cli ping
 # Should respond: PONG
 ```
+
+### Pattern 7: An endpoint whose only job is invalidation
+
+No `to`. A queue consumer calls this after writing somewhere else, a step resolves which keys that write made stale, and the `after` block drops them:
+
+```hcl
+flow "invalidate_products" {
+  from {
+    connector = "api"
+    operation = "POST /cache/invalidate"
+  }
+
+  step "affected" {
+    connector = "db"
+    query     = "SELECT product_id, store_code FROM product_stores WHERE product_id IN (:ids)"
+    params    = { ids = "input.ids" }
+    when      = "size(input.ids ?? []) > 0"
+  }
+
+  after {
+    invalidate {
+      storage   = "memory_cache"
+      keys_from = "(step.affected ?? []).map(r, 'product:' + string(r.product_id) + ':' + r.store_code)"
+    }
+  }
+
+  response {
+    invalidated = "size(step.affected ?? [])"
+  }
+}
+```
+
+```bash
+curl -X POST http://localhost:3000/cache/invalidate \
+  -H 'Content-Type: application/json' -d '{"ids":[1]}'
+# {"invalidated":3}
+```
+
+This shape is worth an example precisely because there is nothing else to observe: the flow writes nothing, so a silent no-op would answer `200` forever and the only symptom would be stale reads somewhere else entirely, hours later. Since 3.4.0 it cannot — a `keys_from` that does not evaluate fails the request:
+
+```
+HTTP 400  {"error":"after.invalidate.keys_from: CEL eval error: no such key: nope"}
+```
+
+Note the `when` on the step: `IN (:ids)` expands a list into one placeholder per member, and an empty list would be `IN ()`, which is not valid SQL. See [binding a set](https://matutetandil.github.io/mycel/reference/destination-properties/#binding-a-set-in-name).

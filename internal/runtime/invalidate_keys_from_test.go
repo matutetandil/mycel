@@ -3,16 +3,21 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"sort"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/matutetandil/mycel/v3/internal/connector"
 	"github.com/matutetandil/mycel/v3/internal/connector/cache/memory"
 	"github.com/matutetandil/mycel/v3/internal/connector/cache/types"
 	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/metrics"
 	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
@@ -44,6 +49,12 @@ func newInvalidateHandler(t *testing.T, inv *flow.InvalidateConfig) (*FlowHandle
 		Logger:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	return h, memCache, func() { _ = memCache.Close(context.Background()) }
+}
+
+// invalidateErrors reads the counter for one cache and attribute.
+func invalidateErrors(t *testing.T, cache, attr string) float64 {
+	t.Helper()
+	return testutil.ToFloat64(metrics.Default().CacheInvalidateErrors.WithLabelValues(cache, attr))
 }
 
 // seed puts entries in the cache and returns the keys that survive.
@@ -259,3 +270,130 @@ func TestInvalidate_TemplateAimedAtAListWarns(t *testing.T) {
 		t.Errorf("the warning does not point at the attribute that does this:\n%s", out)
 	}
 }
+
+// An invalidation that did not happen used to be indistinguishable from one
+// that did: the error reached a call site that discarded it, so the flow
+// answered 200, the caller believed the entries were gone, and they were still
+// there.
+//
+// The two kinds want different answers, so they are asserted separately.
+
+// A keys_from that cannot be evaluated is not transient. It fails identically
+// on every message for as long as the flow is deployed, invalidating nothing,
+// and `mycel validate` does not evaluate CEL so it is not caught beforehand
+// either. Failing loudly on the first message beats invalidating nothing for a
+// month.
+func TestInvalidate_AnExpressionThatCannotRunFailsTheRequest(t *testing.T) {
+	for _, tc := range []struct{ name, expr string }{
+		{"does not evaluate", "step.nope.map(x, x)"},
+		{"yields a non-list", "step.count"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := &bytes.Buffer{}
+			prev := slog.Default()
+			slog.SetDefault(slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+			defer slog.SetDefault(prev)
+
+			h, _, done := newInvalidateHandler(t, &flow.InvalidateConfig{
+				Storage: "redis", KeysFrom: tc.expr,
+			})
+			defer done()
+
+			before := invalidateErrors(t, "redis", "keys_from")
+			ctx := ctxWithSteps(map[string]interface{}{"count": 3}, nil)
+
+			err := h.executeInvalidation(ctx, map[string]interface{}{}, nil)
+			if err == nil {
+				t.Fatal("a permanently broken expression must fail the request, not pass in silence")
+			}
+			if !strings.Contains(err.Error(), "after.invalidate.keys_from") {
+				t.Errorf("the error does not name the attribute: %v", err)
+			}
+			if got := invalidateErrors(t, "redis", "keys_from"); got != before+1 {
+				t.Errorf("mycel_cache_invalidate_errors_total went from %v to %v, want +1", before, got)
+			}
+			if !strings.Contains(logs.String(), "cache invalidation did not happen") {
+				t.Errorf("nothing was logged:\n%s", logs.String())
+			}
+		})
+	}
+}
+
+// A cache that could not be reached is transient, and the flow's own work is
+// already done and committed — failing the request afterwards would be wrong.
+// But an operator has to see it: the cache is now serving what that write made
+// stale and nothing will correct it.
+func TestInvalidate_AnUnreachableCacheIsReportedButNotFatal(t *testing.T) {
+	logs := &bytes.Buffer{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	h, _, done := newInvalidateHandler(t, &flow.InvalidateConfig{
+		Storage: "redis", Keys: []string{"product:1"},
+	})
+	defer done()
+
+	// A cache that answers every command with a failure, which is what an
+	// unreachable one looks like from here.
+	unreachable := &failingCache{err: errors.New("dial tcp: connection refused")}
+	h.Connectors.Replace("redis", unreachable)
+	h.CacheConnector = unreachable
+
+	before := invalidateErrors(t, "redis", "keys")
+	err := h.executeInvalidation(ctxWithSteps(nil, nil), map[string]interface{}{}, nil)
+	if err != nil {
+		t.Fatalf("a write that is already committed must not fail on the invalidation afterwards: %v", err)
+	}
+	if got := invalidateErrors(t, "redis", "keys"); got != before+1 {
+		t.Errorf("mycel_cache_invalidate_errors_total went from %v to %v, want +1", before, got)
+	}
+	if !strings.Contains(logs.String(), "cache invalidation did not happen") {
+		t.Errorf("an unreachable cache passed in silence:\n%s", logs.String())
+	}
+}
+
+// A working invalidation neither counts nor logs.
+func TestInvalidate_SuccessIsQuiet(t *testing.T) {
+	logs := &bytes.Buffer{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	h, cache, done := newInvalidateHandler(t, &flow.InvalidateConfig{
+		Storage: "redis", KeysFrom: "step.ids.map(i, 'k:' + i)",
+	})
+	defer done()
+
+	_ = cache.Set(context.Background(), "k:1", []byte("x"), 0)
+	before := invalidateErrors(t, "redis", "keys_from")
+
+	ctx := ctxWithSteps(map[string]interface{}{"ids": []interface{}{"1"}}, nil)
+	if err := h.executeInvalidation(ctx, map[string]interface{}{}, nil); err != nil {
+		t.Fatalf("executeInvalidation: %v", err)
+	}
+	if got := invalidateErrors(t, "redis", "keys_from"); got != before {
+		t.Errorf("a working invalidation counted an error")
+	}
+	if strings.Contains(logs.String(), "did not happen") {
+		t.Errorf("a working invalidation logged a failure:\n%s", logs.String())
+	}
+	if left := remaining(t, cache, "k:1"); len(left) != 0 {
+		t.Errorf("k:1 survived")
+	}
+}
+
+// failingCache answers every command with the same error.
+type failingCache struct{ err error }
+
+func (c *failingCache) Name() string                                             { return "redis" }
+func (c *failingCache) Type() string                                             { return "cache" }
+func (c *failingCache) Connect(context.Context) error                            { return nil }
+func (c *failingCache) Close(context.Context) error                              { return nil }
+func (c *failingCache) Health(context.Context) error                             { return c.err }
+func (c *failingCache) Get(context.Context, string) ([]byte, bool, error)        { return nil, false, c.err }
+func (c *failingCache) Set(context.Context, string, []byte, time.Duration) error { return c.err }
+func (c *failingCache) Delete(context.Context, ...string) error                  { return c.err }
+func (c *failingCache) DeletePattern(context.Context, string) error              { return c.err }
+func (c *failingCache) Exists(context.Context, string) (bool, error)             { return false, c.err }
+func (c *failingCache) TTL(context.Context, string) (time.Duration, error)       { return 0, c.err }

@@ -46,10 +46,11 @@ type Registry struct {
 	FlowStats *FlowStats
 
 	// Cache metrics
-	CacheHits         *prometheus.CounterVec
-	CacheMisses       *prometheus.CounterVec
-	CacheSize         *prometheus.GaugeVec
-	CacheDecodeErrors *prometheus.CounterVec
+	CacheHits             *prometheus.CounterVec
+	CacheMisses           *prometheus.CounterVec
+	CacheSize             *prometheus.GaugeVec
+	CacheDecodeErrors     *prometheus.CounterVec
+	CacheInvalidateErrors *prometheus.CounterVec
 
 	// Lock metrics
 	LockAcquired    *prometheus.CounterVec
@@ -232,6 +233,17 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 				Help: "Cache entries that were found but could not be decoded",
 			},
 			[]string{"cache"},
+		),
+		// The write-side counterpart. A flow whose invalidation failed has
+		// already done and committed its work, so it answers 200 either way —
+		// and the cache is now serving what that write made stale, with
+		// nothing to correct it.
+		CacheInvalidateErrors: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "mycel_cache_invalidate_errors_total",
+				Help: "Cache invalidations that did not happen",
+			},
+			[]string{"cache", "attr"},
 		),
 
 		// Lock metrics
@@ -466,6 +478,7 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 		r.CacheMisses,
 		r.CacheSize,
 		r.CacheDecodeErrors,
+		r.CacheInvalidateErrors,
 		r.LockAcquired,
 		r.LockReleased,
 		r.LockWaitSeconds,
@@ -594,6 +607,14 @@ func (r *Registry) RecordCacheMiss(cache string) {
 // read. See the metric's own comment for why it is not a hit or a miss.
 func (r *Registry) RecordCacheDecodeError(cache string) {
 	r.CacheDecodeErrors.WithLabelValues(cache).Inc()
+}
+
+// RecordCacheInvalidateError records an invalidation that did not happen. The
+// attr label is which of keys / keys_from / patterns / patterns_from was being
+// processed, because they fail for different reasons and want different
+// responses.
+func (r *Registry) RecordCacheInvalidateError(cache, attr string) {
+	r.CacheInvalidateErrors.WithLabelValues(cache, attr).Inc()
 }
 
 // SetCacheSize sets the current cache size.

@@ -79,6 +79,37 @@ Only the two `:sku` in the `SELECT` and `WHERE` bind; `ratio:sku`, `'a:b'`, and 
 
 A placeholder with no matching value is left as written rather than bound to nothing, so the driver rejects the statement you wrote instead of one with an argument silently missing.
 
+### Binding a set — `IN (:name)`
+
+A list bound inside an `IN (...)` is expanded into as many placeholders as it has members:
+
+```sql
+SELECT * FROM order_items WHERE order_id IN (:order_ids)
+```
+
+with `order_ids` holding three values becomes `IN (?, ?, ?)` and three arguments — or `IN ($2, $3, $4)` on Postgres, numbered in sequence with everything around it. `NOT IN` works the same way. A string is not a list: `IN (:name)` with a name in it means one name.
+
+Two shapes are refused rather than guessed, and both name the parameter:
+
+| What | Why |
+|------|-----|
+| An **empty** list | `IN ()` is not valid SQL in MySQL, Postgres or SQLite. There is no expansion right for both directions — `IN (NULL)` matches nothing, which is what an empty set means, but `NOT IN (NULL)` also matches nothing, which is its opposite. Guard the statement with `when` on the step instead |
+| A list where a **scalar** belongs — `WHERE id = :ids` | Expanding gives `id = ?, ?, ?`, which the driver rejects with a position in the statement rather than the name of the parameter |
+
+The guard for the empty case:
+
+```hcl
+step "items" {
+  connector = "db"
+  query     = "SELECT * FROM order_items WHERE order_id IN (:order_ids)"
+  when      = "size(step.orders ?? []) > 0"
+  params    = { order_ids = "pluck(step.orders, 'id')" }
+}
+```
+
+!!! note "Fixed in 3.4.0"
+    Before 3.4.0 a list was bound whole to a single placeholder, and `database/sql` refuses that on every driver: `unsupported type []interface {}, a slice of interface`. `examples/steps` shipped a flow doing exactly this, and no `curl` in its README reached that flow, so nothing ever ran it.
+
 ### Standard operations (no `query`)
 
 Without `query`, the operation is inferred from the HTTP method or set explicitly:
