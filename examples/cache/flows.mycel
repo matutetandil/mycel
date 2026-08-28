@@ -229,3 +229,43 @@ flow "republish_product" {
     }
   }
 }
+
+# =========================================
+# PATTERN 7: An endpoint whose only job is invalidation
+# =========================================
+# No `to`. A queue consumer calls this after writing somewhere else, a step
+# resolves which keys that write made stale, and the after block drops them.
+#
+# This shape is worth an example precisely because there is nothing else to
+# observe: the flow writes nothing, so if the invalidation quietly did nothing
+# the endpoint would answer 200 forever and the only symptom would be stale
+# reads somewhere else entirely, hours later. Since 3.4.0 it cannot: a
+# keys_from that does not evaluate fails the request, and a cache that could
+# not be reached is logged and counted.
+flow "invalidate_products" {
+  from {
+    connector = "api"
+    operation = "POST /cache/invalidate"
+  }
+
+  # Which store views each id appears in — the key set, whose size is the
+  # number of rows and so cannot be counted while parsing the configuration.
+  step "affected" {
+    connector = "db"
+    query     = "SELECT product_id, store_code FROM product_stores WHERE product_id IN (:ids)"
+    params    = { ids = "input.ids" }
+    when      = "size(input.ids ?? []) > 0"
+    on_error  = "fail"
+  }
+
+  after {
+    invalidate {
+      storage   = "memory_cache"
+      keys_from = "(step.affected ?? []).map(r, 'product:' + string(r.product_id) + ':' + r.store_code)"
+    }
+  }
+
+  response {
+    invalidated = "size(step.affected ?? [])"
+  }
+}

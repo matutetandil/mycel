@@ -36,7 +36,10 @@ type TxOps interface {
 // positional form and returns the ordered argument values. Database connectors
 // already implement this internally (parseNamedParams); they pass it to
 // RunInSQLTx so the shared transaction machinery stays driver-agnostic.
-type NamedParamParser func(query string, params map[string]interface{}) (string, []interface{})
+// A binding that cannot be made is an error rather than a silently wrong
+// statement: a list standing where a set does not belong, or an empty one
+// where IN () would be written.
+type NamedParamParser func(query string, params map[string]interface{}) (string, []interface{}, error)
 
 // RunInSQLTx is the shared database/sql implementation of TxRunner.RunInTx.
 // SQL database connectors implement RunInTx as a one-line delegation to this
@@ -83,7 +86,10 @@ type sqlTxOps struct {
 }
 
 func (o *sqlTxOps) Exec(ctx context.Context, query string, params map[string]interface{}) (int64, int64, error) {
-	sqlText, args := o.bind(query, params)
+	sqlText, args, err := o.bind(query, params)
+	if err != nil {
+		return 0, 0, err
+	}
 	res, err := o.tx.ExecContext(ctx, sqlText, args...)
 	if err != nil {
 		return 0, 0, err
@@ -96,7 +102,10 @@ func (o *sqlTxOps) Exec(ctx context.Context, query string, params map[string]int
 }
 
 func (o *sqlTxOps) QueryScalar(ctx context.Context, query string, params map[string]interface{}) (interface{}, error) {
-	sqlText, args := o.bind(query, params)
+	sqlText, args, err := o.bind(query, params)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := o.tx.QueryContext(ctx, sqlText, args...)
 	if err != nil {
 		return nil, err
@@ -119,9 +128,9 @@ func (o *sqlTxOps) QueryScalar(ctx context.Context, query string, params map[str
 	return value, rows.Err()
 }
 
-func (o *sqlTxOps) bind(query string, params map[string]interface{}) (string, []interface{}) {
+func (o *sqlTxOps) bind(query string, params map[string]interface{}) (string, []interface{}, error) {
 	if o.parse == nil {
-		return query, nil
+		return query, nil, nil
 	}
 	return o.parse(query, params)
 }

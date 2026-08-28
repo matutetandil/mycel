@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matutetandil/mycel/v3/internal/connector"
 	"github.com/matutetandil/mycel/v3/internal/parser"
 	"github.com/matutetandil/mycel/v3/pkg/connectors"
 	"github.com/matutetandil/mycel/v3/pkg/schema"
@@ -271,4 +272,40 @@ func numberIn(text, pattern string) (int, bool) {
 var writtenNumbers = map[string]int{
 	"ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20,
 	"twenty-one": 21, "four": 4, "five": 5,
+}
+
+// The claim about binding a set is about runtime behaviour rather than syntax,
+// so it is checked against the binder rather than the parser. Both halves: the
+// sentence being in the file, because a fact that quietly disappears leaves an
+// assistant with nothing, and the behaviour it describes.
+func TestTheClaimAboutBindingASetHolds(t *testing.T) {
+	text := llmsText(t)
+
+	for _, says := range []string{
+		"A list passed to `IN (:name)` is expanded",
+		`when = "size(step.x ?? []) > 0"`,
+	} {
+		if !strings.Contains(text, says) {
+			t.Errorf("llms.txt no longer says %q", says)
+		}
+	}
+
+	params := map[string]interface{}{"ids": []interface{}{1, 2, 3}}
+	got, args, err := connector.BindNamedParams(
+		"SELECT 1 WHERE id IN (:ids)", params, connector.SQLiteDialect)
+	if err != nil {
+		t.Fatalf("binding a set: %v", err)
+	}
+	if want := "SELECT 1 WHERE id IN (?, ?, ?)"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if len(args) != 3 {
+		t.Errorf("args = %d, want one per member", len(args))
+	}
+
+	empty := map[string]interface{}{"ids": []interface{}{}}
+	if _, _, err := connector.BindNamedParams(
+		"SELECT 1 WHERE id IN (:ids)", empty, connector.SQLiteDialect); err == nil {
+		t.Error("llms.txt says an empty list is refused, and it was accepted")
+	}
 }

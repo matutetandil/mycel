@@ -102,7 +102,10 @@ func TestWhatACounterColonMeansDependsOnWhereItIs(t *testing.T) {
 	}
 
 	// A name nothing supplies is left as written, so a cast survives.
-	sql, args := c.parseNamedParams("SELECT :id, ':not_a_param', :missing", map[string]interface{}{"id": 1})
+	sql, args, err := c.parseNamedParams("SELECT :id, ':not_a_param', :missing", map[string]interface{}{"id": 1})
+	if err != nil {
+		t.Fatalf("bind: %v", err)
+	}
 	if strings.Count(sql, "?") != 1 {
 		t.Errorf("sql = %q, want one bound parameter", sql)
 	}

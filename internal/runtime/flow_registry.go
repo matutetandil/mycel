@@ -2091,9 +2091,20 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 		}
 	}
 
-	// For write operations, execute invalidation if configured
+	// For write operations, execute invalidation if configured.
+	//
+	// The error used to be discarded here, so a flow that invalidated nothing
+	// was indistinguishable from one that invalidated everything it was asked
+	// to: it answered 200, the caller believed the entries were gone, and they
+	// were still there. executeInvalidation reports the transient half itself
+	// — a cache it could not reach, where the flow's own work is already
+	// committed and failing the request afterwards would be wrong — and
+	// returns only what will fail the same way on every message until someone
+	// changes the configuration.
 	if !operation.IsRead() && h.Config.After != nil && h.Config.After.Invalidate != nil {
-		_ = h.executeInvalidation(ctx, input, result)
+		if err := h.executeInvalidation(ctx, input, result); err != nil {
+			return nil, err
+		}
 	}
 
 	return result, nil
@@ -4718,12 +4729,12 @@ func (h *FlowHandler) executeInvalidation(ctx context.Context, input map[string]
 	}
 	computed, err := h.invalidationList(ctx, inv.KeysFrom, "keys_from", input, result)
 	if err != nil {
-		return err
+		return h.reportInvalidationFailure("keys_from", err, true)
 	}
 	keys = dedupeStrings(append(keys, computed...))
 	if len(keys) > 0 {
 		if err := cacheConn.Delete(ctx, keys...); err != nil {
-			return err
+			return h.reportInvalidationFailure("keys", err, false)
 		}
 	}
 
@@ -4734,15 +4745,53 @@ func (h *FlowHandler) executeInvalidation(ctx context.Context, input map[string]
 	}
 	computed, err = h.invalidationList(ctx, inv.PatternsFrom, "patterns_from", input, result)
 	if err != nil {
-		return err
+		return h.reportInvalidationFailure("patterns_from", err, true)
 	}
 	for _, pattern := range dedupeStrings(append(patterns, computed...)) {
 		if err := cacheConn.DeletePattern(ctx, pattern); err != nil {
-			return err
+			return h.reportInvalidationFailure("patterns", err, false)
 		}
 	}
 
 	return nil
+}
+
+// reportInvalidationFailure counts and logs an invalidation that did not
+// happen, and decides whether the request should fail with it.
+//
+// The two kinds want different answers. A cache that could not be reached is
+// transient, and the flow's own work is already done and committed, so failing
+// the request afterwards would be wrong — but an operator has to see it,
+// because the cache is now serving what that write made stale and nothing will
+// correct it.
+//
+// An expression that does not evaluate, or that yields something other than a
+// list of strings, is not transient: it will fail identically on every message
+// for as long as the flow is deployed, invalidating nothing while reporting
+// success, and `mycel validate` does not evaluate CEL so it is not caught
+// beforehand either. Failing loudly on the first message beats invalidating
+// nothing for a month.
+func (h *FlowHandler) reportInvalidationFailure(attr string, err error, fatal bool) error {
+	metrics.Default().RecordCacheInvalidateError(h.invalidateMetricName(), attr)
+	slog.Warn("cache invalidation did not happen",
+		"flow", h.Config.Name,
+		"cache", h.invalidateMetricName(),
+		"attr", attr,
+		"fatal", fatal,
+		"error", err)
+	if fatal {
+		return fmt.Errorf("after.invalidate.%s: %w", attr, err)
+	}
+	return nil
+}
+
+// invalidateMetricName labels the invalidation metrics by the cache being
+// invalidated, which is not always the one the flow reads from.
+func (h *FlowHandler) invalidateMetricName() string {
+	if h.Config.After != nil && h.Config.After.Invalidate != nil && h.Config.After.Invalidate.Storage != "" {
+		return h.Config.After.Invalidate.Storage
+	}
+	return h.cacheMetricName()
 }
 
 // invalidationList evaluates keys_from / patterns_from into the list of keys

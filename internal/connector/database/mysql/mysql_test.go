@@ -192,7 +192,10 @@ func TestConnector_ParseNamedParams(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotSQL, gotArgs := conn.parseNamedParams(tt.sql, tt.params)
+			gotSQL, gotArgs, err := conn.parseNamedParams(tt.sql, tt.params)
+			if err != nil {
+				t.Fatalf("bind: %v", err)
+			}
 			if gotSQL != tt.wantSQL {
 				t.Errorf("SQL mismatch:\n  got:  %s\n  want: %s", gotSQL, tt.wantSQL)
 			}

@@ -164,6 +164,7 @@ want the gauge to track reality between deploys.
 | `mycel_cache_misses_total` | Counter | cache | Cache misses |
 | `mycel_cache_size` | Gauge | cache | Current cache size |
 | `mycel_cache_decode_errors_total` | Counter | cache | Entries that were found and could not be decoded |
+| `mycel_cache_invalidate_errors_total` | Counter | cache, attr | Invalidations that did not happen |
 
 `cache` is the configured storage name, falling back to the flow name when the
 `cache {}` block declares none. A cache error counts as a miss: the flow falls
@@ -798,6 +799,13 @@ Decode errors belong in the denominator: those requests did the work.
 ```promql
 sum(rate(mycel_cache_decode_errors_total[5m])) by (cache) > 0
 ```
+
+### Invalidations That Did Not Happen
+```promql
+sum(rate(mycel_cache_invalidate_errors_total[5m])) by (cache, attr) > 0
+```
+
+The `attr` label is which of `keys`, `keys_from`, `patterns` or `patterns_from` was being processed. A `keys_from` or `patterns_from` failure fails the request as well, because it is a configuration mistake that will not fix itself; a `keys` or `patterns` failure is a cache that could not be reached, and the flow's own work is already committed, so it is reported and not raised.
 
 ### Unhealthy Connectors
 ```promql

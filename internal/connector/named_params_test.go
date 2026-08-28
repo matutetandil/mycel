@@ -2,6 +2,7 @@ package connector
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -73,7 +74,10 @@ func TestBindNamedParams_CommentsAreNotCode(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, args := BindNamedParams(tc.sql, params, tc.dialect)
+			got, args, err := BindNamedParams(tc.sql, params, tc.dialect)
+			if err != nil {
+				t.Fatalf("bind: %v", err)
+			}
 			if got != tc.want {
 				t.Errorf("sql:\n  got  %q\n  want %q", got, tc.want)
 			}
@@ -142,7 +146,10 @@ func TestBindNamedParams_LiteralsAndIdentifiers(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, args := BindNamedParams(tc.sql, params, tc.dialect)
+			got, args, err := BindNamedParams(tc.sql, params, tc.dialect)
+			if err != nil {
+				t.Fatalf("bind: %v", err)
+			}
 			if got != tc.want {
 				t.Errorf("sql:\n  got  %q\n  want %q", got, tc.want)
 			}
@@ -158,7 +165,10 @@ func TestBindNamedParams_UnchangedBehaviour(t *testing.T) {
 	params := map[string]interface{}{"sku": "X1", "n": 2}
 
 	t.Run("ordinary binding", func(t *testing.T) {
-		got, args := BindNamedParams("SELECT * FROM t WHERE sku = :sku AND n > :n", params, MySQLDialect)
+		got, args, err := BindNamedParams("SELECT * FROM t WHERE sku = :sku AND n > :n", params, MySQLDialect)
+		if err != nil {
+			t.Fatalf("bind: %v", err)
+		}
 		if want := "SELECT * FROM t WHERE sku = ? AND n > ?"; got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -168,14 +178,20 @@ func TestBindNamedParams_UnchangedBehaviour(t *testing.T) {
 	})
 
 	t.Run("postgres numbers from one", func(t *testing.T) {
-		got, _ := BindNamedParams("SELECT :sku, :n, :sku", params, PostgresDialect)
+		got, _, err := BindNamedParams("SELECT :sku, :n, :sku", params, PostgresDialect)
+		if err != nil {
+			t.Fatalf("bind: %v", err)
+		}
 		if want := "SELECT $1, $2, $3"; got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
 	})
 
 	t.Run("a postgres cast is not a placeholder", func(t *testing.T) {
-		got, args := BindNamedParams("SELECT :sku::text", params, PostgresDialect)
+		got, args, err := BindNamedParams("SELECT :sku::text", params, PostgresDialect)
+		if err != nil {
+			t.Fatalf("bind: %v", err)
+		}
 		if want := "SELECT $1::text"; got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -185,7 +201,10 @@ func TestBindNamedParams_UnchangedBehaviour(t *testing.T) {
 	})
 
 	t.Run("an unknown placeholder is left as written", func(t *testing.T) {
-		got, args := BindNamedParams("SELECT :nope", params, MySQLDialect)
+		got, args, err := BindNamedParams("SELECT :nope", params, MySQLDialect)
+		if err != nil {
+			t.Fatalf("bind: %v", err)
+		}
 		if want := "SELECT :nope"; got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -196,7 +215,10 @@ func TestBindNamedParams_UnchangedBehaviour(t *testing.T) {
 
 	t.Run("no params is a passthrough", func(t *testing.T) {
 		sql := "SELECT 1 -- it's fine"
-		got, args := BindNamedParams(sql, nil, MySQLDialect)
+		got, args, err := BindNamedParams(sql, nil, MySQLDialect)
+		if err != nil {
+			t.Fatalf("bind: %v", err)
+		}
 		if got != sql || args != nil {
 			t.Errorf("got %q / %v", got, args)
 		}
@@ -209,7 +231,13 @@ func TestBindNamedParams_UnchangedBehaviour(t *testing.T) {
 func TestBindNamedParams_DashDashNeedsSpaceInMySQL(t *testing.T) {
 	params := map[string]interface{}{"sku": "X1"}
 
-	got, args := BindNamedParams("SELECT 1--2, :sku", params, MySQLDialect)
+	got, args, err := BindNamedParams("SELECT 1--2, :sku", params, MySQLDialect)
+
+	if err != nil {
+
+		t.Fatalf("bind: %v", err)
+
+	}
 	if want := "SELECT 1--2, ?"; got != want {
 		t.Errorf("MySQL: got %q, want %q", got, want)
 	}
@@ -218,7 +246,10 @@ func TestBindNamedParams_DashDashNeedsSpaceInMySQL(t *testing.T) {
 	}
 
 	// Postgres and SQLite have no such rule.
-	got, args = BindNamedParams("SELECT 1--2, :sku", params, PostgresDialect)
+	got, args, err = BindNamedParams("SELECT 1--2, :sku", params, PostgresDialect)
+	if err != nil {
+		t.Fatalf("bind: %v", err)
+	}
 	if want := "SELECT 1--2, :sku"; got != want {
 		t.Errorf("Postgres: got %q, want %q", got, want)
 	}
@@ -231,12 +262,24 @@ func TestBindNamedParams_DashDashNeedsSpaceInMySQL(t *testing.T) {
 func TestBindNamedParams_NestedBlockComments(t *testing.T) {
 	params := map[string]interface{}{"sku": "X1"}
 
-	got, _ := BindNamedParams("/* a /* b */ :sku */ SELECT :sku", params, PostgresDialect)
+	got, _, err := BindNamedParams("/* a /* b */ :sku */ SELECT :sku", params, PostgresDialect)
+
+	if err != nil {
+
+		t.Fatalf("bind: %v", err)
+
+	}
 	if want := "/* a /* b */ :sku */ SELECT $1"; got != want {
 		t.Errorf("Postgres: got %q, want %q", got, want)
 	}
 
-	got, _ = BindNamedParams("/* a /* b */ :sku */ SELECT :sku", params, MySQLDialect)
+	got, _, err = BindNamedParams("/* a /* b */ :sku */ SELECT :sku", params, MySQLDialect)
+
+	if err != nil {
+
+		t.Fatalf("bind: %v", err)
+
+	}
 	if want := "/* a /* b */ ? */ SELECT ?"; got != want {
 		t.Errorf("MySQL: got %q, want %q", got, want)
 	}
@@ -255,7 +298,7 @@ func TestBindNamedParams_Unterminated(t *testing.T) {
 		":",
 		"::",
 	} {
-		if _, _ = BindNamedParams(sql, params, MySQLDialect); false {
+		if _, _, _ = BindNamedParams(sql, params, MySQLDialect); false {
 			t.Fatal("unreachable")
 		}
 		_ = NamedParamsIn(sql, GenericSQLDialect)
@@ -284,6 +327,144 @@ func TestNamedParamsIn(t *testing.T) {
 			got := NamedParamsIn(tc.sql, GenericSQLDialect)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// A set is bound as a list, and `IN (:ids)` has to become as many placeholders
+// as the list has members. One placeholder handed a slice is refused by
+// database/sql itself — "unsupported type []interface {}, a slice of
+// interface" — so the same failure reached every driver, and there is an
+// example in this repository that writes exactly this.
+func TestBindNamedParams_ListExpandsInsideIN(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		dialect SQLDialect
+		sql     string
+		params  map[string]interface{}
+		want    string
+		wantN   int
+	}{
+		{
+			name:    "the example in examples/steps",
+			dialect: SQLiteDialect,
+			sql:     "SELECT * FROM order_items WHERE order_id IN (:order_ids)",
+			params:  map[string]interface{}{"order_ids": []interface{}{1, 2, 3}},
+			want:    "SELECT * FROM order_items WHERE order_id IN (?, ?, ?)",
+			wantN:   3,
+		},
+		{
+			name:    "postgres numbers across the expansion",
+			dialect: PostgresDialect,
+			sql:     "SELECT 1 WHERE a = :a AND b IN (:bs) AND c = :c",
+			params:  map[string]interface{}{"a": 1, "bs": []interface{}{"x", "y"}, "c": 2},
+			want:    "SELECT 1 WHERE a = $1 AND b IN ($2, $3) AND c = $4",
+			wantN:   4,
+		},
+		{
+			name:    "NOT IN",
+			dialect: MySQLDialect,
+			sql:     "SELECT 1 WHERE sku NOT IN (:skus)",
+			params:  map[string]interface{}{"skus": []interface{}{"A", "B"}},
+			want:    "SELECT 1 WHERE sku NOT IN (?, ?)",
+			wantN:   2,
+		},
+		{
+			name:    "one member",
+			dialect: MySQLDialect,
+			sql:     "SELECT 1 WHERE id IN (:ids)",
+			params:  map[string]interface{}{"ids": []interface{}{7}},
+			want:    "SELECT 1 WHERE id IN (?)",
+			wantN:   1,
+		},
+		{
+			name:    "a typed slice, which is what a step's result gives",
+			dialect: MySQLDialect,
+			sql:     "SELECT 1 WHERE id IN (:ids)",
+			params:  map[string]interface{}{"ids": []int{1, 2}},
+			want:    "SELECT 1 WHERE id IN (?, ?)",
+			wantN:   2,
+		},
+		{
+			// A string is a sequence and is not a set: IN (:name) with a name
+			// in it means one name.
+			name:    "a string is not a list",
+			dialect: MySQLDialect,
+			sql:     "SELECT 1 WHERE name IN (:n)",
+			params:  map[string]interface{}{"n": "solo"},
+			want:    "SELECT 1 WHERE name IN (?)",
+			wantN:   1,
+		},
+		{
+			// The scanner knows which colons are real, so a list in a comment
+			// or a literal is not one.
+			name:    "a comment does not open a set",
+			dialect: MySQLDialect,
+			sql:     "-- ids IN (:ids)\nSELECT 1 WHERE id IN (:ids)",
+			params:  map[string]interface{}{"ids": []interface{}{1, 2}},
+			want:    "-- ids IN (:ids)\nSELECT 1 WHERE id IN (?, ?)",
+			wantN:   2,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, args, err := BindNamedParams(tc.sql, tc.params, tc.dialect)
+			if err != nil {
+				t.Fatalf("bind: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("sql:\n  got  %q\n  want %q", got, tc.want)
+			}
+			if len(args) != tc.wantN {
+				t.Errorf("args = %d, want %d (%v)", len(args), tc.wantN, args)
+			}
+		})
+	}
+}
+
+// The two shapes that have no right expansion are named rather than guessed.
+func TestBindNamedParams_ListWhereItCannotGo(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sql     string
+		params  map[string]interface{}
+		wantErr string
+	}{
+		{
+			// IN () is a syntax error in MySQL, Postgres and SQLite alike, and
+			// there is no expansion right for both IN and NOT IN: IN (NULL)
+			// matches nothing, which is what an empty set means, but
+			// NOT IN (NULL) also matches nothing, which is its opposite.
+			name:    "empty list",
+			sql:     "SELECT 1 WHERE id IN (:ids)",
+			params:  map[string]interface{}{"ids": []interface{}{}},
+			wantErr: "empty list",
+		},
+		{
+			// Expanding here produces `id = ?, ?, ?`, which the driver rejects
+			// with a position in the statement rather than the parameter.
+			name:    "a list where a scalar belongs",
+			sql:     "SELECT 1 WHERE id = :ids",
+			params:  map[string]interface{}{"ids": []interface{}{1, 2}},
+			wantErr: "not inside an IN",
+		},
+		{
+			name:    "a list in a plain parenthesis",
+			sql:     "SELECT (:ids)",
+			params:  map[string]interface{}{"ids": []interface{}{1, 2}},
+			wantErr: "not inside an IN",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := BindNamedParams(tc.sql, tc.params, MySQLDialect)
+			if err == nil {
+				t.Fatal("expected an error rather than a statement that cannot run")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error %q does not say %q", err, tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), "ids") {
+				t.Errorf("error %q does not name the parameter", err)
 			}
 		})
 	}
