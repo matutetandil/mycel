@@ -112,6 +112,46 @@ flow "update_product" {
 }
 ```
 
+### Pattern 5: Sharing a namespace with another service
+
+The cache is not always ours alone. During a migration the service being replaced is still up, still reading and writing the same keys, and it encodes them its own way. `encoding` says which way:
+
+```hcl
+cache {
+  storage  = "memory_cache"
+  key      = "shared:product:${input.id}"
+  encoding = ["json", "base64", "gzip"]   # gzip(base64(JSON.stringify(v)))
+}
+```
+
+Codecs apply left to right on the way out and reversed on the way in. Absent is `["json"]`, which is what every cache did before the attribute existed.
+
+Without it this is not merely incompatible, it is destructive: the entry cannot be decoded, that reads as a miss, the flow does the work and writes plain JSON over the key, and the other service fails on its next read. They take turns destroying each other's entries, and the only visible symptom is a cache that never seems to hit. A found entry that cannot be decoded is now counted as `mycel_cache_decode_errors_total` and logged with its key, which is the signal that the format is wrong.
+
+### Pattern 6: Dropping a key set the configuration cannot count
+
+`keys` is one key out per template in: the values vary with the message, the number does not. When the set is whatever a query returned — one entry per store view a product appears in — its size is a function of the data, and `keys_from` is how to say so:
+
+```hcl
+step "affected" {
+  connector = "db"
+  query     = "SELECT store_code FROM product_stores WHERE product_id = :id"
+  params    = { id = "input.id" }
+}
+
+after {
+  invalidate {
+    storage   = "memory_cache"
+    keys      = ["products:item"]
+    keys_from = "step.affected.map(r, 'product:' + input.id + ':' + r.store_code)"
+  }
+}
+```
+
+`input.*`, `output.*` and `step.*` are in scope, and the result is unioned with `keys` and deduplicated. `patterns_from` is the same for wildcards.
+
+A wildcard is not a substitute when the members diverge: one broad enough to catch them all also deletes entries for unrelated products, and one narrow enough to be safe misses exactly the ones that matter.
+
 ## Testing the API
 
 ```bash

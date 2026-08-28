@@ -1,10 +1,6 @@
 # Cache Example - Flow Definitions
 # =================================
 # Demonstrates caching with Mycel.
-#
-# NOTE: This is a simplified example. Advanced features like
-# variable interpolation in cache keys (${input.id}) and
-# after/invalidate blocks are documented but require parser support.
 
 # =========================================
 # PATTERN 1: Simple Cache Configuration
@@ -120,32 +116,6 @@ flow "health_check" {
 }
 
 # =========================================
-# Advanced Features (Documented, Need Parser Support)
-# =========================================
-# The following patterns are documented but require parser enhancements:
-#
-# 1. Dynamic cache keys with variable interpolation:
-#    cache {
-#      key = "product:${input.id}"
-#    }
-#
-# 2. Cache invalidation after writes:
-#    after {
-#      invalidate {
-#        storage  = "memory_cache"
-#        keys     = ["product:${input.id}"]
-#        patterns = ["products:*"]
-#      }
-#    }
-#
-# 3. Named cache references from caches.hcl:
-#    cache {
-#      use = "users"
-#    }
-#
-# See docs/INTEGRATION-PATTERNS.md for full documentation.
-
-# =========================================
 # PATTERN 3: Cache Invalidation
 # =========================================
 # A write drops what it made stale. Without these the cached product survived
@@ -188,6 +158,74 @@ flow "delete_product" {
       storage  = "memory_cache"
       keys     = ["products:item"]
       patterns = ["lists:products:*"]
+    }
+  }
+}
+
+# =========================================
+# PATTERN 5: Sharing a namespace with another service
+# =========================================
+# The cache is not always ours alone. During a migration the service being
+# replaced is still up, still reading and writing the same keys, and it
+# encodes them its own way — here, gzip(base64(JSON.stringify(value))).
+#
+# Without `encoding` this is not merely incompatible, it is destructive: the
+# entry cannot be decoded, that reads as a miss, the flow does the work and
+# writes plain JSON over the key, and the other service fails on its next
+# read. They take turns destroying each other's entries and the only visible
+# symptom is a cache that never seems to hit.
+flow "get_shared_product" {
+  from {
+    connector = "api"
+    operation = "GET /shared/products/:id"
+  }
+
+  to {
+    connector = "db"
+    target    = "products"
+  }
+
+  cache {
+    storage  = "memory_cache"
+    ttl      = "5m"
+    key      = "shared:product:${input.id}"
+    encoding = ["json", "base64", "gzip"]
+  }
+}
+
+# =========================================
+# PATTERN 6: Dropping a key set the configuration cannot count
+# =========================================
+# `keys` is one key out per template in: the values vary with the message, the
+# number does not. Here the set is whatever the query returned — one entry per
+# store view the product appears in — so its size is a function of the data.
+#
+# A wildcard is not a substitute when the members diverge: one broad enough to
+# catch them all also deletes entries for unrelated products.
+flow "republish_product" {
+  from {
+    connector = "api"
+    operation = "PUT /products/:id/republish"
+  }
+
+  step "affected" {
+    connector = "db"
+    query     = "SELECT store_code FROM product_stores WHERE product_id = :id"
+    params    = { id = "input.id" }
+    on_error  = "fail"
+  }
+
+  to {
+    connector = "db"
+    target    = "products"
+  }
+
+  after {
+    invalidate {
+      storage = "memory_cache"
+      # One fixed key, plus one per row the step returned. The two are unioned.
+      keys      = ["products:item"]
+      keys_from = "step.affected.map(r, 'product:' + input.id + ':' + r.store_code)"
     }
   }
 }

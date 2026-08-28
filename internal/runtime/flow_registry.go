@@ -2792,11 +2792,19 @@ func transformHint(cfg *flow.Config) string {
 
 // handleUpdate handles PUT/PATCH requests.
 func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interface{}, dest connector.Writer) (interface{}, error) {
-	// Extract ID before transform
+	// The id addresses the row; it is not a column to set.
+	//
+	// It used to be deleted from the INPUT to keep it out of the payload,
+	// which also took it away from everything downstream that reads input: a
+	// transform, a step's params, and the ${input.id} in an
+	// `after { invalidate }` — which is the pattern the documentation shows
+	// for exactly this verb, and the example in this repository works around
+	// by invalidating a static key instead. On a read the same reference
+	// resolves, so the two behaved differently for no reason an author could
+	// see, and a step naming it failed with "no such key: id".
 	var id interface{}
 	if v, ok := input["id"]; ok {
 		id = v
-		delete(input, "id")
 	}
 
 	stripInternalFields(input)
@@ -2805,6 +2813,13 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 	payload, err := h.applyTransforms(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("transform error: %w", err)
+	}
+
+	// Keep it out of the SET clause instead. Only where the payload IS the
+	// request: when a transform ran, what it produced is the author's business,
+	// and with the id back in scope naming it there is now a thing they can do.
+	if id != nil && !h.hasAuthoredPayload() {
+		payload = withoutKeys(payload, "id")
 	}
 
 	// Remove meta fields that should not be written to destination
@@ -2867,6 +2882,30 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 	return map[string]interface{}{
 		"affected": result.Affected,
 	}, nil
+}
+
+// hasAuthoredPayload reports whether the flow states what to write, rather
+// than passing the request through.
+func (h *FlowHandler) hasAuthoredPayload() bool {
+	return h.Config.Transform != nil && len(h.Config.Transform.Mappings) > 0
+}
+
+// withoutKeys copies a map minus the named keys. A copy, because a flow with
+// no transform is handed back the very input map it was given, and deleting
+// from it would take the field away from everything reading input afterwards
+// — which is the bug this exists to avoid, one step further along.
+func withoutKeys(m map[string]interface{}, keys ...string) map[string]interface{} {
+	drop := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		drop[k] = true
+	}
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		if !drop[k] {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // handleDelete handles DELETE requests.

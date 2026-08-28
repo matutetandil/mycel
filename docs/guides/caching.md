@@ -61,6 +61,8 @@ When a request comes in:
 | `ttl` | string | no | Time-to-live: `"5m"`, `"1h"`, `"24h"` |
 | `key` | string | no | CEL expression for cache key (default: auto-generated from request) |
 | `invalidate_on` | list | no | Event patterns that invalidate this cache entry |
+| `use` | string | no | Reference a named cache (`use = "cache.<name>"`); its storage, ttl, prefix and encoding come with it |
+| `encoding` | list | no | Wire format for entries, applied in order on the way out and reversed on the way in. Default `["json"]`. See [Sharing a namespace](#sharing-a-namespace-with-another-service) |
 
 ### Cache Key Expressions
 
@@ -114,6 +116,7 @@ flow "get_product" {
 | `ttl` | string | Default TTL for entries |
 | `prefix` | string | Key prefix for namespacing |
 | `invalidate_on` | list | Event patterns that trigger invalidation |
+| `encoding` | list | Wire format for entries in this cache, inherited by any flow that references it |
 
 ## Cache Invalidation
 
@@ -167,7 +170,94 @@ flow "update_product" {
 }
 ```
 
-`keys` invalidates exact keys. `patterns` invalidates all matching keys (glob-style).
+`keys` invalidates exact keys. `patterns` invalidates all matching keys (glob-style). Both are templates: `${input.id}` is replaced when the flow runs.
+
+### A key set whose size depends on the data
+
+`keys` is one key out per template in. The *values* in a key vary with the message; the *number* of keys is fixed when the configuration is parsed. When the set is whatever a query returned — every store view a product appears in, every rewrite path it has had, every variant of a parent — that number is a function of the data, and there is nothing to write.
+
+`keys_from` and `patterns_from` take a CEL expression yielding a list of strings:
+
+```hcl
+flow "republish_product" {
+  from {
+    connector = "api"
+    operation = "PUT /products/:id/republish"
+  }
+
+  step "affected" {
+    connector = "db"
+    query     = "SELECT store_code FROM product_stores WHERE product_id = :id"
+    params    = { id = "input.id" }
+  }
+
+  to {
+    connector = "db"
+    target    = "products"
+  }
+
+  after {
+    invalidate {
+      storage   = "redis_cache"
+      keys      = ["products:item"]
+      keys_from = "step.affected.map(r, 'product:' + input.id + ':' + r.store_code)"
+    }
+  }
+}
+```
+
+`input.*`, `output.*` and `step.*` are in scope, because the list almost always comes from a query the flow just ran. The result is unioned with the static list and deduplicated, so a fixed key and a computed set can be named together.
+
+!!! warning "A wildcard is not a substitute"
+    Not when the members diverge. Rewrite paths drift from the URL key through redirects and history, so a prefix broad enough to catch them all also deletes entries for unrelated products, and one narrow enough to be safe misses exactly the paths that most need dropping — over-invalidating and under-invalidating at the same time.
+
+    Aiming a `${...}` template at a list does not fan out either: it renders Go syntax into the key (`url-rewrite-[a b c]`), deletes that, and reports success. It now warns and points here.
+
+## Sharing a namespace with another service
+
+A flow's cache entries are `["json"]` unless the block says otherwise, and that is the right answer while Mycel owns the namespace. It stops being the right answer during a migration — which is exactly when a cache is most likely to be shared, because the service being replaced is still up and still reading and writing the same keys.
+
+Getting it wrong is not incompatibility, it is mutual destruction:
+
+1. Mycel reads a key the other service wrote and cannot decode it.
+2. That reads as a miss, so the flow does the work.
+3. The flow then writes **its** format over that key.
+4. The other service reads the same key next and its own decode throws.
+
+They take turns destroying each other's entries, and the only visible symptom is a cache that never seems to hit.
+
+`encoding` declares the format. The codecs listed apply left to right on the way out and reversed on the way in:
+
+```hcl
+cache {
+  storage  = "redis_cache"
+  ttl      = "5m"
+  key      = "'product:' + input.id"
+  # Reads and writes what a service storing gzip(base64(JSON.stringify(v))) does
+  encoding = ["json", "base64", "gzip"]
+}
+```
+
+| Codec | Position | What it does |
+|-------|----------|--------------|
+| `json` | first, required | The value ↔ bytes |
+| `base64` | after | Bytes ↔ bytes, standard alphabet with padding. Tolerant on the way in of missing padding and wrapped lines |
+| `gzip` | after | Bytes ↔ bytes |
+
+A chain that could never be applied — one that does not start with `json`, or names a codec that does not exist — fails when the configuration is read, not on the first cache write.
+
+A named cache can carry it, so flows sharing a namespace share its format without restating it; a flow declaring its own wins.
+
+### Knowing when the format is wrong
+
+A found entry that cannot be decoded is **not** a hit. It gets its own counter — `mycel_cache_decode_errors_total` — because it is neither a hit (the flow is about to do the work) nor a miss the cache could fix by being warmer, and it is logged at warn naming the flow, the cache and the key:
+
+```
+WARN cache entry could not be decoded; treating as a miss and doing the work
+     flow=get_product cache=redis_cache key=product:42 bytes=180
+```
+
+That line is the only signal that the cache holds something this flow cannot use. Note that a hit rate computed as `hits / (hits + misses)` will not show this — see [Observability](observability.md#cache-metrics).
 
 ## Deduplication
 
