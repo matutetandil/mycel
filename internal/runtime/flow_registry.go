@@ -1370,6 +1370,10 @@ func (h *FlowHandler) executeFlowCore(ctx context.Context, input map[string]inte
 	// resolves `output.*` against this — not the destination's raw response.
 	outputSlot := &flow.OutputSlot{}
 	ctx = flow.WithOutputCapture(ctx, outputSlot)
+	// Beside it, so the `after` block can name keys a step just produced. The
+	// write handlers take ctx by value, so what they gather cannot travel back
+	// out of them any other way.
+	ctx = flow.WithStepCapture(ctx, &flow.StepSlot{})
 
 	// Innermost call: the actual flow logic.
 	exec := func() (interface{}, error) {
@@ -2526,6 +2530,7 @@ func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]inte
 	if err != nil {
 		return nil, nil, fmt.Errorf("step execution failed: %w", err)
 	}
+	flow.StepResultsFromContext(ctx).Set(stepResults)
 
 	// If no transform is configured, return the result of the step written
 	// first. It used to walk the map of results and return whichever came out
@@ -2787,11 +2792,19 @@ func transformHint(cfg *flow.Config) string {
 
 // handleUpdate handles PUT/PATCH requests.
 func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interface{}, dest connector.Writer) (interface{}, error) {
-	// Extract ID before transform
+	// The id addresses the row; it is not a column to set.
+	//
+	// It used to be deleted from the INPUT to keep it out of the payload,
+	// which also took it away from everything downstream that reads input: a
+	// transform, a step's params, and the ${input.id} in an
+	// `after { invalidate }` — which is the pattern the documentation shows
+	// for exactly this verb, and the example in this repository works around
+	// by invalidating a static key instead. On a read the same reference
+	// resolves, so the two behaved differently for no reason an author could
+	// see, and a step naming it failed with "no such key: id".
 	var id interface{}
 	if v, ok := input["id"]; ok {
 		id = v
-		delete(input, "id")
 	}
 
 	stripInternalFields(input)
@@ -2800,6 +2813,13 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 	payload, err := h.applyTransforms(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("transform error: %w", err)
+	}
+
+	// Keep it out of the SET clause instead. Only where the payload IS the
+	// request: when a transform ran, what it produced is the author's business,
+	// and with the id back in scope naming it there is now a thing they can do.
+	if id != nil && !h.hasAuthoredPayload() {
+		payload = withoutKeys(payload, "id")
 	}
 
 	// Remove meta fields that should not be written to destination
@@ -2862,6 +2882,30 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 	return map[string]interface{}{
 		"affected": result.Affected,
 	}, nil
+}
+
+// hasAuthoredPayload reports whether the flow states what to write, rather
+// than passing the request through.
+func (h *FlowHandler) hasAuthoredPayload() bool {
+	return h.Config.Transform != nil && len(h.Config.Transform.Mappings) > 0
+}
+
+// withoutKeys copies a map minus the named keys. A copy, because a flow with
+// no transform is handed back the very input map it was given, and deleting
+// from it would take the field away from everything reading input afterwards
+// — which is the bug this exists to avoid, one step further along.
+func withoutKeys(m map[string]interface{}, keys ...string) map[string]interface{} {
+	drop := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		drop[k] = true
+	}
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		if !drop[k] {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // handleDelete handles DELETE requests.
@@ -4031,6 +4075,9 @@ func (h *FlowHandler) applyTransformsWithSteps(ctx context.Context, input map[st
 	if err != nil {
 		return nil, nil, fmt.Errorf("step execution failed: %w", err)
 	}
+	// Carried forward for the `after` block, which runs once this handler has
+	// returned and cannot otherwise see what a step found.
+	flow.StepResultsFromContext(ctx).Set(stepResults)
 
 	// Collect all enrichments (flow-level + transform-level)
 	var allEnrichments []*flow.EnrichConfig
@@ -4414,6 +4461,23 @@ func (h *FlowHandler) interpolateKey(template string, input map[string]interface
 		path := result[start+2 : end] // Remove ${ and }
 
 		value := h.resolveInputPath(path, input)
+		// A key is a string. Aiming a template at a list or a map renders Go's
+		// own syntax into it — `url-rewrite-[a b c]` — and then deletes that,
+		// reporting success. It is the same shape as the query-string %v fixed
+		// in 3.2.2, and here there is a right answer to point at.
+		switch value.(type) {
+		case nil, string, bool,
+			int, int8, int16, int32, int64,
+			uint, uint8, uint16, uint32, uint64,
+			float32, float64:
+		default:
+			slog.Warn("cache key template resolved to a non-scalar; the key will contain Go syntax",
+				"flow", h.Config.Name,
+				"template", template,
+				"path", path,
+				"type", fmt.Sprintf("%T", value),
+				"hint", "for a set of keys whose size depends on the data, use keys_from / patterns_from")
+		}
 		result = strings.Replace(result, placeholder, fmt.Sprintf("%v", value), 1)
 	}
 
@@ -4461,15 +4525,63 @@ func (h *FlowHandler) checkCache(ctx context.Context, key string) (interface{}, 
 		metrics.Default().RecordCacheMiss(h.cacheMetricName())
 		return nil, false, err
 	}
-	metrics.Default().RecordCacheHit(h.cacheMetricName())
 
-	// Deserialize from JSON
-	var result interface{}
-	if err := json.Unmarshal(data, &result); err != nil {
+	result, err := h.decodeCached(data)
+	if err != nil {
+		// The entry was there and could not be used. That is neither a hit —
+		// the flow is about to do the work — nor a miss the cache could fix by
+		// being warmer, so it gets its own counter. Counting it as a hit, which
+		// is what happened before, overstated the hit rate in exactly the case
+		// where something was wrong.
+		//
+		// And it was silent: checkCache returned the error and the one call
+		// site dropped it, so from outside, "the key was not there" and "the
+		// key was there and I could not read it" were the same event. The
+		// second is the one worth knowing about — it means a corrupt entry, or
+		// a key written by something that does not encode the way this flow
+		// does. The key is named because that is what makes it actionable, and
+		// only the key: the value is what may not be ours to log.
+		metrics.Default().RecordCacheDecodeError(h.cacheMetricName())
+		slog.WarnContext(ctx, "cache entry could not be decoded; treating as a miss and doing the work",
+			"flow", h.Config.Name,
+			"cache", h.cacheMetricName(),
+			"key", key,
+			"bytes", len(data),
+			"error", err)
 		return nil, false, err
 	}
 
+	metrics.Default().RecordCacheHit(h.cacheMetricName())
 	return result, true, nil
+}
+
+// decodeCached turns stored bytes back into a value, under whatever encoding
+// the flow declared.
+func (h *FlowHandler) decodeCached(data []byte) (interface{}, error) {
+	return flow.DecodeCacheValue(data, h.cacheEncoding())
+}
+
+// cacheEncoding resolves the wire format for this flow's entries. A flow that
+// declares its own wins; otherwise a named cache it references supplies one;
+// otherwise it is plain JSON, which is what every cache did before the
+// attribute existed.
+//
+// Resolved the same way ttl and prefix are, and for the same reason: the
+// format belongs to the namespace, so a flow taking the namespace from a named
+// cache should take the format with it.
+func (h *FlowHandler) cacheEncoding() []string {
+	if h.Config.Cache == nil {
+		return nil
+	}
+	if len(h.Config.Cache.Encoding) > 0 {
+		return h.Config.Cache.Encoding
+	}
+	if h.Config.Cache.Use != "" {
+		if named, ok := h.NamedCaches[h.Config.Cache.Use]; ok && len(named.Encoding) > 0 {
+			return named.Encoding
+		}
+	}
+	return nil
 }
 
 // storeInCache stores a value in the cache with configured TTL.
@@ -4479,8 +4591,7 @@ func (h *FlowHandler) storeInCache(ctx context.Context, key string, value interf
 		return nil
 	}
 
-	// Serialize to JSON
-	data, err := json.Marshal(value)
+	data, err := flow.EncodeCacheValue(value, h.cacheEncoding())
 	if err != nil {
 		return err
 	}
@@ -4601,26 +4712,114 @@ func (h *FlowHandler) executeInvalidation(ctx context.Context, input map[string]
 	}
 
 	// Invalidate specific keys
-	if len(inv.Keys) > 0 {
-		keys := make([]string, 0, len(inv.Keys))
-		for _, keyTemplate := range inv.Keys {
-			key := h.interpolateKey(keyTemplate, interpolationCtx)
-			keys = append(keys, key)
-		}
+	keys := make([]string, 0, len(inv.Keys))
+	for _, keyTemplate := range inv.Keys {
+		keys = append(keys, h.interpolateKey(keyTemplate, interpolationCtx))
+	}
+	computed, err := h.invalidationList(ctx, inv.KeysFrom, "keys_from", input, result)
+	if err != nil {
+		return err
+	}
+	keys = dedupeStrings(append(keys, computed...))
+	if len(keys) > 0 {
 		if err := cacheConn.Delete(ctx, keys...); err != nil {
 			return err
 		}
 	}
 
 	// Invalidate patterns
+	patterns := make([]string, 0, len(inv.Patterns))
 	for _, patternTemplate := range inv.Patterns {
-		pattern := h.interpolateKey(patternTemplate, interpolationCtx)
+		patterns = append(patterns, h.interpolateKey(patternTemplate, interpolationCtx))
+	}
+	computed, err = h.invalidationList(ctx, inv.PatternsFrom, "patterns_from", input, result)
+	if err != nil {
+		return err
+	}
+	for _, pattern := range dedupeStrings(append(patterns, computed...)) {
 		if err := cacheConn.DeletePattern(ctx, pattern); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// invalidationList evaluates keys_from / patterns_from into the list of keys
+// to drop.
+//
+// The scope is `input.*`, `output.*` and `step.*`: the set almost always comes
+// from a query the flow just ran, and a step is where that query lives. The
+// step results reach here through the slot in ctx, because this runs after the
+// handler that gathered them has returned.
+func (h *FlowHandler) invalidationList(ctx context.Context, expr, attr string, input map[string]interface{}, result interface{}) ([]string, error) {
+	if expr == "" {
+		return nil, nil
+	}
+	if err := h.ensureTransformer(); err != nil {
+		return nil, fmt.Errorf("invalidate %s: %w", attr, err)
+	}
+
+	output := map[string]interface{}{}
+	if slot := flow.TransformOutputFromContext(ctx); slot != nil && slot.Get() != nil {
+		output = slot.Get()
+	} else if m, ok := result.(map[string]interface{}); ok {
+		output = m
+	}
+
+	steps := map[string]interface{}{}
+	if slot := flow.StepResultsFromContext(ctx); slot != nil && slot.Get() != nil {
+		steps = slot.Get()
+	}
+
+	val, err := h.Transformer.EvaluateWith(ctx, expr, map[string]interface{}{
+		"input":  input,
+		"output": output,
+		"step":   steps,
+		"result": output,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("invalidate %s: %w", attr, err)
+	}
+
+	items, ok := val.([]interface{})
+	if !ok {
+		// A single key is a list of one; anything else is a mistake worth
+		// naming, because the alternative is deleting a key spelled with Go
+		// syntax in it and reporting success.
+		if str, isStr := val.(string); isStr {
+			return []string{str}, nil
+		}
+		return nil, fmt.Errorf("invalidate %s must evaluate to a list of strings, got %T", attr, val)
+	}
+
+	out := make([]string, 0, len(items))
+	for i, item := range items {
+		str, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("invalidate %s: element %d is %T, not a string", attr, i, item)
+		}
+		if str != "" {
+			out = append(out, str)
+		}
+	}
+	return out, nil
+}
+
+// dedupeStrings keeps the first occurrence of each entry. Deleting the same
+// key twice is harmless, but the union of a fixed list and a computed one
+// overlaps often enough to be worth not sending twice.
+func dedupeStrings(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := in[:0]
+	for _, s := range in {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 // generateThreadID creates a short random ID for debug threads.

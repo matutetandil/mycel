@@ -781,7 +781,16 @@ flow "get_product" {
 }
 ```
 
-See [Caching Guide](../guides/caching.md) for details.
+| Attribute | Required | Description |
+|---|---|---|
+| `storage` | one of | Cache connector name |
+| `use` | one of | Reference a named cache (`use = "cache.<name>"`) — brings its storage, ttl, prefix and encoding |
+| `ttl` | no | How long entries live |
+| `key` | no | Key template, `${...}` interpolated per request. Auto-generated from the request when absent |
+| `invalidate_on` | no | Event patterns that drop this flow's entries |
+| `encoding` | no | Wire format for entries, applied in order out and reversed in. Default `["json"]`; `["json", "base64", "gzip"]` shares a namespace with a service storing `gzip(base64(JSON.stringify(v)))` |
+
+See [Caching Guide](../guides/caching.md) for details, and [Sharing a namespace](../guides/caching.md#sharing-a-namespace-with-another-service) for why `encoding` matters during a migration.
 
 ## After Block
 
@@ -807,6 +816,16 @@ flow "update_product" {
   }
 }
 ```
+
+| Attribute | Required | Description |
+|---|---|---|
+| `storage` | yes | Cache connector name |
+| `keys` | no | Exact keys, as `${...}` templates. One key out per template in |
+| `patterns` | no | Glob patterns, same templating |
+| `keys_from` | no | CEL expression yielding a list of keys, for a set whose size is only known once the flow has run. `input.*`, `output.*` and `step.*` in scope; unioned with `keys` |
+| `patterns_from` | no | The same, for patterns |
+
+`keys` fixes the *number* of keys when the configuration is parsed — only their values vary per message. When the set is whatever a query returned, use `keys_from`; see [A key set whose size depends on the data](../guides/caching.md#a-key-set-whose-size-depends-on-the-data).
 
 ## Dedupe Block
 

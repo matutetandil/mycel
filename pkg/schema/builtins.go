@@ -358,6 +358,7 @@ func FlowCacheSchema() Block {
 			{Name: "key", Doc: "Cache key template with ${...} interpolation", Type: TypeString},
 			{Name: "invalidate_on", Doc: "Flows whose writes drop this flow's cached entries", Type: TypeList},
 			{Name: "use", Doc: "Reference to named cache definition", Type: TypeString, Ref: RefCache},
+			{Name: "encoding", Doc: "How entries are written and read, applied in order on the way out and reversed on the way in: [\"json\"] (the default), or e.g. [\"json\", \"base64\", \"gzip\"] to share a namespace with a service that stores gzip(base64(JSON.stringify(v)))", Type: TypeList, Values: []string{"json", "base64", "gzip"}},
 		},
 	}
 }
@@ -382,6 +383,8 @@ func AfterSchema() Block {
 				{Name: "storage", Doc: "Cache storage connector", Type: TypeString, Ref: RefConnector},
 				{Name: "keys", Doc: "Specific keys to invalidate", Type: TypeList},
 				{Name: "patterns", Doc: "Key patterns to invalidate (with * wildcards)", Type: TypeList},
+				{Name: "keys_from", Doc: "CEL expression yielding a list of keys, for a set whose size is only known once the flow has run. input.*, output.* and step.* in scope; unioned with keys", Type: TypeString},
+				{Name: "patterns_from", Doc: "CEL expression yielding a list of patterns; unioned with patterns", Type: TypeString},
 			}},
 		},
 	}
@@ -1225,6 +1228,12 @@ func CacheDefSchema() Block {
 			{Name: "storage", Doc: "Cache storage connector", Type: TypeString, Ref: RefConnector},
 			{Name: "ttl", Doc: "Default TTL", Type: TypeDuration},
 			{Name: "prefix", Doc: "Key prefix", Type: TypeString},
+			// invalidate_on was accepted by the parser and undeclared here.
+			// The parity test only reads schema → parser, so an attribute the
+			// schema omits is invisible to it: completions never offered this
+			// one and generated documentation never mentioned it.
+			{Name: "invalidate_on", Doc: "Events that invalidate entries in this cache", Type: TypeList},
+			{Name: "encoding", Doc: "Wire format for entries in this cache, inherited by any flow that references it", Type: TypeList, Values: []string{"json", "base64", "gzip"}},
 		},
 	}
 }

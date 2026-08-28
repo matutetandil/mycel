@@ -903,20 +903,59 @@ cache {
   key           = "'product:' + input.id"
   invalidate_on = ["product.updated"]
   use           = "cache.products"    # Reference named cache
+  encoding      = ["json"]            # Optional: wire format, see below
 }
 ```
+
+**`encoding` — sharing a namespace with something that is not Mycel.** Entries are written with the codecs listed, applied left to right, and read with the same list reversed. `["json"]` is the default and is what a cache block that does not say gets.
+
+Available codecs: `json` (the value ↔ bytes; must be first), then any number of byte transforms — `base64` and `gzip`.
+
+```hcl
+# Reads and writes what a service storing gzip(base64(JSON.stringify(v))) does
+encoding = ["json", "base64", "gzip"]
+```
+
+This matters during a migration, which is exactly when a cache is most likely to be shared: the service being replaced is still up, still reading and writing the same keys. With the wrong format the two do not merely fail to help each other — they overwrite each other. Mycel cannot decode the other service's entry, treats that as a miss, does the work, and writes its own format over the key; the other service then fails on the next read. The only visible symptom is a cache that never seems to hit.
+
+A found entry that cannot be decoded is counted as `mycel_cache_decode_errors_total` — not as a hit — and logged at warn with the key. That is the signal that the format is wrong.
 
 ### after block
 
 ```hcl
 after {
   invalidate {
-    storage  = "redis_cache"    # Required
-    keys     = ["product:${input.id}"]
-    patterns = ["products:list:*"]
+    storage       = "redis_cache"    # Required
+    keys          = ["product:${input.id}"]
+    patterns      = ["products:list:*"]
+    keys_from     = "step.variants.map(v, 'product:' + v)"   # Optional, see below
+    patterns_from = "step.stores.map(s, 'catalog:' + s + ':*')"
   }
 }
 ```
+
+**`keys` and `patterns`** are templates: `${input.id}` in one is replaced when the flow runs. One key out per template in — the *values* vary with the message, the *number* does not. A template aimed at a list cannot fan out; it renders Go syntax into the key (`url-rewrite-[a b c]`) and warns, pointing here.
+
+**`keys_from` and `patterns_from`** are CEL expressions yielding a list of strings, for a set whose size is only known once the flow has run — every store view of a product, every rewrite path it has had, every variant of a parent. `input.*`, `output.*` and `step.*` are in scope, because the list almost always comes from a query the flow just ran. The result is unioned with the static list and deduplicated, so a fixed key and a computed set can be named together.
+
+```hcl
+step "affected_paths" {
+  connector = "db"
+  query     = "SELECT store_code, request_path AS path FROM url_rewrite WHERE entity_id = :id"
+  params    = { id = "input.id" }
+}
+
+after {
+  invalidate {
+    storage   = "redis_cache"
+    keys_from = "step.affected_paths.map(r, 'url-rewrite-' + r.store_code + '-' + r.path)"
+  }
+}
+```
+
+A wildcard is not a substitute when the members diverge — rewrite paths drift from the URL key through redirects and history — because one broad enough to catch them all also deletes unrelated entries, and one narrow enough to be safe misses exactly the ones that matter.
+
+They are separate attributes rather than a second shape of `keys` because the two cannot be told apart. HCL refuses a bare `step.paths.map(r, ...)` outright — method calls are not its syntax — so the expression has to be quoted, and a quoted CEL expression and a quoted key template are the same thing to the parser.
 
 ### dedupe block
 
@@ -1281,8 +1320,11 @@ cache "NAME" {
   ttl           = "10m"
   prefix        = "products"
   invalidate_on = ["product.updated", "product.deleted"]
+  encoding      = ["json"]         # Inherited by any flow that references it
 }
 ```
+
+A flow referencing this with `use = "cache.NAME"` takes the encoding along with the namespace, and can override it by declaring its own.
 
 ---
 

@@ -46,9 +46,10 @@ type Registry struct {
 	FlowStats *FlowStats
 
 	// Cache metrics
-	CacheHits   *prometheus.CounterVec
-	CacheMisses *prometheus.CounterVec
-	CacheSize   *prometheus.GaugeVec
+	CacheHits         *prometheus.CounterVec
+	CacheMisses       *prometheus.CounterVec
+	CacheSize         *prometheus.GaugeVec
+	CacheDecodeErrors *prometheus.CounterVec
 
 	// Lock metrics
 	LockAcquired    *prometheus.CounterVec
@@ -217,6 +218,18 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 			prometheus.GaugeOpts{
 				Name: "mycel_cache_size",
 				Help: "Current number of items in cache",
+			},
+			[]string{"cache"},
+		),
+		// Its own series, because it is neither a hit nor a miss. The entry
+		// was there — so it is not a miss the cache could fix by being warmer
+		// — and it could not be used — so it is not a hit either. Counting it
+		// as a hit overstated the hit rate in exactly the case where something
+		// was wrong, and the flow did the work anyway.
+		CacheDecodeErrors: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "mycel_cache_decode_errors_total",
+				Help: "Cache entries that were found but could not be decoded",
 			},
 			[]string{"cache"},
 		),
@@ -452,6 +465,7 @@ func NewRegistry(serviceName, version, mycelVersion, environment string) *Regist
 		r.CacheHits,
 		r.CacheMisses,
 		r.CacheSize,
+		r.CacheDecodeErrors,
 		r.LockAcquired,
 		r.LockReleased,
 		r.LockWaitSeconds,
@@ -574,6 +588,12 @@ func (r *Registry) RecordCacheHit(cache string) {
 // RecordCacheMiss records a cache miss.
 func (r *Registry) RecordCacheMiss(cache string) {
 	r.CacheMisses.WithLabelValues(cache).Inc()
+}
+
+// RecordCacheDecodeError records an entry that was found and could not be
+// read. See the metric's own comment for why it is not a hit or a miss.
+func (r *Registry) RecordCacheDecodeError(cache string) {
+	r.CacheDecodeErrors.WithLabelValues(cache).Inc()
 }
 
 // SetCacheSize sets the current cache size.

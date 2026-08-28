@@ -163,11 +163,34 @@ want the gauge to track reality between deploys.
 | `mycel_cache_hits_total` | Counter | cache | Cache hits |
 | `mycel_cache_misses_total` | Counter | cache | Cache misses |
 | `mycel_cache_size` | Gauge | cache | Current cache size |
+| `mycel_cache_decode_errors_total` | Counter | cache | Entries that were found and could not be decoded |
 
 `cache` is the configured storage name, falling back to the flow name when the
 `cache {}` block declares none. A cache error counts as a miss: the flow falls
 through and does the work either way, so counting it as anything else would
 overstate how often the cache saved a round trip.
+
+`mycel_cache_decode_errors_total` is neither a hit nor a miss, and that is the
+point. The entry **was** there, so it is not a miss the cache could fix by
+being warmer; and it could not be used, so the flow did the work anyway. It
+means either a corrupt entry, or a key written by something that does not
+encode the way the flow reads — see
+[Sharing a namespace](caching.md#sharing-a-namespace-with-another-service).
+Anything above zero is worth looking at; it is normally flat.
+
+Note it when computing a hit rate. `hits / (hits + misses)` leaves decode
+errors out of the denominator, so a namespace where every entry is unreadable
+reports a *perfect* rate over the handful of requests that did hit:
+
+```promql
+sum(rate(mycel_cache_hits_total[5m]))
+/
+(
+  sum(rate(mycel_cache_hits_total[5m]))
+  + sum(rate(mycel_cache_misses_total[5m]))
+  + sum(rate(mycel_cache_decode_errors_total[5m]))
+)
+```
 
 ### Profile Metrics
 
@@ -718,7 +741,7 @@ OTLP export of metrics/logs is a planned follow-up.
       "type": "stat",
       "targets": [
         {
-          "expr": "sum(rate(mycel_cache_hits_total[5m])) / (sum(rate(mycel_cache_hits_total[5m])) + sum(rate(mycel_cache_misses_total[5m])))"
+          "expr": "sum(rate(mycel_cache_hits_total[5m])) / (sum(rate(mycel_cache_hits_total[5m])) + sum(rate(mycel_cache_misses_total[5m])) + sum(rate(mycel_cache_decode_errors_total[5m])))"
         }
       ]
     },
@@ -760,8 +783,20 @@ histogram_quantile(0.99, rate(mycel_flow_duration_seconds_bucket[5m])) > 1
 
 ### Cache Hit Rate
 ```promql
-sum(rate(mycel_cache_hits_total[5m])) /
-(sum(rate(mycel_cache_hits_total[5m])) + sum(rate(mycel_cache_misses_total[5m])))
+sum(rate(mycel_cache_hits_total[5m]))
+/
+(
+  sum(rate(mycel_cache_hits_total[5m]))
+  + sum(rate(mycel_cache_misses_total[5m]))
+  + sum(rate(mycel_cache_decode_errors_total[5m]))
+)
+```
+
+Decode errors belong in the denominator: those requests did the work.
+
+### Cache Entries That Cannot Be Read
+```promql
+sum(rate(mycel_cache_decode_errors_total[5m])) by (cache) > 0
 ```
 
 ### Unhealthy Connectors
@@ -806,13 +841,27 @@ groups:
       - alert: LowCacheHitRate
         expr: |
           sum(rate(mycel_cache_hits_total[5m])) /
-          (sum(rate(mycel_cache_hits_total[5m])) + sum(rate(mycel_cache_misses_total[5m]))) < 0.5
+          (sum(rate(mycel_cache_hits_total[5m]))
+           + sum(rate(mycel_cache_misses_total[5m]))
+           + sum(rate(mycel_cache_decode_errors_total[5m]))) < 0.5
         for: 10m
         labels:
           severity: warning
         annotations:
           summary: "Low cache hit rate"
           description: "Cache hit rate is {{ $value | humanizePercentage }}"
+
+      # Its own alert rather than only the rate above, because the rate can
+      # look healthy while this is firing: a namespace whose entries are all
+      # unreadable reports a perfect rate over the few requests that did hit.
+      - alert: CacheEntriesUnreadable
+        expr: sum(rate(mycel_cache_decode_errors_total[5m])) by (cache) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Entries in {{ $labels.cache }} cannot be decoded"
+          description: "Either corrupt entries, or a namespace shared with something that encodes differently — see the cache encoding attribute"
 
       - alert: HighLockContention
         expr: rate(mycel_lock_timeout_total[5m]) > 0.1

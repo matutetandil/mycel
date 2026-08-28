@@ -65,6 +65,23 @@ It is somewhere other blocks keep things, and it is named by them:
 Reading and writing entries directly — a get, a set, a delete of your own — is
 not something a flow can ask for.
 
+## The wire format is the flow's, not the connector's
+
+Nothing here selects how entries are encoded. That belongs to the block using
+the cache, because one connector can hold namespaces owned by different things:
+a flow's `cache {}` block declares its own with
+[`encoding`](../guides/caching.md#sharing-a-namespace-with-another-service),
+and a named `cache "..."` definition can carry one for every flow that
+references it.
+
+It only comes up when the namespace is shared with something that is not Mycel
+— which is the normal state of affairs during a migration, and the case where
+getting it wrong is not incompatibility but two services taking turns
+overwriting each other's entries.
+
+Neither `dedupe` nor `idempotency` is affected: they store their own bytes and
+read them back themselves.
+
 ## Example
 
 ```hcl

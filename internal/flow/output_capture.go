@@ -55,3 +55,49 @@ func TransformOutputFromContext(ctx context.Context) *OutputSlot {
 	slot, _ := ctx.Value(outputCaptureCtxKey{}).(*OutputSlot)
 	return slot
 }
+
+// StepSlot is the same holder for the step results of one flow execution.
+//
+// A flow's `after` block runs long after the handler that ran the steps has
+// returned, and the write handlers take ctx by value, so the results could not
+// travel back out of them. The read-with-steps path already carried them
+// forward through ctx; this is the same thing for every other path, so an
+// `after { invalidate }` can name keys a query just produced.
+type StepSlot struct {
+	mu  gosync.RWMutex
+	val map[string]interface{}
+}
+
+// Set stores the step results. Safe to call once per flow execution.
+func (s *StepSlot) Set(results map[string]interface{}) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.val = results
+}
+
+// Get returns the captured step results, nil when no step ran.
+func (s *StepSlot) Get() map[string]interface{} {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.val
+}
+
+type stepCaptureCtxKey struct{}
+
+// WithStepCapture attaches a fresh StepSlot to ctx. Use at the entry of
+// executeFlowCore, beside WithOutputCapture.
+func WithStepCapture(ctx context.Context, slot *StepSlot) context.Context {
+	return context.WithValue(ctx, stepCaptureCtxKey{}, slot)
+}
+
+// StepResultsFromContext returns the slot attached to ctx, or nil.
+func StepResultsFromContext(ctx context.Context) *StepSlot {
+	slot, _ := ctx.Value(stepCaptureCtxKey{}).(*StepSlot)
+	return slot
+}
