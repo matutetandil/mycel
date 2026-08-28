@@ -903,8 +903,22 @@ cache {
   key           = "'product:' + input.id"
   invalidate_on = ["product.updated"]
   use           = "cache.products"    # Reference named cache
+  encoding      = ["json"]            # Optional: wire format, see below
 }
 ```
+
+**`encoding` — sharing a namespace with something that is not Mycel.** Entries are written with the codecs listed, applied left to right, and read with the same list reversed. `["json"]` is the default and is what a cache block that does not say gets.
+
+Available codecs: `json` (the value ↔ bytes; must be first), then any number of byte transforms — `base64` and `gzip`.
+
+```hcl
+# Reads and writes what a service storing gzip(base64(JSON.stringify(v))) does
+encoding = ["json", "base64", "gzip"]
+```
+
+This matters during a migration, which is exactly when a cache is most likely to be shared: the service being replaced is still up, still reading and writing the same keys. With the wrong format the two do not merely fail to help each other — they overwrite each other. Mycel cannot decode the other service's entry, treats that as a miss, does the work, and writes its own format over the key; the other service then fails on the next read. The only visible symptom is a cache that never seems to hit.
+
+A found entry that cannot be decoded is counted as `mycel_cache_decode_errors_total` — not as a hit — and logged at warn with the key. That is the signal that the format is wrong.
 
 ### after block
 
@@ -1281,8 +1295,11 @@ cache "NAME" {
   ttl           = "10m"
   prefix        = "products"
   invalidate_on = ["product.updated", "product.deleted"]
+  encoding      = ["json"]         # Inherited by any flow that references it
 }
 ```
+
+A flow referencing this with `use = "cache.NAME"` takes the encoding along with the namespace, and can override it by declaring its own.
 
 ---
 

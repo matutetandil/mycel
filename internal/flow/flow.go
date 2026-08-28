@@ -911,6 +911,16 @@ type CacheConfig struct {
 
 	// Use references a named cache definition (cache.name).
 	Use string
+
+	// Encoding is how entries are written and read, applied left to right on
+	// the way out and reversed on the way in. Empty means ["json"], which is
+	// what every cache did before this existed.
+	//
+	// It is here so a Mycel service can share a namespace with one that is not
+	// Mycel — the normal state of affairs during a migration, and the case
+	// where getting it wrong is not incompatibility but mutual destruction.
+	// See EncodeCacheValue.
+	Encoding []string
 }
 
 // AfterConfig holds post-execution actions.
@@ -949,6 +959,10 @@ type NamedCacheConfig struct {
 
 	// InvalidateOn is a list of events that invalidate entries in this cache.
 	InvalidateOn []string
+
+	// Encoding is the wire format for entries in this cache. A flow that
+	// references this definition inherits it unless it declares its own.
+	Encoding []string
 }
 
 // SyncStorageConfig defines inline storage configuration for sync primitives.

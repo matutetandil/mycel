@@ -2111,6 +2111,7 @@ func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig,
 			{Name: "key"},
 			{Name: "invalidate_on"},
 			{Name: "use"},
+			{Name: "encoding"},
 		},
 	}
 
@@ -2170,6 +2171,20 @@ func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig,
 			return nil, fmt.Errorf("cache use error: %s", diags.Error())
 		}
 		cache.Use = parseCacheReference(stringOrEmpty(val))
+	}
+
+	// Checked here rather than on the first cache write: a chain that could
+	// never be applied is a deploy-time mistake, and finding out at runtime
+	// means finding out as a stream of decode failures.
+	if attr, ok := content.Attributes["encoding"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("cache encoding error: %s", diags.Error())
+		}
+		cache.Encoding = stringList(val)
+		if err := flow.ValidateCacheEncoding(cache.Encoding); err != nil {
+			return nil, fmt.Errorf("cache block: %w", err)
+		}
 	}
 
 	// One or the other has to say where the cache lives. Checked here rather
@@ -2297,6 +2312,7 @@ func parseNamedCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.NamedCa
 			{Name: "ttl"},
 			{Name: "prefix"},
 			{Name: "invalidate_on"},
+			{Name: "encoding"},
 		},
 	}
 
@@ -2341,6 +2357,17 @@ func parseNamedCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.NamedCa
 			cache.InvalidateOn = append(cache.InvalidateOn, templateList(attr.Expr)...)
 		} else {
 			cache.InvalidateOn = append(cache.InvalidateOn, stringList(val)...)
+		}
+	}
+
+	if attr, ok := content.Attributes["encoding"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("cache encoding error: %s", diags.Error())
+		}
+		cache.Encoding = stringList(val)
+		if err := flow.ValidateCacheEncoding(cache.Encoding); err != nil {
+			return nil, fmt.Errorf("cache %q: %w", cache.Name, err)
 		}
 	}
 

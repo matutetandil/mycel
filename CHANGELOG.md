@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`encoding` on a flow's `cache {}` block, so a namespace can be shared with a service that is not Mycel.** Entries were `json.Marshal` on the way out and `json.Unmarshal` on the way in with nothing to say otherwise, which is fine while Mycel owns the namespace and stops being fine during a migration — exactly when a cache is most likely to be shared, because the service being replaced is still up and still reading and writing the same keys. What happened then was not incompatibility but mutual destruction: Mycel read an entry it could not decode, treated that as a miss, did the work, and wrote plain JSON over the key; the other service failed on its next read and wrote its own format back. They took turns destroying each other's entries and the only visible symptom was a cache that never seemed to hit. The codecs are applied left to right on the way out and reversed on the way in — `["json", "base64", "gzip"]` reads and writes what a service storing `gzip(base64(JSON.stringify(v)))` does. Absent means `["json"]`, byte for byte what every cache did before. A named `cache "..."` block can carry it too, so flows sharing a namespace share its format; a flow declaring its own wins. The chain is checked when the configuration is read, not on the first write. Interop is pinned by a golden produced by a real Node process, so it is checked on every run without Node present, plus a live check when there is one.
+
+### Fixed
+
+- **A cache entry that cannot be decoded is no longer counted as a hit, and no longer passes in silence.** `RecordCacheHit` fired before the decode was attempted, so an entry Mycel could not read was reported as a hit while the flow did the work — the hit rate was overstated in exactly the case where something was wrong. And the error was returned to a call site that dropped it, so from outside, "the key was not there" and "the key was there and I could not read it" were the same event; the second is the one worth knowing about, since it means a corrupt entry or a key written by something that encodes differently. It is now its own series, `mycel_cache_decode_errors_total` — neither a hit nor a miss the cache could fix by being warmer — and a warn line naming the flow, the cache and the key. It is what makes the interop problem above visible while it is happening rather than after.
+
+- **`invalidate_on` on a named `cache` block is declared in the schema.** The parser accepted it and the schema did not describe it, so completions never offered it and generated documentation never mentioned it. The parity test only reads schema → parser, which is why an attribute the schema omits stayed invisible to it.
+
 ## [3.2.2] - 2026-08-27
 
 ### Fixed

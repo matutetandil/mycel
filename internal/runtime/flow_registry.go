@@ -4461,15 +4461,63 @@ func (h *FlowHandler) checkCache(ctx context.Context, key string) (interface{}, 
 		metrics.Default().RecordCacheMiss(h.cacheMetricName())
 		return nil, false, err
 	}
-	metrics.Default().RecordCacheHit(h.cacheMetricName())
 
-	// Deserialize from JSON
-	var result interface{}
-	if err := json.Unmarshal(data, &result); err != nil {
+	result, err := h.decodeCached(data)
+	if err != nil {
+		// The entry was there and could not be used. That is neither a hit —
+		// the flow is about to do the work — nor a miss the cache could fix by
+		// being warmer, so it gets its own counter. Counting it as a hit, which
+		// is what happened before, overstated the hit rate in exactly the case
+		// where something was wrong.
+		//
+		// And it was silent: checkCache returned the error and the one call
+		// site dropped it, so from outside, "the key was not there" and "the
+		// key was there and I could not read it" were the same event. The
+		// second is the one worth knowing about — it means a corrupt entry, or
+		// a key written by something that does not encode the way this flow
+		// does. The key is named because that is what makes it actionable, and
+		// only the key: the value is what may not be ours to log.
+		metrics.Default().RecordCacheDecodeError(h.cacheMetricName())
+		slog.WarnContext(ctx, "cache entry could not be decoded; treating as a miss and doing the work",
+			"flow", h.Config.Name,
+			"cache", h.cacheMetricName(),
+			"key", key,
+			"bytes", len(data),
+			"error", err)
 		return nil, false, err
 	}
 
+	metrics.Default().RecordCacheHit(h.cacheMetricName())
 	return result, true, nil
+}
+
+// decodeCached turns stored bytes back into a value, under whatever encoding
+// the flow declared.
+func (h *FlowHandler) decodeCached(data []byte) (interface{}, error) {
+	return flow.DecodeCacheValue(data, h.cacheEncoding())
+}
+
+// cacheEncoding resolves the wire format for this flow's entries. A flow that
+// declares its own wins; otherwise a named cache it references supplies one;
+// otherwise it is plain JSON, which is what every cache did before the
+// attribute existed.
+//
+// Resolved the same way ttl and prefix are, and for the same reason: the
+// format belongs to the namespace, so a flow taking the namespace from a named
+// cache should take the format with it.
+func (h *FlowHandler) cacheEncoding() []string {
+	if h.Config.Cache == nil {
+		return nil
+	}
+	if len(h.Config.Cache.Encoding) > 0 {
+		return h.Config.Cache.Encoding
+	}
+	if h.Config.Cache.Use != "" {
+		if named, ok := h.NamedCaches[h.Config.Cache.Use]; ok && len(named.Encoding) > 0 {
+			return named.Encoding
+		}
+	}
+	return nil
 }
 
 // storeInCache stores a value in the cache with configured TTL.
@@ -4479,8 +4527,7 @@ func (h *FlowHandler) storeInCache(ctx context.Context, key string, value interf
 		return nil
 	}
 
-	// Serialize to JSON
-	data, err := json.Marshal(value)
+	data, err := flow.EncodeCacheValue(value, h.cacheEncoding())
 	if err != nil {
 		return err
 	}
