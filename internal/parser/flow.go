@@ -2249,6 +2249,8 @@ func parseInvalidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Invalid
 			{Name: "storage", Required: true},
 			{Name: "keys"},
 			{Name: "patterns"},
+			{Name: "keys_from"},
+			{Name: "patterns_from"},
 		},
 	}
 
@@ -2286,6 +2288,37 @@ func parseInvalidateBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.Invalid
 			inv.Patterns = append(inv.Patterns, templateList(attr.Expr)...)
 		} else {
 			inv.Patterns = append(inv.Patterns, stringList(val)...)
+		}
+	}
+
+	// keys_from / patterns_from carry a CEL expression that yields a list.
+	//
+	// Their own attributes rather than a second accepted shape of `keys`,
+	// because the two cannot be told apart once written: HCL refuses a bare
+	// `step.paths.map(r, ...)` outright — method calls are not its syntax — so
+	// the expression has to be quoted, and a quoted CEL expression and a
+	// quoted key template are the same TemplateExpr. Guessing between them
+	// with a heuristic is how a literal key like "cache(v1)" starts being
+	// evaluated.
+	for _, spec := range []struct {
+		attr   string
+		target *string
+	}{
+		{"keys_from", &inv.KeysFrom},
+		{"patterns_from", &inv.PatternsFrom},
+	} {
+		attr, ok := content.Attributes[spec.attr]
+		if !ok {
+			continue
+		}
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			*spec.target = extractExpressionText(attr.Expr)
+		} else {
+			*spec.target = stringOrEmpty(val)
+		}
+		if *spec.target == "" {
+			return nil, fmt.Errorf("invalidate %s must not be empty — omit the attribute if there is nothing to compute", spec.attr)
 		}
 	}
 

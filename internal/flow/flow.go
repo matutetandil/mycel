@@ -941,6 +941,25 @@ type InvalidateConfig struct {
 	// Patterns are key patterns to invalidate (with * wildcards).
 	// Example: ["products:*", "categories:${input.data.category_id}:*"]
 	Patterns []string
+
+	// KeysFrom is a CEL expression yielding a list of keys, for a set whose
+	// SIZE is only known once the flow has run. Keys above is one key out per
+	// template in, fixed when the configuration is parsed, so a flow that has
+	// to drop N entries — every store view of a product, every rewrite path a
+	// product has had — could not be written at all. Aiming a template at a
+	// list did not fan out either; it rendered Go syntax into the key.
+	//
+	// A wildcard is not a substitute when the members diverge: one broad
+	// enough to catch them all also deletes unrelated entries, and one narrow
+	// enough to be safe misses exactly the ones that matter.
+	//
+	// Evaluated against `input.*`, `output.*` and `step.*`, because the list
+	// almost always comes from a query the flow just ran. Unioned with Keys,
+	// so a fixed key and a computed set can be named together.
+	KeysFrom string
+
+	// PatternsFrom is KeysFrom for patterns.
+	PatternsFrom string
 }
 
 // NamedCacheConfig holds a reusable cache definition.

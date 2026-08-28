@@ -383,6 +383,8 @@ func AfterSchema() Block {
 				{Name: "storage", Doc: "Cache storage connector", Type: TypeString, Ref: RefConnector},
 				{Name: "keys", Doc: "Specific keys to invalidate", Type: TypeList},
 				{Name: "patterns", Doc: "Key patterns to invalidate (with * wildcards)", Type: TypeList},
+				{Name: "keys_from", Doc: "CEL expression yielding a list of keys, for a set whose size is only known once the flow has run. input.*, output.* and step.* in scope; unioned with keys", Type: TypeString},
+				{Name: "patterns_from", Doc: "CEL expression yielding a list of patterns; unioned with patterns", Type: TypeString},
 			}},
 		},
 	}

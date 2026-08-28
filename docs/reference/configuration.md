@@ -925,12 +925,37 @@ A found entry that cannot be decoded is counted as `mycel_cache_decode_errors_to
 ```hcl
 after {
   invalidate {
-    storage  = "redis_cache"    # Required
-    keys     = ["product:${input.id}"]
-    patterns = ["products:list:*"]
+    storage       = "redis_cache"    # Required
+    keys          = ["product:${input.id}"]
+    patterns      = ["products:list:*"]
+    keys_from     = "step.variants.map(v, 'product:' + v)"   # Optional, see below
+    patterns_from = "step.stores.map(s, 'catalog:' + s + ':*')"
   }
 }
 ```
+
+**`keys` and `patterns`** are templates: `${input.id}` in one is replaced when the flow runs. One key out per template in — the *values* vary with the message, the *number* does not. A template aimed at a list cannot fan out; it renders Go syntax into the key (`url-rewrite-[a b c]`) and warns, pointing here.
+
+**`keys_from` and `patterns_from`** are CEL expressions yielding a list of strings, for a set whose size is only known once the flow has run — every store view of a product, every rewrite path it has had, every variant of a parent. `input.*`, `output.*` and `step.*` are in scope, because the list almost always comes from a query the flow just ran. The result is unioned with the static list and deduplicated, so a fixed key and a computed set can be named together.
+
+```hcl
+step "affected_paths" {
+  connector = "db"
+  query     = "SELECT store_code, request_path AS path FROM url_rewrite WHERE entity_id = :id"
+  params    = { id = "input.id" }
+}
+
+after {
+  invalidate {
+    storage   = "redis_cache"
+    keys_from = "step.affected_paths.map(r, 'url-rewrite-' + r.store_code + '-' + r.path)"
+  }
+}
+```
+
+A wildcard is not a substitute when the members diverge — rewrite paths drift from the URL key through redirects and history — because one broad enough to catch them all also deletes unrelated entries, and one narrow enough to be safe misses exactly the ones that matter.
+
+They are separate attributes rather than a second shape of `keys` because the two cannot be told apart. HCL refuses a bare `step.paths.map(r, ...)` outright — method calls are not its syntax — so the expression has to be quoted, and a quoted CEL expression and a quoted key template are the same thing to the parser.
 
 ### dedupe block
 
