@@ -59,6 +59,34 @@ Step results are available as `step.NAME` in subsequent steps and in the transfo
 | `default` | any | no | Value to use when step is skipped or fails |
 | `format` | string | no | Data format for this step (`json`, `xml`) |
 
+### Passing a set — `IN (:name)`
+
+A `params` entry that evaluates to a **list** is expanded into one placeholder per member, which is what makes the common two-step shape work: one step returns rows, the next asks about all of them at once.
+
+```hcl
+step "orders" {
+  connector = "db"
+  query     = "SELECT * FROM orders WHERE user_id = :user_id"
+  params    = { user_id = "input.user_id" }
+}
+
+step "items" {
+  connector = "db"
+  query     = "SELECT * FROM order_items WHERE order_id IN (:order_ids)"
+  when      = "size(step.orders ?? []) > 0"
+  params    = { order_ids = "pluck(step.orders, 'id')" }
+}
+```
+
+`IN (:order_ids)` with three ids becomes `IN (?, ?, ?)` and three arguments. `NOT IN` works the same way; a string stays one value.
+
+!!! warning "An empty list needs the `when`"
+    `IN ()` is not valid SQL, and there is no expansion right for both directions — `IN (NULL)` matches nothing, which is what an empty set means, but `NOT IN (NULL)` also matches nothing, which is its opposite. So an empty list is refused, naming the parameter, and the guard above is the answer: a user with no orders skips the step rather than running a statement that cannot parse.
+
+    Note `?? []` in the condition: a step whose query matched no rows yields `null`, not an empty list.
+
+Full rules, including what happens when a list is written where a scalar belongs, in [binding a set](../reference/destination-properties.md#binding-a-set-in-name).
+
 ## Conditional Steps
 
 Skip expensive steps when their data is not needed:
@@ -190,7 +218,47 @@ flow "update_product" {
 }
 ```
 
-The `after` block currently supports `invalidate` for cache invalidation. It runs after all `to` blocks complete successfully.
+The `after` block currently supports `invalidate` for cache invalidation. It runs after all `to` blocks complete successfully — and on a flow with **no** `to` at all, which is what an endpoint whose only job is invalidation looks like:
+
+```hcl
+flow "invalidate_products" {
+  from {
+    connector = "api"
+    operation = "POST /cache/invalidate"
+  }
+
+  # Which keys the caller's write made stale. The number of them is the number
+  # of rows, so it cannot be written out in `keys`.
+  step "affected" {
+    connector = "db"
+    query     = "SELECT product_id, store_code FROM product_stores WHERE product_id IN (:ids)"
+    params    = { ids = "input.ids" }
+    when      = "size(input.ids ?? []) > 0"
+  }
+
+  after {
+    invalidate {
+      storage   = "redis_cache"
+      keys_from = "(step.affected ?? []).map(r, 'product:' + string(r.product_id) + ':' + r.store_code)"
+    }
+  }
+
+  response {
+    invalidated = "size(step.affected ?? [])"
+  }
+}
+```
+
+`keys` and `patterns` are `${...}` templates, one key out per template in. `keys_from` and `patterns_from` take a CEL expression yielding a list, with `input.*`, `output.*` and `step.*` in scope — see [a key set whose size depends on the data](caching.md#a-key-set-whose-size-depends-on-the-data).
+
+### When the invalidation fails
+
+The flow's own work is already done and committed by then, so the two ways it can fail are answered differently:
+
+- **The cache could not be reached.** Logged at warn, counted as `mycel_cache_invalidate_errors_total`, and the request still succeeds — failing it after the write is committed would be wrong. But it is worth alerting on: the cache is now serving what that write made stale, and nothing will correct it.
+- **`keys_from` / `patterns_from` could not be evaluated**, or did not yield a list of strings. The request **fails**. This is not transient — it will fail identically on every message for as long as the flow is deployed, and `mycel validate` does not evaluate CEL, so it is not caught beforehand either.
+
+That distinction matters most for the destination-less shape above: it writes nothing, so a silent no-op would answer `200` forever and the only symptom would appear somewhere else entirely, hours later.
 
 ## Complex Example: E-Commerce Checkout
 

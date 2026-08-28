@@ -827,6 +827,8 @@ step "NAME" {
   target    = "users"
   params    = [input.id]
   body      = { key = "value" }
+  # A params entry that evaluates to a list is expanded inside IN (...) —
+  # one placeholder per member. See "Binding a set" in destination-properties.
   format    = "json"
   # From a JSON body this is a boolean. From a query string it is the text
   # "true" — see Input and Output.
@@ -956,6 +958,10 @@ after {
 A wildcard is not a substitute when the members diverge — rewrite paths drift from the URL key through redirects and history — because one broad enough to catch them all also deletes unrelated entries, and one narrow enough to be safe misses exactly the ones that matter.
 
 They are separate attributes rather than a second shape of `keys` because the two cannot be told apart. HCL refuses a bare `step.paths.map(r, ...)` outright — method calls are not its syntax — so the expression has to be quoted, and a quoted CEL expression and a quoted key template are the same thing to the parser.
+
+**When it fails.** The flow's own work is committed by the time this runs, so the two failures are answered differently. A cache that could not be reached is logged at warn and counted as `mycel_cache_invalidate_errors_total{cache,attr}`, and the request still succeeds. A `keys_from` or `patterns_from` that cannot be evaluated, or that does not yield a list of strings, is logged, counted **and fails the request** — that one is a configuration mistake that will fail identically on every message, and `mycel validate` does not evaluate CEL, so it is not caught beforehand.
+
+An `after` block also runs on a flow with no `to` at all, which is what an endpoint whose only job is invalidation looks like. See [Pattern 7](https://github.com/matutetandil/mycel/tree/main/examples/cache).
 
 ### dedupe block
 
