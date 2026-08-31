@@ -4268,12 +4268,36 @@ func (h *FlowHandler) validateOutput(ctx context.Context, output map[string]inte
 	result := h.Validator.Validate(ctx, output, schema)
 	if !result.Valid {
 		if len(result.Errors) > 0 {
-			return &ValidationError{Errors: result.Errors}
+			return &OutputValidationError{Errors: result.Errors}
 		}
 		return fmt.Errorf("output validation failed")
 	}
 
 	return nil
+}
+
+// OutputValidationError reports that the service's own answer failed the
+// contract its `validate` block names for the output.
+//
+// It is deliberately not a ValidationError. The two read alike — the same
+// checker, the same field messages — but they say opposite things about who
+// erred, and the whole of what a caller is told follows from that: an input
+// failure is the caller's to fix and is quoted back to it, while an answer
+// that broke its own contract is ours, and its text names the fields of an
+// internal record.
+//
+// Sharing one type meant a flow whose output was wrong answered 400 — telling
+// a caller its request was at fault when no request could have satisfied it,
+// and telling it not to retry something a retry might well have fixed.
+type OutputValidationError struct {
+	Errors []validate.Error
+}
+
+func (e *OutputValidationError) Error() string {
+	if len(e.Errors) == 0 {
+		return "output validation failed"
+	}
+	return "output " + e.Errors[0].Error()
 }
 
 // ValidationError represents validation failures.

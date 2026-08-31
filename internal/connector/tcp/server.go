@@ -49,10 +49,24 @@ type ServerConnector struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	// environment decides how much a caller is told about a failure. Only
+	// the REST connector used to ask: every other server, this one
+	// included, framed the raw error text into its reply in production as
+	// anywhere else.
+	environment string
 }
 
 // ServerOption configures a ServerConnector.
 type ServerOption func(*ServerConnector)
+
+// WithServerEnvironment sets the deployment environment, which decides how
+// much a caller is told about a failure.
+func WithServerEnvironment(environment string) ServerOption {
+	return func(s *ServerConnector) {
+		s.environment = environment
+	}
+}
 
 // WithServerLogger sets the logger for the server.
 func WithServerLogger(logger *slog.Logger) ServerOption {
@@ -386,7 +400,7 @@ func (s *ServerConnector) processNestJSMessage(framer *NestJSFramer, msg *NestJS
 	// Fire deferred on_drop closure (no-op on success).
 	flow.FireDropAspect(ctx, result)
 	if err != nil {
-		s.sendNestJSErrorResponse(framer, msg.ID, err.Error())
+		s.sendNestJSErrorResponse(framer, msg.ID, connector.FailureMessage(err, s.environment, "internal error"))
 		return
 	}
 
@@ -444,7 +458,7 @@ func (s *ServerConnector) processMessage(framer *Framer, msg *Message) {
 	// Fire deferred on_drop closure (no-op on success).
 	flow.FireDropAspect(ctx, result)
 	if err != nil {
-		s.sendErrorResponse(framer, msg.ID, err.Error())
+		s.sendErrorResponse(framer, msg.ID, connector.FailureMessage(err, s.environment, "internal error"))
 		return
 	}
 
@@ -490,7 +504,15 @@ func (s *ServerConnector) sendResponse(framer *Framer, msg *Message) {
 // This implements the RouteRegistrar interface used by the runtime.
 // Multiple flows can register for the same operation (fan-out): the first handler
 // returns the TCP response, additional handlers run concurrently as fire-and-forget.
-func (s *ServerConnector) RegisterRoute(operation string, handler HandlerFunc) {
+// The parameter is the bare function type rather than HandlerFunc on purpose.
+// The runtime looks a connector up as a RouteRegistrar, an interface written
+// with the unnamed type, and a defined type is not identical to it — so this
+// method, spelled with HandlerFunc, did not satisfy the interface. The lookup
+// failed silently and no flow was ever registered: every message a TCP server
+// received was answered "unknown message type", whatever the configuration
+// said. Nothing failed to compile and nothing was logged, because the runtime
+// simply found no registrar and moved on.
+func (s *ServerConnector) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing, ok := s.handlers[operation]; ok {

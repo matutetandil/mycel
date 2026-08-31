@@ -152,6 +152,49 @@ The `body` block uses CEL expressions. Available variables:
 
 Custom error responses work with retry — the custom response is only sent after all retries are exhausted.
 
+## What a Caller Is Told
+
+When a flow fails and no `error_response` block chose the answer, two things are decided for you: the status the caller gets, and how much of the failure it is told about.
+
+### The status
+
+A failure is reported as `400` when it was the caller's own request that was at fault, and `500` otherwise:
+
+| Failure | Status | Why |
+|---------|--------|-----|
+| Input failed the `validate { input }` contract | `400` | The request can be fixed by changing it |
+| Input rejected by the sanitizer (oversized field, control characters) | `400` | Same |
+| The answer failed the `validate { output }` contract | `500` | No request could have satisfied it — the service broke its own contract |
+| A transform, step, destination or connector failed | `500` | Not the caller's to fix |
+| Anything else | `500` | The safe default |
+
+This matters beyond the number: `4xx` tells a client not to retry. A server-side failure reported as `400` makes a caller discard work that a retry would have completed.
+
+The decision is made from the *type* of the failure, never from its message. Error text contains names you chose — a response field, a connector, a table — and a field named `invalidated` must not make a failure look like a validation error.
+
+### How much is disclosed
+
+Outside production, the caller gets the full error text — that is the point of running outside production.
+
+In production, a caller is told the whole message only when its own request was at fault. Everything else collapses to a generic message, because internal error text is a map of the inside of a service: table names, hosts, driver output, fragments of a query.
+
+```
+# development
+POST /orders  →  500 {"error":"query failed: no such table: orders_v2"}
+
+# production
+POST /orders  →  500 {"error":"Internal Server Error"}
+POST /orders  →  400 {"error":"validation error on 'email': field is required"}
+```
+
+This applies to every server connector — `rest`, `graphql`, `soap`, `websocket` and `tcp` — each in its own protocol's shape: an HTTP body, a SOAP `faultstring`, the `message` field of a socket frame.
+
+GraphQL is the one exception worth knowing: a query that names a field that does not exist, or passes an argument of the wrong type, is still explained in full. That failure happened before any of your flows ran, the client wrote the query, and it is the only one who can fix it.
+
+An `error_response` block is not affected by any of this. The status, headers and body it names were written for the caller, so they are sent as written, in production too.
+
+Set the environment with `MYCEL_ENV=production` (`prod` is accepted as the same thing) or `--env production`.
+
 ## Step-Level Error Handling
 
 Each step in a multi-step flow can define its own error behavior with `on_error`. This is useful when some steps are critical and others are optional.

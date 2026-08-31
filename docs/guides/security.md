@@ -307,6 +307,18 @@ cp target/wasm32-unknown-unknown/release/strip_html.wasm plugins/
 
 ---
 
+## Error Message Disclosure
+
+An internal error message is a map of the inside of a service: table names, hosts, driver output, fragments of a query. In production, a caller is told the full text only when **its own request** was at fault — input that failed a `validate { input }` contract, or input the sanitizer turned away. Every other failure collapses to a generic message.
+
+This applies to all five server connectors — `rest`, `graphql`, `soap`, `websocket`, `tcp` — each in its own protocol's shape. Outside production the full text is returned, which is the point of running outside production.
+
+Whose fault a failure was is decided by the **type** of the error, never by matching its text. Error messages contain names chosen in your configuration, so a substring match lets a response field named `invalidated` reclassify unrelated internal failures as the caller's — and with it, publish them.
+
+See [Error Handling → What a Caller Is Told](error-handling.md#what-a-caller-is-told) for the status codes and the one deliberate exception (a malformed GraphQL query is still explained in full, since it failed before any flow ran and the caller is the only one who can fix it).
+
+---
+
 ## Vulnerability Mitigations Summary
 
 | Vulnerability | Mitigation | Layer |
@@ -322,6 +334,7 @@ cp target/wasm32-unknown-unknown/release/strip_html.wasm plugins/
 | Oversized payloads (DoS) | Input and field size limits enforced before any processing | Core sanitization |
 | Deeply nested input (DoS) | Field depth limit enforced before any processing | Core sanitization |
 | Invalid UTF-8 | Invalid sequences stripped before processing | Core sanitization |
+| Information disclosure via errors | In production only a caller's own request is quoted back; all other failures are generic. Classified by error type, not by matching message text | Connector (all servers) |
 
 ---
 

@@ -55,7 +55,9 @@ func (f *Factory) Create(ctx context.Context, cfg *connector.Config) (connector.
 		config.Path = "/ws"
 	}
 
-	return New(cfg.Name, config, f.logger), nil
+	conn := New(cfg.Name, config, f.logger)
+	conn.environment = cfg.Environment
+	return conn, nil
 }
 
 // parseDuration extracts a duration from properties.

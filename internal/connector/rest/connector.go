@@ -23,7 +23,6 @@ import (
 	"github.com/matutetandil/mycel/v3/internal/health"
 	"github.com/matutetandil/mycel/v3/internal/metrics"
 	"github.com/matutetandil/mycel/v3/internal/ratelimit"
-	"github.com/matutetandil/mycel/v3/internal/sanitize"
 )
 
 // HandlerFunc is a function that handles a flow request.
@@ -725,36 +724,21 @@ func (c *Connector) writeError(w http.ResponseWriter, err error) int {
 		return flowErr.Status
 	}
 
+	// Whose fault the failure was is decided by type, not by reading the
+	// message. See connector.ClientFault: the message contains names the
+	// author of the flow chose, so a response field called `invalidated`
+	// used to make every failure in that mapping a 400 — and a 400 was
+	// taken as licence to quote the error back in production.
 	status := http.StatusInternalServerError
-
-	// Check for specific error types
-	errStr := err.Error()
-	if strings.Contains(errStr, "validation") ||
-		strings.Contains(errStr, "required") ||
-		strings.Contains(errStr, "invalid") {
-		status = http.StatusBadRequest
-	}
-	// Input the sanitizer turned away is the sender's to fix. Reported as a
-	// 500 it read as Mycel breaking, and 5xx is the retryable class — so a
-	// client posting an oversized field retried it forever.
-	if errors.Is(err, sanitize.ErrRejected) {
+	if connector.ClientFault(err) {
 		status = http.StatusBadRequest
 	}
 
-	// In production, return minimal error info (no internal details)
-	if c.environment == "production" || c.environment == "prod" {
-		msg := http.StatusText(status)
-		if status == http.StatusBadRequest {
-			msg = errStr // validation errors are safe to expose
-		}
-		c.writeJSON(w, status, map[string]string{
-			"error": msg,
-		})
-		return status
-	}
-
+	// What the caller is told follows from the same answer rather than from
+	// the status, so a 4xx chosen for any other reason cannot publish
+	// internal text.
 	c.writeJSON(w, status, map[string]string{
-		"error": errStr,
+		"error": connector.FailureMessage(err, c.environment, http.StatusText(status)),
 	})
 	return status
 }

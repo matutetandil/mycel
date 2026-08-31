@@ -27,6 +27,12 @@ type Server struct {
 	logger      *slog.Logger
 	server      *http.Server
 
+	// environment decides how much a caller is told about a failure. Only
+	// the REST connector used to ask: every other server, this one
+	// included, returned the raw error text to whoever called it, in
+	// production as anywhere else.
+	environment string
+
 	mu       sync.Mutex
 	handlers map[string]HandlerFunc
 	started  bool
@@ -170,7 +176,7 @@ func (s *Server) handleSOAPRequest(w http.ResponseWriter, r *http.Request) {
 			slog.String("operation", operation),
 			slog.Any("error", err),
 		)
-		s.writeFault(w, "Server", err.Error(), "")
+		s.writeFault(w, "Server", connector.FailureMessage(err, s.environment, "Internal Server Error"), "")
 		return
 	}
 

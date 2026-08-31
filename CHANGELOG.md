@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **A REST error's HTTP status was inferred from the error's text, so a response field named `invalidated` made internal failures a `400` and published their message in production.** The status was picked by searching the message for `validation`, `required` or `invalid`, and that message carries names chosen by whoever wrote the flow — a field called `invalidated` contains `invalid`, and `examples/cache` ships one. Every failure raised while evaluating that mapping was therefore reported as the caller's doing, whatever had actually gone wrong. The branch below the check then reasoned that a `400` was a validation error and its text was consequently safe to return, so **renaming a response field turned an opaque error into a disclosed one**: two flows differing only in that name answered `500 {"error":"Internal Server Error"}` and `400 {"error":"response transform error: … got 'types.String', expected iterable type"}` to the same request. The same applied to any internal failure whose text happened to contain the substrings — a driver reporting `invalid connection`, and database errors are the ones that carry fragments of a query. It also inverted the retryable class, since `4xx` tells a caller not to retry a failure that was never its to fix.
+
+  Whose fault a failure was is now decided by type — `pkg/errors.Validation`, which the runtime already implements and the aspect executor already consults, plus `sanitize.ErrRejected` — and anything unrecognised is the service's, which keeps the work retryable and the text unpublished. What a caller is told follows from the same answer rather than from the status, so a `4xx` chosen for any other reason can no longer publish internal text. Genuine validation still answers `400` with the message, which is the only way a caller can fix its request.
+
+- **Input and output validation shared one error type, so a flow that broke its own output contract blamed the caller.** `validate { output }` failing is the service failing, but it produced the same `ValidationError` as an input failure and so answered `400` with the field names of an internal record — telling a caller its request was at fault when no request could have satisfied it, and telling it not to retry something a retry might well have fixed. Output failures are now their own type and report `500`, undisclosed in production; they still name the field in logs and outside production.
+
+- **Only the REST connector asked what environment it was running in. `graphql`, `soap`, `websocket` and `tcp` returned raw internal error text to their callers everywhere, production included.** A flow failing on a database error sent the table name into a SOAP `faultstring`, a GraphQL `errors[].message`, and the `message`/`error` field of a WebSocket or TCP frame. All five servers now share one rule, each in its own protocol's shape. GraphQL keeps one deliberate exception: an error carrying no path failed before any flow ran — a malformed query, an unknown field, an argument of the wrong type — and that is the caller's own to fix and most of what a GraphQL endpoint is worth to whoever writes against it, so it is still explained in full. An `error_response` block is unaffected: its status, headers and body were written for the caller.
+
+### Fixed
+
+- **A TCP server registered no flows at all, and a flow reading from a remote GraphQL subscription received nothing.** Both spelled the handler parameter of `RegisterRoute` as their own `HandlerFunc`. The runtime finds a connector by asserting it to `runtime.RouteRegistrar`, an interface written with the unnamed function type, and Go requires an identical type rather than a compatible one — so the assertion failed, silently. Nothing failed to compile, the connector started and reported itself listening, the banner printed the flows, and every message a TCP server received was answered `unknown message type`, whatever the configuration said. Their own tests passed because they call `RegisterRoute` directly, which is the one caller that never had the problem. A parity test now reads every `RegisterRoute` declaration under `internal/connector` and requires the parameter to be written out in full, because the types are precisely what does not complain.
+
 ## [3.4.0] - 2026-08-28
 
 ### Fixed
