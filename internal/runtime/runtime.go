@@ -1144,11 +1144,17 @@ func (r *Runtime) initConnectors(ctx context.Context) error {
 		banner.PrintMockInfo(r.mockManager.GetConfig())
 	}
 
-	// Register all connectors with health manager
+	// State the health checkers rather than adding to them. This runs on
+	// every reload as well as at startup, and a reload both replaces
+	// connectors and can drop them; anything left over points at an object
+	// the reload has already closed and reports unhealthy for ever.
+	checkers := make([]health.Checker, 0, len(r.connectors.List()))
 	for _, name := range r.connectors.List() {
-		conn, _ := r.connectors.Get(name)
-		r.health.Register(conn)
+		if conn, err := r.connectors.Get(name); err == nil {
+			checkers = append(checkers, conn)
+		}
 	}
+	r.health.SetCheckers(checkers)
 
 	return nil
 }
