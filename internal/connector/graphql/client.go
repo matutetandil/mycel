@@ -415,7 +415,12 @@ func isClientError(err error) bool {
 
 // RegisterRoute registers a handler for a subscription operation.
 // Operations should be in the form "Subscription.fieldName".
-func (c *ClientConnector) RegisterRoute(operation string, handler HandlerFunc) {
+// The parameter is the bare function type rather than HandlerFunc for the
+// reason given on the TCP server's method: the runtime's RouteRegistrar is
+// written with the unnamed type, and a defined type is not identical to it, so
+// spelled with HandlerFunc this never satisfied the interface. A flow reading
+// from a remote GraphQL subscription registered nothing and received nothing.
+func (c *ClientConnector) RegisterRoute(operation string, handler func(ctx context.Context, input map[string]interface{}) (interface{}, error)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if existing, ok := c.handlers[operation]; ok {

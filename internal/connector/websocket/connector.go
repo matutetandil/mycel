@@ -58,6 +58,12 @@ type Connector struct {
 
 	// Debug throttling: single-message processing when debugger is connected
 	debugGate connector.DebugGate
+
+	// environment decides how much a caller is told about a failure. Only
+	// the REST connector used to ask: every other server, this one
+	// included, sent the raw error text down the socket in production as
+	// anywhere else.
+	environment string
 }
 
 // New creates a new WebSocket connector.
@@ -418,7 +424,7 @@ func (c *Connector) handleClientMessage(client *Client, msg *Message) {
 		// Fire deferred on_drop closure (no-op on success).
 		flow.FireDropAspect(context.Background(), result)
 		if err != nil {
-			c.sendError(client, err.Error())
+			c.sendError(client, connector.FailureMessage(err, c.environment, "internal error"))
 			return
 		}
 
