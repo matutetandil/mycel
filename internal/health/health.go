@@ -38,8 +38,14 @@ type Response struct {
 
 // Manager manages health checks for the service.
 type Manager struct {
-	mu             sync.RWMutex
+	mu sync.RWMutex
+	// checkers is a slice indexed by name, so that re-registering a
+	// connector replaces its checker rather than adding another. See
+	// Register. (The order here is registration order; the order components
+	// appear in a response is not, since checkAll collects them as they
+	// finish.)
 	checkers       []Checker
+	checkerIndex   map[string]int
 	startTime      time.Time
 	version        string
 	serviceVersion string
@@ -53,6 +59,7 @@ type Manager struct {
 func NewManager(version string) *Manager {
 	return &Manager{
 		checkers:     make([]Checker, 0),
+		checkerIndex: make(map[string]int),
 		startTime:    time.Now(),
 		version:      version,
 		timeout:      5 * time.Second,
@@ -68,11 +75,64 @@ func (m *Manager) SetTimeout(d time.Duration) {
 	m.timeout = d
 }
 
-// Register adds a checker to the health manager.
+// Register adds a checker, or replaces the one already registered under the
+// same name.
+//
+// It used to append unconditionally, and a hot reload registers every
+// connector again. Nothing removed the previous set, so each reload left
+// behind a checker pointing at a connector the reload had already abandoned
+// and closed — which then reported "sql: database is closed" for ever.
+// Overall status is an AND across components, so **one reload was enough to
+// mark a service unhealthy permanently** while it went on serving every
+// request correctly. A container HEALTHCHECK, a Compose service_healthy
+// condition and a Kubernetes readiness probe all act on that, and none of
+// them recover on their own.
+//
+// Replacing by name is what the reload is doing conceptually: the connector
+// called "db" is now a different object. Names come from the connector
+// registry, where they are already unique.
 func (m *Manager) Register(checker Checker) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if m.checkerIndex == nil {
+		m.checkerIndex = make(map[string]int)
+	}
+
+	name := checker.Name()
+	if at, found := m.checkerIndex[name]; found {
+		m.checkers[at] = checker
+		return
+	}
+
+	m.checkerIndex[name] = len(m.checkers)
 	m.checkers = append(m.checkers, checker)
+}
+
+// SetCheckers replaces the whole set, which is what a reload needs.
+//
+// Registering by name stops a reload from accumulating checkers, but it
+// cannot notice one that should no longer be there: a reload that drops a
+// connector from the configuration leaves its checker behind, still pointing
+// at the object the reload closed, and it reports "sql: database is closed"
+// for ever exactly as an accumulated one did. Health is a statement about the
+// service as it is now, so the set is stated rather than added to.
+func (m *Manager) SetCheckers(checkers []Checker) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.checkers = make([]Checker, 0, len(checkers))
+	m.checkerIndex = make(map[string]int, len(checkers))
+
+	for _, checker := range checkers {
+		name := checker.Name()
+		if at, found := m.checkerIndex[name]; found {
+			m.checkers[at] = checker
+			continue
+		}
+		m.checkerIndex[name] = len(m.checkers)
+		m.checkers = append(m.checkers, checker)
+	}
 }
 
 // SetServiceVersion sets the service version (from config.hcl).
