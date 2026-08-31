@@ -90,5 +90,7 @@ func (f *Factory) createClient(cfg *connector.Config, endpoint, soapVersion, nam
 }
 
 func (f *Factory) createServer(cfg *connector.Config, port int, soapVersion, namespace string) (*Server, error) {
-	return NewServer(cfg.Name, port, soapVersion, namespace, f.logger), nil
+	server := NewServer(cfg.Name, port, soapVersion, namespace, f.logger)
+	server.environment = cfg.Environment
+	return server, nil
 }

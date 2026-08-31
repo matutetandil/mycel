@@ -33,6 +33,12 @@ type ServerConnector struct {
 	started             bool
 	schemaBuilt         bool
 	subscriptionManager *SubscriptionManager
+
+	// environment decides how much a caller is told about a failure. Only
+	// the REST connector used to ask: every other server, this one
+	// included, encoded the raw error text into its response in production
+	// as anywhere else.
+	environment string
 }
 
 // NewServer creates a new GraphQL server connector.
@@ -398,6 +404,11 @@ func (c *ServerConnector) handleGraphQL(w http.ResponseWriter, r *http.Request) 
 		OperationName:  request.OperationName,
 		Context:        ctx,
 	})
+
+	// In production a failure inside a flow is not described to the caller.
+	// See withheldFailures: a malformed query still is, because that is the
+	// caller's own to fix.
+	result.Errors = withheldFailures(result.Errors, c.environment)
 
 	// Write response
 	if err := json.NewEncoder(w).Encode(result); err != nil {

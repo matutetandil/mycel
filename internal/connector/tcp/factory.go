@@ -61,6 +61,7 @@ func (f *Factory) createServer(cfg *connector.Config) (*ServerConnector, error) 
 
 	opts := []ServerOption{
 		WithServerLogger(f.logger),
+		WithServerEnvironment(cfg.Environment),
 		WithMaxConnections(maxConns),
 		WithServerTimeouts(readTimeout, writeTimeout),
 	}

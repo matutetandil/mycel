@@ -157,9 +157,11 @@ func TestHowMuchACallerIsToldAboutAFailure(t *testing.T) {
 	}
 
 	// A validation failure is the caller's own doing, so it is told what was
-	// wrong — otherwise it cannot fix the request.
+	// wrong — otherwise it cannot fix the request. It is recognised by type:
+	// this used to be an untyped error whose text happened to contain
+	// "validation", which is the whole of what the check looked at.
 	w = httptest.NewRecorder()
-	status = production.writeError(w, errors.New("validation failed: email is required"))
+	status = production.writeError(w, &rejectedInput{})
 	if status != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", status)
 	}
@@ -289,4 +291,74 @@ func TestTheConnectorSaysWhatItIs(t *testing.T) {
 	if err := c.Health(t.Context()); err != nil {
 		fmt.Println("health before start:", err)
 	}
+}
+
+// rejectedInput stands in for the runtime's validation error, which the REST
+// connector cannot import.
+type rejectedInput struct{}
+
+func (e *rejectedInput) Error() string              { return "validation error on 'email': field is required" }
+func (e *rejectedInput) ValidationFields() []string { return []string{"email"} }
+
+func TestAFieldNameDoesNotDecideWhoIsAtFault(t *testing.T) {
+	// The reported bug. The status was picked by searching the error's message
+	// for "validation", "required" or "invalid", and that message carries the
+	// names the author of the flow chose. A response field called
+	// `invalidated` contains `invalid` — examples/cache ships one — so every
+	// failure raised while evaluating it was reported as a 400. The branch
+	// below the check then reasoned that a 400 was a validation error and its
+	// text was therefore safe to return, so renaming a field turned an opaque
+	// failure into a published one.
+	production := New("api", 0, nil, nil)
+	production.environment = "production"
+
+	const template = "response transform error: failed to evaluate expression for %q: " +
+		"got 'types.String', expected iterable type"
+
+	answers := map[string]*httptest.ResponseRecorder{}
+	statuses := map[string]int{}
+	for _, field := range []string{"invalidated", "count"} {
+		w := httptest.NewRecorder()
+		statuses[field] = production.writeError(w, fmt.Errorf(template, field))
+		answers[field] = w
+	}
+
+	if statuses["invalidated"] != statuses["count"] {
+		t.Errorf("the same failure got status %d or %d depending on what the response field was called",
+			statuses["invalidated"], statuses["count"])
+	}
+	if statuses["invalidated"] != http.StatusInternalServerError {
+		t.Errorf("a failure inside the service was reported as the caller's: %d", statuses["invalidated"])
+	}
+	if body := answers["invalidated"].Body.String(); strings.Contains(body, "types.String") {
+		t.Errorf("the inside of a failure was published to a production caller: %s", body)
+	}
+}
+
+func TestAnAnswerThatBrokeItsOwnContractIsNotTheCallersFault(t *testing.T) {
+	// Input and output validation used to share one error type, so a flow
+	// whose own answer failed the contract it declares answered 400 — telling
+	// a caller its request was at fault when no request could have satisfied
+	// it, and telling it not to retry something a retry might well have fixed.
+	// The message named the fields of an internal record.
+	production := New("api", 0, nil, nil)
+	production.environment = "production"
+
+	w := httptest.NewRecorder()
+	status := production.writeError(w, &brokenAnswer{})
+
+	if status != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500: the service, not the caller, broke the contract", status)
+	}
+	if strings.Contains(w.Body.String(), "ssn") {
+		t.Errorf("a field of an internal record was named to the caller: %s", w.Body.String())
+	}
+}
+
+// brokenAnswer stands in for the runtime's output validation error, which
+// deliberately does not report validation fields: it is not the caller's.
+type brokenAnswer struct{}
+
+func (e *brokenAnswer) Error() string {
+	return "output validation error on 'ssn': field is required"
 }

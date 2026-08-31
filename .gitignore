@@ -56,6 +56,7 @@ internal/plugin/validator.wasm
 # Claude Code instructions and local settings (not part of the codebase)
 CLAUDE.md
 CLAUDE.local.md
+CLAUDE.local.history.md
 .claude/
 
 # Benchmark / load testing — the suite is published, its state and output are not

@@ -118,7 +118,9 @@ func (f *Factory) createServer(cfg *connector.Config) (*ServerConnector, error) 
 		}
 	}
 
-	return NewServer(cfg.Name, config, f.logger), nil
+	server := NewServer(cfg.Name, config, f.logger)
+	server.environment = cfg.Environment
+	return server, nil
 }
 
 // createClient creates a GraphQL client connector.

@@ -85,7 +85,7 @@ step "items" {
 
     Note `?? []` in the condition: a step whose query matched no rows yields `null`, not an empty list.
 
-Full rules, including what happens when a list is written where a scalar belongs, in [binding a set](../reference/destination-properties.md#binding-a-set-in-name).
+Full rules, including what happens when a list is written where a scalar belongs, in [binding a set](../reference/destination-properties.md#binding-a-set--in-name).
 
 ## Conditional Steps
 
