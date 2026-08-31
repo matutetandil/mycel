@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A hot reload added a second set of health checkers, so one reload marked a service unhealthy permanently while it served traffic normally.** A reload registers every connector with the health manager again, and `Register` appended unconditionally — there was no dedupe by name, no way to unregister, and `reload_state.go` did not mention the health manager at all. The leftover checkers pointed at the connectors the reload had already abandoned and closed, so they answered `sql: database is closed` and `redis: client is closed` for the rest of the process's life. Overall status is an AND across components, so **one reload was enough**: a container three reloads old sat at twelve components and `unhealthy` while answering `200` with correct data on every request and executing flows normally in `/metrics`. A REST connector has nothing to close, which is why only the connectors holding a real connection turned.
+
+  Nothing downstream of a health endpoint recovers from that on its own, and none of it is wrong to trust the endpoint: a container `HEALTHCHECK` flips and stays flipped, a Compose `condition: service_healthy` never becomes satisfiable so dependent services never start, and a Kubernetes readiness probe pulls the pod out of the load balancer while a liveness probe restarts it — after which it comes back healthy, drifts on the next reload and is killed again. Hot reload is a development feature, but the same path is reached by `SIGHUP`.
+
+  Checkers are now keyed by name, so re-registering a connector supersedes it, which is what a reload is doing conceptually: the connector called `db` is now a different object. That alone is not enough, though — it cannot notice a checker that should no longer exist at all, and a reload that **drops** a connector from the configuration left its checker behind reporting exactly as before. So the reload states the whole set rather than adding to it, and health describes the service as it is now.
+
 ## [3.4.0] - 2026-08-28
 
 ### Fixed
