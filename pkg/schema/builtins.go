@@ -105,6 +105,7 @@ func ToSchema() Block {
 			{Name: "when", Doc: "CEL condition for conditional write", Type: TypeString},
 			{Name: "parallel", Doc: "Write in parallel with other destinations", Type: TypeBool},
 			{Name: "envelope", Doc: "Wrap the outgoing payload under a single root key (Magento webapi / Spring @RequestBody / SOAP-style REST)", Type: TypeString},
+			{Name: "facet", Doc: "Dedupe facet this destination satisfies. Skipped when that facet did not change; the facet is committed only once every destination naming it succeeded. Omit for a destination that always runs", Type: TypeString},
 			{Name: "query", Doc: "SQL query for database writes", Type: TypeString},
 			{Name: "format", Doc: "Output format", Type: TypeString, Values: []string{"json", "xml", "csv", "tsv"}},
 			{Name: "filter", Doc: "Per-user filter (WebSocket, SSE, subscriptions)", Type: TypeString},
@@ -441,6 +442,20 @@ func DedupeSchema() Block {
 				Doc:   "Named CEL expressions whose values form the projection. Must list every field the flow persists downstream — omitting one would silently drop real changes. Both input.* and output.* (transform result) are in scope.",
 				Open:  true,
 				Attrs: []Attr{},
+			},
+			{
+				Type:   "facet",
+				Labels: 1,
+				Doc:    "An independently-tracked part of the projection, named by its label. Each facet is fingerprinted, stored and committed on its own; a `to` naming it runs only when it changed, and the message is dropped only when no facet did. Use instead of a bare fingerprint, not alongside it. Mycel does not check that facets are independent — two whose destinations write the same thing will race.",
+				Attrs:  []Attr{},
+				Children: []Block{
+					{
+						Type:  "fingerprint",
+						Doc:   "The facet's projection, in the same form and scope as the dedupe-level fingerprint block.",
+						Open:  true,
+						Attrs: []Attr{},
+					},
+				},
 			},
 		},
 	}

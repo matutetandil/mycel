@@ -571,6 +571,7 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 			{Name: "when"},
 			{Name: "parallel"},
 			{Name: "envelope"},
+			{Name: "facet"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "transform"},
@@ -612,6 +613,20 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		}
 		if val.Type() == cty.Bool {
 			to.Parallel = boolOrFalse(val)
+		}
+	}
+
+	// facet ties this destination to a dedupe facet: it is skipped when that
+	// facet did not change, and the facet is committed only once every
+	// destination naming it has succeeded.
+	if attr, ok := content.Attributes["facet"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("to facet error: %s", diags.Error())
+		}
+		to.Facet = stringOrEmpty(val)
+		if to.Facet == "" {
+			return nil, fmt.Errorf("to facet must name a dedupe facet — omit the attribute for a destination that always runs")
 		}
 	}
 
@@ -1584,6 +1599,7 @@ func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "fingerprint"},
+			{Type: "facet", LabelNames: []string{"name"}},
 		},
 	}
 
@@ -1692,6 +1708,37 @@ func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 		}
 	}
 
+	// Parse facet blocks. Each carries its own fingerprint and is tracked,
+	// stored and committed independently of the others.
+	seen := make(map[string]bool)
+	for _, b := range content.Blocks {
+		if b.Type != "facet" {
+			continue
+		}
+		name := b.Labels[0]
+		if name == "" {
+			return nil, fmt.Errorf("dedupe facet requires a name")
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("dedupe declares facet %q twice", name)
+		}
+		seen[name] = true
+
+		fingerprint, err := parseFacetFingerprint(b, ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		dedupe.Facets = append(dedupe.Facets, flow.DedupeFacet{Name: name, Fingerprint: fingerprint})
+	}
+
+	// A bare fingerprint and facets answer the same question at different
+	// granularities, and honouring both would mean deciding which one drops
+	// the message. Refused rather than resolved.
+	if len(dedupe.Fingerprint) > 0 && len(dedupe.Facets) > 0 {
+		return nil, fmt.Errorf("dedupe has both a fingerprint block and facet blocks — use one or the other: " +
+			"a bare fingerprint tracks the message as a whole, facets track parts of it independently")
+	}
+
 	if strict {
 		if dedupe.Use != "" {
 			return nil, fmt.Errorf("top-level dedupe %q cannot use `use` — that's for inline references", block.Labels[0])
@@ -1702,8 +1749,8 @@ func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 		if dedupe.Key == "" {
 			return nil, fmt.Errorf("dedupe block must specify a key expression")
 		}
-		if fingerprintBlock == nil {
-			return nil, fmt.Errorf("dedupe block must contain a fingerprint block")
+		if fingerprintBlock == nil && len(dedupe.Facets) == 0 {
+			return nil, fmt.Errorf("dedupe block must contain a fingerprint block or at least one facet")
 		}
 	} else if dedupe.Use == "" {
 		// Inline dedupe without `use` must be self-contained (current behavior).
@@ -1713,8 +1760,8 @@ func parseDedupeBody(block *hcl.Block, ctx *hcl.EvalContext, strict bool) (*flow
 		if dedupe.Key == "" {
 			return nil, fmt.Errorf("dedupe block must specify a key expression (or `use` a named one)")
 		}
-		if fingerprintBlock == nil {
-			return nil, fmt.Errorf("dedupe block must contain a fingerprint block (or `use` a named one)")
+		if fingerprintBlock == nil && len(dedupe.Facets) == 0 {
+			return nil, fmt.Errorf("dedupe block must contain a fingerprint block or at least one facet (or `use` a named one)")
 		}
 	}
 
@@ -3396,4 +3443,50 @@ func parseStateTransitionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.St
 	}
 
 	return st, nil
+}
+
+// parseFacetFingerprint reads the fingerprint block of one dedupe facet.
+// A facet without one tracks nothing and would silently never change, so it
+// is refused rather than accepted as an empty projection.
+func parseFacetFingerprint(block *hcl.Block, ctx *hcl.EvalContext, facet string) (map[string]string, error) {
+	schema := &hcl.BodySchema{
+		Blocks: []hcl.BlockHeaderSchema{{Type: "fingerprint"}},
+	}
+	content, diags := block.Body.Content(schema)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("dedupe facet %q: %s", facet, diags.Error())
+	}
+
+	var fingerprintBlock *hcl.Block
+	for _, b := range content.Blocks {
+		if b.Type != "fingerprint" {
+			continue
+		}
+		if fingerprintBlock != nil {
+			return nil, fmt.Errorf("dedupe facet %q must contain exactly one fingerprint block", facet)
+		}
+		fingerprintBlock = b
+	}
+	if fingerprintBlock == nil {
+		return nil, fmt.Errorf("dedupe facet %q must contain a fingerprint block", facet)
+	}
+
+	attrs, diags := fingerprintBlock.Body.JustAttributes()
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("dedupe facet %q fingerprint block error: %s", facet, diags.Error())
+	}
+	if len(attrs) == 0 {
+		return nil, fmt.Errorf("dedupe facet %q fingerprint block must define at least one named expression", facet)
+	}
+
+	fingerprint := make(map[string]string, len(attrs))
+	for name, attr := range attrs {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			fingerprint[name] = extractExpressionText(attr.Expr)
+			continue
+		}
+		fingerprint[name] = stringOrEmpty(val)
+	}
+	return fingerprint, nil
 }
