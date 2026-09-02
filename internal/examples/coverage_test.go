@@ -95,17 +95,22 @@ var flowBlocksWithoutAnExample = map[string]string{}
 func TestEveryFlowBlockHasAnExample(t *testing.T) {
 	config := everyExampleConfig(t)
 
+	// Nested, not just the direct children. A block declared two levels down
+	// is as real as one declared at the top — `dedupe > facet` is a feature in
+	// its own right — and walking one level meant the whole of a block's
+	// contents could go unexampled without this noticing.
 	var missing []string
-	for _, child := range schema.FlowSchema().Children {
-		if _, allowed := flowBlocksWithoutAnExample[child.Type]; allowed {
-			continue
-		}
-		// `block {` or `block "label" {`, at the start of a line.
-		used := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(child.Type) + `\s*("[^"]*"\s*)?\{`).MatchString(config)
-		if !used {
-			missing = append(missing, child.Type)
+	var walk func(parent schema.Block, path string)
+	walk = func(parent schema.Block, path string) {
+		for _, child := range parent.Children {
+			where := path + " > " + child.Type
+			if _, allowed := flowBlocksWithoutAnExample[child.Type]; !allowed && !blockAppearsIn(config, child) {
+				missing = append(missing, where)
+			}
+			walk(child, where)
 		}
 	}
+	walk(schema.FlowSchema(), "flow")
 
 	sort.Strings(missing)
 	if len(missing) > 0 {
@@ -328,4 +333,17 @@ func TestEveryAuthBlockHasAnExample(t *testing.T) {
 	if len(missing) > 0 {
 		t.Errorf("no example writes these auth blocks: %s", strings.Join(missing, ", "))
 	}
+}
+
+// blockAppearsIn reports whether an example declares this block.
+//
+// The label pattern repeats rather than allowing one: `each` takes three
+// labels, and a pattern written for a single one reported it missing from
+// examples that use it — a false alarm is how a coverage test stops being
+// read.
+func blockAppearsIn(config string, blk schema.Block) bool {
+	// A label is quoted or bare: `each "item" in "output.items"` writes its
+	// middle label as the keyword `in`, with no quotes.
+	pattern := `(?m)^\s*` + regexp.QuoteMeta(blk.Type) + `\s*(("[^"]*"|[A-Za-z_][A-Za-z0-9_]*)\s*)*\{`
+	return regexp.MustCompile(pattern).MatchString(config)
 }

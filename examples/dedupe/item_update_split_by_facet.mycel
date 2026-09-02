@@ -1,0 +1,89 @@
+// Splitting one message into parts that are tracked separately.
+//
+// The two flows beside this one treat a message as one thing: either
+// something changed and the whole message is written, or nothing did and it
+// is dropped. That is the right shape while every part of the message costs
+// about the same to apply.
+//
+// It stops being right when it does not. A product message carries its data
+// and its images together. The data is a handful of columns; the images are
+// URLs the downstream goes and downloads, which is minutes of work. With one
+// fingerprint, a message whose name changed re-sends the images too — and
+// anything waiting on this product waits for those images to finish.
+//
+// Facets split the projection into parts that are fingerprinted, stored and
+// committed on their own. Here the data goes straight to the catalogue and
+// the images are handed to a queue for a second consumer to apply in the
+// background, so the fast half never waits for the slow one.
+flow "item_update_split" {
+  from {
+    connector = "rabbit"
+    operation = "item.update.split"
+  }
+
+  transform {
+    sku   = "input.body.sku"
+    name  = "input.body.name"
+    price = "input.body.price"
+
+    // The assets: URLs the downstream fetches, which is why they are slow.
+    main_image = "input.body.main_image ?? ''"
+    gallery    = "input.body.gallery ?? []"
+  }
+
+  dedupe {
+    cache = "fp_cache"
+    key   = "'item_fp:' + input.body.sku"
+    ttl   = "30d"
+
+    // Applies when NO facet changed — the message says nothing new about any
+    // part of the product, so there is nothing to do with it.
+    on_duplicate = "ack"
+
+    // What the catalogue stores directly. Cheap to apply, so it is worth
+    // applying on its own as soon as it changes.
+    facet "data" {
+      fingerprint {
+        sku   = "output.sku"
+        name  = "output.name"
+        price = "output.price"
+      }
+    }
+
+    // What somebody else has to fetch. A change here is expensive, and a
+    // change to the name above must not drag it along.
+    facet "assets" {
+      fingerprint {
+        sku        = "output.sku"
+        main_image = "output.main_image"
+        gallery    = "output.gallery"
+      }
+    }
+  }
+
+  // Runs only when the data facet changed, and commits it only if it lands.
+  to {
+    facet     = "data"
+    connector = "catalog"
+    target    = "catalog_items"
+    parallel  = true
+  }
+
+  // Runs only when the assets facet changed. What is committed here is the
+  // handoff, not the work: the facet records that this set of images was
+  // published to the queue once, not that the downstream finished applying
+  // them. Where that guarantee ends is the queue — from there it is the
+  // second consumer's retries, its dead-letter queue and its own dedupe.
+  //
+  // The pair-off that makes this worth the machinery: if the catalogue write
+  // succeeds and this publish fails, only the data facet is committed. The
+  // retry finds the data unchanged, does not write it a second time, and
+  // publishes the assets. Committing both together would have lost the images
+  // for the life of the entry.
+  to {
+    facet     = "assets"
+    connector = "asset_jobs"
+    target    = "item.assets.q"
+    parallel  = true
+  }
+}

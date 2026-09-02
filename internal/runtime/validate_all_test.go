@@ -36,8 +36,8 @@ func TestValidateAndStartRunTheSameChecks(t *testing.T) {
 
 	// The count is written down so that adding a check without a thought about
 	// this test is a failure rather than a silent pass.
-	if len(kinds) != 10 {
-		t.Errorf("%d checks, and this test knows about 10 — add the new one to "+
+	if len(kinds) != 11 {
+		t.Errorf("%d checks, and this test knows about 11 — add the new one to "+
 			"the list in validate_all.go and update this number", len(kinds))
 	}
 }

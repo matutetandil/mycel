@@ -509,6 +509,16 @@ type ToConfig struct {
 	// TransformConfig.Order.
 	TransformOrder []string
 
+	// Facet names the dedupe facet this destination satisfies.
+	//
+	// It does two things at once, which is why it is one attribute rather
+	// than a `when` plus some bookkeeping: the destination is skipped when
+	// its facet did not change, and the facet is committed only once every
+	// destination naming it has succeeded. A destination with no facet runs
+	// whenever the message is not dropped, which is what every existing flow
+	// does.
+	Facet string
+
 	// Parallel indicates if this destination should be written in parallel with others.
 	// Default is true. Set to false for sequential writes.
 	Parallel bool
@@ -829,6 +839,25 @@ type DedupeConfig struct {
 	// with sorted keys for canonicalization.
 	Fingerprint map[string]string
 
+	// Facets splits the projection into independently-tracked parts.
+	//
+	// A plain Fingerprint answers one question — did anything change — and
+	// its only verb is to drop the message. That is the wrong shape when one
+	// message carries work of different weights: a product's data and its
+	// images travel together, the images take minutes because the far side
+	// downloads them, and re-sending both because a name changed is what
+	// makes the cheap half wait for the expensive one.
+	//
+	// Each facet is fingerprinted, stored and committed on its own, and a
+	// `to` naming a facet runs only when that facet changed. The message is
+	// dropped only when no facet did. Empty means the block behaves exactly
+	// as it always has.
+	//
+	// Whether the facets are genuinely independent is the author's to decide.
+	// Two facets whose destinations write the same thing will race, and
+	// nothing here will say so.
+	Facets []DedupeFacet
+
 	// TTL is how long to keep the stored fingerprint after the last update
 	// (e.g., "30d"). Empty means no expiry. Long-tail keys can leak, so a
 	// 30-day TTL is the recommended baseline.
@@ -861,6 +890,24 @@ type DedupeConfig struct {
 	// to catch still matches and still gets dropped. Both directions land
 	// backwards.
 	CompareWhen string
+}
+
+// DedupeFacet is one independently-tracked projection inside a dedupe block.
+//
+// Its fingerprint is stored under its own key, so committing one facet says
+// nothing about the others: when a flow writes its data and fails to enqueue
+// its images, the data facet is committed and the images facet is not, and
+// the retry re-sends only what did not land. Committing them together would
+// lose the images for as long as the entry lives, which is the failure the
+// biphasic commit exists to prevent.
+type DedupeFacet struct {
+	// Name identifies the facet and is what a `to` block refers to. It is
+	// also part of the storage key, so renaming a facet resets it.
+	Name string
+
+	// Fingerprint is the facet's projection, in the same form and scope as
+	// DedupeConfig.Fingerprint.
+	Fingerprint map[string]string
 }
 
 // AsyncConfig defines async execution for a flow.

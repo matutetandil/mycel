@@ -22,6 +22,17 @@ flow "process_entity" {
     max_retries          = 3
     max_concurrent_waits = 10
 
+    # Before waiting at all, ask whether the thing being waited for is
+    # already there. A signal has a TTL, so a child arriving late finds
+    # nothing to wait for even though its parent was processed hours ago —
+    # and would wait out the whole timeout for a message that will never
+    # come. The check answers from the record itself, which does not expire.
+    preflight {
+      connector = "postgres"
+      query     = "SELECT 1 FROM entities WHERE id = :parent_id AND status = 'ready'"
+      if_exists = "pass"
+    }
+
     # Child entities wait for their parent to be processed
     wait {
       when = "input.headers.type == 'child'"

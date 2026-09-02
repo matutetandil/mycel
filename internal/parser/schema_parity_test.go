@@ -44,17 +44,23 @@ func assertSchemaParses(t *testing.T, blk schema.Block, name string) {
 	for i := range labels {
 		labels[i] = name
 	}
-	doc := renderBlockFromSchema(blk, labels, 0, true)
 
-	// Not mustParse: the failure is the point, and it should name the block
-	// and show what was rendered.
-	cfg, err := tryParse(t, doc)
-	if err != nil {
-		t.Fatalf("the %s schema describes something the parser rejects: %v\n\n%s",
-			blk.Type, err, doc)
-	}
-	if cfg == nil {
-		t.Fatalf("%s parsed to nothing", blk.Type)
+	// Two children that cannot appear together are rendered one per pass, so
+	// both are still covered. Without this the second one is never parsed and
+	// the schema can start describing something the parser refuses.
+	for branch := 0; branch < parityBranches(blk); branch++ {
+		doc := renderBlockFromSchema(blk, labels, 0, true, branch)
+
+		// Not mustParse: the failure is the point, and it should name the block
+		// and show what was rendered.
+		cfg, err := tryParse(t, doc)
+		if err != nil {
+			t.Fatalf("the %s schema describes something the parser rejects: %v\n\n%s",
+				blk.Type, err, doc)
+		}
+		if cfg == nil {
+			t.Fatalf("%s parsed to nothing", blk.Type)
+		}
 	}
 }
 
@@ -64,7 +70,7 @@ func assertSchemaParses(t *testing.T, blk schema.Block, name string) {
 // nested one level deep. Depth is capped because schemas are recursive — a
 // transform can hold a transform — and the goal is coverage of each declared
 // name, not of every path through them.
-func renderBlockFromSchema(blk schema.Block, labels []string, depth int, withChildren bool) string {
+func renderBlockFromSchema(blk schema.Block, labels []string, depth int, withChildren bool, branch int) string {
 	var b strings.Builder
 
 	b.WriteString(blockHeader(blk, labels) + " {\n")
@@ -96,11 +102,14 @@ func renderBlockFromSchema(blk schema.Block, labels []string, depth int, withChi
 
 	if withChildren && depth < 5 {
 		for _, child := range blk.Children {
+			if excludedBySibling(blk, child.Type, branch) {
+				continue
+			}
 			childLabels := make([]string, child.Labels)
 			for i := range childLabels {
 				childLabels[i] = fmt.Sprintf("%s_%d", child.Type, i)
 			}
-			nested := renderBlockFromSchema(child, childLabels, depth+1, true)
+			nested := renderBlockFromSchema(child, childLabels, depth+1, true, branch)
 			for _, line := range strings.Split(strings.TrimRight(nested, "\n"), "\n") {
 				b.WriteString(indent + line + "\n")
 			}
@@ -112,7 +121,7 @@ func renderBlockFromSchema(blk schema.Block, labels []string, depth int, withChi
 			// rather than a trick: one writes via a transaction, the other
 			// via query.
 			if childExcludesAttrs(child) {
-				alt := renderBlockFromSchema(child, childLabels, depth+1, false)
+				alt := renderBlockFromSchema(child, childLabels, depth+1, false, branch)
 				for _, line := range strings.Split(strings.TrimRight(alt, "\n"), "\n") {
 					b.WriteString(indent + line + "\n")
 				}
@@ -257,4 +266,44 @@ func tryParseFiles(t *testing.T, files map[string]string) (*Configuration, error
 		}
 	}
 	return NewHCLParser().Parse(context.Background(), dir)
+}
+
+// exclusiveChildren lists children that cannot appear in the same block. The
+// exclusions are the language's, and each is stated in the child's own
+// documentation. Rendering both would produce a document the parser refuses
+// for a reason that has nothing to do with drift.
+var exclusiveChildren = map[string][]string{
+	// A bare fingerprint tracks the message as a whole and a facet tracks a
+	// part of it. Honouring both would mean deciding which one drops the
+	// message, so the parser refuses the pair.
+	"dedupe": {"fingerprint", "facet"},
+}
+
+// parityBranches is how many passes a block needs for every child to be
+// rendered at least once.
+func parityBranches(blk schema.Block) int {
+	if n := len(exclusiveChildren[blk.Type]); n > 1 {
+		return n
+	}
+	for _, child := range blk.Children {
+		if n := parityBranches(child); n > 1 {
+			return n
+		}
+	}
+	return 1
+}
+
+// excludedBySibling reports whether this child is the one being left out on
+// this pass.
+func excludedBySibling(parent schema.Block, child string, branch int) bool {
+	group, ok := exclusiveChildren[parent.Type]
+	if !ok {
+		return false
+	}
+	for i, name := range group {
+		if name == child {
+			return i != branch%len(group)
+		}
+	}
+	return false
 }

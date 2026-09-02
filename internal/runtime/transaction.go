@@ -65,7 +65,7 @@ func (h *FlowHandler) handleTransaction(ctx context.Context, input map[string]in
 	captured := map[string]interface{}{}
 	var affected int64
 
-	writeResult, writeErr := h.dedupeAwareWrite(ctx, input, payload, func() (interface{}, error) {
+	writeResult, writeErr := h.dedupeAwareWrite(ctx, input, payload, func(ctx context.Context) (interface{}, error) {
 		return trace.RecordStage(ctx, trace.StageWrite, h.Config.To.Connector, trace.Snapshot(payload), func() (interface{}, error) {
 			runErr := runner.RunInTx(ctx, func(ops connector.TxOps) error {
 				txCtx, txSpan := tracing.StartSpan(ctx, "transaction")

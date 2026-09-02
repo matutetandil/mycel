@@ -52,6 +52,10 @@ func Checks(config *parser.Configuration, reg *schema.Registry) []Check {
 		// A validator a type names but nothing declares is not a failure at
 		// run time: the rule is skipped, so the field goes unvalidated.
 		{"validator reference", ValidateValidatorReferences(config)},
+		// A destination naming a facet nobody declared is skipped on every
+		// message; a facet no destination names can never be committed, so it
+		// reads as changed for ever and no duplicate is ever dropped.
+		{"dedupe facet", ValidateDedupeFacets(config)},
 		// Names repeated inside a flow, where something is keyed by them: the
 		// second silently overwrites the first.
 		{"duplicate name", ValidateUniqueInnerNames(config)},

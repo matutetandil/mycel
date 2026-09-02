@@ -66,9 +66,9 @@ func newCompareWhenHandler(t *testing.T, compareWhen string) (*FlowHandler, *byt
 }
 
 // countingWrite returns a write closure plus a live counter of its calls.
-func countingWrite() (func() (interface{}, error), *int32) {
+func countingWrite() (func(context.Context) (interface{}, error), *int32) {
 	var calls int32
-	return func() (interface{}, error) {
+	return func(context.Context) (interface{}, error) {
 		atomic.AddInt32(&calls, 1)
 		return &connector.Result{Affected: 1}, nil
 	}, &calls
