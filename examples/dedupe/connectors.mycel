@@ -53,3 +53,15 @@ connector "catalog" {
   driver   = "sqlite"
   database = env("CATALOG_DB", "./data/catalog.db")
 }
+
+// Where the slow half goes. A second consumer reads this queue and applies
+// the images at its own pace, so this flow's own work finishes as soon as the
+// broker has accepted the message.
+//
+// It is deliberately a different connector from `rabbit` above: that one is a
+// source with a queue{} to consume, this one is only ever written to.
+connector "asset_jobs" {
+  type   = "mq"
+  driver = "rabbitmq"
+  url    = env("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+}

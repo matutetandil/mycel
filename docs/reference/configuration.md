@@ -983,6 +983,56 @@ dedupe {
 }
 ```
 
+**`facet` — tracking parts of a message independently.**
+
+A bare `fingerprint {}` answers one question — did anything change — and its only verb is to drop the message. That is the wrong shape when one message carries work of different weights: a product's data and its images arrive together, the images take minutes because the far side downloads them, and re-sending both because a name changed makes the cheap half wait for the expensive one.
+
+Facets split the projection into independently-tracked parts. Each is fingerprinted, stored and committed on its own; a `to` naming a facet runs only when that facet changed, and the message is dropped only when **no** facet did.
+
+```hcl
+dedupe {
+  cache        = "redis_cache"
+  key          = "'sku_fp:' + input.body.payload.sku"
+  ttl          = "30d"
+  on_duplicate = "ack"                       # applies when no facet changed
+
+  facet "data" {
+    fingerprint {
+      name   = "output.name"
+      prices = "output.prices"
+    }
+  }
+
+  facet "assets" {
+    fingerprint {
+      main_image = "output.main_image"
+      gallery    = "output.gallery"
+    }
+  }
+}
+
+to {
+  facet     = "data"                         # skipped when the data facet did not change
+  connector = "magento"
+  target    = "/rest/V1/products"
+}
+
+to {
+  facet     = "assets"                       # skipped when the assets facet did not change
+  connector = "rabbit"
+  target    = "assets.q"
+}
+```
+
+- A `to` **without** `facet` runs whenever the message is not dropped — which is what every flow without facets does.
+- Each facet is stored under its own key (`dedupe:<flow>:<key>:<facet>`), so a facet that has never been seen reads as changed. Introducing a facet therefore re-runs its destinations once per key, which is a backfill, not a bug.
+- **Commit is per facet.** A facet is committed only once every destination naming it has succeeded. When the data lands and the asset enqueue fails, the data facet is committed and the assets facet is not, so the retry re-sends only what did not land — committing them together would lose the assets for as long as the entry lives.
+- `compare_when` stays a single flow-level gate. When it is false nothing is compared, so **every** facet runs — which is what a missing downstream record requires: an assets-only message against a record that no longer exists would otherwise never re-create it.
+- A bare `fingerprint {}` and `facet` blocks in the same `dedupe` are refused. Honouring both would mean deciding which one drops the message.
+
+!!! warning "Mycel does not check that facets are independent"
+    Facets are a statement by the author that these parts of the message can be applied separately. Two facets whose destinations write the same thing will race, and nothing here will report it. Split by what the destinations actually touch — a domain, a table, a subsystem — not by what is convenient to name.
+
 **Pipeline order:** `dedupe` runs **after** `transform` because the fingerprint expressions reference `output.*`. Earlier versions (≤ 2.0.0) ran a key-based dedupe before transform; see CHANGELOG v2.1.0 for migration.
 
 **`compare_when` — when "already seen" and "already applied" diverge.** A stored fingerprint says this content was written once, not that it is still written. If the downstream record can disappear by a path the flow never observes — a manual delete, a restore, a data fix — nothing clears the fingerprint, and the re-send that was meant to repair the damage is dropped as a duplicate instead. `compare_when` is how a flow says the stored fingerprint is no longer trustworthy:

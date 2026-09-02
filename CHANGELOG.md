@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`facet` blocks in `dedupe`, so one message can be split into parts that are tracked, gated and committed independently.** A fingerprint answers one question — did anything change — and its only verb is to drop the message. That is the right shape while every part of a message costs about the same to apply, and the wrong one when it does not: a product message carries its data and its images together, the images are URLs the downstream goes and fetches, and with one fingerprint a message whose *name* changed re-sends the images too — so anything waiting on that product waits minutes for work nobody asked for. Each facet declares its own projection and is stored under its own key; a `to` naming a facet runs only when that facet changed, and the message is dropped only when none did.
+
+  One attribute does the gating and the accounting both, which is why it is `facet` on the destination rather than a `when` plus some bookkeeping: the same name decides whether the write happens and whether its facet is committed. **Commit is per facet** — a facet is committed only once every destination naming it has succeeded, so when the catalogue write lands and the queue publish fails, the retry finds the data unchanged, does not write it a second time, and publishes only the assets. Committing them together would lose the images for the life of the entry, which is the failure the two-phase commit exists to prevent, one level down.
+
+  What a facet's success means is its `to` succeeding and nothing more: for a queue that is the broker accepting the message, not the other consumer finishing the work. `compare_when` stays a single flow-level gate — when it is false nothing is compared and every facet runs, which is what a missing downstream record needs. A bare `fingerprint {}` and `facet` blocks together are refused rather than resolved, and `mycel validate` refuses a `to` naming a facet nobody declared as well as a facet no destination names: the first would be skipped on every message, the second could never be committed and would therefore read as changed for ever, quietly disabling deduplication for the whole flow. Adding a facet to a live flow re-runs its destinations once per key, since a facet never seen reads as changed — a backfill, not a bug. Mycel does not check that facets are independent; two whose destinations write the same record will race and nothing will report it.
+
+### Fixed
+
+- **A `dedupe` block on a flow with more than one destination was parsed, validated and never consulted.** `handleMultiDestWrite` did not call `dedupeAwareWrite` at all, so a flow declaring several destinations had no deduplication whatsoever: three identical messages wrote three rows to every destination while the configuration said they would be dropped. Verified against the released 3.5.0 binary before the fix. Flows with a single `to` — and every test that called the primitive directly — were unaffected throughout, which is why it went unnoticed.
+
+- **The example-coverage test walked only the direct children of a flow.** A block declared two levels down was invisible to it, so the whole of a block's contents could go unexampled without anything noticing; `coordinate > preflight` had in fact never appeared in an example. It now walks the tree, and its label pattern accepts the bare middle label of `each "item" in "..."` rather than reporting it missing from the examples that use it — a false alarm being how a coverage test stops being read.
+
 ## [3.5.0] - 2026-08-31
 
 ### Security

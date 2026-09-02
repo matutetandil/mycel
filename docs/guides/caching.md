@@ -327,7 +327,8 @@ flow "process_payment" {
 |-----------|------|----------|---------|-------------|
 | `cache` | string | yes | — | Name of a `connector { type = "cache" }`. The connector pool is initialized once at startup; the hot path does not pay a registry lookup per message |
 | `key` | string | yes | — | CEL expression for the per-resource fingerprint key (evaluated against `input.*`) |
-| `fingerprint {}` | block | yes | — | Named CEL expressions whose values form the projection. Both `input.*` and `output.*` (transform result) are in scope. Must list every persisted field — omitting one would silently drop real changes |
+| `fingerprint {}` | block | yes* | — | Named CEL expressions whose values form the projection. Both `input.*` and `output.*` (transform result) are in scope. Must list every persisted field — omitting one would silently drop real changes. *Required unless the block declares `facet` blocks instead |
+| `facet "<name>" {}` | block | no | — | An independently-tracked part of the projection, holding its own `fingerprint {}`. Each is stored and committed on its own; a `to` naming it runs only when it changed, and the message is dropped only when no facet did. Cannot be combined with a bare `fingerprint {}`. See [Splitting a message into parts](#splitting-a-message-into-parts) |
 | `ttl` | string | no | — | How long to keep stored fingerprints. Supports `"30d"` and `"2w"` plus stdlib units (`s`/`m`/`h`); malformed values fail the parse |
 | `on_duplicate` | string | no | `"ack"` | Behavior on fingerprint match: `"ack"`, `"reject"`, `"requeue"`. Matches the `sequence_guard` vocabulary so MQ consumers handle it uniformly |
 | `compare_when` | string | no | — | CEL predicate gating Phase A **only**. False: the stored fingerprint is not consulted, so the message cannot be dropped; Phase B still commits after a successful write. `input.*` and `output.*` in scope. See [When the record can vanish](#when-the-record-can-vanish) |
@@ -377,6 +378,77 @@ dedupe {
     | record deleted externally, re-send | 0 | 0 | match → **dropped**, which is the case it was added for |
 
     It breaks suppression exactly where suppression worked, and stays inert exactly where invalidation was needed.
+
+### Splitting a message into parts
+
+A fingerprint answers one question — did anything change — and its only verb is to drop the message. That is right while every part of a message costs about the same to apply. It stops being right when it does not.
+
+A product message carries its data and its images together. The data is a handful of columns; the images are URLs the downstream goes and fetches, which is minutes of work. With one fingerprint, a message whose *name* changed re-sends the images too, and anything waiting on that product waits for them to finish.
+
+`facet` blocks split the projection into parts that are fingerprinted, stored and committed independently. A `to` naming a facet runs only when that facet changed; the message is dropped only when **none** did.
+
+```hcl
+dedupe {
+  cache        = "fp_cache"
+  key          = "'item_fp:' + input.body.sku"
+  ttl          = "30d"
+  on_duplicate = "ack"              # applies when no facet changed
+
+  facet "data" {
+    fingerprint {
+      sku   = "output.sku"
+      name  = "output.name"
+      price = "output.price"
+    }
+  }
+
+  facet "assets" {
+    fingerprint {
+      sku        = "output.sku"
+      main_image = "output.main_image"
+      gallery    = "output.gallery"
+    }
+  }
+}
+
+to {
+  facet     = "data"                # skipped when the data facet is unchanged
+  connector = "catalog"
+  target    = "catalog_items"
+  parallel  = true
+}
+
+to {
+  facet     = "assets"              # skipped when the assets facet is unchanged
+  connector = "asset_jobs"          # a queue a second consumer reads
+  target    = "item.assets.q"
+  parallel  = true
+}
+```
+
+What each kind of message now does:
+
+| The message changes | data destination | assets destination |
+|---------------------|------------------|--------------------|
+| Nothing | — | — (message dropped) |
+| The name only | writes | — |
+| An image only | — | publishes |
+| Both | writes | publishes |
+
+**Commit is per facet, and that is the point.** A facet is committed only once every destination naming it has succeeded. If the catalogue write lands and the queue publish fails, the data facet is committed and the assets facet is not: the retry finds the data unchanged, does not write it a second time, and publishes the assets. Committing them together would have lost the images for the life of the entry — the same failure the two-phase commit exists to prevent, one level down.
+
+**What a facet's success means.** It means its `to` succeeded, and nothing more. For a queue that is "the broker accepted the message", not "the other consumer finished the work" — there is no callback, and Mycel does not ask. The assets facet records that this set of images was *handed over* once. Past the handoff it is the second consumer's problem: its retries, its dead-letter queue, its own dedupe. Design the split so that is a reasonable place for the responsibility to change hands.
+
+A few rules worth knowing before reaching for them:
+
+- A `to` **without** `facet` runs whenever the message is not dropped — which is what every flow without facets does, so nothing changes for them.
+- Each facet is stored under its own key, so a facet that has never been seen reads as changed. Adding a facet to a live flow therefore re-runs its destinations once per key: a backfill, not a bug, and worth planning the rollout around.
+- `compare_when` stays a single flow-level gate. When it is false nothing is compared and **every** facet runs — which is what a missing downstream record needs, since an assets-only message against a record that no longer exists would otherwise never re-create it.
+- A bare `fingerprint {}` and `facet` blocks in the same `dedupe` are refused: honouring both would mean deciding which one drops the message.
+- `mycel validate` refuses a `to` naming a facet nobody declared, and a facet no destination names. Both would otherwise be silent — the first skipped on every message, the second never committed and therefore permanently "changed", which quietly disables deduplication for the whole flow.
+
+!!! warning "Mycel does not check that facets are independent"
+    Facets are a statement by the author that these parts of the message can be applied separately. Two facets whose destinations write the same record will race, and nothing here will report it. Split by what the destinations actually touch — a domain, a table, a subsystem — not by what is convenient to name.
 
 ### Pipeline order
 
