@@ -65,11 +65,11 @@ func (h *FlowHandler) dedupeAwareWrite(
 	ctx context.Context,
 	input map[string]interface{},
 	payload map[string]interface{},
-	write func() (interface{}, error),
+	write func(context.Context) (interface{}, error),
 ) (interface{}, error) {
 	cfg := h.Config.Dedupe
 	if cfg == nil {
-		return write()
+		return write(ctx)
 	}
 	if h.DedupeCache == nil {
 		// Misconfiguration caught at registration time normally; defend
@@ -89,7 +89,14 @@ func (h *FlowHandler) dedupeAwareWrite(
 		return nil, err
 	}
 
-	fp, err := h.computeDedupeFingerprint(ctx, input, payload)
+	// A flow declares one or the other; the parser refuses both.
+	var fp []byte
+	var facetFingerprints map[string][]byte
+	if len(cfg.Facets) > 0 {
+		facetFingerprints, err = h.computeDedupeFacetFingerprints(ctx, input, payload)
+	} else {
+		fp, err = h.computeDedupeFingerprint(ctx, input, payload)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +133,9 @@ func (h *FlowHandler) dedupeAwareWrite(
 	// comparison and its verdict, and a breakpoint on dedupe stops before the
 	// fingerprint is looked up rather than never.
 	return trace.RecordStage(ctx, trace.StageDedupe, key, input, func() (interface{}, error) {
+		if len(cfg.Facets) > 0 {
+			return h.dedupeDecideFacets(ctx, lockCfg, storageKey, key, facetFingerprints, ttl, cfg, compare, write)
+		}
 		return h.dedupeDecide(ctx, lockCfg, lockKey, storageKey, key, fp, ttl, cfg, compare, write)
 	})
 }
@@ -181,7 +191,7 @@ func (h *FlowHandler) dedupeDecide(
 	ttl time.Duration,
 	cfg *flow.DedupeConfig,
 	compare bool,
-	write func() (interface{}, error),
+	write func(context.Context) (interface{}, error),
 ) (interface{}, error) {
 	return h.SyncManager.ExecuteWithLock(ctx, lockCfg, lockKey, func() (interface{}, error) {
 		// Phase A: GET stored, compare — unless the flow gated it.
@@ -209,7 +219,7 @@ func (h *FlowHandler) dedupeDecide(
 		}
 
 		// Not a duplicate — run the actual write.
-		result, writeErr := write()
+		result, writeErr := write(ctx)
 		if writeErr != nil {
 			// Phase B runs after a failed write ONLY when the flow's
 			// error_handling will ack this failure (e.g. on_timeout

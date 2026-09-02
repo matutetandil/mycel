@@ -77,7 +77,7 @@ func TestDedupe_SameMessageTwiceIsDropped(t *testing.T) {
 	}
 
 	var calls int32
-	write := func() (interface{}, error) {
+	write := func(context.Context) (interface{}, error) {
 		atomic.AddInt32(&calls, 1)
 		return &connector.Result{Affected: 1}, nil
 	}
@@ -135,7 +135,7 @@ func TestDedupe_DifferentContentBothPass(t *testing.T) {
 	}
 
 	var calls int32
-	write := func() (interface{}, error) {
+	write := func(context.Context) (interface{}, error) {
 		atomic.AddInt32(&calls, 1)
 		return &connector.Result{Affected: 1}, nil
 	}
@@ -172,7 +172,7 @@ func TestDedupe_KeyOrderInsensitive(t *testing.T) {
 	}
 
 	var calls int32
-	write := func() (interface{}, error) {
+	write := func(context.Context) (interface{}, error) {
 		atomic.AddInt32(&calls, 1)
 		return &connector.Result{Affected: 1}, nil
 	}
@@ -208,7 +208,7 @@ func TestDedupe_WriteFailureSkipsCommit(t *testing.T) {
 
 	var calls int32
 	failOnce := errors.New("simulated downstream error")
-	write := func() (interface{}, error) {
+	write := func(context.Context) (interface{}, error) {
 		atomic.AddInt32(&calls, 1)
 		// Fail the first call, succeed on the retry.
 		if atomic.LoadInt32(&calls) == 1 {
@@ -269,7 +269,7 @@ func TestDedupe_ConcurrentSameFingerprint(t *testing.T) {
 	}
 
 	var calls int32
-	write := func() (interface{}, error) {
+	write := func(context.Context) (interface{}, error) {
 		atomic.AddInt32(&calls, 1)
 		return &connector.Result{Affected: 1}, nil
 	}
@@ -316,7 +316,7 @@ func TestDedupe_ConcurrentDifferentKeysParallel(t *testing.T) {
 	}
 
 	var calls int32
-	write := func() (interface{}, error) {
+	write := func(context.Context) (interface{}, error) {
 		atomic.AddInt32(&calls, 1)
 		return &connector.Result{Affected: 1}, nil
 	}
@@ -362,7 +362,7 @@ func TestDedupe_NoConfigZeroOverhead(t *testing.T) {
 	}
 
 	var calls int32
-	write := func() (interface{}, error) {
+	write := func(context.Context) (interface{}, error) {
 		atomic.AddInt32(&calls, 1)
 		return &connector.Result{Affected: 1}, nil
 	}
@@ -394,7 +394,7 @@ func TestDedupe_OnDuplicatePolicyPropagates(t *testing.T) {
 				"price":    1,
 				"websites": map[string]interface{}{"us": true},
 			}
-			write := func() (interface{}, error) {
+			write := func(context.Context) (interface{}, error) {
 				return &connector.Result{Affected: 1}, nil
 			}
 

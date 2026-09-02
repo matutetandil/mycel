@@ -2711,7 +2711,7 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		}, nil
 	}
 
-	writeResult, writeErr := h.dedupeAwareWrite(ctx, input, payload, func() (interface{}, error) {
+	writeResult, writeErr := h.dedupeAwareWrite(ctx, input, payload, func(ctx context.Context) (interface{}, error) {
 		return trace.RecordStage(ctx, trace.StageWrite, data.Target, trace.Snapshot(data.Payload), func() (interface{}, error) {
 			return meteredWrite(ctx, dest, data)
 		})
@@ -2871,7 +2871,7 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 		}, nil
 	}
 
-	writeResult, err := h.dedupeAwareWrite(ctx, input, payload, func() (interface{}, error) {
+	writeResult, err := h.dedupeAwareWrite(ctx, input, payload, func(ctx context.Context) (interface{}, error) {
 		return meteredWrite(ctx, dest, data)
 	})
 	if err != nil {
@@ -3025,6 +3025,21 @@ func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string
 	// Remove meta fields that should not be written to destination
 	delete(basePayload, "headers")
 
+	// Dedupe wraps the destinations here for the same reason it wraps a
+	// single one: it decides before the write and commits after it. Without
+	// this the block was parsed, validated and never consulted, so a flow
+	// with more than one destination had no deduplication at all — three
+	// identical messages wrote three rows to every destination while the
+	// configuration said otherwise.
+	return h.dedupeAwareWrite(ctx, input, basePayload, func(ctx context.Context) (interface{}, error) {
+		return h.writeToAllDestinations(ctx, input, basePayload, operation)
+	})
+}
+
+// writeToAllDestinations performs the writes themselves, reporting each
+// destination separately. It is what dedupe wraps, so the context it receives
+// is the one carrying the facets this message changed.
+func (h *FlowHandler) writeToAllDestinations(ctx context.Context, input, basePayload map[string]interface{}, operation Operation) (interface{}, error) {
 	// Determine which destinations should be written in parallel
 	var parallelDests []*flow.ToConfig
 	var sequentialDests []*flow.ToConfig
@@ -3125,6 +3140,18 @@ func destinationLabels(destinations []*flow.ToConfig) map[*flow.ToConfig]string 
 
 // writeToDestination writes data to a single destination.
 func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload map[string]interface{}, destConfig *flow.ToConfig, operation Operation) (interface{}, error) {
+	// A destination tied to a dedupe facet runs only when that facet changed.
+	// One attribute does the gating and the commit accounting both, so the
+	// two cannot disagree: the same name decides whether this write happens
+	// and whether its facet is committed afterwards.
+	if !facetChanged(ctx, destConfig.Facet) {
+		return map[string]interface{}{
+			"skipped": true,
+			"reason":  "dedupe facet unchanged",
+			"facet":   destConfig.Facet,
+		}, nil
+	}
+
 	// Check when condition if specified
 	if destConfig.When != "" {
 		// `input` is the message as it arrived and `output` is what the

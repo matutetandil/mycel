@@ -30,7 +30,7 @@ func TestDedupe_AckOnTimeoutCommitsFingerprint(t *testing.T) {
 	input := map[string]interface{}{"sku": "X1"}
 
 	var calls int
-	write := func() (interface{}, error) {
+	write := func(context.Context) (interface{}, error) {
 		calls++
 		return nil, context.DeadlineExceeded // simulate the backend timeout
 	}
@@ -70,7 +70,7 @@ func TestDedupe_RequeueOnErrorSkipsCommit(t *testing.T) {
 
 	boom := errors.New("downstream blew up")
 	var calls int
-	write := func() (interface{}, error) {
+	write := func(context.Context) (interface{}, error) {
 		calls++
 		if calls == 1 {
 			return nil, boom
@@ -105,7 +105,7 @@ func TestDedupe_NoHandlerSkipsCommit(t *testing.T) {
 	input := map[string]interface{}{"sku": "X1"}
 
 	var calls int
-	write := func() (interface{}, error) {
+	write := func(context.Context) (interface{}, error) {
 		calls++
 		if calls == 1 {
 			return nil, context.DeadlineExceeded
@@ -142,7 +142,7 @@ func TestDedupe_SuccessStillCommits(t *testing.T) {
 	input := map[string]interface{}{"sku": "X1"}
 
 	var calls int
-	write := func() (interface{}, error) {
+	write := func(context.Context) (interface{}, error) {
 		calls++
 		return &connector.Result{Affected: 1}, nil
 	}
