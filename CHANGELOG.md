@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **`google.golang.org/grpc` 1.82.1 → 1.83.1, for CVE-2026-84304 (HIGH).** Published after 3.6.0 shipped, so 3.5.0 and 3.6.0 both carry it — the image scanned clean at release and stopped being clean without anything changing on our side. Nothing else moved with it: `cel-go` stays at 0.29.0, so the CEL engine behind every transform, filter and fingerprint is byte-identical, and the `go` directive stays at 1.25.0, which is what a grpc bump has silently raised before now.
+
+  Verified against an image built with `--no-cache --pull`: `alpine` 0 and `gobinary` 0, all severities. (A cached build reports the system packages from whenever its `apk upgrade` layer was built, not from today — which is why a local scan can look worse than the published image.)
+
 ## [3.6.0] - 2026-09-02
 
 ### Added
