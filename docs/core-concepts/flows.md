@@ -427,6 +427,27 @@ flow "create_order" {
 
 By default, multiple `to` blocks execute in parallel. Set `parallel = false` on a `to` block to force sequential execution.
 
+**Order, when the two are mixed.** The destinations are split into two groups, and the groups do not interleave: **every parallel destination runs first**, concurrently, and all of them finish before the first sequential one starts. The sequential ones then run one at a time, in the order they are declared.
+
+The consequence is worth stating plainly, because it is not what the file looks like: **declaration order does not decide execution order unless every destination agrees on `parallel`.** A destination written first with `parallel = false` runs *after* one written below it that left the attribute out.
+
+```hcl
+to {                          # declared first, but sequential
+  connector = "audit"
+  parallel  = false
+}
+
+to {                          # declared second, parallel by default
+  connector = "warehouse"
+}
+
+# Runs: warehouse, then audit.
+```
+
+If one destination has to observe what another wrote, mark **both** `parallel = false` and declare them in the order you need. Marking only the later one is the mistake this ordering invites: it still runs last, but only by accident of there being nothing else in its group.
+
+Parallel destinations have no order among themselves. Each is reported separately, so one failing does not hide another's result, and a flow fails only if every destination failed.
+
 ### Source Fan-Out (Multiple Flows from Same Source)
 
 Multiple flows can share the same `from` connector and operation. When a request or message arrives, **all registered flows execute concurrently**:

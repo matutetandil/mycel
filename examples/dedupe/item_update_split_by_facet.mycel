@@ -66,7 +66,6 @@ flow "item_update_split" {
     facet     = "data"
     connector = "catalog"
     target    = "catalog_items"
-    parallel  = true
   }
 
   // Runs only when the assets facet changed. What is committed here is the
@@ -84,6 +83,5 @@ flow "item_update_split" {
     facet     = "assets"
     connector = "asset_jobs"
     target    = "item.assets.q"
-    parallel  = true
   }
 }

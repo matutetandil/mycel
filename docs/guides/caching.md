@@ -415,14 +415,12 @@ to {
   facet     = "data"                # skipped when the data facet is unchanged
   connector = "catalog"
   target    = "catalog_items"
-  parallel  = true
 }
 
 to {
   facet     = "assets"              # skipped when the assets facet is unchanged
   connector = "asset_jobs"          # a queue a second consumer reads
   target    = "item.assets.q"
-  parallel  = true
 }
 ```
 
