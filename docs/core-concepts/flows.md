@@ -791,7 +791,7 @@ flow "get_product" {
   cache {
     storage      = "redis_cache"
     ttl          = "5m"
-    key          = "'product:' + input.id"
+    key          = "product:${input.id}"
     invalidate_on = ["product.updated", "product.deleted"]
   }
 

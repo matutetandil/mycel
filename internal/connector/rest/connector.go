@@ -461,9 +461,15 @@ func (c *Connector) buildInput(r *http.Request, paramNames []string) (map[string
 	}
 	input["headers"] = headers
 
-	// Body for POST/PUT/PATCH/QUERY — auto-detect format from Content-Type.
-	// QUERY (RFC 10008) is a safe read method whose query lives in the body.
-	if r.Method == "POST" || r.Method == "PUT" || r.Method == "PATCH" || r.Method == "QUERY" {
+	// Body for POST/PUT/PATCH/QUERY/DELETE — auto-detect format from
+	// Content-Type. QUERY (RFC 10008) is a safe read method whose query lives
+	// in the body. DELETE was left out, so a flow declared as `DELETE /keys`
+	// with a JSON body of ids received no fields at all — not an error, an
+	// empty input, which usually falls through to whatever the "no arguments"
+	// branch does. RFC 9110 does not forbid a body on DELETE and "delete these
+	// ids" is how a selective endpoint is shaped; a body-less DELETE stays
+	// what it was, since an empty body decodes nothing.
+	if r.Method == "POST" || r.Method == "PUT" || r.Method == "PATCH" || r.Method == "QUERY" || r.Method == "DELETE" {
 		ct := r.Header.Get("Content-Type")
 
 		// Handle multipart/form-data (file uploads)

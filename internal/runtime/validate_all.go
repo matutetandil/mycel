@@ -63,6 +63,9 @@ func Checks(config *parser.Configuration, reg *schema.Registry) []Check {
 		// nobody: depending on the block it was refused, or failed on the
 		// first request, or silently did nothing at all for ever.
 		{"connector reference", ValidateConnectorReferences(config)},
+		// A cache key is a template, and one written as CEL is used verbatim:
+		// every request shares one entry and gets the first record back.
+		{"cache key", ValidateCacheKeys(config)},
 		// A hook naming a flow that does not exist would otherwise surface as
 		// a line in a log during whatever the hook was meant to catch.
 		{"auth hook", ValidateAuthHooks(config)},

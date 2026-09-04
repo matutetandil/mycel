@@ -140,7 +140,7 @@ flow "magento_create_style" {
 
 ## Operations
 
-**Server (source):** Any HTTP method + path pattern — `GET /users`, `POST /users`, `PUT /users/:id`, `DELETE /users/:id`.
+**Server (source):** Any HTTP method + path pattern — `GET /users`, `POST /users`, `PUT /users/:id`, `DELETE /users/:id`. Path and query parameters arrive at the top of `input` for every method; a request body is decoded and merged there too for `POST`, `PUT`, `PATCH`, `QUERY` and `DELETE` (a body-less `DELETE` is the common case and stays as it is — before 3.6.2 a `DELETE` body was silently ignored). A body that does not parse is a `400`.
 
 **Client (target):** Same method + path syntax, resolved against `base_url`.
 

@@ -38,7 +38,7 @@ flow "get_product" {
   cache {
     storage = "redis_cache"
     ttl     = "5m"
-    key     = "'product:' + input.id"
+    key     = "product:${input.id}"
   }
 
   to {
@@ -59,25 +59,28 @@ When a request comes in:
 |-----------|------|----------|-------------|
 | `storage` | string | yes | Cache connector name |
 | `ttl` | string | no | Time-to-live: `"5m"`, `"1h"`, `"24h"` |
-| `key` | string | no | CEL expression for cache key (default: auto-generated from request) |
+| `key` | string | no | Key template — `${...}` is substituted, the rest is literal (default: auto-generated from the request) |
 | `invalidate_on` | list | no | Event patterns that invalidate this cache entry |
 | `use` | string | no | Reference a named cache (`use = "cache.<name>"`); its storage, ttl, prefix and encoding come with it |
 | `encoding` | list | no | Wire format for entries, applied in order on the way out and reversed on the way in. Default `["json"]`. See [Sharing a namespace](#sharing-a-namespace-with-another-service) |
 
-### Cache Key Expressions
+### Cache Key Templates
 
-The cache key must uniquely identify the request:
+The cache key must uniquely identify the request. It is a **template**, not a CEL expression: each `${...}` is replaced by the value it names, and everything outside is the key as written.
 
 ```hcl
 # Simple ID-based key
-key = "'product:' + input.id"
+key = "product:${input.id}"
 
 # Multiple parameters
-key = "'users:' + input.id + ':orders:' + input.status"
+key = "users:${input.id}:orders:${input.status}"
 
-# Context-aware (per-user cache)
-key = "'user_data:' + ctx.user_id"
+# Per-caller cache, keyed by a request header
+key = "user_data:${input.headers.x-user-id}"
 ```
+
+!!! danger "Not CEL — the `lock`, `dedupe` and `coordinate` keys are, this one is not"
+    `key = "'product:' + input.id"` is the form the sync primitives take, and it is accepted here without complaint: the key is used verbatim, quotes and `+` included, so **every request shares one cache entry** and gets back whichever record was cached first, for the life of the TTL. Nothing fails — the symptom is users seeing the wrong record. Since 3.6.2 `mycel validate` refuses a key whose text outside `${...}` carries quotes, a `+`, or an `input.` reference, and shows the template form to write instead.
 
 ## Named Caches
 
@@ -134,7 +137,7 @@ flow "get_user" {
   cache {
     storage       = "redis_cache"
     ttl           = "15m"
-    key           = "'user:' + input.id"
+    key           = "user:${input.id}"
     invalidate_on = ["user.updated:${input.id}", "user.deleted:${input.id}"]
   }
 
@@ -249,7 +252,7 @@ They take turns destroying each other's entries, and the only visible symptom is
 cache {
   storage  = "redis_cache"
   ttl      = "5m"
-  key      = "'product:' + input.id"
+  key      = "product:${input.id}"
   # Reads and writes what a service storing gzip(base64(JSON.stringify(v))) does
   encoding = ["json", "base64", "gzip"]
 }
@@ -505,7 +508,7 @@ flow "get_product" {
   cache {
     storage = "redis_cache"
     ttl     = "10m"
-    key     = "'product:' + input.id"
+    key     = "product:${input.id}"
   }
 
   to {

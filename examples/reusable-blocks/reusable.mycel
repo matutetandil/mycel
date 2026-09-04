@@ -139,3 +139,12 @@ transaction "item_and_price" {
     }
   }
 }
+
+# A response shape declared once and used by flows that gather their rows in
+# steps. A flow whose transform is nothing but `use` is honoured with or
+# without steps — before 3.6.2 a steps flow ignored it and answered the first
+# step's raw rows.
+transform "stock_summary" {
+  items       = "int(step.items.n)"
+  total_value = "double(step.prices.total)"
+}

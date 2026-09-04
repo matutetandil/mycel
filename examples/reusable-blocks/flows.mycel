@@ -147,3 +147,26 @@ flow "list_stock" {
     query     = "SELECT i.id, i.name, p.amount FROM items i JOIN prices p ON p.item_id = i.id ORDER BY i.id"
   }
 }
+
+# Two steps gather the counts; the named transform declares the answer's
+# shape. The flow's own transform block says nothing but which shape to use.
+flow "stock_summary" {
+  from {
+    connector = "api"
+    operation = "GET /stock/summary"
+  }
+
+  step "items" {
+    connector = "catalog"
+    query     = "SELECT COUNT(*) AS n FROM items"
+  }
+
+  step "prices" {
+    connector = "catalog"
+    query     = "SELECT COALESCE(SUM(amount), 0) AS total FROM prices"
+  }
+
+  transform {
+    use = "transform.stock_summary"
+  }
+}

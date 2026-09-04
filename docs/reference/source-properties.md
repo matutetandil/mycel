@@ -120,7 +120,7 @@ Supported methods: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, and `QUERY` — the 
 |----------|--------|-------------|
 | `input.<param>` | Path | Path parameters by name (`input.id`, `input.user_id`) |
 | `input.<param>` | Query | Query string parameters by name (`input.page`, `input.limit`) |
-| `input.<field>` | Body | JSON/XML body fields merged directly (POST/PUT/PATCH/QUERY) |
+| `input.<field>` | Body | JSON/XML body fields merged directly (POST/PUT/PATCH/QUERY, and DELETE when it carries one) |
 | `input.headers` | Headers | Map of all request headers (lowercased keys) |
 | `input.<field>` | Multipart | File uploads: `{filename, size, content_type, data}` (base64) |
 

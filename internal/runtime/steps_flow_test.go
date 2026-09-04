@@ -2,10 +2,12 @@ package runtime
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/matutetandil/mycel/v3/internal/connector"
 	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
 // A flow made of steps gathers from several places and then says what to send
@@ -132,3 +134,77 @@ var errStepFailed = &stepFailure{}
 type stepFailure struct{}
 
 func (*stepFailure) Error() string { return "the customer service is down" }
+
+// A transform can be nothing but a reference to a named one. That is the case
+// steps make most useful — several flows reading different rows into one shape
+// declared once — and it was the case that did nothing: the steps path decided
+// whether a transform existed by counting inline mappings, found none, and
+// answered the first step's raw rows. No error, nothing in the log, and the
+// same block worked in a flow without steps.
+
+func stepsFlowUsing(t *testing.T, use string, inline map[string]string) *FlowHandler {
+	t.Helper()
+	handler := stepsFlow(t, nil, nil)
+	handler.Config.Transform = &flow.TransformConfig{Use: use, Mappings: inline}
+	handler.NamedTransforms = map[string]*transform.Config{
+		"shape": {
+			Name: "shape",
+			Mappings: map[string]string{
+				"customer_name": "step.customer.name",
+				"order_total":   "step.latest_order.total",
+			},
+			Order: []string{"customer_name", "order_total"},
+		},
+	}
+	return handler
+}
+
+func TestAUseOnlyTransformShapesTheAnswerOfAStepsFlow(t *testing.T) {
+	answer, _, err := stepsFlowUsing(t, "shape", nil).handleStepsFlow(context.Background(), map[string]interface{}{"id": "c-1"})
+	if err != nil {
+		t.Fatalf("handleStepsFlow: %v", err)
+	}
+
+	fields, ok := answer.(map[string]interface{})
+	if !ok {
+		t.Fatalf("the answer came back as %T", answer)
+	}
+	if fields["customer_name"] != "Ada" {
+		t.Errorf("answer = %v, want the shape the named transform declares, not the first step's rows", fields)
+	}
+	if _, raw := fields["tier"]; raw {
+		t.Errorf("answer = %v carries the step's own columns: the named transform was ignored", fields)
+	}
+}
+
+func TestInlineMappingsLayerOverTheNamedTransformInAStepsFlow(t *testing.T) {
+	// `use` plus an inline field used to fail at request time with "no such
+	// key": the inline half was evaluated without the named half's fields.
+	answer, _, err := stepsFlowUsing(t, "shape", map[string]string{
+		"summary": "output.customer_name + ' owes ' + string(output.order_total)",
+	}).handleStepsFlow(context.Background(), map[string]interface{}{"id": "c-1"})
+	if err != nil {
+		t.Fatalf("handleStepsFlow: %v", err)
+	}
+
+	fields, ok := answer.(map[string]interface{})
+	if !ok {
+		t.Fatalf("the answer came back as %T", answer)
+	}
+	if fields["summary"] != "Ada owes 42" {
+		t.Errorf("summary = %#v, want the inline field to see the named transform's output", fields["summary"])
+	}
+	if fields["customer_name"] != "Ada" {
+		t.Errorf("answer = %v lost the named transform's own fields", fields)
+	}
+}
+
+func TestATransformNamingNothingIsAnErrorNotTheRawStep(t *testing.T) {
+	_, _, err := stepsFlowUsing(t, "no_such_shape", nil).handleStepsFlow(context.Background(), map[string]interface{}{"id": "c-1"})
+	if err == nil {
+		t.Fatal("a transform using a name nobody declared answered as though it had not")
+	}
+	if !strings.Contains(err.Error(), "no_such_shape") {
+		t.Errorf("error = %q, want it to name the missing transform", err)
+	}
+}

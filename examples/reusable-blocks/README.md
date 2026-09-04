@@ -93,6 +93,20 @@ Both tables, to see what the transaction actually wrote:
 curl localhost:8080/stock
 ```
 
+## A named transform over steps
+
+`stock_summary` gathers two counts in `step` blocks and its `transform` block
+is nothing but `use = "transform.stock_summary"` — the shape is declared once in
+`reusable.mycel`, and any flow that gathers the same rows can answer in it:
+
+```bash
+curl localhost:8080/stock/summary
+```
+
+```json
+{ "items": 1, "total_value": 19.9 }
+```
+
 ## Notes
 
 A `transaction` answers with what it did rather than with the row it wrote, so

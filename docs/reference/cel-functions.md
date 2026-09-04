@@ -319,7 +319,16 @@ input.list ?? []
 
 Chaining is right-associative: `a ?? b ?? c` behaves like `a ?? (b ?? c)`.
 
-When mixing `??` with the ternary `?:` at the same depth, parenthesize for clarity: `(a ?? b) ? c : d`. The rewriter does not resolve precedence against `?:` automatically.
+`??` binds tighter than the ternary `?:`, as in JavaScript and C#: `c ? a ?? 1 : b ?? 2` is `c ? (a ?? 1) : (b ?? 2)`. To coalesce a whole ternary, parenthesize it: `(c ? a : b) ?? d`.
+
+Inside a map literal, `??` applies to the value, not the entry, so a nested object with a default per field is written the obvious way:
+
+```
+hours = "{'open': input.open ?? '', 'close': input.close ?? ''}"
+```
+
+!!! note "Before 3.6.2"
+    The rewrite assumed the operand started at the beginning of the enclosing argument, so inside a map literal it swallowed the key — `coalesce('open': input.open, '')` — and the expression failed to compile **at request time**, since `mycel validate` does not compile CEL. It read as map literals being unsupported. The same assumption made `??` span both branches of a ternary written at the same depth.
 
 ## Common Patterns
 
