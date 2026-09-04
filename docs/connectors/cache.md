@@ -93,7 +93,7 @@ flow "get_user_cached" {
 
   cache {
     storage = "redis_cache"
-    key     = "'user:' + input.id"
+    key     = "user:${input.id}"
     ttl     = "10m"
   }
 

@@ -104,7 +104,8 @@ type CacheConfig struct {
 	// TTL is the cache time-to-live (e.g., "5m", "1h").
 	TTL string
 
-	// Key is a CEL expression for the cache key.
+	// Key is the cache key template: `${...}` spans are evaluated and
+	// substituted, everything else is the key as written.
 	// Available variables: input, input._flow, input._operation
 	Key string
 }

@@ -501,7 +501,7 @@ flow "get_product" {
   cache {
     storage = "cache"
     ttl     = "5m"
-    key     = "'product:' + input.id"
+    key     = "product:${input.id}"
   }
   from { ... }
   to { ... }

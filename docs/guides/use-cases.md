@@ -355,7 +355,7 @@ aspect "cache_reads" {
   cache {
     storage = "cache"
     ttl     = "5m"
-    key     = "'products:list'"
+    key     = "products:list"
   }
 }
 

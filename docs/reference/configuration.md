@@ -902,7 +902,7 @@ require {
 cache {
   storage       = "redis_cache"       # Required
   ttl           = "5m"
-  key           = "'product:' + input.id"
+  key           = "product:${input.id}"
   invalidate_on = ["product.updated"]
   use           = "cache.products"    # Reference named cache
   encoding      = ["json"]            # Optional: wire format, see below
