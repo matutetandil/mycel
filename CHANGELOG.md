@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A `transform` that was only `use = "transform.<name>"` was ignored by every flow with steps, and the flow answered the first step's raw rows.** The steps path decided whether a transform existed by counting inline mappings, found none, and took the "no transform" branch — no error, nothing in the log, nothing from `mycel validate`. Adding an inline field alongside the `use` failed at request time with `no such key`, because the inline half was evaluated without the named half's fields. The same block worked in a flow without steps, which pointed the blame at the steps. Steps are where a named transform pays off most — several flows reading different rows into one shape declared once — and that was the combination in which it did nothing. One helper now resolves the transform for both paths, so a `use`-only block, a `use` plus inline fields, and a `use` naming a transform nobody declared behave the same with and without steps. (#97)
+
 ## [3.6.1] - 2026-09-02
 
 ### Security

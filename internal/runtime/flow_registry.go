@@ -2543,12 +2543,23 @@ func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]inte
 	}
 	flow.StepResultsFromContext(ctx).Set(stepResults)
 
+	// Everything the transform applies, the named block it `use`s included.
+	// This used to look only at the inline mappings, so a transform that was
+	// nothing but `use = "transform.shape"` counted as no transform at all:
+	// the flow answered the first step's raw rows and nothing said why. The
+	// same block worked in a flow without steps, which pointed the blame at
+	// the steps.
+	rules, err := h.transformRules()
+	if err != nil {
+		return nil, stepResults, err
+	}
+
 	// If no transform is configured, return the result of the step written
 	// first. It used to walk the map of results and return whichever came out
 	// of it, so a flow with more than one step answered a different step's
 	// result on each request, with nothing in the configuration to explain why
 	// the same call returned a customer once and an order the next time.
-	if h.Config.Transform == nil || len(h.Config.Transform.Mappings) == 0 {
+	if len(rules) == 0 {
 		for _, step := range h.Config.Steps {
 			if result, ok := stepResults[step.Name]; ok {
 				return result, stepResults, nil
@@ -2556,9 +2567,6 @@ func (h *FlowHandler) handleStepsFlow(ctx context.Context, input map[string]inte
 		}
 		return nil, stepResults, nil
 	}
-
-	// Build transform rules from mappings
-	rules := transform.RulesFromMappings(h.Config.Transform.Mappings, h.Config.Transform.Order)
 
 	// Create CEL transformer if not already available
 	celTransformer := h.Transformer
@@ -4078,6 +4086,41 @@ func (h *FlowHandler) applyResponseTransform(ctx context.Context, input map[stri
 
 // applyTransforms applies the flow transform (and its steps/enrichments) and
 // returns the resulting payload. It is the common path for to-writes.
+// transformRules is everything the flow's transform block applies, in order.
+//
+// A named transform supplies the base mappings and the inline block layers
+// over it: a field declared in both takes the inline expression but keeps the
+// named block's position, so the fields below it see the same `output` either
+// way. Every path that applies a transform asks here, so a block that is only
+// `use = "transform.x"` means the same thing whether or not the flow has
+// steps — it used to be honoured by one path and ignored by the other.
+func (h *FlowHandler) transformRules() ([]transform.Rule, error) {
+	if h.Config.Transform == nil {
+		return nil, nil
+	}
+
+	mappings := h.Config.Transform.Mappings
+	order := h.Config.Transform.Order
+
+	if h.Config.Transform.Use != "" {
+		named, ok := h.NamedTransforms[h.Config.Transform.Use]
+		if !ok {
+			return nil, fmt.Errorf("named transform not found: %s", h.Config.Transform.Use)
+		}
+		merged := make(map[string]string, len(named.Mappings)+len(mappings))
+		for target, expr := range named.Mappings {
+			merged[target] = expr
+		}
+		for target, expr := range mappings {
+			merged[target] = expr
+		}
+		mappings = merged
+		order = transform.MergeOrder(named.Order, order)
+	}
+
+	return transform.RulesFromMappings(mappings, order), nil
+}
+
 func (h *FlowHandler) applyTransforms(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
 	payload, _, err := h.applyTransformsWithSteps(ctx, input)
 	return payload, err
@@ -4153,30 +4196,10 @@ func (h *FlowHandler) applyTransformsWithSteps(ctx context.Context, input map[st
 		return input, stepResults, nil
 	}
 
-	// Build transform rules from config. A named transform supplies the base
-	// mappings and the inline block layers over it: a field declared in both
-	// takes the inline expression but keeps the named block's position, so the
-	// fields below it see the same `output` either way.
-	mappings := h.Config.Transform.Mappings
-	order := h.Config.Transform.Order
-
-	if h.Config.Transform.Use != "" {
-		named, ok := h.NamedTransforms[h.Config.Transform.Use]
-		if !ok {
-			return nil, nil, fmt.Errorf("named transform not found: %s", h.Config.Transform.Use)
-		}
-		merged := make(map[string]string, len(named.Mappings)+len(mappings))
-		for target, expr := range named.Mappings {
-			merged[target] = expr
-		}
-		for target, expr := range mappings {
-			merged[target] = expr
-		}
-		mappings = merged
-		order = transform.MergeOrder(named.Order, order)
+	rules, err := h.transformRules()
+	if err != nil {
+		return nil, nil, err
 	}
-
-	rules := transform.RulesFromMappings(mappings, order)
 
 	// No rules to apply
 	if len(rules) == 0 {
