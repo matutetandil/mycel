@@ -27,10 +27,10 @@ import "strings"
 // Chaining is right-associative: `a ?? b ?? c` becomes
 // `coalesce(a, coalesce(b, c))` (with `has()` wrappers as appropriate).
 //
-// Limitation: when `??` and the ternary operator `?:` appear at the same
-// depth, parenthesize the `??` expression: `(a ?? b) ? c : d`. Same
-// convention as JS/C#. The rewriter does not resolve precedence against
-// `?:` automatically.
+// `??` binds tighter than the ternary `?:` and stops at a map-literal key,
+// as in JS/C#: `c ? a ?? d : b` is `c ? (a ?? d) : b`, and
+// `{'k': input.v ?? ""}` defaults the value, not the entry. To coalesce a
+// whole ternary, parenthesize it: `(c ? a : b) ?? d`.
 func RewriteCoalesce(expr string) string {
 	if !strings.Contains(expr, "??") {
 		return expr
@@ -81,13 +81,62 @@ func foldByCommas(s string) string {
 	}
 	segments := splitTopLevel(s, ',')
 	for i, seg := range segments {
-		segments[i] = foldCoalesceChain(seg)
+		segments[i] = foldOperands(seg)
 	}
 	return strings.Join(segments, ",")
 }
 
-// foldCoalesceChain takes a single comma-free segment, splits it at
-// top-level `??` occurrences and folds right-associatively.
+// foldOperands takes a comma-free segment and folds the `??` chain of each
+// operand in it separately. An operand ends where a map-literal key or a
+// ternary branch does: at a top-level `:` or a lone `?`.
+//
+// The chain used to be folded across the whole segment, so the operand of a
+// `??` was assumed to start at the segment's beginning. Inside a map literal
+// the segment is `'open': input.open ?? ""`, and the key was swallowed into
+// the call — `coalesce('open': input.open, "")` — which does not parse. The
+// failure was at request time, since `mycel validate` does not compile CEL,
+// and it read as the map literal being unsupported. Splitting at the same
+// boundaries also gives `??` the precedence it has in JavaScript and C#,
+// tighter than `?:`, so `c ? a ?? d : b` becomes `c ? coalesce(a, d) : b`
+// rather than a call spanning both branches.
+func foldOperands(segment string) string {
+	if !strings.Contains(segment, "??") {
+		return segment
+	}
+	var out strings.Builder
+	out.Grow(len(segment))
+	start := 0
+	i := 0
+	for i < len(segment) {
+		c := segment[i]
+		if c == '\'' || c == '"' {
+			i = skipString(segment, i)
+			continue
+		}
+		if close := matchingClose(c); close != 0 {
+			if j := findClose(segment, i, c, close); j >= 0 {
+				i = j + 1
+				continue
+			}
+		}
+		if c == '?' && i+1 < len(segment) && segment[i+1] == '?' {
+			i += 2
+			continue
+		}
+		if c == ':' || c == '?' {
+			out.WriteString(foldCoalesceChain(segment[start:i]))
+			out.WriteByte(c)
+			start = i + 1
+		}
+		i++
+	}
+	out.WriteString(foldCoalesceChain(segment[start:]))
+	return out.String()
+}
+
+// foldCoalesceChain takes a single operand — no top-level commas, map keys
+// or ternary branches — splits it at top-level `??` occurrences and folds
+// right-associatively.
 func foldCoalesceChain(segment string) string {
 	positions := findTopLevelCoalesce(segment)
 	if len(positions) == 0 {

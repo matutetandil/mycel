@@ -1,6 +1,9 @@
 package transform
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestRewriteCoalesce(t *testing.T) {
 	tests := []struct {
@@ -43,6 +46,22 @@ func TestRewriteCoalesce(t *testing.T) {
 		// has() rejects invalid paths
 		{"path with index not safe", "input[0] ?? 'd'", "coalesce(input[0], 'd')"},
 		{"path with call not safe", "input.f() ?? 'd'", "coalesce(input.f(), 'd')"},
+
+		// A map-literal entry: the key stays outside the call. It used to be
+		// swallowed — `coalesce('open': input.open, '')` — and the literal no
+		// longer parsed, at request time, looking like maps were unsupported.
+		{"map literal entry", "{'open': input.open ?? ''}", "{'open': (has(input.open) ? coalesce(input.open, '') : '')}"},
+		{"map literal two entries", "{'open': input.open ?? '', 'close': input.close ?? ''}",
+			"{'open': (has(input.open) ? coalesce(input.open, '') : ''), 'close': (has(input.close) ? coalesce(input.close, '') : '')}"},
+		{"map literal computed key", "{input.k ?? 'k': input.v ?? 'v'}", "{(has(input.k) ? coalesce(input.k, 'k') : 'k'): (has(input.v) ? coalesce(input.v, 'v') : 'v')}"},
+		{"map literal inside call", "f({'a': x ?? 1})", "f({'a': coalesce(x, 1)})"},
+
+		// `??` binds tighter than `?:`, as in JS/C#: each branch folds on its own.
+		{"ternary then branch", "c ? a ?? 1 : b", "c ? coalesce(a, 1) : b"},
+		{"ternary else branch", "has(x) ? x : y ?? z", "has(x) ? x : coalesce(y, z)"},
+		{"ternary both branches", "c ? a ?? 1 : b ?? 2", "c ? coalesce(a, 1) : coalesce(b, 2)"},
+		{"ternary whole parenthesized", "(c ? a : b) ?? d", "coalesce((c ? a : b), d)"},
+		{"string with colon is not a key", "input.x ?? 'a:b'", "(has(input.x) ? coalesce(input.x, 'a:b') : 'a:b')"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -69,6 +88,9 @@ func TestRewriteCoalesceCompiles(t *testing.T) {
 		"input.obj ?? {}",
 		"(input.x ?? '') != ''",
 		"input.body.payload.jobId ?? ''",
+		"{'open': input.open ?? '', 'close': input.close ?? ''}",
+		"{'hours': {'open': input.open ?? ''}, 'name': input.name ?? 'n/a'}",
+		"input.flag ? input.a ?? 'x' : input.b ?? 'y'",
 	}
 	for _, e := range exprs {
 		t.Run(e, func(t *testing.T) {
@@ -102,6 +124,7 @@ func TestRewriteCoalesceRuntime(t *testing.T) {
 		{"deeply nested missing", "input.body.payload.jobId ?? ''", map[string]interface{}{"body": map[string]interface{}{"payload": map[string]interface{}{}}}, ""},
 		{"deeply nested intermediate missing", "input.body.payload.jobId ?? ''", map[string]interface{}{"body": map[string]interface{}{}}, ""},
 		{"deeply nested all missing", "input.body.payload.jobId ?? ''", map[string]interface{}{}, ""},
+		{"ternary else branch", "input.flag ? 'on' : input.off ?? 'default'", map[string]interface{}{"flag": false}, "default"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -118,5 +141,28 @@ func TestRewriteCoalesceRuntime(t *testing.T) {
 				t.Errorf("expr=%q input=%v: got %v (%T), want %v", tc.expr, tc.input, got, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestRewriteCoalesceInsideAMapLiteral is the shape that found the bug: a
+// response transform building a nested object with a default per field, which
+// is most of what reshaping flat SQL rows amounts to.
+func TestRewriteCoalesceInsideAMapLiteral(t *testing.T) {
+	tr, err := NewCELTransformer()
+	if err != nil {
+		t.Fatalf("failed to build transformer: %v", err)
+	}
+	input := map[string]interface{}{"open": "09:00"}
+	got, err := tr.EvaluateExpression(context.Background(), input, nil,
+		"{'open': input.open ?? '', 'close': input.close ?? ''}")
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	hours, ok := got.(map[string]interface{})
+	if !ok {
+		t.Fatalf("result is %T, want a map", got)
+	}
+	if hours["open"] != "09:00" || hours["close"] != "" {
+		t.Errorf("hours = %v, want open from the input and close defaulted", hours)
 	}
 }
