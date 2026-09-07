@@ -35,6 +35,9 @@ func ValidateCacheKeys(config *parser.Configuration) []error {
 		if err := cacheKeyLooksLikeCEL(f.Cache.Key); err != nil {
 			errs = append(errs, fmt.Errorf("flow %q: %w", f.Name, err))
 		}
+		if err := checkKeyFrom(f.Cache.Key, f.Cache.KeyFrom); err != nil {
+			errs = append(errs, fmt.Errorf("flow %q: %w", f.Name, err))
+		}
 	}
 	for _, a := range config.Aspects {
 		if a == nil || a.Cache == nil {
@@ -43,8 +46,32 @@ func ValidateCacheKeys(config *parser.Configuration) []error {
 		if err := cacheKeyLooksLikeCEL(a.Cache.Key); err != nil {
 			errs = append(errs, fmt.Errorf("aspect %q: %w", a.Name, err))
 		}
+		if err := checkKeyFrom(a.Cache.Key, a.Cache.KeyFrom); err != nil {
+			errs = append(errs, fmt.Errorf("aspect %q: %w", a.Name, err))
+		}
 	}
 	return errs
+}
+
+// checkKeyFrom is the mirror image of cacheKeyLooksLikeCEL: a key_from is
+// CEL, so a `${...}` in it is the template form written in the wrong
+// attribute, and a block with both attributes has two answers to what the
+// key is. The parser refuses the second; this catches a configuration built
+// some other way.
+func checkKeyFrom(key, keyFrom string) error {
+	if keyFrom == "" {
+		return nil
+	}
+	if key != "" {
+		return fmt.Errorf("cache block sets both key and key_from: keep key for a `${...}` template " +
+			"of scalars, or key_from for a CEL expression that derives the key, not both")
+	}
+	if strings.Contains(keyFrom, "${") {
+		return fmt.Errorf("cache key_from `%s` carries `${...}`, which is the template form — "+
+			"key_from is a CEL expression. Write the same thing as key = \"%s\", or drop the `${...}` "+
+			"and refer to the message as input.<field>", keyFrom, keyFrom)
+	}
+	return nil
 }
 
 // cacheKeyLooksLikeCEL reports whether the text outside a key's `${...}`

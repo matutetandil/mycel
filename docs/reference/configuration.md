@@ -913,6 +913,10 @@ cache {
   storage       = "redis_cache"       # Required
   ttl           = "5m"
   key           = "product:${input.id}"
+  # Or, for a list or map input that has to be joined or hashed first — a CEL
+  # expression yielding the key, evaluated against input.* before the lookup.
+  # Mutually exclusive with key. See the caching guide.
+  key_from      = "'gallery:' + hash_sha256(join(as_list(input.filter).map(f, f.code + '=' + f.value), '|'))"
   invalidate_on = ["product.updated"]
   use           = "cache.products"    # Reference named cache
   encoding      = ["json"]            # Optional: wire format, see below

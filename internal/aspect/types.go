@@ -108,6 +108,10 @@ type CacheConfig struct {
 	// substituted, everything else is the key as written.
 	// Available variables: input, input._flow, input._operation
 	Key string
+
+	// KeyFrom is a CEL expression yielding the key, for what a template of
+	// scalars cannot identify. Mutually exclusive with Key.
+	KeyFrom string
 }
 
 // InvalidateConfig defines cache invalidation for after aspects.

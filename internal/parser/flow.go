@@ -2196,6 +2196,7 @@ func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig,
 			{Name: "storage"},
 			{Name: "ttl"},
 			{Name: "key"},
+			{Name: "key_from"},
 			{Name: "invalidate_on"},
 			{Name: "use"},
 			{Name: "encoding"},
@@ -2208,6 +2209,15 @@ func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig,
 	}
 
 	cache := &flow.CacheConfig{}
+
+	// A key_from is CEL, and CEL is an ordinary string to HCL.
+	if attr, ok := content.Attributes["key_from"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("cache key_from error: %s", diags.Error())
+		}
+		cache.KeyFrom = stringOrEmpty(val)
+	}
 
 	if attr, ok := content.Attributes["storage"]; ok {
 		val, diags := attr.Expr.Value(ctx)
@@ -2280,6 +2290,13 @@ func parseCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.CacheConfig,
 	if cache.Storage == "" && cache.Use == "" {
 		return nil, fmt.Errorf("cache block names no storage: write storage = \"<connector>\", " +
 			"or use = \"cache.<name>\" to take it from a named cache")
+	}
+
+	// A key is a template and a key_from is an expression; a block with both
+	// would have two answers to what the key is.
+	if cache.Key != "" && cache.KeyFrom != "" {
+		return nil, fmt.Errorf("cache block sets both key and key_from: keep key for a `${...}` template " +
+			"of scalars, or key_from for a CEL expression that derives the key, not both")
 	}
 
 	return cache, nil

@@ -707,8 +707,14 @@ func (e *Executor) executeConnectorAction(ctx context.Context, action *ActionCon
 // executeCache executes cache lookup/store around a flow.
 func (e *Executor) executeCache(ctx context.Context, cache *CacheConfig, input map[string]interface{}, next FlowFunc) (*connector.Result, error) {
 	// Build cache key
-	key, err := e.interpolateString(ctx, cache.Key, input)
+	key, err := e.cacheKey(ctx, cache, input)
 	if err != nil {
+		if cache.KeyFrom != "" {
+			// A key_from that yields nothing usable is a configuration error
+			// that will repeat on every request; caching under an empty or
+			// literal key and reporting success would hide it.
+			return nil, err
+		}
 		slog.Warn("cache key interpolation error", "error", err)
 		// Continue without cache
 		return next(ctx, input)
@@ -990,6 +996,23 @@ func (e *Executor) getOrCreateCircuitBreaker(aspectName string, cb *CircuitBreak
 }
 
 // interpolateString interpolates ${...} expressions in a string.
+// cacheKey is the key an aspect caches under: a `key_from` evaluated as CEL,
+// which has to yield a non-empty string, or the `key` template.
+func (e *Executor) cacheKey(ctx context.Context, cache *CacheConfig, input map[string]interface{}) (string, error) {
+	if cache.KeyFrom == "" {
+		return e.interpolateString(ctx, cache.Key, input)
+	}
+	value, err := e.cel.EvaluateExpression(ctx, input, nil, cache.KeyFrom)
+	if err != nil {
+		return "", fmt.Errorf("aspect cache key_from: %w", err)
+	}
+	key, isText := value.(string)
+	if !isText || key == "" {
+		return "", fmt.Errorf("aspect cache key_from must evaluate to a non-empty string, got %T (%v)", value, value)
+	}
+	return key, nil
+}
+
 func (e *Executor) interpolateString(ctx context.Context, template string, input map[string]interface{}) (string, error) {
 	result := template
 

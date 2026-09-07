@@ -970,6 +970,12 @@ type CacheConfig struct {
 	// Supports ${input.params.id}, ${input.query.page}, etc.
 	Key string
 
+	// KeyFrom is a CEL expression yielding the key, evaluated against the
+	// message before the lookup. It is for the requests a template of
+	// scalars cannot identify — a list or a map that has to be sorted,
+	// joined or hashed into a string first. Mutually exclusive with Key.
+	KeyFrom string
+
 	// InvalidateOn is a list of event patterns that invalidate this cache entry.
 	// Example: ["products:updated:${input.params.id}"]
 	InvalidateOn []string

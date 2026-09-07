@@ -347,7 +347,8 @@ func AspectCacheSchema() Block {
 		Attrs: []Attr{
 			{Name: "storage", Doc: "Cache storage connector", Type: TypeString, Ref: RefConnector, Required: true},
 			{Name: "ttl", Doc: "Cache entry time-to-live", Type: TypeDuration, Required: true},
-			{Name: "key", Doc: "Cache key template: ${...} is substituted, the rest is literal (not a CEL expression)", Type: TypeString, Required: true},
+			{Name: "key", Doc: "Cache key template: ${...} is substituted, the rest is literal (not a CEL expression). One of key / key_from is required", Type: TypeString},
+			{Name: "key_from", Doc: "CEL expression yielding the key, for a list or map input that has to be sorted, joined or hashed first (e.g. 'ids:' + hash_sha256(join(as_list(input.ids), ','))). Mutually exclusive with key", Type: TypeString},
 		},
 	}
 }
@@ -360,6 +361,7 @@ func FlowCacheSchema() Block {
 			{Name: "storage", Doc: "Cache storage connector", Type: TypeString, Ref: RefConnector},
 			{Name: "ttl", Doc: "Cache entry time-to-live", Type: TypeDuration},
 			{Name: "key", Doc: "Cache key template: ${...} is substituted, the rest is literal (not a CEL expression)", Type: TypeString},
+			{Name: "key_from", Doc: "CEL expression yielding the key, evaluated against input.* before the lookup, for a list or map input that has to be sorted, joined or hashed first (e.g. 'gallery:' + hash_sha256(join(as_list(input.filter).map(f, f.code + '=' + f.value), '|'))). Mutually exclusive with key", Type: TypeString},
 			{Name: "invalidate_on", Doc: "Flows whose writes drop this flow's cached entries", Type: TypeList},
 			{Name: "use", Doc: "Reference to named cache definition", Type: TypeString, Ref: RefCache},
 			{Name: "encoding", Doc: "How entries are written and read, applied in order on the way out and reversed on the way in: [\"json\"] (the default), or e.g. [\"json\", \"base64\", \"gzip\"] to share a namespace with a service that stores gzip(base64(JSON.stringify(v)))", Type: TypeList, Values: []string{"json", "base64", "gzip"}},

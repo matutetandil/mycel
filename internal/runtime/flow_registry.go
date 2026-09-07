@@ -1907,7 +1907,10 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	// the default key serializes every input pair (RFC 10008 requires the
 	// request content to be part of the cache key).
 	if operation.IsRead() && h.hasCacheConfig() {
-		cacheKey := h.buildCacheKey(input)
+		cacheKey, err := h.cacheKey(ctx, input)
+		if err != nil {
+			return nil, err
+		}
 		if cacheKey != "" {
 			cached, hit, err := h.checkCache(ctx, cacheKey)
 			if err == nil && hit {
@@ -2085,7 +2088,10 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 
 	// For read operations, store result in cache
 	if operation.IsRead() && h.hasCacheConfig() {
-		cacheKey := h.buildCacheKey(input)
+		cacheKey, err := h.cacheKey(ctx, input)
+		if err != nil {
+			return nil, err
+		}
 		if cacheKey != "" {
 			_ = h.storeInCache(ctx, cacheKey, result)
 		}
@@ -4529,6 +4535,39 @@ func (h *FlowHandler) hasCacheConfig() bool {
 	}
 	// Must have either storage or use reference
 	return h.Config.Cache.Storage != "" || h.Config.Cache.Use != ""
+}
+
+// cacheKey is the key this request is cached under.
+//
+// A `key_from` is evaluated as CEL against the message and has to yield a
+// non-empty string: the alternative is caching under an empty key or under
+// Go's rendering of a list, and reporting success. A `key` template, or
+// none, goes through buildCacheKey as before. The named cache's prefix goes
+// in front either way.
+func (h *FlowHandler) cacheKey(ctx context.Context, input map[string]interface{}) (string, error) {
+	if h.Config.Cache == nil || h.Config.Cache.KeyFrom == "" {
+		return h.buildCacheKey(input), nil
+	}
+	if err := h.ensureTransformer(); err != nil {
+		return "", fmt.Errorf("flow %s: cache key_from: %w", h.Config.Name, err)
+	}
+	value, err := h.Transformer.EvaluateExpression(ctx, input, nil, h.Config.Cache.KeyFrom)
+	if err != nil {
+		return "", fmt.Errorf("flow %s: cache key_from: %w", h.Config.Name, err)
+	}
+	key, isText := value.(string)
+	if !isText || key == "" {
+		return "", fmt.Errorf("flow %s: cache key_from must evaluate to a non-empty string, got %T (%v)",
+			h.Config.Name, value, value)
+	}
+
+	prefix := ""
+	if h.Config.Cache.Use != "" {
+		if named, ok := h.NamedCaches[h.Config.Cache.Use]; ok {
+			prefix = named.Prefix
+		}
+	}
+	return withCachePrefix(prefix, key), nil
 }
 
 // buildCacheKey builds the cache key by interpolating variables from input.
