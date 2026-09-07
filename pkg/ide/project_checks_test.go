@@ -263,3 +263,58 @@ func messages(diags []*Diagnostic) []string {
 	}
 	return out
 }
+
+func TestTheProjectChecksAreRedoneWhenAFileChanges(t *testing.T) {
+	// The pass parses everything, so it is kept until the files change — and
+	// it has to be redone the moment they do, or the editor would answer from
+	// a stale project.
+	e, dir := project(t, map[string]string{
+		"connectors.mycel": projectConnectors,
+		"flows.mycel": `
+flow "get_product" {
+  from {
+    connector = "api"
+    operation = "GET /products/:id"
+  }
+  to {
+    connector = "db"
+    target    = "products"
+  }
+}
+`})
+	flows := filepath.Join(dir, "flows.mycel")
+
+	if diags := e.Diagnose(flows); len(diags) != 0 {
+		t.Fatalf("a clean project was flagged: %v", messages(diags))
+	}
+	// Asked again with nothing changed: same answer.
+	if diags := e.Diagnose(flows); len(diags) != 0 {
+		t.Fatalf("the second ask flagged a clean project: %v", messages(diags))
+	}
+
+	broken := e.UpdateFile(flows, []byte(`
+flow "get_product" {
+  from {
+    connector = "api"
+    operation = "GET /products/:id"
+  }
+  cache {
+    storage = "redis"
+    key     = "'product:' + input.id"
+  }
+  to {
+    connector = "db"
+    target    = "products"
+  }
+}
+`))
+	if withMessage(broken, "template") == nil {
+		t.Fatalf("an edit that broke the project was answered from the previous pass: %v", messages(broken))
+	}
+
+	// And removing the offending file clears it.
+	e.RemoveFile(flows)
+	if got := withMessage(e.DiagnoseAll(), "template"); got != nil {
+		t.Errorf("the finding survived the file being removed")
+	}
+}

@@ -86,6 +86,12 @@ type ProjectIndex struct {
 	// what happened to the reusable blocks: `use = "lock.typo"` is refused by
 	// `mycel validate` and drew nothing at all in an editor.
 	Named map[string]map[string]*NamedEntity
+
+	// rev counts changes to the indexed files, so work derived from the whole
+	// project — parsing it with the real parser — is done once per change
+	// rather than once per query. An editor asks for diagnostics far more
+	// often than the files change.
+	rev int64
 }
 
 // newProjectIndex creates an empty project index.
@@ -110,6 +116,7 @@ func (idx *ProjectIndex) updateFile(fi *FileIndex) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	idx.Files[fi.Path] = fi
+	idx.rev++
 	idx.rebuild()
 }
 
@@ -118,6 +125,7 @@ func (idx *ProjectIndex) removeFile(path string) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	delete(idx.Files, path)
+	idx.rev++
 	idx.rebuild()
 }
 

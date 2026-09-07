@@ -45,7 +45,31 @@ var failedFile = regexp.MustCompile(`failed to parse (\S+): `)
 
 // projectDiagnostics parses the whole project as the runtime would and runs
 // the runtime's checks over it.
+//
+// The result is kept until the files change: an editor asks for diagnostics
+// far more often than it edits, and this pass parses everything.
 func (e *Engine) projectDiagnostics() []*Diagnostic {
+	e.index.mu.RLock()
+	rev := e.index.rev
+	e.index.mu.RUnlock()
+
+	e.mu.RLock()
+	cached, fresh := e.projectDiags, e.projectDiagsRev == rev && e.projectDiagsValid
+	e.mu.RUnlock()
+	if fresh {
+		return cached
+	}
+
+	diags := e.runProjectChecks()
+
+	e.mu.Lock()
+	e.projectDiags, e.projectDiagsRev, e.projectDiagsValid = diags, rev, true
+	e.mu.Unlock()
+	return diags
+}
+
+// runProjectChecks does the work projectDiagnostics memoizes.
+func (e *Engine) runProjectChecks() []*Diagnostic {
 	e.index.mu.RLock()
 	files := make(map[string][]byte, len(e.index.Files))
 	for path, fi := range e.index.Files {

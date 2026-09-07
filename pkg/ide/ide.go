@@ -17,6 +17,12 @@ type Engine struct {
 	index    *ProjectIndex
 	registry *schema.Registry
 	mu       sync.RWMutex
+
+	// The whole-project checks, kept until the files change. See
+	// projectDiagnostics.
+	projectDiags      []*Diagnostic
+	projectDiagsRev   int64
+	projectDiagsValid bool
 }
 
 // Option configures the engine.
@@ -113,6 +119,7 @@ func (e *Engine) RenameFile(oldPath, newPath string) []*Diagnostic {
 		fi.Path = newPath
 		// Update all entity file references
 		e.index.Files[newPath] = fi
+		e.index.rev++
 		e.index.rebuild()
 	}
 	e.index.mu.Unlock()
