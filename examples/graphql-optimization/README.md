@@ -67,6 +67,8 @@ query {
 }
 ```
 
+**When it applies.** The requested field names are matched against the names of the transform's mappings, which is the same namespace only while the field returns an **object** whose fields are those mappings. A field that returns a **list** is asked for the fields of its element, never for the name of the mapping holding the list, so the two namespaces are different and nothing can be inferred: every step runs. Before 3.7.1 that case skipped every step instead and the field answered an empty list.
+
 ### 3. Siblings resolved together
 
 Fields in one query used to be resolved one after another, so a query asking for

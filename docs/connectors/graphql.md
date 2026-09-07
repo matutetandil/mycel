@@ -87,7 +87,7 @@ So a list field is answered by a transform with a single mapping whose value is 
 - **GraphiQL IDE**: Built-in when `playground = true`
 - **Federation v2**: Always exposes `_service { sdl }` — no config needed
 - **Subscriptions**: Flow-triggered via `Subscription.name` in `to` blocks
-- **Query Optimization**: Automatic field selection and step skipping
+- **Query Optimization**: Automatic field selection and step skipping. Skipping applies to a field returning an object, whose requested names are the transform's mapping names; a list field is asked for its element's fields, so every step runs
 - **Concurrent resolution**: the fields of one query are resolved together rather than one after another, and two fields asking for the same thing run once
 
 ## Example

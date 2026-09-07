@@ -42,6 +42,27 @@ func (o *StepOptimizer) AnalyzeDependencies() map[string]bool {
 		return result
 	}
 
+	// The requested names have to be the mappings' names for any of this to
+	// mean anything.
+	//
+	// They are, while the field returns an object whose fields are the
+	// mappings. They are not when it returns a list: the client asks for the
+	// fields of the element — `name`, `image` — and never for the name of the
+	// mapping that holds the list. Nothing matched, no step was marked as
+	// needed, every step was skipped, and the transform evaluated against
+	// nulls: an empty list, HTTP 200, nothing in the log, and a request that
+	// came back in milliseconds against a table whose query takes far longer.
+	//
+	// An unmatched set says the two namespaces are different, which is
+	// "cannot tell", not "nothing is needed" — so everything runs.
+	if !o.requestedNamesAreMappings() {
+		result := make(map[string]bool, len(o.steps))
+		for _, step := range o.steps {
+			result[step.Name] = true
+		}
+		return result
+	}
+
 	// Build a map of which output fields depend on which steps
 	fieldToSteps := o.buildFieldToStepMap()
 
@@ -49,14 +70,7 @@ func (o *StepOptimizer) AnalyzeDependencies() map[string]bool {
 	neededSteps := make(map[string]bool)
 
 	for _, field := range o.requestedFields {
-		// Get only the top-level field name
-		topField := field
-		if idx := strings.Index(field, "."); idx > 0 {
-			topField = field[:idx]
-		}
-
-		// Check if this field depends on any steps
-		if steps, ok := fieldToSteps[topField]; ok {
+		if steps, ok := fieldToSteps[topLevel(field)]; ok {
 			for _, stepName := range steps {
 				neededSteps[stepName] = true
 			}
@@ -67,6 +81,29 @@ func (o *StepOptimizer) AnalyzeDependencies() map[string]bool {
 	o.resolveStepDependencies(neededSteps)
 
 	return neededSteps
+}
+
+// requestedNamesAreMappings reports whether the query asked for anything the
+// transform declares by name — that is, whether the two namespaces are the
+// same one. A mapping that reads no step counts: it is still a name the
+// caller could have asked for, so a flow whose steps nothing reads keeps
+// skipping them as it did.
+func (o *StepOptimizer) requestedNamesAreMappings() bool {
+	for _, field := range o.requestedFields {
+		if _, declared := o.transformExprs[topLevel(field)]; declared {
+			return true
+		}
+	}
+	return false
+}
+
+// topLevel is the part of a requested field before the first dot: `orders` of
+// `orders.total`, which is the name a mapping would carry.
+func topLevel(field string) string {
+	if idx := strings.Index(field, "."); idx > 0 {
+		return field[:idx]
+	}
+	return field
 }
 
 // ShouldExecuteStep returns true if a step should be executed.
