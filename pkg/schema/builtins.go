@@ -109,6 +109,7 @@ func ToSchema() Block {
 			{Name: "query", Doc: "SQL query for database writes", Type: TypeString},
 			{Name: "format", Doc: "Output format", Type: TypeString, Values: []string{"json", "xml", "csv", "tsv"}},
 			{Name: "filter", Doc: "Per-user filter (WebSocket, SSE, subscriptions)", Type: TypeString},
+			{Name: "headers", Doc: "Request headers for this write, as CEL expressions or constants (http and graphql client connectors); they win over the connector's own on the same name", Type: TypeMap},
 		},
 		Children: []Block{
 			TransactionSchema(),
@@ -183,6 +184,7 @@ func StepSchema() Block {
 			{Name: "timeout", Doc: "Timeout duration (e.g., 5s)", Type: TypeDuration},
 			{Name: "on_error", Doc: "Error handling: fail, skip, or default", Type: TypeString, Values: []string{"fail", "skip", "default"}},
 			{Name: "envelope", Doc: "Wrap the step's body under a single root key", Type: TypeString},
+			{Name: "headers", Doc: "Request headers for this call, as CEL expressions or constants (http and graphql client connectors); they win over the connector's own on the same name", Type: TypeMap},
 		},
 	}
 }
@@ -229,6 +231,7 @@ func EnrichSchema() Block {
 		Attrs: []Attr{
 			{Name: "connector", Doc: "Connector for the lookup", Type: TypeString, Required: true, Ref: RefConnector},
 			{Name: "operation", Doc: "Operation to execute", Type: TypeString},
+			{Name: "headers", Doc: "Request headers for this lookup, as CEL expressions or constants (http, graphql client and soap connectors); they win over the connector's own on the same name", Type: TypeMap},
 		},
 	}
 }

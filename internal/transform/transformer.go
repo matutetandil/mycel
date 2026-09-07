@@ -58,6 +58,10 @@ type EnrichConfig struct {
 	// Params are the parameters to pass to the operation.
 	// Keys are parameter names, values are CEL expressions.
 	Params map[string]string
+
+	// Headers are request headers for the lookup, honoured by the connectors
+	// that speak HTTP. Values are CEL expressions or constants.
+	Headers map[string]string
 }
 
 // setNestedValue sets a value at a nested path in a map.

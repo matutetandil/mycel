@@ -284,6 +284,12 @@ func (s *StepConfig) GetParams() map[string]interface{} {
 	return getMapParam(s.ConnectorParams, "params", nil)
 }
 
+// GetHeaders returns the request headers the step declares, as written: the
+// values are CEL expressions or constants, evaluated per request.
+func (s *StepConfig) GetHeaders() map[string]interface{} {
+	return getMapParam(s.ConnectorParams, "headers", nil)
+}
+
 // FromConfig defines the flow source.
 type FromConfig struct {
 	// Connector is the source connector name.
@@ -581,6 +587,12 @@ func (t *ToConfig) GetParams() map[string]interface{} {
 	return getMapParam(t.ConnectorParams, "params", nil)
 }
 
+// GetHeaders returns the request headers the destination declares, as
+// written: the values are CEL expressions or constants, evaluated per write.
+func (t *ToConfig) GetHeaders() map[string]interface{} {
+	return getMapParam(t.ConnectorParams, "headers", nil)
+}
+
 // ValidateConfig holds validation configuration.
 type ValidateConfig struct {
 	// Input is the type name for input validation.
@@ -632,6 +644,12 @@ type EnrichConfig struct {
 // GetOperation returns the operation from ConnectorParams.
 func (e *EnrichConfig) GetOperation() string {
 	return getStringParam(e.ConnectorParams, "operation", "")
+}
+
+// GetHeaders returns the request headers the enrichment declares, as
+// written: the values are CEL expressions or constants, evaluated per lookup.
+func (e *EnrichConfig) GetHeaders() map[string]interface{} {
+	return getMapParam(e.ConnectorParams, "headers", nil)
 }
 
 // RequireConfig holds authorization requirements.

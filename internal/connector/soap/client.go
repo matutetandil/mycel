@@ -152,6 +152,12 @@ func (c *Client) callOperation(ctx context.Context, operation string, params map
 		req.Header.Set(k, v)
 	}
 
+	// Then the ones this request carries — a step's `headers = {...}` — which
+	// win over the connector's on the same name.
+	for k, v := range connector.RequestHeaders(ctx) {
+		req.Header.Set(k, v)
+	}
+
 	// Apply auth
 	c.applyAuth(req)
 

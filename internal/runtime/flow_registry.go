@@ -3246,6 +3246,16 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 		data.Params = params
 	}
 
+	// The headers this write carries, resolved against the message the same
+	// way params are, and handed to the connector on the context.
+	if len(destConfig.GetHeaders()) > 0 {
+		headers, err := h.resolveFilterDocument(ctx, destConfig.GetHeaders(), input)
+		if err != nil {
+			return nil, fmt.Errorf("headers: %w", err)
+		}
+		ctx = connector.WithRequestHeaders(ctx, headerValues(headers))
+	}
+
 	// Set operation type
 	switch operation.Method {
 	case "POST":
@@ -3402,6 +3412,27 @@ func (h *FlowHandler) resolveFilterValue(
 	}
 
 	return val, nil
+}
+
+// headerValues turns evaluated header expressions into what goes on the wire.
+//
+// A header is text, so a number or a boolean is written out as one. A value
+// that evaluated to null is not sent at all — neither as the word "null" nor
+// as an empty header — since a header that says nothing is worse than none:
+// the upstream would read an empty store code rather than fall back to its
+// default.
+func headerValues(evaluated map[string]interface{}) map[string]string {
+	if len(evaluated) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(evaluated))
+	for name, value := range evaluated {
+		if value == nil {
+			continue
+		}
+		out[name] = fmt.Sprintf("%v", value)
+	}
+	return out
 }
 
 // evaluateStepValues resolves the expressions in a step's params or body.
@@ -3729,6 +3760,15 @@ func (h *FlowHandler) executeStepsCore(ctx context.Context, input map[string]int
 			return nil, err
 		}
 
+		// And the headers this request carries. They ride on the context,
+		// scoped to this step: the connectors that speak HTTP send them over
+		// their own, and the next step starts without them.
+		headers, err := h.evaluateStepValues(ctx, step, "header", step.GetHeaders(), input, stepResults)
+		if err != nil {
+			return nil, err
+		}
+		ctx := connector.WithRequestHeaders(ctx, headerValues(headers))
+
 		// Execute the step based on connector type and operation
 		var result interface{}
 
@@ -3988,6 +4028,25 @@ func (h *FlowHandler) executeEnrichmentsCore(ctx context.Context, input map[stri
 			}
 		}
 
+		// The headers this lookup carries, evaluated like its params and
+		// handed to the connector on the context.
+		if declared := enrich.GetHeaders(); len(declared) > 0 {
+			headers := make(map[string]interface{}, len(declared))
+			for name, value := range declared {
+				text, isText := value.(string)
+				if !isText || h.Transformer == nil || !strings.Contains(text, "input.") {
+					headers[name] = value
+					continue
+				}
+				evaluated, err := h.Transformer.EvaluateExpression(ctx, input, nil, text)
+				if err != nil {
+					return nil, fmt.Errorf("enrich %s: failed to evaluate header %s: %w", enrich.Name, name, err)
+				}
+				headers[name] = evaluated
+			}
+			ctx = connector.WithRequestHeaders(ctx, headerValues(headers))
+		}
+
 		// Execute the enrichment based on connector capabilities
 		var result interface{}
 
@@ -4170,11 +4229,19 @@ func (h *FlowHandler) applyTransformsWithSteps(ctx context.Context, input map[st
 		if ok && len(named.Enrichments) > 0 {
 			// Convert transform.EnrichConfig to flow.EnrichConfig
 			for _, e := range named.Enrichments {
+				params := map[string]interface{}{"operation": e.Operation}
+				if len(e.Headers) > 0 {
+					headers := make(map[string]interface{}, len(e.Headers))
+					for name, value := range e.Headers {
+						headers[name] = value
+					}
+					params["headers"] = headers
+				}
 				allEnrichments = append(allEnrichments, &flow.EnrichConfig{
 					Name:            e.Name,
 					Connector:       e.Connector,
 					Params:          e.Params,
-					ConnectorParams: map[string]interface{}{"operation": e.Operation},
+					ConnectorParams: params,
 				})
 			}
 		}

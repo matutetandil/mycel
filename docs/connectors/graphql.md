@@ -55,6 +55,8 @@ connector "external_gql" {
 }
 ```
 
+A `step`, `to` or `enrich` calling the client can add request headers of its own — `headers = { Store = "input.store" }` — evaluated per request and sent over the connector's `headers` on the same name. See [Headers per request](rest.md#headers-per-request).
+
 ## Operations
 
 **Server (source):** `Query.fieldName`, `Mutation.fieldName`, `Subscription.fieldName`.

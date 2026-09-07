@@ -40,6 +40,7 @@ func (SOAPSchema) TargetSchema() *schema.Block {
 		Open: true,
 		Attrs: []schema.Attr{
 			{Name: "operation", Doc: "SOAP operation to call", Type: schema.TypeString},
+			{Name: "headers", Doc: "HTTP request headers for this call, as CEL expressions or constants; they win over the connector's own on the same name", Type: schema.TypeMap},
 		},
 	}
 }

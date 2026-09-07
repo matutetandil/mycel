@@ -562,6 +562,12 @@ func (c *Connector) doRequest(ctx context.Context, method, fullURL string, body 
 		req.Header.Set(k, v)
 	}
 
+	// Then the ones this request carries — a step's `headers = {...}` — which
+	// win over the connector's on the same name.
+	for k, v := range connector.RequestHeaders(ctx) {
+		req.Header.Set(k, v)
+	}
+
 	// Propagate the active distributed trace to the downstream service (no-op
 	// when tracing is disabled). The ctx carries the connector span started by
 	// the runtime, so the remote span links into this trace.

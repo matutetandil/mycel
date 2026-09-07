@@ -68,9 +68,12 @@ flow "get_order" {
   to {
     connector = "erp"
     operation = "GetOrder"
+    headers   = { "X-Tenant" = "input.tenant" }   # HTTP headers for this call, over the connector's own
   }
 }
 ```
+
+A `step`, `to` or `enrich` calling the client can add HTTP headers of its own, evaluated per request — see [Headers per request](rest.md#headers-per-request).
 
 ---
 

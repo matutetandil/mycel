@@ -741,6 +741,7 @@ to {
   when         = "output.amount > 0"                       # Conditional write
   parallel     = true                                      # Parallel multi-to (default: true)
   envelope     = "product"                                 # Wrap the payload under one root key
+  headers      = { Store = "input.store" }                 # Per-request headers (http, graphql client, soap)
 
   transform { ... }    # Per-destination transform
 }
@@ -827,6 +828,11 @@ step "NAME" {
   target    = "users"
   params    = [input.id]
   body      = { key = "value" }
+  # Request headers for this call, as CEL expressions or constants. Honoured
+  # by http, graphql client and soap connectors; they win over the
+  # connector's own on the same name. Validate refuses it on any other
+  # connector. A header that evaluates to null is not sent.
+  headers   = { Store = "input.store", "X-Request-Source" = "mycel" }
   # A params entry that evaluates to a list is expanded inside IN (...) —
   # one placeholder per member. See "Binding a set" in destination-properties.
   format    = "json"
@@ -848,6 +854,10 @@ enrich "NAME" {
 
   params {
     product_id = "input.id"        # CEL expressions as values
+  }
+
+  headers {                        # Per-request headers, same rules as on step
+    Store = "input.store"
   }
 }
 ```

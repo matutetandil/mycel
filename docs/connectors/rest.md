@@ -103,6 +103,21 @@ When `insecure_skip_verify` is enabled, Mycel logs a single `WARN` at connector 
 
 The block is the same on every connector that speaks TLS — see [TLS](../core-concepts/connectors.md#tls) for the full attribute list and for the older `client_cert` / `client_key` names, which are still accepted.
 
+### Headers per request
+
+The connector's `headers` block is sent on every request. A header whose value comes from the message — the store view, the tenant, the locale — goes on the `step`, `to` or `enrich` that makes the call, as CEL expressions or constants, and wins over the connector's on the same name:
+
+```hcl
+step "page" {
+  connector = "backend"
+  operation = "POST /graphql"
+  headers   = { Store = "input.store", "X-Request-Source" = "mycel" }
+  body      = { query = "'{ page(id: 1) { title } }'" }
+}
+```
+
+A header that evaluates to `null` is not sent at all, rather than sent empty. A field the message does not carry is an error, as in any expression; write `input.store ?? 'default'` for a header with a fallback. The same attribute is honoured by the `graphql` client and `soap` connectors; on any other connector `mycel validate` refuses it, since nothing there would read it.
+
 ### Wrapping the request body — `envelope`
 
 Some REST frameworks (Magento webapi, Spring `@RequestBody`, several SOAP-derived REST APIs) require the request body nested under a single root key matching the service method's parameter name:

@@ -787,7 +787,7 @@ func parseStepBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.StepConfig, e
 	if body, ok := remain.(*hclsyntax.Body); ok {
 		for _, nested := range body.Blocks {
 			switch nested.Type {
-			case "params", "body":
+			case "params", "body", "headers":
 				values, err := parseParamsBlock(nested.AsHCLBlock(), ctx)
 				if err != nil {
 					return nil, fmt.Errorf("step %s error: %w", nested.Type, err)
@@ -878,6 +878,7 @@ func parseEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.EnrichConfi
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "params"},
+			{Type: "headers"},
 		},
 	}
 
@@ -901,14 +902,22 @@ func parseEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.EnrichConfi
 		enrich.Connector = parseConnectorReference(stringOrEmpty(val))
 	}
 
-	// Parse params block
+	// Parse params and headers blocks. Both are also accepted as attributes,
+	// the way a step takes them; the block form is what the enrich page shows.
 	for _, nestedBlock := range content.Blocks {
-		if nestedBlock.Type == "params" {
+		switch nestedBlock.Type {
+		case "params":
 			params, err := parseParamsBlock(nestedBlock, ctx)
 			if err != nil {
 				return nil, fmt.Errorf("enrich params error: %w", err)
 			}
 			enrich.Params = params
+		case "headers":
+			headers, err := parseParamsBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("enrich headers error: %w", err)
+			}
+			enrich.ConnectorParams["headers"] = stringMapAsAny(headers)
 		}
 	}
 
@@ -1976,9 +1985,11 @@ func parseTransformEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfo
 		Attributes: []hcl.AttributeSchema{
 			{Name: "connector", Required: true},
 			{Name: "operation"},
+			{Name: "headers"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "params"},
+			{Type: "headers"},
 		},
 	}
 
@@ -2005,18 +2016,47 @@ func parseTransformEnrichBlock(block *hcl.Block, ctx *hcl.EvalContext) (*transfo
 		enrich.Operation = stringOrEmpty(val)
 	}
 
-	// Parse params block
+	// Headers as an attribute: headers = { Store = "input.store" }.
+	if attr, ok := content.Attributes["headers"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("enrich headers error: %s", diags.Error())
+		}
+		enrich.Headers = make(map[string]string)
+		for name, value := range ctyValueToMap(val) {
+			enrich.Headers[name] = fmt.Sprintf("%v", value)
+		}
+	}
+
+	// Parse params and headers blocks
 	for _, nestedBlock := range content.Blocks {
-		if nestedBlock.Type == "params" {
+		switch nestedBlock.Type {
+		case "params":
 			params, err := parseParamsBlock(nestedBlock, ctx)
 			if err != nil {
 				return nil, fmt.Errorf("enrich params error: %w", err)
 			}
 			enrich.Params = params
+		case "headers":
+			headers, err := parseParamsBlock(nestedBlock, ctx)
+			if err != nil {
+				return nil, fmt.Errorf("enrich headers error: %w", err)
+			}
+			enrich.Headers = headers
 		}
 	}
 
 	return enrich, nil
+}
+
+// stringMapAsAny widens a parsed block's values to the shape ConnectorParams
+// holds.
+func stringMapAsAny(values map[string]string) map[string]interface{} {
+	out := make(map[string]interface{}, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }
 
 // extractDynamicAttrs extracts unknown attributes from a remaining HCL body into a map.
