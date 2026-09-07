@@ -109,6 +109,7 @@ func ToSchema() Block {
 			{Name: "query", Doc: "SQL query for database writes", Type: TypeString},
 			{Name: "format", Doc: "Output format", Type: TypeString, Values: []string{"json", "xml", "csv", "tsv"}},
 			{Name: "filter", Doc: "Per-user filter (WebSocket, SSE, subscriptions)", Type: TypeString},
+			{Name: "headers", Doc: "Request headers for this write, as CEL expressions or constants (http and graphql client connectors); they win over the connector's own on the same name", Type: TypeMap},
 		},
 		Children: []Block{
 			TransactionSchema(),
@@ -183,6 +184,7 @@ func StepSchema() Block {
 			{Name: "timeout", Doc: "Timeout duration (e.g., 5s)", Type: TypeDuration},
 			{Name: "on_error", Doc: "Error handling: fail, skip, or default", Type: TypeString, Values: []string{"fail", "skip", "default"}},
 			{Name: "envelope", Doc: "Wrap the step's body under a single root key", Type: TypeString},
+			{Name: "headers", Doc: "Request headers for this call, as CEL expressions or constants (http and graphql client connectors); they win over the connector's own on the same name", Type: TypeMap},
 		},
 	}
 }
@@ -229,6 +231,7 @@ func EnrichSchema() Block {
 		Attrs: []Attr{
 			{Name: "connector", Doc: "Connector for the lookup", Type: TypeString, Required: true, Ref: RefConnector},
 			{Name: "operation", Doc: "Operation to execute", Type: TypeString},
+			{Name: "headers", Doc: "Request headers for this lookup, as CEL expressions or constants (http, graphql client and soap connectors); they win over the connector's own on the same name", Type: TypeMap},
 		},
 	}
 }
@@ -344,7 +347,8 @@ func AspectCacheSchema() Block {
 		Attrs: []Attr{
 			{Name: "storage", Doc: "Cache storage connector", Type: TypeString, Ref: RefConnector, Required: true},
 			{Name: "ttl", Doc: "Cache entry time-to-live", Type: TypeDuration, Required: true},
-			{Name: "key", Doc: "Cache key template: ${...} is substituted, the rest is literal (not a CEL expression)", Type: TypeString, Required: true},
+			{Name: "key", Doc: "Cache key template: ${...} is substituted, the rest is literal (not a CEL expression). One of key / key_from is required", Type: TypeString},
+			{Name: "key_from", Doc: "CEL expression yielding the key, for a list or map input that has to be sorted, joined or hashed first (e.g. 'ids:' + hash_sha256(join(as_list(input.ids), ','))). Mutually exclusive with key", Type: TypeString},
 		},
 	}
 }
@@ -357,6 +361,7 @@ func FlowCacheSchema() Block {
 			{Name: "storage", Doc: "Cache storage connector", Type: TypeString, Ref: RefConnector},
 			{Name: "ttl", Doc: "Cache entry time-to-live", Type: TypeDuration},
 			{Name: "key", Doc: "Cache key template: ${...} is substituted, the rest is literal (not a CEL expression)", Type: TypeString},
+			{Name: "key_from", Doc: "CEL expression yielding the key, evaluated against input.* before the lookup, for a list or map input that has to be sorted, joined or hashed first (e.g. 'gallery:' + hash_sha256(join(as_list(input.filter).map(f, f.code + '=' + f.value), '|'))). Mutually exclusive with key", Type: TypeString},
 			{Name: "invalidate_on", Doc: "Flows whose writes drop this flow's cached entries", Type: TypeList},
 			{Name: "use", Doc: "Reference to named cache definition", Type: TypeString, Ref: RefCache},
 			{Name: "encoding", Doc: "How entries are written and read, applied in order on the way out and reversed on the way in: [\"json\"] (the default), or e.g. [\"json\", \"base64\", \"gzip\"] to share a namespace with a service that stores gzip(base64(JSON.stringify(v)))", Type: TypeList, Values: []string{"json", "base64", "gzip"}},
@@ -868,6 +873,7 @@ func sagaActionAttrs() []Attr {
 		{Name: "set", Doc: "Columns to update, as CEL expressions", Type: TypeMap},
 		{Name: "where", Doc: "Row selection, as CEL expressions", Type: TypeMap},
 		{Name: "params", Doc: "Named query parameters, as CEL expressions", Type: TypeMap},
+		{Name: "headers", Doc: "Request headers for this call, as CEL expressions or constants (http, graphql client and soap connectors); they win over the connector's own on the same name", Type: TypeMap},
 		{Name: "template", Doc: "Notification template name", Type: TypeString},
 		{Name: "to", Doc: "Notification recipient", Type: TypeString},
 	}
@@ -909,6 +915,7 @@ func stateMachineActionAttrs() []Attr {
 		{Name: "data", Doc: "Values to write, as CEL expressions", Type: TypeMap},
 		{Name: "body", Doc: "Request body, as CEL expressions", Type: TypeMap},
 		{Name: "params", Doc: "Named query parameters, as CEL expressions", Type: TypeMap},
+		{Name: "headers", Doc: "Request headers for this call, as CEL expressions or constants (http, graphql client and soap connectors); they win over the connector's own on the same name", Type: TypeMap},
 		{Name: "template", Doc: "Notification template name", Type: TypeString},
 		{Name: "to", Doc: "Notification recipient", Type: TypeString},
 	}

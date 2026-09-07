@@ -284,6 +284,12 @@ func (s *StepConfig) GetParams() map[string]interface{} {
 	return getMapParam(s.ConnectorParams, "params", nil)
 }
 
+// GetHeaders returns the request headers the step declares, as written: the
+// values are CEL expressions or constants, evaluated per request.
+func (s *StepConfig) GetHeaders() map[string]interface{} {
+	return getMapParam(s.ConnectorParams, "headers", nil)
+}
+
 // FromConfig defines the flow source.
 type FromConfig struct {
 	// Connector is the source connector name.
@@ -581,6 +587,12 @@ func (t *ToConfig) GetParams() map[string]interface{} {
 	return getMapParam(t.ConnectorParams, "params", nil)
 }
 
+// GetHeaders returns the request headers the destination declares, as
+// written: the values are CEL expressions or constants, evaluated per write.
+func (t *ToConfig) GetHeaders() map[string]interface{} {
+	return getMapParam(t.ConnectorParams, "headers", nil)
+}
+
 // ValidateConfig holds validation configuration.
 type ValidateConfig struct {
 	// Input is the type name for input validation.
@@ -632,6 +644,12 @@ type EnrichConfig struct {
 // GetOperation returns the operation from ConnectorParams.
 func (e *EnrichConfig) GetOperation() string {
 	return getStringParam(e.ConnectorParams, "operation", "")
+}
+
+// GetHeaders returns the request headers the enrichment declares, as
+// written: the values are CEL expressions or constants, evaluated per lookup.
+func (e *EnrichConfig) GetHeaders() map[string]interface{} {
+	return getMapParam(e.ConnectorParams, "headers", nil)
 }
 
 // RequireConfig holds authorization requirements.
@@ -951,6 +969,12 @@ type CacheConfig struct {
 	// Key is the cache key template with variable interpolation.
 	// Supports ${input.params.id}, ${input.query.page}, etc.
 	Key string
+
+	// KeyFrom is a CEL expression yielding the key, evaluated against the
+	// message before the lookup. It is for the requests a template of
+	// scalars cannot identify — a list or a map that has to be sorted,
+	// joined or hashed into a string first. Mutually exclusive with Key.
+	KeyFrom string
 
 	// InvalidateOn is a list of event patterns that invalidate this cache entry.
 	// Example: ["products:updated:${input.params.id}"]

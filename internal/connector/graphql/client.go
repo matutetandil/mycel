@@ -191,6 +191,12 @@ func (c *ClientConnector) doRequest(ctx context.Context, query string, variables
 		req.Header.Set(key, value)
 	}
 
+	// Then the ones this request carries — a step's `headers = {...}` — which
+	// win over the connector's on the same name.
+	for key, value := range connector.RequestHeaders(ctx) {
+		req.Header.Set(key, value)
+	}
+
 	// Execute request
 	resp, err := c.client.Do(req)
 	if err != nil {

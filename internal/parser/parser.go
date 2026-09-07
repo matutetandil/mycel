@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	"github.com/matutetandil/mycel/v3/internal/aspect"
 	"github.com/matutetandil/mycel/v3/internal/auth"
@@ -532,7 +533,20 @@ func (p *HCLParser) Parse(ctx context.Context, configDir string) (*Configuration
 
 // ParseFile parses a single HCL file.
 func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration, error) {
-	file, diags := p.hclParser.ParseHCLFile(path)
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("HCL parse error: %s", err)
+	}
+	return p.parseSource(ctx, path, src)
+}
+
+// parseSource parses one file's text. The path names the file in every
+// diagnostic and is recorded as the source of what it declares; the text is
+// what is parsed, which is how an editor's unsaved buffer gets the same
+// treatment as the file on disk.
+func (p *HCLParser) parseSource(ctx context.Context, path string, src []byte) (*Configuration, error) {
+	rememberSource(path, src)
+	file, diags := hclsyntax.ParseConfig(src, path, hcl.Pos{Line: 1, Column: 1})
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("HCL parse error: %s", diags.Error())
 	}
@@ -578,7 +592,7 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 		case "connector":
 			conn, err := parseConnectorBlock(block, p.evalCtx)
 			if err != nil {
-				return nil, fmt.Errorf("connector parse error: %w", err)
+				return nil, fmt.Errorf("connector%s parse error: %w", labelOf(block), err)
 			}
 			config.Connectors = append(config.Connectors, conn)
 			config.SourceFiles["connector:"+conn.Name] = append(config.SourceFiles["connector:"+conn.Name], path)
@@ -586,7 +600,7 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 		case "flow":
 			f, err := parseFlowBlock(block, p.evalCtx)
 			if err != nil {
-				return nil, fmt.Errorf("flow parse error: %w", err)
+				return nil, fmt.Errorf("flow%s parse error: %w", labelOf(block), err)
 			}
 			f.SourceFile = path
 			config.Flows = append(config.Flows, f)
@@ -595,7 +609,7 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 		case "type":
 			t, err := parseTypeBlock(block, p.evalCtx)
 			if err != nil {
-				return nil, fmt.Errorf("type parse error: %w", err)
+				return nil, fmt.Errorf("type%s parse error: %w", labelOf(block), err)
 			}
 			config.Types = append(config.Types, t)
 			config.SourceFiles["type:"+t.Name] = append(config.SourceFiles["type:"+t.Name], path)
@@ -603,7 +617,7 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 		case "transform":
 			tr, err := parseNamedTransformBlock(block, p.evalCtx)
 			if err != nil {
-				return nil, fmt.Errorf("transform parse error: %w", err)
+				return nil, fmt.Errorf("transform%s parse error: %w", labelOf(block), err)
 			}
 			config.Transforms = append(config.Transforms, tr)
 			config.SourceFiles["transform:"+tr.Name] = append(config.SourceFiles["transform:"+tr.Name], path)
@@ -611,14 +625,14 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 		case "cache":
 			cache, err := parseNamedCacheBlock(block, p.evalCtx)
 			if err != nil {
-				return nil, fmt.Errorf("cache parse error: %w", err)
+				return nil, fmt.Errorf("cache%s parse error: %w", labelOf(block), err)
 			}
 			config.NamedCaches = append(config.NamedCaches, cache)
 
 		case "aspect":
 			asp, err := parseAspectBlock(block, p.evalCtx)
 			if err != nil {
-				return nil, fmt.Errorf("aspect parse error: %w", err)
+				return nil, fmt.Errorf("aspect%s parse error: %w", labelOf(block), err)
 			}
 			config.Aspects = append(config.Aspects, asp)
 			config.SourceFiles["aspect:"+asp.Name] = append(config.SourceFiles["aspect:"+asp.Name], path)
@@ -640,7 +654,7 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 		case "validator":
 			v, err := parseValidatorBlock(block, p.evalCtx)
 			if err != nil {
-				return nil, fmt.Errorf("validator parse error: %w", err)
+				return nil, fmt.Errorf("validator%s parse error: %w", labelOf(block), err)
 			}
 			config.Validators = append(config.Validators, v)
 			config.SourceFiles["validator:"+v.Name] = append(config.SourceFiles["validator:"+v.Name], path)
@@ -669,14 +683,14 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 		case "saga":
 			s, err := parseSagaBlock(block, p.evalCtx)
 			if err != nil {
-				return nil, fmt.Errorf("saga parse error: %w", err)
+				return nil, fmt.Errorf("saga%s parse error: %w", labelOf(block), err)
 			}
 			config.Sagas = append(config.Sagas, s)
 
 		case "state_machine":
 			sm, err := parseStateMachineBlock(block, p.evalCtx)
 			if err != nil {
-				return nil, fmt.Errorf("state_machine parse error: %w", err)
+				return nil, fmt.Errorf("state_machine%s parse error: %w", labelOf(block), err)
 			}
 			config.StateMachines = append(config.StateMachines, sm)
 
@@ -690,6 +704,16 @@ func (p *HCLParser) ParseFile(ctx context.Context, path string) (*Configuration,
 	}
 
 	return config, nil
+}
+
+// labelOf renders a block's first label as ` "name"`, so a parse error reads
+// `flow "orders" parse error: ...` and names the block at fault — which is
+// what lets an editor put the finding on that block rather than on the file.
+func labelOf(block *hcl.Block) string {
+	if len(block.Labels) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" %q", block.Labels[0])
 }
 
 // rootSchema returns the top-level HCL schema. The reusable inline blocks

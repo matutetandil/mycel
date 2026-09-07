@@ -175,6 +175,7 @@ func parseStateMachineActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*stat
 			{Name: "data"},
 			{Name: "body"},
 			{Name: "params"},
+			{Name: "headers"},
 			{Name: "template"},
 			{Name: "to"},
 		},
@@ -231,6 +232,13 @@ func parseStateMachineActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*stat
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
 			action.Params = ctyValueToMap(val)
+		}
+	}
+
+	if attr, ok := content.Attributes["headers"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			action.Headers = ctyValueToMap(val)
 		}
 	}
 

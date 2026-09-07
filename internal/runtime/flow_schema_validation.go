@@ -82,6 +82,7 @@ func ValidateFlowSchemas(config *parser.Configuration, reg *schema.Registry) []e
 	}
 
 	errs = append(errs, validateDestinations(config, reg, byName)...)
+	errs = append(errs, validateRequestHeaders(config, reg, byName)...)
 
 	sort.Slice(errs, func(i, j int) bool { return errs[i].Error() < errs[j].Error() })
 	return errs
@@ -151,6 +152,140 @@ func validateDestinations(
 		check(f.Name, f.To)
 		for _, to := range f.MultiTo {
 			check(f.Name, to)
+		}
+	}
+
+	return errs
+}
+
+// validateRequestHeaders refuses a `headers` attribute on a step or a
+// destination whose connector sends none.
+//
+// `headers` is read by the connectors that build an HTTP request — http and
+// the graphql client — and by nothing else. A `to` and a `step` are open
+// blocks, so on a database connector the attribute would be swept into the
+// connector params and ignored, which is exactly what this attribute used to
+// do everywhere: parsed, stored, read by nobody, and `mycel validate` said
+// nothing. A connector says it honours the attribute by declaring it in its
+// target schema; one with no schema at all (a plugin) is left alone.
+func validateRequestHeaders(
+	config *parser.Configuration,
+	reg *schema.Registry,
+	byName map[string]*connectorRef,
+) []error {
+	var errs []error
+
+	check := func(owner, where, connName string, params map[string]interface{}) {
+		if _, declared := params["headers"]; !declared {
+			return
+		}
+		ref, known := byName[connName]
+		if !known {
+			return
+		}
+		provider := reg.Lookup(ref.Type, ref.Driver)
+		if provider == nil {
+			return
+		}
+		if target := provider.TargetSchema(); target != nil {
+			for _, attr := range target.Attrs {
+				if attr.Name == "headers" {
+					return
+				}
+			}
+		}
+		errs = append(errs, fmt.Errorf(
+			"%s: %s sets \"headers\" but connector %q (%s) sends no request headers — "+
+				"the attribute is honoured by http, graphql client and soap connectors only",
+			owner, where, connName, describeType(ref),
+		))
+	}
+
+	for _, f := range config.Flows {
+		if f == nil {
+			continue
+		}
+		owner := fmt.Sprintf("flow %q", f.Name)
+		for _, step := range f.Steps {
+			if step != nil {
+				check(owner, fmt.Sprintf("step %q", step.Name), step.Connector, step.ConnectorParams)
+			}
+		}
+		for _, enrich := range f.Enrichments {
+			if enrich != nil {
+				check(owner, fmt.Sprintf("enrich %q", enrich.Name), enrich.Connector, enrich.ConnectorParams)
+			}
+		}
+		if f.To != nil {
+			check(owner, "to block", f.To.Connector, f.To.ConnectorParams)
+		}
+		for i, to := range f.MultiTo {
+			if to != nil {
+				check(owner, fmt.Sprintf("to block #%d", i+1), to.Connector, to.ConnectorParams)
+			}
+		}
+	}
+
+	// A saga's actions and a state machine's transition actions make the same
+	// call a step does, and declare headers in their own shape.
+	headersOf := func(h map[string]interface{}) map[string]interface{} {
+		if len(h) == 0 {
+			return nil
+		}
+		return map[string]interface{}{"headers": h}
+	}
+	for _, sg := range config.Sagas {
+		if sg == nil {
+			continue
+		}
+		owner := fmt.Sprintf("saga %q", sg.Name)
+		for _, step := range sg.Steps {
+			if step == nil {
+				continue
+			}
+			if step.Action != nil {
+				check(owner, fmt.Sprintf("action of step %q", step.Name), step.Action.Connector, headersOf(step.Action.Headers))
+			}
+			if step.Compensate != nil {
+				check(owner, fmt.Sprintf("compensate of step %q", step.Name), step.Compensate.Connector, headersOf(step.Compensate.Headers))
+			}
+		}
+		if sg.OnComplete != nil {
+			check(owner, "on_complete", sg.OnComplete.Connector, headersOf(sg.OnComplete.Headers))
+		}
+		if sg.OnFailure != nil {
+			check(owner, "on_failure", sg.OnFailure.Connector, headersOf(sg.OnFailure.Headers))
+		}
+	}
+	for _, sm := range config.StateMachines {
+		if sm == nil {
+			continue
+		}
+		owner := fmt.Sprintf("state_machine %q", sm.Name)
+		for _, state := range sm.States {
+			if state == nil {
+				continue
+			}
+			for event, tr := range state.Transitions {
+				if tr != nil && tr.Action != nil {
+					check(owner, fmt.Sprintf("action of transition %q", event), tr.Action.Connector, headersOf(tr.Action.Headers))
+				}
+			}
+		}
+	}
+
+	// A named transform carries enrichments too, in its own shape.
+	for _, tr := range config.Transforms {
+		if tr == nil {
+			continue
+		}
+		owner := fmt.Sprintf("transform %q", tr.Name)
+		for _, enrich := range tr.Enrichments {
+			if enrich == nil || len(enrich.Headers) == 0 {
+				continue
+			}
+			check(owner, fmt.Sprintf("enrich %q", enrich.Name), enrich.Connector,
+				map[string]interface{}{"headers": enrich.Headers})
 		}
 	}
 

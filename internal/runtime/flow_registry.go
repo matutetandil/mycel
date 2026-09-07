@@ -1907,7 +1907,10 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	// the default key serializes every input pair (RFC 10008 requires the
 	// request content to be part of the cache key).
 	if operation.IsRead() && h.hasCacheConfig() {
-		cacheKey := h.buildCacheKey(input)
+		cacheKey, err := h.cacheKey(ctx, input)
+		if err != nil {
+			return nil, err
+		}
 		if cacheKey != "" {
 			cached, hit, err := h.checkCache(ctx, cacheKey)
 			if err == nil && hit {
@@ -2085,7 +2088,10 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 
 	// For read operations, store result in cache
 	if operation.IsRead() && h.hasCacheConfig() {
-		cacheKey := h.buildCacheKey(input)
+		cacheKey, err := h.cacheKey(ctx, input)
+		if err != nil {
+			return nil, err
+		}
 		if cacheKey != "" {
 			_ = h.storeInCache(ctx, cacheKey, result)
 		}
@@ -3246,6 +3252,16 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 		data.Params = params
 	}
 
+	// The headers this write carries, resolved against the message the same
+	// way params are, and handed to the connector on the context.
+	if len(destConfig.GetHeaders()) > 0 {
+		headers, err := h.resolveFilterDocument(ctx, destConfig.GetHeaders(), input)
+		if err != nil {
+			return nil, fmt.Errorf("headers: %w", err)
+		}
+		ctx = connector.WithRequestHeaders(ctx, headerValues(headers))
+	}
+
 	// Set operation type
 	switch operation.Method {
 	case "POST":
@@ -3402,6 +3418,17 @@ func (h *FlowHandler) resolveFilterValue(
 	}
 
 	return val, nil
+}
+
+// headerValues turns evaluated header expressions into what goes on the wire.
+//
+// A header is text, so a number or a boolean is written out as one. A value
+// that evaluated to null is not sent at all — neither as the word "null" nor
+// as an empty header — since a header that says nothing is worse than none:
+// the upstream would read an empty store code rather than fall back to its
+// default.
+func headerValues(evaluated map[string]interface{}) map[string]string {
+	return connector.HeaderValues(evaluated)
 }
 
 // evaluateStepValues resolves the expressions in a step's params or body.
@@ -3729,6 +3756,15 @@ func (h *FlowHandler) executeStepsCore(ctx context.Context, input map[string]int
 			return nil, err
 		}
 
+		// And the headers this request carries. They ride on the context,
+		// scoped to this step: the connectors that speak HTTP send them over
+		// their own, and the next step starts without them.
+		headers, err := h.evaluateStepValues(ctx, step, "header", step.GetHeaders(), input, stepResults)
+		if err != nil {
+			return nil, err
+		}
+		ctx := connector.WithRequestHeaders(ctx, headerValues(headers))
+
 		// Execute the step based on connector type and operation
 		var result interface{}
 
@@ -3988,6 +4024,25 @@ func (h *FlowHandler) executeEnrichmentsCore(ctx context.Context, input map[stri
 			}
 		}
 
+		// The headers this lookup carries, evaluated like its params and
+		// handed to the connector on the context.
+		if declared := enrich.GetHeaders(); len(declared) > 0 {
+			headers := make(map[string]interface{}, len(declared))
+			for name, value := range declared {
+				text, isText := value.(string)
+				if !isText || h.Transformer == nil || !strings.Contains(text, "input.") {
+					headers[name] = value
+					continue
+				}
+				evaluated, err := h.Transformer.EvaluateExpression(ctx, input, nil, text)
+				if err != nil {
+					return nil, fmt.Errorf("enrich %s: failed to evaluate header %s: %w", enrich.Name, name, err)
+				}
+				headers[name] = evaluated
+			}
+			ctx = connector.WithRequestHeaders(ctx, headerValues(headers))
+		}
+
 		// Execute the enrichment based on connector capabilities
 		var result interface{}
 
@@ -4170,11 +4225,19 @@ func (h *FlowHandler) applyTransformsWithSteps(ctx context.Context, input map[st
 		if ok && len(named.Enrichments) > 0 {
 			// Convert transform.EnrichConfig to flow.EnrichConfig
 			for _, e := range named.Enrichments {
+				params := map[string]interface{}{"operation": e.Operation}
+				if len(e.Headers) > 0 {
+					headers := make(map[string]interface{}, len(e.Headers))
+					for name, value := range e.Headers {
+						headers[name] = value
+					}
+					params["headers"] = headers
+				}
 				allEnrichments = append(allEnrichments, &flow.EnrichConfig{
 					Name:            e.Name,
 					Connector:       e.Connector,
 					Params:          e.Params,
-					ConnectorParams: map[string]interface{}{"operation": e.Operation},
+					ConnectorParams: params,
 				})
 			}
 		}
@@ -4462,6 +4525,39 @@ func (h *FlowHandler) hasCacheConfig() bool {
 	}
 	// Must have either storage or use reference
 	return h.Config.Cache.Storage != "" || h.Config.Cache.Use != ""
+}
+
+// cacheKey is the key this request is cached under.
+//
+// A `key_from` is evaluated as CEL against the message and has to yield a
+// non-empty string: the alternative is caching under an empty key or under
+// Go's rendering of a list, and reporting success. A `key` template, or
+// none, goes through buildCacheKey as before. The named cache's prefix goes
+// in front either way.
+func (h *FlowHandler) cacheKey(ctx context.Context, input map[string]interface{}) (string, error) {
+	if h.Config.Cache == nil || h.Config.Cache.KeyFrom == "" {
+		return h.buildCacheKey(input), nil
+	}
+	if err := h.ensureTransformer(); err != nil {
+		return "", fmt.Errorf("flow %s: cache key_from: %w", h.Config.Name, err)
+	}
+	value, err := h.Transformer.EvaluateExpression(ctx, input, nil, h.Config.Cache.KeyFrom)
+	if err != nil {
+		return "", fmt.Errorf("flow %s: cache key_from: %w", h.Config.Name, err)
+	}
+	key, isText := value.(string)
+	if !isText || key == "" {
+		return "", fmt.Errorf("flow %s: cache key_from must evaluate to a non-empty string, got %T (%v)",
+			h.Config.Name, value, value)
+	}
+
+	prefix := ""
+	if h.Config.Cache.Use != "" {
+		if named, ok := h.NamedCaches[h.Config.Cache.Use]; ok {
+			prefix = named.Prefix
+		}
+	}
+	return withCachePrefix(prefix, key), nil
 }
 
 // buildCacheKey builds the cache key by interpolating variables from input.

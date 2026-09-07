@@ -211,6 +211,12 @@ func (e *Engine) executeAction(ctx context.Context, action *ActionConfig, data m
 	resolvedBody := e.resolveMap(ctx, action.Body, data)
 	resolvedParams := e.resolveMap(ctx, action.Params, data)
 
+	// The headers this call carries ride on the context, the same way a
+	// step's do: the connectors that speak HTTP send them over their own.
+	if len(action.Headers) > 0 {
+		ctx = connector.WithRequestHeaders(ctx, connector.HeaderValues(e.resolveMap(ctx, action.Headers, data)))
+	}
+
 	// Try Caller interface first (HTTP, gRPC)
 	if caller, ok := conn.(Caller); ok && isCallOperation(action.Operation) {
 		params := resolvedBody

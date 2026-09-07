@@ -149,8 +149,10 @@ func TestDecodeCacheValue_TolerantBase64(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decode: %v", err)
 			}
+			// An integral number reads back as an int64 since the decode
+			// stopped flattening every number to float64.
 			m, ok := got.(map[string]interface{})
-			if !ok || m["a"] != float64(1) {
+			if !ok || m["a"] != int64(1) {
 				t.Errorf("got %#v", got)
 			}
 		})

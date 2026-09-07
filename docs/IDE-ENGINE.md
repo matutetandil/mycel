@@ -124,8 +124,10 @@ All methods are **thread-safe** (internal `sync.RWMutex`). Studio can call `Upda
 | Method | When to call | Returns |
 |--------|-------------|---------|
 | `Complete(path string, line, col int) []CompletionItem` | User triggers autocomplete | Context-aware suggestions |
-| `Diagnose(path string) []*Diagnostic` | On demand for a single file | Parse + schema + cross-ref diagnostics |
+| `Diagnose(path string) []*Diagnostic` | On demand for a single file | Parse + schema + cross-ref + whole-project diagnostics |
 | `DiagnoseAll() []*Diagnostic` | On demand for entire project | All diagnostics |
+
+Diagnostics come from two layers. The positional one parses each file permissively and reports what it can point at exactly: syntax errors, unknown blocks and attributes, invalid enum values, undefined references, duplicate names. The whole-project one parses the indexed buffers with the real Mycel parser and runs `runtime.Checks` over the result — the same list behind `mycel validate` and `mycel start` — so a configuration validate refuses is flagged here too, on the block the message names. It is suspended while any file has a syntax error, since a half-typed file is not a configuration yet, and a check the positional layer already covers is skipped rather than reported twice.
 | `Hover(path string, line, col int) *HoverResult` | User hovers over a token | Documentation or entity info |
 | `Definition(path string, line, col int) *Location` | User Ctrl+clicks a reference | Source location of the referenced entity |
 

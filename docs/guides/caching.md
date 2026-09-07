@@ -60,6 +60,7 @@ When a request comes in:
 | `storage` | string | yes | Cache connector name |
 | `ttl` | string | no | Time-to-live: `"5m"`, `"1h"`, `"24h"` |
 | `key` | string | no | Key template — `${...}` is substituted, the rest is literal (default: auto-generated from the request) |
+| `key_from` | string | no | CEL expression yielding the key, evaluated against `input.*` before the lookup — for a list or map input that has to be sorted, joined or hashed first. Mutually exclusive with `key`. See [Deriving the key from a list or map](#deriving-the-key-from-a-list-or-map-key_from) |
 | `invalidate_on` | list | no | Event patterns that invalidate this cache entry |
 | `use` | string | no | Reference a named cache (`use = "cache.<name>"`); its storage, ttl, prefix and encoding come with it |
 | `encoding` | list | no | Wire format for entries, applied in order on the way out and reversed on the way in. Default `["json"]`. See [Sharing a namespace](#sharing-a-namespace-with-another-service) |
@@ -80,7 +81,45 @@ key = "user_data:${input.headers.x-user-id}"
 ```
 
 !!! danger "Not CEL — the `lock`, `dedupe` and `coordinate` keys are, this one is not"
-    `key = "'product:' + input.id"` is the form the sync primitives take, and it is accepted here without complaint: the key is used verbatim, quotes and `+` included, so **every request shares one cache entry** and gets back whichever record was cached first, for the life of the TTL. Nothing fails — the symptom is users seeing the wrong record. Since 3.6.2 `mycel validate` refuses a key whose text outside `${...}` carries quotes, a `+`, or an `input.` reference, and shows the template form to write instead.
+    `key = "'product:' + input.id"` is the form the sync primitives take, and it is accepted here without complaint: the key is used verbatim, quotes and `+` included, so **every request shares one cache entry** and gets back whichever record was cached first, for the life of the TTL. Nothing fails — the symptom is users seeing the wrong record. Since 3.6.2 `mycel validate` refuses a key whose text outside `${...}` carries quotes, a `+`, or an `input.` reference, and shows the template form to write instead. When the key genuinely needs an expression, that is what `key_from` is for.
+
+### Deriving the key from a list or map — `key_from`
+
+A template substitutes scalars. When what identifies the request is a **list or a map** — a faceted listing's `filter: [{attribute_code, value}, ...]` — there is nothing a template can say: `${input.filter}` renders Go's own syntax into the key (`[map[attribute_code:room value:Bath]]`, with a warning in the log), and the canonical form the key needs cannot be expressed before the lookup runs.
+
+`key_from` takes a CEL expression instead, evaluated against `input.*` before the lookup, with the same scope and rules as `keys_from` on the invalidation side:
+
+```hcl
+flow "gallery" {
+  from {
+    connector = "api"
+    operation = "Query.items"
+  }
+
+  cache {
+    storage  = "redis_cache"
+    ttl      = "1h"
+    key_from = <<-CEL
+      'gallery:' + (input.store ?? 'default') + ':' +
+      hash_sha256(join(as_list(input.filter).map(f, f.attribute_code + '=' + f.value), '|'))
+    CEL
+  }
+
+  step "rows" {
+    connector = "db"
+    query     = "SELECT * FROM items"
+  }
+}
+```
+
+The same filter set is the same key, and two different sets cannot collide. The rules:
+
+- `key` and `key_from` are mutually exclusive; the parser refuses a block with both, and `mycel validate` refuses a `key_from` that carries `${...}`, since that is the template form in the wrong attribute.
+- The expression must yield a **non-empty string**. A list, a number or an empty string **fails the request** rather than caching under an empty or literal key, and the error names the flow and the attribute. `mycel validate` does not evaluate CEL, so a wrong expression shows up on the first request, and on every request after it.
+- A named cache's `prefix` goes in front of a derived key the same as a template one.
+- An aspect's `cache {}` block takes `key_from` too, with the same rules; there `key` is no longer required when `key_from` is given.
+
+`join`, `as_list` and `hash_sha256` are the functions this usually needs; the order of the list is the order of the key, so sort it upstream if two orderings of the same set should hit one entry.
 
 ## Named Caches
 
@@ -232,6 +271,10 @@ WARN cache invalidation did not happen
 ```
 
 This matters most for a flow whose *only* job is invalidation — an endpoint a consumer calls after writing elsewhere, with steps and an `after` block and no `to`. There is nothing else to observe, so a silent no-op would answer 200 forever and the only symptom would be stale reads somewhere else entirely, hours later. `examples/cache` shows that shape as Pattern 7.
+
+### Numbers read back from the cache
+
+An entry is stored as JSON and the digits are kept as written: an integral number reads back as an `int64` when it fits one, a fraction as a `float64`. Before 3.7.0 every number came back as a `float64`, so an integer past 2^53 — a snowflake id, a 64-bit hash, cents in a large ledger — was served from the cache with its low digits rounded away while the first, uncached answer had them right.
 
 ## Sharing a namespace with another service
 

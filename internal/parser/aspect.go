@@ -268,7 +268,8 @@ func parseAspectCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Cach
 		Attributes: []hcl.AttributeSchema{
 			{Name: "storage", Required: true},
 			{Name: "ttl", Required: true},
-			{Name: "key", Required: true},
+			{Name: "key"},
+			{Name: "key_from"},
 		},
 	}
 
@@ -278,6 +279,14 @@ func parseAspectCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Cach
 	}
 
 	cache := &aspect.CacheConfig{}
+
+	if attr, ok := content.Attributes["key_from"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("cache 'key_from' error: %s", diags.Error())
+		}
+		cache.KeyFrom = stringOrEmpty(val)
+	}
 
 	if attr, ok := content.Attributes["storage"]; ok {
 		val, diags := attr.Expr.Value(ctx)
@@ -304,6 +313,16 @@ func parseAspectCacheBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Cach
 		} else {
 			cache.Key = stringOrEmpty(val)
 		}
+	}
+
+	// One of the two says what the key is; both would say it twice.
+	switch {
+	case cache.Key == "" && cache.KeyFrom == "":
+		return nil, fmt.Errorf("aspect cache block needs a key: write key = \"<template>\" " +
+			"or key_from = \"<CEL expression>\"")
+	case cache.Key != "" && cache.KeyFrom != "":
+		return nil, fmt.Errorf("aspect cache block sets both key and key_from: keep key for a `${...}` " +
+			"template of scalars, or key_from for a CEL expression that derives the key, not both")
 	}
 
 	return cache, nil

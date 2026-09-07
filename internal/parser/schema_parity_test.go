@@ -199,6 +199,12 @@ func skipAttrForParity(blockType, attr string) bool {
 		return true
 	}
 
+	// A cache key is a template or an expression, never both: the parser
+	// refuses a block with `key` and `key_from` together.
+	if blockType == "cache" && attr == "key_from" {
+		return true
+	}
+
 	return false
 }
 

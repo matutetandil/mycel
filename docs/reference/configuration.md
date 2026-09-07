@@ -741,6 +741,7 @@ to {
   when         = "output.amount > 0"                       # Conditional write
   parallel     = true                                      # Parallel multi-to (default: true)
   envelope     = "product"                                 # Wrap the payload under one root key
+  headers      = { Store = "input.store" }                 # Per-request headers (http, graphql client, soap)
 
   transform { ... }    # Per-destination transform
 }
@@ -827,6 +828,11 @@ step "NAME" {
   target    = "users"
   params    = [input.id]
   body      = { key = "value" }
+  # Request headers for this call, as CEL expressions or constants. Honoured
+  # by http, graphql client and soap connectors; they win over the
+  # connector's own on the same name. Validate refuses it on any other
+  # connector. A header that evaluates to null is not sent.
+  headers   = { Store = "input.store", "X-Request-Source" = "mycel" }
   # A params entry that evaluates to a list is expanded inside IN (...) —
   # one placeholder per member. See "Binding a set" in destination-properties.
   format    = "json"
@@ -848,6 +854,10 @@ enrich "NAME" {
 
   params {
     product_id = "input.id"        # CEL expressions as values
+  }
+
+  headers {                        # Per-request headers, same rules as on step
+    Store = "input.store"
   }
 }
 ```
@@ -903,6 +913,10 @@ cache {
   storage       = "redis_cache"       # Required
   ttl           = "5m"
   key           = "product:${input.id}"
+  # Or, for a list or map input that has to be joined or hashed first — a CEL
+  # expression yielding the key, evaluated against input.* before the lookup.
+  # Mutually exclusive with key. See the caching guide.
+  key_from      = "'gallery:' + hash_sha256(join(as_list(input.filter).map(f, f.code + '=' + f.value), '|'))"
   invalidate_on = ["product.updated"]
   use           = "cache.products"    # Reference named cache
   encoding      = ["json"]            # Optional: wire format, see below
@@ -1657,6 +1671,7 @@ saga "NAME" {
       operation = "INSERT"
       target    = "orders"
       data      = { status = "pending" }
+      # headers = { Store = "input.store" }   # per-request headers for http / graphql client / soap
     }
 
     compensate {
@@ -1705,6 +1720,7 @@ state_machine "NAME" {
         connector = "notifications"
         operation = "POST /send"
         data      = { message = "Transitioned" }
+        # headers = { "X-Tenant" = "input.tenant" }   # per-request headers, like a step's
       }
     }
   }

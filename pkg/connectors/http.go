@@ -45,6 +45,7 @@ func (HTTPSchema) TargetSchema() *schema.Block {
 		Open: true,
 		Attrs: []schema.Attr{
 			{Name: "operation", Doc: "HTTP method + path (e.g., GET /endpoint)", Type: schema.TypeString},
+			{Name: "headers", Doc: "Request headers for this call, as CEL expressions or constants; they win over the connector's own on the same name", Type: schema.TypeMap},
 		},
 	}
 }

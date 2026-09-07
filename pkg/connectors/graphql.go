@@ -58,5 +58,6 @@ func (GraphQLSchema) SourceSchema() *schema.Block {
 func (GraphQLSchema) TargetSchema() *schema.Block {
 	return &schema.Block{Open: true, Attrs: []schema.Attr{
 		{Name: "operation", Doc: "Target operation", Type: schema.TypeString},
+		{Name: "headers", Doc: "Request headers for this call, as CEL expressions or constants (client driver); they win over the connector's own on the same name", Type: schema.TypeMap},
 	}}
 }

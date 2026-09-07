@@ -138,6 +138,13 @@ func (e *Executor) executeAction(ctx context.Context, action *ActionConfig, inpu
 	resolvedSet := e.resolveMap(ctx, action.Set, input, stepResults)
 	resolvedParams := e.resolveMap(ctx, action.Params, input, stepResults)
 
+	// The headers this call carries ride on the context, the same way a
+	// step's do: the connectors that speak HTTP send them over their own.
+	if len(action.Headers) > 0 {
+		ctx = connector.WithRequestHeaders(ctx,
+			connector.HeaderValues(e.resolveMap(ctx, action.Headers, input, stepResults)))
+	}
+
 	// Dispatch based on operation type
 	op := strings.ToUpper(action.Operation)
 

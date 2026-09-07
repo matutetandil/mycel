@@ -61,6 +61,10 @@ type ActionConfig struct {
 	// Params are additional parameters.
 	Params map[string]interface{}
 
+	// Headers are request headers for this call, honoured by the connectors
+	// that speak HTTP. Values can be CEL expressions or constants.
+	Headers map[string]interface{}
+
 	// Template is a notification template name.
 	Template string
 

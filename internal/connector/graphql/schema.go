@@ -671,9 +671,11 @@ func (b *SchemaBuilder) registerSubscriptionField(fieldName string, handler Hand
 
 			return out, nil
 		},
-		// Resolve transforms each published event
+		// Resolve fits each published event to the field's declared type, the
+		// way a query field's answer is: a scalar field fed a map would
+		// otherwise reach the client as `map[value:3]`.
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return p.Source, nil
+			return shapeForReturnType(p, p.Source)
 		},
 	}
 
