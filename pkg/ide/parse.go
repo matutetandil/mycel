@@ -15,7 +15,8 @@ import (
 // and tolerates incomplete files.
 func parseHCL(path string, src []byte) *FileIndex {
 	fi := &FileIndex{
-		Path: path,
+		Path:   path,
+		Source: src,
 	}
 
 	file, diags := hclsyntax.ParseConfig(src, path, hcl.Pos{Line: 1, Column: 1})

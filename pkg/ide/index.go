@@ -44,6 +44,11 @@ type FileIndex struct {
 	Path       string        `json:"path"`
 	Blocks     []*Block      `json:"blocks"`
 	ParseDiags []*Diagnostic `json:"parseDiags,omitempty"`
+
+	// Source is the text the index was built from — the editor's buffer, not
+	// necessarily what is on disk — so the whole-project checks see what the
+	// user is typing.
+	Source []byte `json:"-"`
 }
 
 // NamedEntity represents a named element defined in the project.

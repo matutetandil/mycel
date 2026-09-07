@@ -135,6 +135,7 @@ func (e *Engine) Diagnose(path string) []*Diagnostic {
 
 	diags := diagnoseFile(fi, e.registry)
 	diags = append(diags, diagnoseCrossRefs(e.index)...)
+	diags = append(diags, forFile(e.projectDiagnostics(), path)...)
 	return diags
 }
 
@@ -148,12 +149,14 @@ func (e *Engine) DiagnoseAll() []*Diagnostic {
 		diags = append(diags, diagnoseFile(fi, e.registry)...)
 	}
 
-	// Cross-reference diagnostics (must release read lock first)
+	// Cross-reference and whole-project diagnostics (must release read lock first)
 	e.index.mu.RUnlock()
 	crossDiags := diagnoseCrossRefs(e.index)
+	projectDiags := e.projectDiagnostics()
 	e.index.mu.RLock()
 
 	diags = append(diags, crossDiags...)
+	diags = append(diags, projectDiags...)
 	return diags
 }
 

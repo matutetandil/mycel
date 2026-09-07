@@ -1111,11 +1111,16 @@ func extractExpressionText(expr hcl.Expression) string {
 	return ""
 }
 
-// readFileRange reads a specific range from a file.
+// readFileRange reads a specific range from a file — from the text it was
+// parsed from when that is known, since the file may not be on disk at all.
 func readFileRange(filename string, rng hcl.Range) (string, error) {
-	content, err := os.ReadFile(filename)
-	if err != nil {
-		return "", err
+	content, ok := sourceOf(filename)
+	if !ok {
+		var err error
+		content, err = os.ReadFile(filename)
+		if err != nil {
+			return "", err
+		}
 	}
 
 	// Convert byte offsets
