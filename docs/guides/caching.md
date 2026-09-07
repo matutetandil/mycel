@@ -272,6 +272,10 @@ WARN cache invalidation did not happen
 
 This matters most for a flow whose *only* job is invalidation — an endpoint a consumer calls after writing elsewhere, with steps and an `after` block and no `to`. There is nothing else to observe, so a silent no-op would answer 200 forever and the only symptom would be stale reads somewhere else entirely, hours later. `examples/cache` shows that shape as Pattern 7.
 
+### Numbers read back from the cache
+
+An entry is stored as JSON and the digits are kept as written: an integral number reads back as an `int64` when it fits one, a fraction as a `float64`. Before 3.7.0 every number came back as a `float64`, so an integer past 2^53 — a snowflake id, a 64-bit hash, cents in a large ledger — was served from the cache with its low digits rounded away while the first, uncached answer had them right.
+
 ## Sharing a namespace with another service
 
 A flow's cache entries are `["json"]` unless the block says otherwise, and that is the right answer while Mycel owns the namespace. It stops being the right answer during a migration — which is exactly when a cache is most likely to be shared, because the service being replaced is still up and still reading and writing the same keys.

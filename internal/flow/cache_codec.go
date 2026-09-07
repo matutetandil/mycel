@@ -121,7 +121,7 @@ func DecodeCacheValue(data []byte, encoding []string) (interface{}, error) {
 		case "base64":
 			data, err = decodeBase64(data)
 		case "json":
-			err = json.Unmarshal(data, &value)
+			value, err = decodeJSONKeepingIntegers(data)
 		default:
 			err = fmt.Errorf("unknown cache encoding %q", name)
 		}
@@ -130,6 +130,52 @@ func DecodeCacheValue(data []byte, encoding []string) (interface{}, error) {
 		}
 	}
 	return value, nil
+}
+
+// decodeJSONKeepingIntegers reads JSON into a value tree without turning
+// every number into a float64.
+//
+// json.Unmarshal into an interface{} does exactly that, and a float64 holds
+// 53 bits of integer: an id past 2^53 came back from the cache with its low
+// digits rounded away — the flow answered 4244637855813302974 and the cached
+// copy of the same entry answered 4244637855813303000. The digits are in
+// the stored text; only the decode lost them. An integral number that fits
+// an int64 is an int64, which is also what the flow produced; anything else
+// is a float64, as before. The wire format does not move, so entries already
+// stored, and entries written by a service that is not Mycel, read the same.
+func decodeJSONKeepingIntegers(data []byte) (interface{}, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var value interface{}
+	if err := dec.Decode(&value); err != nil {
+		return nil, err
+	}
+	return numbersToGo(value), nil
+}
+
+func numbersToGo(value interface{}) interface{} {
+	switch v := value.(type) {
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return i
+		}
+		f, err := v.Float64()
+		if err != nil {
+			return v.String()
+		}
+		return f
+	case map[string]interface{}:
+		for key, item := range v {
+			v[key] = numbersToGo(item)
+		}
+		return v
+	case []interface{}:
+		for i, item := range v {
+			v[i] = numbersToGo(item)
+		}
+		return v
+	}
+	return value
 }
 
 // encodeBase64 uses the standard alphabet with padding, which is what
