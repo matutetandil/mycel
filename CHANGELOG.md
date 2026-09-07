@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A non-ASCII character in a `#` comment of a GraphQL schema file made the file fail to parse, with the error pointing inside the comment.** The pre-pass that prepares a subgraph schema copied comments through untouched, and the lexer behind it does not read every code point the specification allows in a comment: from an em dash, an accented letter or a `⚠` onward, the rest of the comment block was read as SDL tokens. Whether the file survived depended on what followed the comments — a `"""description"""` before the first type hid it — so a schema that loaded could stop loading over an edit to a comment, and the syntax error named a line that held nothing but prose. Comments are now dropped before the text is handed to the lexer; the lines they were on stay, so an error in the schema itself is still reported on the line the author sees, and a `#` inside a string or a description is text as before. (#107)
+
 ## [3.6.2] - 2026-09-04
 
 ### Fixed

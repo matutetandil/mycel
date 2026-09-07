@@ -37,6 +37,7 @@ import "strings"
 // types and the parser understands it; only the directives beside it go.
 func stripSchemaExtensions(sdl string) (string, map[string]bool) {
 	repeatable := map[string]bool{}
+	sdl = dropComments(sdl)
 	if !strings.Contains(sdl, "schema") && !strings.Contains(sdl, "repeatable") {
 		return sdl, repeatable
 	}
@@ -100,6 +101,49 @@ func stripSchemaExtensions(sdl string) (string, map[string]bool) {
 	}
 
 	return out.String(), repeatable
+}
+
+// dropComments removes every `#` comment from the SDL, leaving the line it was
+// on in place so the line numbers in a later error still match the file.
+//
+// Comments carry no schema meaning — a description is a `"""` string, and
+// those are kept — but the lexer the text is handed to next does not read
+// every code point the specification allows in a comment. An em dash or an
+// accented letter in a comment made the rest of the comment block read as SDL
+// tokens, and the file failed with a syntax error pointing inside a comment.
+// Whether it failed depended on what followed the block, so a schema that
+// loaded could stop loading over an edit to a comment.
+func dropComments(sdl string) string {
+	if !strings.Contains(sdl, "#") {
+		return sdl
+	}
+	var (
+		out strings.Builder
+		s   = &sdlScanner{src: sdl}
+	)
+	for !s.done() {
+		start := s.pos
+		switch c := s.src[s.pos]; {
+		case c == '#':
+			for !s.done() && s.src[s.pos] != '\n' {
+				s.pos++
+			}
+			continue
+		case strings.HasPrefix(s.src[s.pos:], `"""`):
+			s.pos += 3
+			if i := strings.Index(s.src[s.pos:], `"""`); i >= 0 {
+				s.pos += i + 3
+			} else {
+				s.pos = len(s.src)
+			}
+		case c == '"':
+			s.readString()
+		default:
+			s.pos++
+		}
+		out.WriteString(s.src[start:s.pos])
+	}
+	return out.String()
 }
 
 // sdlScanner walks SDL text while keeping track of the things that must not be
