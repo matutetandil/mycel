@@ -2,6 +2,9 @@ package graphql
 
 import (
 	"context"
+	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
@@ -98,6 +101,14 @@ func CreateOptimizedResolverWithOptions(handler HandlerFunc, opts ResolverOption
 				converted = unwrapSingleResult(converted)
 			}
 
+			// Shape the answer to the declared type before pruning: a list
+			// field answered as {items: [...]} would lose `items` to a pruner
+			// that only knows the fields of an Item.
+			converted, err = shapeForReturnType(p, converted)
+			if err != nil {
+				return nil, err
+			}
+
 			// Prune result to only include requested fields
 			converted = pruner.Prune(converted, fields)
 
@@ -133,6 +144,11 @@ func CreateResolverWithOptions(handler HandlerFunc, opts ResolverOptions) graphq
 			// Apply options
 			if opts.UnwrapSingleResult {
 				converted = unwrapSingleResult(converted)
+			}
+
+			converted, err = shapeForReturnType(p, converted)
+			if err != nil {
+				return nil, err
 			}
 
 			return asReturnType(p, converted), nil
@@ -186,6 +202,14 @@ func CreateSmartResolver(handler HandlerFunc) graphql.FieldResolveFn {
 			// Check if return type expects a single object (not a list)
 			if !isListType(p.Info.ReturnType) {
 				converted = unwrapSingleResult(converted)
+			}
+
+			// Shape the answer to the declared type before pruning: a list
+			// field answered as {items: [...]} would lose `items` to a pruner
+			// that only knows the fields of an Item.
+			converted, err = shapeForReturnType(p, converted)
+			if err != nil {
+				return nil, err
 			}
 
 			// Prune result to only include requested fields (safety net)
@@ -437,6 +461,100 @@ func BuildDataResponse(data interface{}) *GraphQLResponse {
 	return &GraphQLResponse{
 		Data: data,
 	}
+}
+
+// shapeForReturnType gives a flow's answer the shape the field declares.
+//
+// A flow answers with whatever its last stage produced: a transform produces
+// a map, a step with one row is flattened to that row, a step with none is
+// null. None of that is wrong for the flow, and all of it was wrong for a
+// field declared as a list or as a scalar. A list field handed a map failed
+// with `internal error`, and a bare step served it correctly only when it
+// happened to return two or more rows — a listing that legitimately matched
+// one or zero rows was an error. A scalar field handed a map was stringified
+// by the coercion as `map[value:hello]`, HTTP 200, nothing in the log, so the
+// wrong value shipped.
+//
+// The declaration is the contract, so the answer is read against it:
+//
+//   - A list field answered with a map holding exactly one key whose value is
+//     a list is answered with that list — `transform { items = "..." }`. A
+//     single object (a flattened one-row step) is wrapped, and null is an
+//     empty list.
+//   - A built-in scalar or enum field answered with a map holding exactly one
+//     key is answered with that key's value — `transform { value = "..." }`.
+//     A map with several keys is an error that names the field, since no one
+//     of them can be the value. A JSON or custom scalar is left alone: for
+//     those an object is the value.
+//
+// Boolean keeps its own rule, in asReturnType: a write answers with whether
+// it happened, which is a count, not a key.
+func shapeForReturnType(p graphql.ResolveParams, converted interface{}) (interface{}, error) {
+	if p.Info.ReturnType == nil {
+		return converted, nil
+	}
+	named := graphql.GetNullable(p.Info.ReturnType)
+
+	if _, isList := named.(*graphql.List); isList {
+		switch value := converted.(type) {
+		case nil:
+			return []interface{}{}, nil
+		case map[string]interface{}:
+			if len(value) == 1 {
+				for _, only := range value {
+					if isSlice(only) {
+						return MapResultToGraphQL(only), nil
+					}
+				}
+			}
+			return []interface{}{value}, nil
+		}
+		return converted, nil
+	}
+
+	if !isSingleValued(named) {
+		return converted, nil
+	}
+	value, isMap := converted.(map[string]interface{})
+	if !isMap {
+		return converted, nil
+	}
+	if len(value) == 1 {
+		for _, only := range value {
+			return only, nil
+		}
+	}
+	keys := make([]string, 0, len(value))
+	for key := range value {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return nil, fmt.Errorf("field %q is declared %s but the flow answered with an object of %d fields (%s); a scalar field is answered by an object with exactly one field, or by the value itself",
+		p.Info.FieldName, p.Info.ReturnType.String(), len(value), strings.Join(keys, ", "))
+}
+
+// isSingleValued reports whether a field of the type holds one value, so that
+// an object answering it can only mean "the value is inside". Boolean is left
+// to asReturnType; JSON and custom scalars accept an object as their value.
+func isSingleValued(named graphql.Nullable) bool {
+	switch t := named.(type) {
+	case *graphql.Enum:
+		return true
+	case *graphql.Scalar:
+		switch t.Name() {
+		case "String", "Int", "Float", "ID", "DateTime", "Date", "Time":
+			return true
+		}
+	}
+	return false
+}
+
+func isSlice(value interface{}) bool {
+	switch value.(type) {
+	case []interface{}, []map[string]interface{}, []string:
+		return true
+	}
+	return false
 }
 
 // asReturnType answers a Boolean field with whether the write happened.

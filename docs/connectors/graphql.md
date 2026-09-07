@@ -61,6 +61,24 @@ connector "external_gql" {
 
 **Client (target):** GraphQL query/mutation strings or `Subscription.fieldName` for real-time.
 
+## How a flow's answer fits the field
+
+A flow answers with whatever its last stage produced: a `transform` produces an object, a step with one row is flattened to that row, a step with no rows is `null`. The server fits that answer to the type the field declares, so the same flow shapes serve any field:
+
+| Field declared as | Flow answered with | Served as |
+|---|---|---|
+| `[Item!]!` | a list | the list |
+| `[Item!]!` | an object with **one** key holding a list — `transform { items = "as_list(step.rows).map(r, {'name': r.name})" }` | that list |
+| `[Item!]!` | a single object (a one-row step) | `[object]` |
+| `[Item!]!` | `null` (a step that matched nothing) | `[]` |
+| `String!`, `Int!`, `Float!`, `ID!`, an enum | an object with **one** key — `transform { value = "step.page.title" }` | that key's value |
+| `String!` | an object with several keys | an error naming the field and the keys |
+| `Boolean!` | `{"affected": n}` or a record | whether the write happened |
+| `JSON`, a custom scalar | an object | the object, untouched |
+| an object type | an object | the object |
+
+So a list field is answered by a transform with a single mapping whose value is the list, and a scalar field by a transform with a single mapping whose value is the scalar. A `mycel validate` does not check this against the schema; the request reports it.
+
 ## Key Features
 
 - **Auto-schema**: Types defined in HCL become GraphQL types automatically
