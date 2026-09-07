@@ -873,6 +873,7 @@ func sagaActionAttrs() []Attr {
 		{Name: "set", Doc: "Columns to update, as CEL expressions", Type: TypeMap},
 		{Name: "where", Doc: "Row selection, as CEL expressions", Type: TypeMap},
 		{Name: "params", Doc: "Named query parameters, as CEL expressions", Type: TypeMap},
+		{Name: "headers", Doc: "Request headers for this call, as CEL expressions or constants (http, graphql client and soap connectors); they win over the connector's own on the same name", Type: TypeMap},
 		{Name: "template", Doc: "Notification template name", Type: TypeString},
 		{Name: "to", Doc: "Notification recipient", Type: TypeString},
 	}
@@ -914,6 +915,7 @@ func stateMachineActionAttrs() []Attr {
 		{Name: "data", Doc: "Values to write, as CEL expressions", Type: TypeMap},
 		{Name: "body", Doc: "Request body, as CEL expressions", Type: TypeMap},
 		{Name: "params", Doc: "Named query parameters, as CEL expressions", Type: TypeMap},
+		{Name: "headers", Doc: "Request headers for this call, as CEL expressions or constants (http, graphql client and soap connectors); they win over the connector's own on the same name", Type: TypeMap},
 		{Name: "template", Doc: "Notification template name", Type: TypeString},
 		{Name: "to", Doc: "Notification recipient", Type: TypeString},
 	}

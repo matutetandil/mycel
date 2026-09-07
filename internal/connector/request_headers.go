@@ -1,6 +1,9 @@
 package connector
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // Headers a single request carries, as opposed to the ones a connector sends
 // on every request.
@@ -34,4 +37,25 @@ func RequestHeaders(ctx context.Context) map[string]string {
 	}
 	headers, _ := ctx.Value(requestHeadersKey{}).(map[string]string)
 	return headers
+}
+
+// HeaderValues turns evaluated header expressions into what goes on the wire.
+//
+// A header is text, so a number or a boolean is written out as one. A value
+// that evaluated to null is not sent at all — neither as the word "null" nor
+// as an empty header — since a header that says nothing is worse than none:
+// the upstream would read an empty store code rather than fall back to its
+// default.
+func HeaderValues(evaluated map[string]interface{}) map[string]string {
+	if len(evaluated) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(evaluated))
+	for name, value := range evaluated {
+		if value == nil {
+			continue
+		}
+		out[name] = fmt.Sprintf("%v", value)
+	}
+	return out
 }

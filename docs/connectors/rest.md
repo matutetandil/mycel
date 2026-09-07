@@ -105,7 +105,7 @@ The block is the same on every connector that speaks TLS — see [TLS](../core-c
 
 ### Headers per request
 
-The connector's `headers` block is sent on every request. A header whose value comes from the message — the store view, the tenant, the locale — goes on the `step`, `to` or `enrich` that makes the call, as CEL expressions or constants, and wins over the connector's on the same name:
+The connector's `headers` block is sent on every request. A header whose value comes from the message — the store view, the tenant, the locale — goes on the `step`, `to` or `enrich` that makes the call (or on a saga's or state machine's `action`), as CEL expressions or constants, and wins over the connector's on the same name:
 
 ```hcl
 step "page" {

@@ -9,6 +9,8 @@ import (
 	"github.com/matutetandil/mycel/v3/internal/connector"
 	"github.com/matutetandil/mycel/v3/internal/flow"
 	"github.com/matutetandil/mycel/v3/internal/parser"
+	"github.com/matutetandil/mycel/v3/internal/saga"
+	"github.com/matutetandil/mycel/v3/internal/statemachine"
 	"github.com/matutetandil/mycel/v3/internal/transform"
 )
 
@@ -275,5 +277,51 @@ func TestValidateRefusesHeadersOnAnEnrichmentToADatabase(t *testing.T) {
 	}
 	if strings.Contains(joined, `"fine"`) {
 		t.Errorf("the enrichment whose headers go to SOAP was refused:\n%s", joined)
+	}
+}
+
+func TestValidateRefusesHeadersOnASagaOrTransitionActionToADatabase(t *testing.T) {
+	reg := NewSchemaRegistry()
+	headers := map[string]interface{}{"Store": "input.store"}
+	cfg := &parser.Configuration{
+		Connectors: []*connector.Config{
+			{Name: "db", Type: "database", Driver: "sqlite"},
+			{Name: "api", Type: "http"},
+		},
+		Sagas: []*saga.Config{{
+			Name: "order",
+			Steps: []*saga.StepConfig{{
+				Name:       "charge",
+				Action:     &saga.ActionConfig{Connector: "api", Operation: "POST /charges", Headers: headers},
+				Compensate: &saga.ActionConfig{Connector: "db", Operation: "DELETE", Target: "charges", Headers: headers},
+			}},
+			OnComplete: &saga.ActionConfig{Connector: "db", Operation: "INSERT", Target: "audit", Headers: headers},
+		}},
+		StateMachines: []*statemachine.Config{{
+			Name: "order_status",
+			States: map[string]*statemachine.StateConfig{
+				"new": {Name: "new", Transitions: map[string]*statemachine.TransitionConfig{
+					"ship": {TransitionTo: "shipped", Action: &statemachine.ActionConfig{Connector: "db", Operation: "UPDATE", Target: "orders", Headers: headers}},
+					"note": {TransitionTo: "noted", Action: &statemachine.ActionConfig{Connector: "api", Operation: "POST /notes", Headers: headers}},
+				}},
+			},
+		}},
+	}
+
+	errs := ValidateFlowSchemas(cfg, reg)
+	if len(errs) != 3 {
+		t.Fatalf("errors = %v, want one per misplaced headers (compensate, on_complete, ship)", errs)
+	}
+	joined := ""
+	for _, e := range errs {
+		joined += e.Error() + "\n"
+	}
+	for _, want := range []string{`saga "order"`, `compensate of step "charge"`, "on_complete", `state_machine "order_status"`, `transition "ship"`} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("errors do not mention %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, `step "charge" `) && strings.Contains(joined, `action of step "charge"`) {
+		t.Errorf("the action whose headers go to http was refused:\n%s", joined)
 	}
 }

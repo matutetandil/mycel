@@ -3428,17 +3428,7 @@ func (h *FlowHandler) resolveFilterValue(
 // the upstream would read an empty store code rather than fall back to its
 // default.
 func headerValues(evaluated map[string]interface{}) map[string]string {
-	if len(evaluated) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(evaluated))
-	for name, value := range evaluated {
-		if value == nil {
-			continue
-		}
-		out[name] = fmt.Sprintf("%v", value)
-	}
-	return out
+	return connector.HeaderValues(evaluated)
 }
 
 // evaluateStepValues resolves the expressions in a step's params or body.

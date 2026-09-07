@@ -1671,6 +1671,7 @@ saga "NAME" {
       operation = "INSERT"
       target    = "orders"
       data      = { status = "pending" }
+      # headers = { Store = "input.store" }   # per-request headers for http / graphql client / soap
     }
 
     compensate {
@@ -1719,6 +1720,7 @@ state_machine "NAME" {
         connector = "notifications"
         operation = "POST /send"
         data      = { message = "Transitioned" }
+        # headers = { "X-Tenant" = "input.tenant" }   # per-request headers, like a step's
       }
     }
   }

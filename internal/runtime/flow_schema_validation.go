@@ -226,6 +226,54 @@ func validateRequestHeaders(
 		}
 	}
 
+	// A saga's actions and a state machine's transition actions make the same
+	// call a step does, and declare headers in their own shape.
+	headersOf := func(h map[string]interface{}) map[string]interface{} {
+		if len(h) == 0 {
+			return nil
+		}
+		return map[string]interface{}{"headers": h}
+	}
+	for _, sg := range config.Sagas {
+		if sg == nil {
+			continue
+		}
+		owner := fmt.Sprintf("saga %q", sg.Name)
+		for _, step := range sg.Steps {
+			if step == nil {
+				continue
+			}
+			if step.Action != nil {
+				check(owner, fmt.Sprintf("action of step %q", step.Name), step.Action.Connector, headersOf(step.Action.Headers))
+			}
+			if step.Compensate != nil {
+				check(owner, fmt.Sprintf("compensate of step %q", step.Name), step.Compensate.Connector, headersOf(step.Compensate.Headers))
+			}
+		}
+		if sg.OnComplete != nil {
+			check(owner, "on_complete", sg.OnComplete.Connector, headersOf(sg.OnComplete.Headers))
+		}
+		if sg.OnFailure != nil {
+			check(owner, "on_failure", sg.OnFailure.Connector, headersOf(sg.OnFailure.Headers))
+		}
+	}
+	for _, sm := range config.StateMachines {
+		if sm == nil {
+			continue
+		}
+		owner := fmt.Sprintf("state_machine %q", sm.Name)
+		for _, state := range sm.States {
+			if state == nil {
+				continue
+			}
+			for event, tr := range state.Transitions {
+				if tr != nil && tr.Action != nil {
+					check(owner, fmt.Sprintf("action of transition %q", event), tr.Action.Connector, headersOf(tr.Action.Headers))
+				}
+			}
+		}
+	}
+
 	// A named transform carries enrichments too, in its own shape.
 	for _, tr := range config.Transforms {
 		if tr == nil {

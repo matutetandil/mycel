@@ -228,6 +228,7 @@ func parseSagaActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.ActionC
 			{Name: "set"},
 			{Name: "where"},
 			{Name: "params"},
+			{Name: "headers"},
 			{Name: "template"},
 			{Name: "to"},
 		},
@@ -302,6 +303,13 @@ func parseSagaActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*saga.ActionC
 		val, diags := attr.Expr.Value(ctx)
 		if !diags.HasErrors() {
 			action.Params = ctyValueToMap(val)
+		}
+	}
+
+	if attr, ok := content.Attributes["headers"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if !diags.HasErrors() {
+			action.Headers = ctyValueToMap(val)
 		}
 	}
 

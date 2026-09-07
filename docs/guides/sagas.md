@@ -37,6 +37,7 @@ saga "create_order" {
       connector = "stripe"
       operation = "POST /charges"
       body      = { amount = "input.amount", currency = "input.currency" }
+      headers   = { "Idempotency-Key" = "input.order_id" }   # per-request headers, like a step's
     }
     compensate {
       connector = "stripe"
