@@ -79,7 +79,7 @@ A flow answers with whatever its last stage produced: a `transform` produces an 
 | `JSON`, a custom scalar | an object | the object, untouched |
 | an object type | an object | the object |
 
-So a list field is answered by a transform with a single mapping whose value is the list, and a scalar field by a transform with a single mapping whose value is the scalar. A `mycel validate` does not check this against the schema; the request reports it.
+So a list field is answered by a transform with a single mapping whose value is the list, and a scalar field by a transform with a single mapping whose value is the scalar. A `mycel validate` does not check this against the schema; the request reports it. A `Subscription` field is fitted the same way: what a flow publishes to it is shaped to the field's declared type before it reaches the subscriber.
 
 ## Key Features
 
