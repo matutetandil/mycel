@@ -359,6 +359,8 @@ Everything is at **[matutetandil.github.io/mycel](https://matutetandil.github.io
 - [Error Handling](docs/guides/error-handling.md) · [Resilience](docs/guides/resilience.md) — retry, DLQ, circuit breaker, what survives a crash
 - [Auth](docs/guides/auth.md) · [Security](docs/guides/security.md) — JWT, MFA, SSO, sanitization
 - [Architecture](docs/architecture.md) — why HCL, why CEL, why WASM, why Go
+- [Versioning and Support](docs/versioning.md) — what a patch, a minor and a major may do to a config you already have, and which versions get fixes
+- [How Mycel Is Tested](docs/testing.md) — the guarantees the test suite keeps, and the ones it does not
 - [Roadmap](docs/ROADMAP.md) — implementation status and what's next
 
 Every connector has its own page under [`docs/connectors/`](docs/connectors/), and [`examples/`](examples/) has a runnable project per feature.

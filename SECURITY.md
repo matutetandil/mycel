@@ -1,5 +1,32 @@
 # Security Policy
 
+## Supported versions
+
+**The latest minor of the current major** receives security fixes. Earlier
+minors do not: this is a project with one maintainer, and a support promise
+that cannot be kept is worse than a narrow one that can. Pin an exact version
+and upgrade deliberately. See
+[Versioning and Support](docs/versioning.md) for what each release
+number is allowed to change.
+
+| Version | Supported |
+|---|---|
+| 3.7.x | Yes |
+| < 3.7 | No |
+
+## Vulnerabilities in dependencies
+
+Mycel's dependency tree is scanned on every pull request and the build fails
+on a HIGH or CRITICAL finding that has a fix available. A finding with no fix
+published is reported and not blocked, since blocking would only stop
+unrelated work.
+
+A vulnerability reachable from Mycel's own code goes out as a patch release
+with a `Security` section in the changelog, which is what the release notes
+lead with. The published container image is scanned as well, and its report
+is visible on
+[Artifact Hub](https://artifacthub.io/packages/helm/mycel/mycel).
+
 ## Reporting a vulnerability
 
 **Please do not report security issues through public GitHub issues, discussions,

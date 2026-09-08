@@ -50,6 +50,48 @@ jobs:
       - name: Template validation
         run: helm template test ./helm/mycel > /dev/null
 
+  # Nothing scanned dependencies until 3.7.1, and it showed twice: a HIGH in
+  # grpc and then one in amqp091-go were both found by Artifact Hub, after the
+  # release, by scanning the chart we had already published. The second one had
+  # been public for nine days before the release that shipped it.
+  #
+  # The tree, not the image. A HIGH in an OS package would be worth catching
+  # too, but the image here is built from a layer cache, and a cached
+  # `apk upgrade` layer reports the packages of whenever it was built rather
+  # than of today — a scan that lies is worse than no scan. The published image
+  # is built cold and scanned by Artifact Hub.
+  #
+  # Only findings that have a fix fail the build. One without a fix is nobody's
+  # to act on, and blocking every pull request on it teaches people to skip the
+  # job.
+  deps-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Scan dependencies
+        run: |
+          docker run --rm -v "$PWD":/src aquasec/trivy:latest fs \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            /src
+
+      # Reported, never blocking: the same scan without the fix filter, so a
+      # vulnerability with no fix published is visible in the job's output on
+      # the day it appears instead of on the day someone thinks to look.
+      - name: Report findings that have no fix yet
+        if: always()
+        run: |
+          docker run --rm -v "$PWD":/src aquasec/trivy:latest fs \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --exit-code 0 \
+            /src
+
   # The release builds and publishes the runtime image, and until this job
   # existed that was the first time it was ever built. A Dockerfile that no
   # longer matches the source only failed once a tag existed, which is the
