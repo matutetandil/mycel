@@ -134,6 +134,8 @@ nav:
       - Destination Properties: reference/destination-properties.md
   - Project:
       - Architecture: architecture.md
+      - Versioning and Support: versioning.md
+      - How Mycel Is Tested: testing.md
       - Roadmap: ROADMAP.md
       - Studio Debug Protocol: STUDIO-DEBUG-PROTOCOL.md
       - IDE Engine: IDE-ENGINE.md
