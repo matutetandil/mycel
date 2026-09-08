@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Deliberately **not** taken: `golang.org/x/crypto`, `x/mod` and `x/time`, whose current versions require Go 1.26 and would have moved the toolchain — the `go` directive rose to 1.26.0 on its own during the bump and was pinned back to 1.25.0, which is what both Dockerfiles build with. None of the three fixes a vulnerability. Also held: `cel-go` (0.29.0 → 0.32.0), which is the engine behind every transform and needs an A/B comparison of built binaries against the same configuration rather than a test run; `modernc.org/sqlite` (1.42.2 → 1.58.0), sixteen minors on the driver the quick start and most examples use; and the AWS SDK, OpenTelemetry, pgx, redis and mysql minors. The dependency tree scans clean either way.
 
+### Fixed
+
+- **Step skipping emptied a list-typed GraphQL field answered by a `transform`.** The optimisation matches the fields a query asked for against the names of the transform's mappings, which is one namespace only while the field returns an object whose fields *are* those mappings. A field returning a list is asked for the fields of its element — `name`, `image` — and never for the name of the mapping that holds the list, so nothing matched, no step was marked as needed, every step was skipped, and the transform evaluated against nulls. The answer was an empty list with HTTP 200 and nothing in the log; the only outward sign was a request coming back in milliseconds against a table whose query takes far longer. The same flow served as an object field was correct, and a `response` block holding the same expression was correct too, since the optimiser does not read one — two spellings of the same thing answering differently. An unmatched set now means "cannot tell" rather than "nothing is needed", so every step runs; a query that names at least one mapping still skips what it did before. (#112)
+
 ## [3.7.0] - 2026-09-07
 
 ### Added
