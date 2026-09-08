@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **`github.com/rabbitmq/amqp091-go` 1.10.0 → 1.13.0, for CVE-2026-79921 (HIGH, CVSS 7.5).** A compromised or malicious AMQP broker can make the client allocate memory for, and process, content body frames larger than the `frame_max` the two sides negotiated, bypassing the protocol's own framing limit and exhausting memory. The advisory lists no workaround. The library is a direct dependency and the affected path is the one a consumer uses, so this is reachable in any flow reading from RabbitMQ; the attacker has to be the broker, or able to impersonate it, which is a smaller threat inside a trusted perimeter than on a shared or unverified connection.
+
+  It was published on 2026-08-26, which is **before** 3.6.2 and 3.7.0 shipped: both carry it, and neither introduced it. It was detectable at either release and was not detected, because nothing scans dependencies on a pull request — Artifact Hub found it after the fact for the second time in a row.
+
+### Changed
+
+- **Dependency maintenance, patch level.** `golang-jwt/jwt/v5` 5.3.1, `grpc` 1.83.2, `protobuf` 1.36.12, `pkg/sftp` 1.13.11, `jlaffaye/ftp` 0.2.4, `mongo-driver` 1.17.9 and `segmentio/kafka-go` 0.4.51. All patch releases of direct dependencies, taken together to keep drift down.
+
+  Deliberately **not** taken: `golang.org/x/crypto`, `x/mod` and `x/time`, whose current versions require Go 1.26 and would have moved the toolchain — the `go` directive rose to 1.26.0 on its own during the bump and was pinned back to 1.25.0, which is what both Dockerfiles build with. None of the three fixes a vulnerability. Also held: `cel-go` (0.29.0 → 0.32.0), which is the engine behind every transform and needs an A/B comparison of built binaries against the same configuration rather than a test run; `modernc.org/sqlite` (1.42.2 → 1.58.0), sixteen minors on the driver the quick start and most examples use; and the AWS SDK, OpenTelemetry, pgx, redis and mysql minors. The dependency tree scans clean either way.
+
 ## [3.7.0] - 2026-09-07
 
 ### Added
