@@ -23,6 +23,9 @@ type SubscriptionManager struct {
 	clients  map[*wsClient]bool
 	pubsub   *PubSub
 
+	// defaults fills in the values the schema says a caller may leave out.
+	defaults *defaultFiller
+
 	// keepAlive is how often an idle connection is pinged, and idleTimeout is
 	// how long one may go without answering before it is dropped.
 	keepAlive   time.Duration
@@ -104,6 +107,7 @@ func NewSubscriptionManagerWithTimings(schema *graphql.Schema, logger *slog.Logg
 
 	return &SubscriptionManager{
 		schema:      schema,
+		defaults:    newDefaultFiller(schema),
 		logger:      logger,
 		keepAlive:   keepAlive,
 		idleTimeout: idleTimeout,
@@ -289,11 +293,15 @@ func (c *wsClient) executeSubscription(ctx context.Context, id string, payload *
 		c.mu.Unlock()
 	}()
 
+	// A value the schema gives a default may be left out of the request, here
+	// as much as over HTTP.
+	query, variables := c.manager.defaults.apply(payload.Query, payload.Variables, payload.OperationName)
+
 	// Execute the GraphQL subscription
 	params := graphql.Params{
 		Schema:         *c.manager.schema,
-		RequestString:  payload.Query,
-		VariableValues: payload.Variables,
+		RequestString:  query,
+		VariableValues: variables,
 		OperationName:  payload.OperationName,
 		Context:        ctx,
 	}

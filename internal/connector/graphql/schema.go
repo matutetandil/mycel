@@ -146,6 +146,20 @@ func (b *SchemaBuilder) ParseSDL(sdl string) error {
 		}
 	}
 
+	// Create Subscription fields from SDL with proper types (but no resolvers
+	// yet). Nothing read the Subscription type a schema declares: the field a
+	// flow registered was built from scratch and stored over it, so a field
+	// declared to return an object arrived as JSON — `subscription {
+	// orderPlaced { id } }` was refused for selecting subfields on a scalar —
+	// and the arguments it declared were gone, while `_service { sdl }` went
+	// on publishing the declaration. The published contract and the running
+	// schema disagreed.
+	if parsed.Subscription != nil {
+		for fieldName, fieldDef := range parsed.Subscription.Fields {
+			b.subscriptionFields[fieldName] = b.createFieldFromParsed("Subscription", fieldName, fieldDef)
+		}
+	}
+
 	// Set mode to SDL if not already set
 	if b.mode == SchemaModeAuto {
 		b.mode = SchemaModeSDL
@@ -273,7 +287,7 @@ func (b *SchemaBuilder) RegisterHandler(operation string, handler HandlerFunc) e
 
 	// Handle subscription fields separately
 	if strings.ToLower(typeName) == "subscription" {
-		return b.registerSubscriptionField(fieldName, handler, "")
+		return b.registerSubscriptionField(fieldName, handler, "", nil)
 	}
 
 	// Check if we're in SDL mode and the field already exists
@@ -371,7 +385,7 @@ func (b *SchemaBuilder) RegisterHandlerWithArgs(operation string, handler Handle
 
 	// Handle subscription fields separately
 	if strings.ToLower(typeName) == "subscription" {
-		return b.registerSubscriptionField(fieldName, handler, returnType)
+		return b.registerSubscriptionField(fieldName, handler, returnType, args)
 	}
 
 	// Use smart resolver to automatically unwrap single results for non-list types
@@ -632,51 +646,59 @@ func (b *SchemaBuilder) Build() (*graphql.Schema, error) {
 // registerSubscriptionField registers a subscription field backed by PubSub.
 // The Subscribe function returns a channel that receives published data.
 // The Resolve function transforms each published payload before delivery.
-func (b *SchemaBuilder) registerSubscriptionField(fieldName string, handler HandlerFunc, returnType string) error {
-	// Determine the GraphQL return type
-	var gqlType graphql.Output
+func (b *SchemaBuilder) registerSubscriptionField(fieldName string, handler HandlerFunc, returnType string, args []*ArgDef) error {
+	// A field the SDL declares keeps what it declares — its type, its
+	// arguments, its description — and only gains the two functions that make
+	// it a subscription. A flow that names a return type still decides it, the
+	// way it does for a query field, and a field nobody declared is JSON.
+	field, declared := b.subscriptionFields[fieldName]
+	if !declared {
+		field = &graphql.Field{
+			Description: fmt.Sprintf("Subscription for %s events", fieldName),
+		}
+	}
 	if returnType != "" {
-		gqlType = b.resolveReturnType(returnType)
-	} else {
-		gqlType = JSONScalar
+		field.Type = b.resolveReturnType(returnType)
+	} else if field.Type == nil {
+		field.Type = JSONScalar
+	}
+	if len(args) > 0 {
+		field.Args = b.buildArgs(args)
 	}
 
 	topic := fieldName
 	pubsub := b.pubsub
 
-	field := &graphql.Field{
-		Type:        gqlType,
-		Description: fmt.Sprintf("Subscription for %s events", fieldName),
-		// Subscribe returns a channel fed by PubSub
-		Subscribe: func(p graphql.ResolveParams) (interface{}, error) {
-			ch := pubsub.SubscribeWithFilter(topic, b.subscriberFilter(topic, p.Context))
+	// Subscribe returns a channel fed by PubSub
+	field.Subscribe = func(p graphql.ResolveParams) (interface{}, error) {
+		ch := pubsub.SubscribeWithFilter(topic, b.subscriberFilter(topic, p.Context))
 
-			// Wrap in a context-aware goroutine to unsubscribe on cancel
-			out := make(chan interface{}, 10)
-			go func() {
-				defer close(out)
-				defer pubsub.Unsubscribe(topic, ch)
-				for {
-					select {
-					case <-p.Context.Done():
+		// Wrap in a context-aware goroutine to unsubscribe on cancel
+		out := make(chan interface{}, 10)
+		go func() {
+			defer close(out)
+			defer pubsub.Unsubscribe(topic, ch)
+			for {
+				select {
+				case <-p.Context.Done():
+					return
+				case data, ok := <-ch:
+					if !ok {
 						return
-					case data, ok := <-ch:
-						if !ok {
-							return
-						}
-						out <- data
 					}
+					out <- data
 				}
-			}()
+			}
+		}()
 
-			return out, nil
-		},
-		// Resolve fits each published event to the field's declared type, the
-		// way a query field's answer is: a scalar field fed a map would
-		// otherwise reach the client as `map[value:3]`.
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return shapeForReturnType(p, p.Source)
-		},
+		return out, nil
+	}
+
+	// Resolve fits each published event to the field's declared type, the way
+	// a query field's answer is: a scalar field fed a map would otherwise
+	// reach the client as `map[value:3]`.
+	field.Resolve = func(p graphql.ResolveParams) (interface{}, error) {
+		return shapeForReturnType(p, p.Source)
 	}
 
 	b.subscriptionFields[fieldName] = field

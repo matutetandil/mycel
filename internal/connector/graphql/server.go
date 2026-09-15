@@ -34,6 +34,11 @@ type ServerConnector struct {
 	schemaBuilt         bool
 	subscriptionManager *SubscriptionManager
 
+	// defaults fills in the values the schema says a caller may leave out.
+	// See input_defaults.go: the library refuses an omitted non-null value
+	// even when the schema gives it a default.
+	defaults *defaultFiller
+
 	// environment decides how much a caller is told about a failure. Only
 	// the REST connector used to ask: every other server, this one
 	// included, encoded the raw error text into its response in production
@@ -256,6 +261,7 @@ func (c *ServerConnector) Start(ctx context.Context) error {
 	}
 	c.schema = schema
 	c.schemaBuilt = true
+	c.defaults = newDefaultFiller(schema)
 
 	// Initialize subscription manager if subscriptions are configured
 	if c.config.Subscriptions != nil && c.config.Subscriptions.Enabled {
@@ -396,11 +402,14 @@ func (c *ServerConnector) handleGraphQL(w http.ResponseWriter, r *http.Request) 
 	// fields overlap and identical ones run once.
 	ctx := WithResolutions(r.Context())
 
+	// A value the schema gives a default may be left out of the request.
+	query, variables := c.defaults.apply(request.Query, request.Variables, request.OperationName)
+
 	// Execute GraphQL query
 	result := graphql.Do(graphql.Params{
 		Schema:         *c.schema,
-		RequestString:  request.Query,
-		VariableValues: request.Variables,
+		RequestString:  query,
+		VariableValues: variables,
 		OperationName:  request.OperationName,
 		Context:        ctx,
 	})

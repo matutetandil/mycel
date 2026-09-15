@@ -381,7 +381,12 @@ services:
   # Object Storage (internal only)
   # ==========================================================================
   minio:
-    image: minio/minio
+    # quay.io, not Docker Hub: MinIO withdrew minio/minio and minio/mc from
+    # there, and a pull answers "pull access denied ... repository does not
+    # exist or may require 'docker login'", which reads like a credentials
+    # problem and is a 404. A machine with the old image cached does not
+    # notice; a fresh runner cannot start the stack at all.
+    image: quay.io/minio/minio
     # Published for the Go tests of the S3 operations a flow reaches through a
     # step rather than a write — copy, move, presign and the rest.
     ports:
@@ -397,7 +402,7 @@ services:
       retries: 10
 
   minio-init:
-    image: minio/mc
+    image: quay.io/minio/mc
     depends_on:
       minio:
         condition: service_healthy
