@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.7.2] - 2026-09-15
+
+### Changed
+
+- **The MinIO images come from quay.io.** MinIO withdrew `minio/minio` and `minio/mc` from Docker Hub, where a pull now answers `pull access denied ... repository does not exist or may require 'docker login'` — a 404 dressed as a permissions problem. It affected the integration stack, which could not start on any machine without the old image cached, and the S3 example's README, which told a reader to run a `docker run` that no longer resolves. Both images are public on quay.io and identical by digest to what was cached.
 
 ### Fixed
 
