@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 WORKDIR /build
 # The whole package, not one file: it grew a second one for the TLS listener,
 # and copying main.go alone meant the image failed to build — which every
