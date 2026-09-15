@@ -50,7 +50,7 @@ docker run -p 3000:3000 my-service
 Installing the CLI locally is worth it even if you deploy with Docker: it is
 what you run `mycel validate` and `mycel check` with while writing config.
 
-Requires Go 1.21 or later.
+Requires Go 1.26 or later.
 
 ### Install
 

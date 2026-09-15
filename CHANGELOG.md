@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **`golang.org/x/crypto` 0.55.0 → 0.57.0, for two DoS advisories in `x/crypto/ssh` (MEDIUM).** `GO-2026-6355` (`CVE-2026-56855`, a deadlocked established channel) and `GO-2026-6354` (`CVE-2026-78662`, a deadlocked undecided channel), both fixed in 0.56.0. They are reachable here: the SFTP connector dials over `x/crypto/ssh`, and `govulncheck` reported both as called by our code before the update and reports neither after. Mycel is the SSH *client* on that path, so the attacker has to be the SFTP server, or able to impersonate it — the same threat shape as the RabbitMQ advisory in 3.7.1, and smaller inside a trusted perimeter than against a shared or unverified host.
+
+  They were visible in 3.7.1 as well: the update was held back both times because it required Go 1.26, which is what this release finally does.
+
+### Changed
+
+- **The Go toolchain moves to 1.26.** The `go` directive and both Dockerfiles, which the versioning policy allows in a minor release and never in a patch. It exists to unblock `golang.org/x/*`: the whole family — `crypto` 0.57.0, `net` 0.59.0, `mod` 0.41.0, `time` 0.16.0 — has required Go 1.26 since August, so every one of them has been held since 3.7.1 behind a single decision rather than four.
+
+  The documented requirement moves with it, in the README and both getting-started pages — where it said Go 1.21, a version that has not been enough to build Mycel for several releases.
+
+  For anyone building from source: with the default `GOTOOLCHAIN=auto`, a `go install` from Go 1.25 downloads the 1.26 toolchain and nothing is noticed; with `GOTOOLCHAIN=local` it is a hard error until the local Go is updated. The published binaries, container images and Helm chart are unaffected — the image is built from `golang:1.26-alpine` and, as before, ships a static binary on Alpine.
+
 ## [3.7.2] - 2026-09-15
 
 ### Changed
