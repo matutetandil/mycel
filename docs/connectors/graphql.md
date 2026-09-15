@@ -96,6 +96,20 @@ input EchoInput {
 
 Earlier versions refused such a request during validation — `In field "loud": Expected "Boolean!", found null` — before any flow ran, so a faithful copy of another server's SDL rejected traffic the original accepted.
 
+## A Subscription field declared in SDL
+
+A `Subscription` field written in the schema file keeps what it declares — its type, its arguments, its description — and the flow whose `to` publishes to it supplies the events:
+
+```graphql
+type Subscription {
+  orderPlaced(store: String! = "main"): Order
+}
+```
+
+`subscription { orderPlaced { id } }` selects subfields because the field returns `Order`. A flow that sets `returns` decides the type instead, the same way it does for a query field, and a field that no schema declares is published as `JSON`.
+
+Earlier versions read only the Query and Mutation types out of the SDL: a declared subscription field ran as `JSON` whatever it said, its arguments were dropped, and `_service { sdl }` published a contract the running schema did not implement.
+
 ## Key Features
 
 - **Auto-schema**: Types defined in HCL become GraphQL types automatically
