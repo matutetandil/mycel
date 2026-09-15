@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A GraphQL value with a default was refused when the caller left it out.** An input object field, or an argument, whose type is non-null and which declares a default — `loud: Boolean! = false` — was reported as a missing required value and the request failed during argument validation, before any flow ran. The spec calls such a value optional in both places it appears: required means non-null **and** no default. The library validates by looking at the type alone, so the default it would have applied a moment later never got the chance. Every static check passed — `mycel validate` is happy, the SDL is valid GraphQL, the flows and their SQL are fine — and the failure appeared only when a real client sent a real query. `Field! = default` is a common shape in SDL written by other servers, so a Mycel service publishing a faithful copy of an existing contract rejected the traffic the original accepted, and the only workaround was to edit the published contract. The default is now filled in before the request is validated, which is where the spec puts it: for a value written inline, for one sent as a variable, for an argument, and inside a subscription's selection. A non-null value with no default is still required, and a value the caller does send is never overwritten. (#116)
+
+- **A numeric default reached the flow as a string.** `tries: Int! = 3` was carried as the text the SDL was written with, so a flow that received the default saw `"3"` rather than `3` — and introspection reported the field's `defaultValue` as `"3"`, quoted, which is a different contract from the one the schema declares. Found while fixing the above; the two are the same value taking two different wrong turns.
+
 ## [3.7.1] - 2026-09-08
 
 ### Security

@@ -81,6 +81,21 @@ A flow answers with whatever its last stage produced: a `transform` produces an 
 
 So a list field is answered by a transform with a single mapping whose value is the list, and a scalar field by a transform with a single mapping whose value is the scalar. A `mycel validate` does not check this against the schema; the request reports it. A `Subscription` field is fitted the same way: what a flow publishes to it is shaped to the field's declared type before it reaches the subscriber.
 
+## A value with a default may be left out
+
+A field of an input object, or an argument, that declares a default is optional — including when its type is non-null, which is how several servers write "not optional, but you rarely need to set it":
+
+```graphql
+input EchoInput {
+  name: String!
+  loud: Boolean! = false
+}
+```
+
+`echo(input: {name: "hello"})` is accepted and the flow sees `input.loud` as `false`. The same holds for values sent as variables, for arguments (`page(limit: Int! = 25)`), and inside a subscription's selection. A non-null value with **no** default is still required, and a value the caller does send is never overwritten.
+
+Earlier versions refused such a request during validation — `In field "loud": Expected "Boolean!", found null` — before any flow ran, so a faithful copy of another server's SDL rejected traffic the original accepted.
+
 ## Key Features
 
 - **Auto-schema**: Types defined in HCL become GraphQL types automatically

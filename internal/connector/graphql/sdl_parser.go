@@ -2,6 +2,7 @@ package graphql
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/graphql-go/graphql/language/ast"
@@ -607,8 +608,18 @@ func parseValue(val ast.Value) interface{} {
 	case *ast.StringValue:
 		return v.Value
 	case *ast.IntValue:
+		// A number written in the SDL is a number. The AST keeps it as the
+		// text that was written, and handing that on made `tries: Int! = 3`
+		// reach a flow as the string "3" — and introspection report it
+		// quoted.
+		if n, err := strconv.Atoi(v.Value); err == nil {
+			return n
+		}
 		return v.Value
 	case *ast.FloatValue:
+		if n, err := strconv.ParseFloat(v.Value, 64); err == nil {
+			return n
+		}
 		return v.Value
 	case *ast.BooleanValue:
 		return v.Value
