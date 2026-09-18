@@ -340,6 +340,24 @@ func (f *FromConfig) GetConnector() string {
 	return f.Connector
 }
 
+// GetConnectorParams returns the source's connector-specific parameters, or
+// nil for a flow that has no from block at all.
+func (f *FromConfig) GetConnectorParams() map[string]interface{} {
+	if f == nil {
+		return nil
+	}
+	return f.ConnectorParams
+}
+
+// GetFilterConfig returns the extended filter configuration, or nil for a flow
+// that has no from block at all.
+func (f *FromConfig) GetFilterConfig() *FilterConfig {
+	if f == nil {
+		return nil
+	}
+	return f.FilterConfig
+}
+
 // FilterCondition returns the active filter condition expression.
 // Returns empty string if no filter is configured.
 func (f *FromConfig) FilterCondition() string {

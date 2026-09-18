@@ -222,7 +222,7 @@ func (h *FlowHandler) logDroppedMessage(ctx context.Context, input map[string]in
 
 	attrs := []slog.Attr{
 		slog.String("flow", h.Config.Name),
-		slog.String("source", h.Config.From.Connector),
+		slog.String("source", h.Config.From.GetConnector()),
 		slog.String("reason", drop.Reason),
 		slog.String("decided_by", dropDecidedBy(drop.Reason)),
 	}
@@ -267,7 +267,7 @@ func (h *FlowHandler) logIncomingPayload(ctx context.Context, input map[string]i
 	}
 	h.Logger.LogAttrs(ctx, slog.LevelDebug, "incoming payload",
 		slog.String("flow", h.Config.Name),
-		slog.String("source", h.Config.From.Connector),
+		slog.String("source", h.Config.From.GetConnector()),
 		slog.String("payload", formatPayload(input, h.PayloadMaxBytes)),
 	)
 }
@@ -291,6 +291,15 @@ func formatPayload(payload interface{}, maxBytes int) string {
 
 // HandleRequest processes an incoming request through the flow.
 func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interface{}) (result interface{}, err error) {
+	// A scheduled flow is triggered by the clock, so nothing hands it a
+	// payload: the scheduler calls this with a nil map. Reading a nil map is
+	// safe, writing to one is not, and several stages down the line add fields
+	// to the input, so it becomes an empty map here rather than at each of
+	// them.
+	if input == nil {
+		input = make(map[string]interface{})
+	}
+
 	h.Logger.Info("HandleRequest entered",
 		"flow", h.Config.Name,
 		"hasDebugServer", h.DebugServer != nil,
@@ -308,7 +317,7 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 	// Nothing happens unless the flow's source is a named operation with param
 	// blocks.
 	if h.Config.From != nil {
-		if op := OperationDefFor(h.Config.From.ConnectorParams); op != nil {
+		if op := OperationDefFor(h.Config.From.GetConnectorParams()); op != nil {
 			if err := applyOperationParams(op, input); err != nil {
 				return nil, err
 			}
@@ -376,7 +385,7 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 	if hdrs, ok := input["headers"].(map[string]interface{}); ok {
 		traceHeaders = hdrs
 	}
-	ctx, span := tracing.StartFlowSpan(ctx, h.Config.Name, h.Config.From.Connector, h.Config.From.GetOperation(), traceHeaders)
+	ctx, span := tracing.StartFlowSpan(ctx, h.Config.Name, h.Config.From.GetConnector(), h.Config.From.GetOperation(), traceHeaders)
 
 	start := time.Now()
 	defer func() {
@@ -423,7 +432,7 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		}
 		attrs := []slog.Attr{
 			slog.String("flow", h.Config.Name),
-			slog.String("source", h.Config.From.Connector),
+			slog.String("source", h.Config.From.GetConnector()),
 			slog.Duration("duration", duration),
 		}
 		if h.Config.From.GetOperation() != "" {
@@ -467,13 +476,13 @@ func (h *FlowHandler) HandleRequest(ctx context.Context, input map[string]interf
 		shouldProcess, _ := filterResult.(bool)
 		if !shouldProcess {
 			// Return policy-aware result if FilterConfig is set
-			if h.Config.From.FilterConfig != nil {
+			if fc := h.Config.From.GetFilterConfig(); fc != nil {
 				result := &flow.FilteredResultWithPolicy{
 					Filtered:   true,
-					Policy:     h.Config.From.FilterConfig.OnReject,
-					MaxRequeue: h.Config.From.FilterConfig.MaxRequeue,
+					Policy:     fc.OnReject,
+					MaxRequeue: fc.MaxRequeue,
 					Reason:     "filter",
-					Detail:     h.Config.From.FilterConfig.Condition,
+					Detail:     fc.Condition,
 				}
 				// Evaluate ID field if configured (for requeue dedup)
 				h.attachMessageID(ctx, input, result)
@@ -914,7 +923,7 @@ func (h *FlowHandler) evaluateAccept(ctx context.Context, input map[string]inter
 // available" — reads as a message that arrived without one rather than a
 // configuration mistake in this flow.
 func (h *FlowHandler) attachMessageID(ctx context.Context, input map[string]interface{}, result *flow.FilteredResultWithPolicy) {
-	filter := h.Config.From.FilterConfig
+	filter := h.Config.From.GetFilterConfig()
 	if filter == nil || filter.IDField == "" || filter.OnReject != "requeue" {
 		return
 	}
@@ -932,7 +941,7 @@ func (h *FlowHandler) attachMessageID(ctx context.Context, input map[string]inte
 
 // evaluateIDField evaluates the id_field CEL expression to extract a message ID.
 func (h *FlowHandler) evaluateIDField(ctx context.Context, input map[string]interface{}) (string, error) {
-	if h.Config.From.FilterConfig == nil || h.Config.From.FilterConfig.IDField == "" {
+	if h.Config.From.GetFilterConfig() == nil || h.Config.From.GetFilterConfig().IDField == "" {
 		return "", nil
 	}
 
@@ -951,7 +960,7 @@ func (h *FlowHandler) evaluateIDField(ctx context.Context, input map[string]inte
 	// every expression the documentation shows — id_field = "input.payment_id"
 	// — failed with "no such key", the error was discarded by the caller, and
 	// the feature never produced an identifier for anyone.
-	result, err := h.Transformer.EvaluateExpression(ctx, input, nil, h.Config.From.FilterConfig.IDField)
+	result, err := h.Transformer.EvaluateExpression(ctx, input, nil, h.Config.From.GetFilterConfig().IDField)
 	if err != nil {
 		return "", err
 	}
@@ -1877,9 +1886,17 @@ func (h *FlowHandler) evaluateSyncSequence(ctx context.Context, expr string, inp
 	return 0
 }
 
-// executeFlowCoreInternal contains the actual flow logic.
-func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[string]interface{}) (interface{}, error) {
-	// Determine operation type from the flow config
+// resolvedOperation is what this flow does, read from everything that says so.
+//
+// The source operation is the first word ("POST /orders"), but plenty of
+// sources do not speak in methods: a queue name, a table, a glob, a cron
+// expression. Each of those has its own rule for reading the intent, and they
+// all have to agree — this used to be derived in two places, and the second
+// one, reached whenever the destination implements only Reader or Writer,
+// derived it from the source operation alone. So a flow whose destination said
+// `operation = "INSERT"` was still treated as a read and refused with
+// "destination connector does not support required operation".
+func (h *FlowHandler) resolvedOperation() Operation {
 	operation := parseOperation(h.Config.From.GetOperation())
 
 	// For event-driven sources (MQ consumers, CDC, file watchers), the operation
@@ -1901,6 +1918,24 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 			operation.Method = "DELETE"
 		}
 	}
+
+	// A scheduled flow has no source at all: the clock triggered it, and the
+	// only thing it carries is what its transform produced. There is nothing to
+	// read from, so a destination that does not name an operation is written
+	// to. Without this the published example that inserts a heartbeat row ran
+	// `SELECT * FROM heartbeats` on every tick and wrote nothing, reporting
+	// success either way.
+	if operation.Method == "GET" && h.Config.From == nil && h.Config.To != nil {
+		operation.Method = "POST"
+	}
+
+	return operation
+}
+
+// executeFlowCoreInternal contains the actual flow logic.
+func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[string]interface{}) (interface{}, error) {
+	// Determine operation type from the flow config
+	operation := h.resolvedOperation()
 
 	// For read operations, check cache first. For QUERY the default cache key
 	// already covers the body: buildInput merges body fields into input, and
@@ -2992,7 +3027,7 @@ func (h *FlowHandler) handleDelete(ctx context.Context, input map[string]interfa
 
 // handleSimpleRequest handles requests when dest only implements Reader or Writer.
 func (h *FlowHandler) handleSimpleRequest(ctx context.Context, input map[string]interface{}) (interface{}, error) {
-	operation := parseOperation(h.Config.From.GetOperation())
+	operation := h.resolvedOperation()
 
 	if operation.IsRead() {
 		if reader, ok := h.Dest.(connector.Reader); ok {

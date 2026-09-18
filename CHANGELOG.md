@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A scheduled flow crashed the service on its first tick.** A flow triggered by `when = "<cron>"` has no `from` block, so its source config is nil — and the OpenTelemetry work in 3.0.0's line (v2.10.0) opened the flow's tracing span by reading `From.Connector` as a struct field instead of through the nil-safe getter that exists precisely for this. The first tick took the whole process down with a nil dereference. The published `examples/scheduled` reproduces it as written; its schedules are `@every 5m` and daily, which is why nobody watched long enough to see it. Every read of the source config in the flow handler now goes through a getter, and a test reads the handler's own source and fails if a field access comes back — the getters' comment already recorded three earlier crashes of exactly this kind, and field access is what reintroduces them.
+
+- **A scheduled flow read from its destination instead of writing to it.** With no source operation to take the intent from, the flow was classified as a read: the heartbeat job in the published example ran `SELECT * FROM heartbeats` on every tick, wrote nothing, and reported success. A flow with no source and a destination now writes, and a destination that names its own `operation` still wins (the example's cleanup job keeps its `DELETE`).
+
+- **A destination that implements only `Reader` or `Writer` ignored its declared operation.** The write intent was derived in two places, and the second — reached whenever the destination is not both — derived it from the source operation alone, so a `to` block declaring `operation = "INSERT"` was still treated as a read and refused with "destination connector does not support required operation". Both now ask the same function.
+
 ## [3.8.0] - 2026-09-15
 
 ### Security
