@@ -215,7 +215,17 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 		data.Payload[expiresAt] = time.Now().Add(data.TTL).UTC()
 	}
 
-	switch data.Operation {
+	// An unnamed operation writes. Every path in the runtime fills this in
+	// (INSERT for a POST, UPDATE for a PUT), and the aspect executor defaults
+	// it too, so an empty one means a caller that had nothing to derive it
+	// from rather than a choice — and the answer it used to get was
+	// "unsupported operation: " with nothing after the colon.
+	operation := data.Operation
+	if operation == "" {
+		operation = "INSERT"
+	}
+
+	switch operation {
 	case "INSERT", "INSERT_ONE":
 		return c.insertOne(ctx, collection, data)
 	case "INSERT_MANY":
@@ -231,7 +241,7 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	case "REPLACE", "REPLACE_ONE":
 		return c.replaceOne(ctx, collection, data)
 	default:
-		return nil, fmt.Errorf("unsupported operation: %s", data.Operation)
+		return nil, fmt.Errorf("operation %q is not one of INSERT, INSERT_MANY, UPDATE, UPDATE_MANY, DELETE, DELETE_MANY, REPLACE", data.Operation)
 	}
 }
 

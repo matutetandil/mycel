@@ -315,6 +315,11 @@ func TestATTLIsEnforcedByTheStore(t *testing.T) {
 
 // A second write to the same collection must not ask the server for the index
 // again, and must keep carrying a deadline.
+//
+// These writes name no operation, which is also the check that an unnamed one
+// writes: every runtime path fills it in, so an empty one means a caller with
+// nothing to derive it from, and the answer used to be "unsupported
+// operation: " with nothing after the colon.
 func TestEveryWriteCarriesItsOwnDeadline(t *testing.T) {
 	c := liveMongo(t)
 	archiveCollection(t, c, "deadline_archive")
