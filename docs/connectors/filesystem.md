@@ -12,6 +12,7 @@ connector "files" {
   format         = "json"
   create_dirs    = true
   permissions    = "0644"
+  append         = false
   watch          = true
   watch_interval = "5s"
 }
@@ -23,9 +24,56 @@ connector "files" {
 | `base_path` | string | `""` | Root directory; all paths resolve relative to this |
 | `format` | string | `"json"` | Default format when extension is unknown |
 | `create_dirs` | bool | `true` | Auto-create parent directories on write |
+| `append` | bool | `false` | Add each write to the end of the file instead of replacing it; JSON is then written as JSONL |
 | `permissions` | string | `"0644"` | Default file permissions (octal) |
 | `watch` | bool | `false` | Enable file-change polling |
 | `watch_interval` | string | — | Polling interval (e.g. `"5s"`, `"1m"`) |
+
+## Appending
+
+By default a write replaces the file. `append = true` adds each write to the end of it, which is what a log needs:
+
+```hcl
+connector "logs" {
+  type        = "file"
+  driver      = "local"
+  base_path   = "/var/log/mycel"
+  create_dirs = true
+  append      = true
+}
+```
+
+When appending, a structured payload is written as **JSONL** — one compact JSON document per line — rather than the indented document a replacing write produces. Indented documents concatenated end to end are not parseable by anything, so the file would be unreadable otherwise. A text payload that is already a string keeps its exact bytes.
+
+This is how a flow or an aspect keeps a record of what arrived:
+
+```hcl
+aspect "request_log" {
+  on   = ["*"]
+  when = "after"
+
+  action {
+    connector = "logs"
+    target    = "requests.log"
+
+    transform {
+      flow     = "_flow"
+      received = "now()"
+      request  = "input"   # the whole request, headers included
+    }
+  }
+}
+```
+
+```console
+$ jq -c '{flow, name: .request.name}' /var/log/mycel/requests.log
+{"flow":"create_thing","name":"uno"}
+{"flow":"create_thing","name":"dos"}
+```
+
+A single write can still override the connector in either direction with `params = { append = false }` — that is how a connector that appends by default writes a whole file once.
+
+Rotation and retention are the filesystem's job: `logrotate`, or a `when`-scheduled flow that deletes what is too old. Mycel does not cap the file's size.
 
 ## Formats
 

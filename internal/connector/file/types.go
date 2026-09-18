@@ -26,6 +26,15 @@ type Config struct {
 	// CreateDirs automatically creates directories if they don't exist.
 	CreateDirs bool
 
+	// Append adds each write to the end of the file instead of replacing its
+	// contents. It is the default for every write through this connector; a
+	// single write can still say otherwise with an `append` param.
+	//
+	// A file written this way is a log, so JSON is written one compact object
+	// per line (JSONL) rather than indented: appending indented documents
+	// produces a file no parser accepts.
+	Append bool
+
 	// CSV holds default CSV/TSV options applied when reading/writing CSV files.
 	// These can be overridden per-operation via params.
 	CSV CSVOptions

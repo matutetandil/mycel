@@ -695,11 +695,28 @@ func (e *Executor) executeConnectorAction(ctx context.Context, action *ActionCon
 		operation = action.Operation
 	}
 
-	_, writeErr := writer.Write(ctx, &connector.Data{
+	write := &connector.Data{
 		Target:    action.Target,
 		Operation: operation,
 		Payload:   data,
-	})
+	}
+
+	// What the action says about the record it writes: which fields identify
+	// it, what to do when the destination already holds it, how long it stays.
+	// An aspect is where a payload archive is written from, and "the last one
+	// per SKU, kept for a month" is the whole of what such an aspect wants to
+	// say.
+	write.ConflictKey = action.ConflictKey
+	write.OnConflict = action.OnConflict
+	if action.TTL != "" {
+		ttl, err := flow.ParseDuration(action.TTL)
+		if err != nil {
+			return fmt.Errorf("action ttl %q: %w", action.TTL, err)
+		}
+		write.TTL = ttl
+	}
+
+	_, writeErr := writer.Write(ctx, write)
 
 	return writeErr
 }

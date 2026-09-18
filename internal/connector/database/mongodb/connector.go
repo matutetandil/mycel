@@ -22,6 +22,10 @@ type Connector struct {
 	client   *mongo.Client
 	db       *mongo.Database
 
+	// ttl remembers which collections already have their TTL index, so a
+	// write does not ask the server on every message.
+	ttl ttlIndexes
+
 	// Connection settings
 	connectTimeout time.Duration
 	maxPoolSize    uint64
@@ -191,7 +195,37 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 
 	collection := c.db.Collection(data.Target)
 
-	switch data.Operation {
+	// A destination that names what identifies its record says how to write
+	// it, whatever the operation was derived as: the intent ("this record,
+	// last one wins, kept for a month") is the same for a REST POST, a queue
+	// message and an aspect's action.
+	if len(data.ConflictKey) > 0 {
+		return c.conflictWrite(ctx, collection, data)
+	}
+
+	// Expiry without a conflict key: every write is a new document, and each
+	// one carries its own deadline.
+	if data.TTL > 0 {
+		if err := c.ttl.ensure(ctx, collection); err != nil {
+			return nil, err
+		}
+		if data.Payload == nil {
+			data.Payload = map[string]interface{}{}
+		}
+		data.Payload[expiresAt] = time.Now().Add(data.TTL).UTC()
+	}
+
+	// An unnamed operation writes. Every path in the runtime fills this in
+	// (INSERT for a POST, UPDATE for a PUT), and the aspect executor defaults
+	// it too, so an empty one means a caller that had nothing to derive it
+	// from rather than a choice — and the answer it used to get was
+	// "unsupported operation: " with nothing after the colon.
+	operation := data.Operation
+	if operation == "" {
+		operation = "INSERT"
+	}
+
+	switch operation {
 	case "INSERT", "INSERT_ONE":
 		return c.insertOne(ctx, collection, data)
 	case "INSERT_MANY":
@@ -207,7 +241,7 @@ func (c *Connector) Write(ctx context.Context, data *connector.Data) (*connector
 	case "REPLACE", "REPLACE_ONE":
 		return c.replaceOne(ctx, collection, data)
 	default:
-		return nil, fmt.Errorf("unsupported operation: %s", data.Operation)
+		return nil, fmt.Errorf("operation %q is not one of INSERT, INSERT_MANY, UPDATE, UPDATE_MANY, DELETE, DELETE_MANY, REPLACE", data.Operation)
 	}
 }
 
@@ -304,18 +338,20 @@ func (c *Connector) insertOne(ctx context.Context, coll *mongo.Collection, data 
 		return nil, fmt.Errorf("insert failed: %w", err)
 	}
 
-	// Convert inserted ID
-	var lastID interface{}
-	if oid, ok := result.InsertedID.(primitive.ObjectID); ok {
-		lastID = oid.Hex()
-	} else {
-		lastID = result.InsertedID
-	}
-
 	return &connector.Result{
 		Affected: 1,
-		LastID:   lastID,
+		LastID:   identifierOf(result.InsertedID),
 	}, nil
+}
+
+// identifierOf renders whatever the server made the document's id into
+// something a flow can read: an ObjectID as its hex string, anything else as
+// it came.
+func identifierOf(id interface{}) interface{} {
+	if oid, ok := id.(primitive.ObjectID); ok {
+		return oid.Hex()
+	}
+	return id
 }
 
 // insertMany inserts multiple documents.

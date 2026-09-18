@@ -83,6 +83,7 @@ func ValidateFlowSchemas(config *parser.Configuration, reg *schema.Registry) []e
 
 	errs = append(errs, validateDestinations(config, reg, byName)...)
 	errs = append(errs, validateRequestHeaders(config, reg, byName)...)
+	errs = append(errs, validateWritePolicy(config, reg, byName)...)
 
 	sort.Slice(errs, func(i, j int) bool { return errs[i].Error() < errs[j].Error() })
 	return errs
@@ -153,6 +154,114 @@ func validateDestinations(
 		for _, to := range f.MultiTo {
 			check(f.Name, to)
 		}
+	}
+
+	return errs
+}
+
+// validateWritePolicy refuses conflict_key / on_conflict / ttl on a
+// destination whose connector does nothing with them.
+//
+// These say something about the record rather than about its contents — which
+// fields identify it, what to do when the store already holds it, how long it
+// stays — and a store has to be able to act on that. Mongo resolves the
+// conflict itself and expires the record through a TTL index; a SQL table does
+// neither, and `to` is an open block, so the attribute would be swept into the
+// connector params and ignored. That is the failure this refuses: a flow whose
+// file says "last write per SKU, kept for a month" quietly appending a row per
+// message, forever.
+//
+// A connector declares it honours them by naming them in its target schema. A
+// connector with no schema at all (a plugin) is left alone.
+func validateWritePolicy(
+	config *parser.Configuration,
+	reg *schema.Registry,
+	byName map[string]*connectorRef,
+) []error {
+	var errs []error
+
+	// Written in the order a person reads them.
+	policy := []string{"conflict_key", "on_conflict", "ttl"}
+
+	honoured := func(connName, attrName string) (bool, *connectorRef, bool) {
+		ref, known := byName[connName]
+		if !known {
+			return false, nil, false
+		}
+		provider := reg.Lookup(ref.Type, ref.Driver)
+		if provider == nil {
+			return false, ref, false
+		}
+		target := provider.TargetSchema()
+		if target == nil {
+			return false, ref, false
+		}
+		for _, attr := range target.Attrs {
+			if attr.Name == attrName {
+				return true, ref, true
+			}
+		}
+		return false, ref, true
+	}
+
+	check := func(owner, where, connName string, declared func(string) bool) {
+		for _, attrName := range policy {
+			if !declared(attrName) {
+				continue
+			}
+			ok, ref, known := honoured(connName, attrName)
+			if ok || !known {
+				continue
+			}
+			errs = append(errs, fmt.Errorf(
+				"%s: %s sets %q but connector %q (%s) cannot act on it — "+
+					"a destination resolves conflicts and expires records only where its store does "+
+					"(mongodb today); for SQL, write the upsert as a query and let the database expire rows",
+				owner, where, attrName, connName, describeType(ref),
+			))
+		}
+	}
+
+	fromParams := func(params map[string]interface{}) func(string) bool {
+		return func(name string) bool {
+			_, ok := params[name]
+			return ok
+		}
+	}
+
+	for _, f := range config.Flows {
+		if f == nil {
+			continue
+		}
+		owner := fmt.Sprintf("flow %q", f.Name)
+		if f.To != nil {
+			check(owner, "to block", f.To.Connector, fromParams(f.To.ConnectorParams))
+		}
+		for i, to := range f.MultiTo {
+			if to != nil {
+				check(owner, fmt.Sprintf("to block #%d", i+1), to.Connector, fromParams(to.ConnectorParams))
+			}
+		}
+	}
+
+	// An aspect's action writes the same way a destination does, and is where
+	// an archive of what arrived is usually written from.
+	for _, asp := range config.Aspects {
+		if asp == nil || asp.Action == nil || asp.Action.Connector == "" {
+			continue
+		}
+		action := asp.Action
+		check(fmt.Sprintf("aspect %q", asp.Name), "action", action.Connector, func(name string) bool {
+			switch name {
+			case "conflict_key":
+				return len(action.ConflictKey) > 0
+			case "on_conflict":
+				return action.OnConflict != ""
+			case "ttl":
+				return action.TTL != ""
+			}
+			return false
+		})
 	}
 
 	return errs

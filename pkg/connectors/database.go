@@ -115,7 +115,28 @@ func (MongoDBSchema) ConnectorSchema() schema.Block {
 }
 
 func (MongoDBSchema) SourceSchema() *schema.Block { return dbSourceSchema() }
-func (MongoDBSchema) TargetSchema() *schema.Block { return dbTargetSchema() }
+
+// TargetSchema is Mongo's own rather than the shared SQL one: a collection
+// takes a document, and the write is described by what identifies the record
+// rather than by a query.
+func (MongoDBSchema) TargetSchema() *schema.Block {
+	return &schema.Block{
+		Open:          true,
+		RequiredOneOf: [][]string{{"target"}},
+		Attrs: []schema.Attr{
+			{Name: "target", Doc: "Collection name", Type: schema.TypeString},
+			{Name: "operation", Doc: "Write operation", Type: schema.TypeString,
+				Values: []string{"INSERT", "INSERT_ONE", "INSERT_MANY", "UPDATE", "UPDATE_ONE", "UPDATE_MANY", "DELETE", "DELETE_ONE", "DELETE_MANY", "REPLACE", "REPLACE_ONE"}},
+			{Name: "query_filter", Doc: "Filter document naming the documents an UPDATE or DELETE applies to", Type: schema.TypeMap},
+			{Name: "update", Doc: "Update document ($set, $inc, $push, …); without it an UPDATE sets the payload", Type: schema.TypeMap},
+			{Name: "params", Doc: "Operation parameters (upsert, documents for INSERT_MANY)", Type: schema.TypeMap},
+			{Name: "conflict_key", Doc: "Field, or list of fields, identifying the record — with it the write resolves the case where the collection already holds it", Type: schema.TypeString},
+			{Name: "on_conflict", Doc: "What to do when the record is already there", Type: schema.TypeString,
+				Values: []string{"update", "replace", "skip", "error"}},
+			{Name: "ttl", Doc: "How long a written record stays (\"30d\", \"12h\"); Mongo expires it through a TTL index Mycel creates", Type: schema.TypeString},
+		},
+	}
+}
 
 // Shared helpers
 

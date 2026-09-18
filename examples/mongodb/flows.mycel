@@ -123,3 +123,59 @@ flow "search_users" {
     }
   }
 }
+
+# The last payload per SKU, kept for a month.
+#
+# `conflict_key` says what identifies the record, so the second message about a
+# SKU replaces the first instead of adding a document. `ttl` hands the expiry
+# to Mongo: Mycel creates the TTL index and writes each document's own
+# deadline, and Mongo does the deleting.
+flow "archive_payload" {
+  from {
+    connector = "api"
+    operation = "POST /archive"
+  }
+
+  to {
+    connector    = "mongo"
+    target       = "payload_archive"
+    conflict_key = "sku"
+    on_conflict  = "replace"
+    ttl          = "30d"
+  }
+}
+
+# What was last archived for one SKU.
+flow "get_archived_payload" {
+  from {
+    connector = "api"
+    operation = "GET /archive/:sku"
+  }
+
+  to {
+    connector    = "mongo"
+    target       = "payload_archive"
+    query_filter = { sku = ":sku" }
+  }
+}
+
+# The same thing written from an aspect, which is how a service that already
+# has its own flows keeps a record of what arrived without touching them.
+aspect "archive_last_request" {
+  on   = ["create_user", "update_user"]
+  when = "after"
+
+  action {
+    connector    = "mongo"
+    target       = "request_archive"
+    conflict_key = "flow"
+    on_conflict  = "replace"
+    ttl          = "7d"
+
+    transform {
+      flow     = "_flow"
+      received = "now()"
+      request  = "input"
+    }
+  }
+}

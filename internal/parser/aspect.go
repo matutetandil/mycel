@@ -136,6 +136,9 @@ func parseAspectActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Act
 			{Name: "flow"},
 			{Name: "operation"},
 			{Name: "target"},
+			{Name: "conflict_key"},
+			{Name: "on_conflict"},
+			{Name: "ttl"},
 		},
 		Blocks: []hcl.BlockHeaderSchema{
 			{Type: "transform"},
@@ -179,6 +182,30 @@ func parseAspectActionBlock(block *hcl.Block, ctx *hcl.EvalContext) (*aspect.Act
 			return nil, fmt.Errorf("action 'operation' error: %s", diags.Error())
 		}
 		action.Operation = stringOrEmpty(val)
+	}
+
+	if attr, ok := content.Attributes["conflict_key"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("action 'conflict_key' error: %s", diags.Error())
+		}
+		action.ConflictKey = stringList(val)
+	}
+
+	if attr, ok := content.Attributes["on_conflict"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("action 'on_conflict' error: %s", diags.Error())
+		}
+		action.OnConflict = stringOrEmpty(val)
+	}
+
+	if attr, ok := content.Attributes["ttl"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() {
+			return nil, fmt.Errorf("action 'ttl' error: %s", diags.Error())
+		}
+		action.TTL = stringOrEmpty(val)
 	}
 
 	if attr, ok := content.Attributes["target"]; ok {

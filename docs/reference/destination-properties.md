@@ -34,6 +34,18 @@ to.params        → connector.Data.Params
 transformed data → connector.Data.Payload
 ```
 
+### How a `params` value is read
+
+Each value is resolved the same way a `query_filter` value is, and the rule is worth knowing because two of the three forms look like expressions:
+
+| Written as | Read as |
+|------------|---------|
+| `"input.sheet"` | The expression, evaluated against the message |
+| `":sku"` | The path parameter of that name |
+| `true`, `42`, `"csv"` | The literal, as written |
+
+A string is only evaluated when it mentions `input.` — so `append = "1 == 1"` is the five-character string, not `true`. Write literals as literals: `append = true`.
+
 ---
 
 ## Database (SQLite, PostgreSQL, MySQL)

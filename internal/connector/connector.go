@@ -5,6 +5,7 @@ package connector
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 // Connector represents any data source or sink.
@@ -149,6 +150,21 @@ type Data struct {
 	// Params are additional operation-specific parameters.
 	// For MongoDB: upsert, arrayFilters, etc.
 	Params map[string]interface{}
+
+	// ConflictKey names the fields that identify the record being written, so
+	// a destination can tell whether it already holds it. Empty means every
+	// write is a new record.
+	ConflictKey []string
+
+	// OnConflict is what to do when the record identified by ConflictKey is
+	// already there: "update" (merge the payload in), "replace" (the new
+	// document wins whole), "skip" (keep what is stored) or "error".
+	OnConflict string
+
+	// TTL is how long the record stays. Retention is the store's job — a
+	// connector that supports this asks the store to expire the record and
+	// never deletes anything itself.
+	TTL time.Duration
 }
 
 // Result represents the outcome of a connector operation.

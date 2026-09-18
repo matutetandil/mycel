@@ -239,9 +239,10 @@ func (c *Connector) writeFile(ctx context.Context, data *connector.Data) (map[st
 		}
 	}
 
-	// Determine write mode
+	// Determine write mode. The connector-level `append` is the default for
+	// every write, and a single write can still override it.
 	flags := os.O_WRONLY | os.O_CREATE
-	appendMode := getParamBool(data.Params, "append", false)
+	appendMode := getParamBool(data.Params, "append", c.config.Append)
 	if appendMode {
 		flags |= os.O_APPEND
 	} else {
@@ -262,7 +263,11 @@ func (c *Connector) writeFile(ctx context.Context, data *connector.Data) (map[st
 		content = data.Params["content"]
 	}
 
-	bytesWritten, err := c.writeData(file, content, format, data.Params)
+	// Appending to a file makes it a log, and a log is read a record at a
+	// time. Indented JSON documents concatenated end to end are not
+	// parseable by anything — not `jq`, not `json.Unmarshal` — so an
+	// appended JSON write is one compact object per line.
+	bytesWritten, err := c.writeData(file, content, appendFormat(format, appendMode, content), data.Params)
 	if err != nil {
 		return nil, err
 	}
@@ -710,6 +715,8 @@ func (c *Connector) writeData(w io.Writer, data interface{}, format string, para
 	switch format {
 	case "json":
 		return c.writeJSON(w, data)
+	case "jsonl":
+		return c.writeJSONLine(w, data)
 	case "csv":
 		return c.writeCSV(w, data, params)
 	case "tsv":
@@ -738,6 +745,47 @@ func (c *Connector) writeJSON(w io.Writer, data interface{}) (int64, error) {
 
 	n, err := w.Write(jsonData)
 	return int64(n), err
+}
+
+// writeJSONLine writes one compact JSON document followed by a newline, which
+// is what a file being appended to needs: JSONL, a record per line.
+func (c *Connector) writeJSONLine(w io.Writer, data interface{}) (int64, error) {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	n, err := w.Write(append(jsonData, '\n'))
+	return int64(n), err
+}
+
+// appendFormat picks the on-disk shape for a write that is being appended.
+//
+// A record written to the end of a file has to end there too, and two formats
+// do not do that on their own: JSON writes an indented document, and text
+// hands a map to json.Marshal with nothing after it — a log named
+// `requests.log` is detected as text, so that is the common case rather than
+// the odd one. Both become JSONL.
+//
+// Text that really is text keeps its exact bytes: a line the author already
+// terminated is not reshaped. CSV appends a row, which is already per-record,
+// and xlsx cannot be appended to meaningfully at all.
+func appendFormat(format string, appending bool, content interface{}) string {
+	if !appending {
+		return format
+	}
+	switch format {
+	case "json", "":
+		return "jsonl"
+	case "text":
+		switch content.(type) {
+		case string, []byte:
+			return format
+		}
+		// A structured record in a text log: one line per record.
+		return "jsonl"
+	}
+	return format
 }
 
 // writeCSV writes data as CSV with configurable options.

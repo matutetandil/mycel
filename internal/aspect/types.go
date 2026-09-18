@@ -82,6 +82,19 @@ type ActionConfig struct {
 	// Target is the target table/resource.
 	Target string
 
+	// ConflictKey names the fields that identify the record this action
+	// writes. With it set, the destination resolves the case where it already
+	// holds the record instead of adding another one.
+	ConflictKey []string
+
+	// OnConflict is what to do when the record is already there: "update",
+	// "replace", "skip" or "error".
+	OnConflict string
+
+	// TTL is how long the written record stays, as a duration ("30d").
+	// The destination's store does the expiring.
+	TTL string
+
 	// Transform defines field mappings using CEL expressions.
 	Transform map[string]string
 }

@@ -423,6 +423,10 @@ if command -v go > /dev/null 2>&1; then
     ./internal/connector/database/mysql/ 'ReadGoesToThe|ReplicaThatCannotBeReached'
   run_go_tests "mongodb write operations" \
     ./internal/connector/database/mongodb/ 'SeveralDocuments|UpdateChanges|ReplacingADocument|DeletingTakes|OperationNobody|AggregatingAnswers'
+  # Resolving the record that is already there, and letting the store expire
+  # it: both need a server, and the TTL index is created against a real one.
+  run_go_tests "mongodb conflict resolution and expiry" \
+    ./internal/connector/database/mongodb/ 'LastPayloadPerKey|UpdateMergesAndReplace|SkipKeepsWhatIsStored|ConflictKeyOfSeveralFields|MissingConflictKeyField|UnknownConflictPolicy|TTLIsEnforcedByTheStore|EveryWriteCarriesItsOwnDeadline'
   run_go_tests "s3 objects and signed links" \
     ./internal/connector/s3/ 'ObjectComesBack|AskingWhetherAnObject|CopyingLeavesBoth|DeletingAnObject|SignedLink|OperationNobody|ListingAPrefix|AStepCanWrite'
   # Logical replication is a mode of the server, not something a library can

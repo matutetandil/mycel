@@ -8,53 +8,38 @@ import (
 	"github.com/matutetandil/mycel/v3/internal/parser"
 )
 
-func TestInertFlowAttrs_ParamsOnToBlock(t *testing.T) {
+// `params` on a destination was reported here as inert, and the warning was
+// only ever half true: a flow with several destinations honoured them and a
+// flow with one did not. Both paths read them now, so there is nothing to warn
+// about — and a warning that says an attribute does nothing, about an
+// attribute that does something, sends people to rewrite working config.
+func TestParamsOnADestinationIsNotReportedAsInert(t *testing.T) {
 	cfg := &parser.Configuration{
-		Flows: []*flow.Config{{
-			Name: "write_order",
-			To: &flow.ToConfig{
-				Connector: "db",
-				ConnectorParams: map[string]interface{}{
-					"target": "orders",
-					"params": map[string]interface{}{"id": "input.id"},
+		Flows: []*flow.Config{
+			{
+				Name: "write_order",
+				To: &flow.ToConfig{
+					Connector: "db",
+					ConnectorParams: map[string]interface{}{
+						"target": "orders",
+						"params": map[string]interface{}{"id": "input.id"},
+					},
 				},
 			},
-		}},
-	}
-
-	warnings := InertFlowAttrs(cfg)
-	if len(warnings) != 1 {
-		t.Fatalf("expected 1 warning, got %d: %v", len(warnings), warnings)
-	}
-	for _, want := range []string{"write_order", "params", "transform"} {
-		if !strings.Contains(warnings[0], want) {
-			t.Errorf("warning missing %q: %s", want, warnings[0])
-		}
-	}
-}
-
-func TestInertFlowAttrs_ParamsOnMultiTo(t *testing.T) {
-	cfg := &parser.Configuration{
-		Flows: []*flow.Config{{
-			Name: "fanout",
-			MultiTo: []*flow.ToConfig{
-				{Connector: "db", ConnectorParams: map[string]interface{}{"target": "orders"}},
-				{Connector: "api", ConnectorParams: map[string]interface{}{
-					"params": map[string]interface{}{"id": "input.id"},
-				}},
+			{
+				Name: "fanout",
+				MultiTo: []*flow.ToConfig{
+					{Connector: "db", ConnectorParams: map[string]interface{}{"target": "orders"}},
+					{Connector: "api", ConnectorParams: map[string]interface{}{
+						"params": map[string]interface{}{"id": "input.id"},
+					}},
+				},
 			},
-		}},
+		},
 	}
 
-	warnings := InertFlowAttrs(cfg)
-	if len(warnings) != 1 {
-		t.Fatalf("expected 1 warning, got %d: %v", len(warnings), warnings)
-	}
-	// The message must point at the offending destination, not just the flow.
-	for _, want := range []string{"fanout", "#2", `"api"`} {
-		if !strings.Contains(warnings[0], want) {
-			t.Errorf("warning missing %q: %s", want, warnings[0])
-		}
+	if warnings := InertFlowAttrs(cfg); len(warnings) != 0 {
+		t.Fatalf("params on a destination is read, and was reported as doing nothing: %v", warnings)
 	}
 }
 

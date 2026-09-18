@@ -637,9 +637,18 @@ func AspectSchema() Block {
 			{Name: "priority", Doc: "Execution priority (lower = first)", Type: TypeNumber},
 		},
 		Children: []Block{
+			// target and operation are read by the parser and were missing
+			// here, so the editor did not offer them and `mycel add` did not
+			// generate them — while the published aspects example uses target.
 			{Type: "action", Doc: "Aspect action to execute", Attrs: []Attr{
 				{Name: "connector", Doc: "Connector to call", Type: TypeString, Ref: RefConnector},
 				{Name: "flow", Doc: "Flow to invoke", Type: TypeString, Ref: RefFlow},
+				{Name: "target", Doc: "Table, collection or resource the action writes to", Type: TypeString},
+				{Name: "operation", Doc: "Write operation; an action that names none writes (INSERT)", Type: TypeString},
+				{Name: "conflict_key", Doc: "Field, or list of fields, identifying the record — with it the action resolves the case where the destination already holds it (mongodb)", Type: TypeString},
+				{Name: "on_conflict", Doc: "What to do when the record is already there", Type: TypeString,
+					Values: []string{"update", "replace", "skip", "error"}},
+				{Name: "ttl", Doc: "How long the written record stays (\"30d\"); the destination's store expires it (mongodb)", Type: TypeString},
 			}, Children: []Block{
 				TransformBlockSchema(),
 			}},
