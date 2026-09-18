@@ -158,3 +158,55 @@ func TestADestinationWithoutAPolicySaysNothingAboutTheRecord(t *testing.T) {
 			got.ConflictKey, got.OnConflict, got.TTL)
 	}
 }
+
+// The connector's own parameters — a spreadsheet's sheet, a publish's
+// exchange, whether a file is appended to — were read on exactly one write
+// path. A flow with several destinations honoured them; the same block on a
+// flow with one destination was swept up and ignored, so the attribute worked
+// or did nothing depending on how many places the flow wrote to. `mycel
+// validate` reported it as inert in both cases, which was wrong in one of
+// them.
+func TestADestinationsParamsAreReadWithOneDestinationToo(t *testing.T) {
+	for _, operation := range []string{"POST /things", "PUT /things/:id", "DELETE /things/:id"} {
+		t.Run(operation, func(t *testing.T) {
+			store := &recordingWriter{name: "store"}
+			to := &flow.ToConfig{
+				Connector: "store",
+				ConnectorParams: map[string]interface{}{
+					"target": "objects",
+					"params": map[string]interface{}{
+						"append": true,
+						"sheet":  "input.sheet",
+					},
+				},
+			}
+
+			h := policyHandler(t, to, store)
+			h.Config.From.ConnectorParams = map[string]interface{}{"operation": operation}
+
+			if _, err := h.HandleRequest(context.Background(), map[string]interface{}{
+				"id":    "1",
+				"sheet": "Products",
+				"body":  "content",
+			}); err != nil {
+				t.Fatalf("writing: %v", err)
+			}
+
+			written := store.writes()
+			if len(written) != 1 {
+				t.Fatalf("wrote %d times, want 1", len(written))
+			}
+			params := written[0].Params
+			if params == nil {
+				t.Fatal("the destination's params reached no connector")
+			}
+			if params["append"] != true {
+				t.Errorf("append = %v, want true", params["append"])
+			}
+			// Resolved the way a filter document is: `input.x` is evaluated.
+			if params["sheet"] != "Products" {
+				t.Errorf("sheet = %v, want Products — the expression was not evaluated", params["sheet"])
+			}
+		})
+	}
+}

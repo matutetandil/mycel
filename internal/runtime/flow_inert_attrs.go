@@ -42,34 +42,12 @@ func InertFlowAttrs(config *parser.Configuration) []string {
 				f.Name))
 		}
 
-		// `params` on a `to` block is never read. ToConfig.GetParams() exists
-		// but has no call site: a write takes its payload from the transform
-		// output (or the raw input when there is no transform). The attribute
-		// is real on `step`, on `enrich`, and on `exec` inside a
-		// `transaction`, which is exactly why it gets copied onto `to`.
-		if f.To != nil {
-			if _, ok := f.To.ConnectorParams["params"]; ok {
-				warnings = append(warnings, fmt.Sprintf(
-					"flow %q: `params` on a to block is ignored — a write sends the transform "+
-						"output (or the raw input when the flow has no transform). Shape the "+
-						"payload in transform {}, or use step {} / transaction { exec {} }, "+
-						"where params is read",
-					f.Name))
-			}
-		}
-		for i, to := range f.MultiTo {
-			if to == nil {
-				continue
-			}
-			if _, ok := to.ConnectorParams["params"]; ok {
-				warnings = append(warnings, fmt.Sprintf(
-					"flow %q: `params` on to block #%d (connector %q) is ignored — a write sends "+
-						"the transform output (or the raw input when the flow has no transform). "+
-						"Shape the payload in transform {}, or use step {} / "+
-						"transaction { exec {} }, where params is read",
-					f.Name, i+1, to.Connector))
-			}
-		}
+		// `params` on a destination used to be reported here as inert, and
+		// that warning was only ever half true: a flow with several
+		// destinations honoured them and a flow with one did not, so the
+		// attribute worked or did nothing depending on how many places the
+		// flow wrote to. Both paths read them now, and the warning is gone
+		// rather than corrected — there is nothing left to warn about.
 	}
 
 	sort.Strings(warnings)

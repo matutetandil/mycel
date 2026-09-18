@@ -2749,6 +2749,11 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		return nil, fmt.Errorf("flow %q: %w", h.Config.Name, err)
 	}
 
+	// And the connector's own parameters.
+	if err := h.applyDestinationParams(ctx, data, h.Config.To, input); err != nil {
+		return nil, fmt.Errorf("flow %q: %w", h.Config.Name, err)
+	}
+
 	// Dry-run: record what would be written without executing
 	if tc := trace.FromContext(ctx); tc != nil && tc.DryRun {
 		tc.Record(trace.Event{
@@ -2908,6 +2913,10 @@ func (h *FlowHandler) handleUpdate(ctx context.Context, input map[string]interfa
 		data.RawSQL = h.Config.To.GetQuery()
 	}
 
+	if err := h.applyDestinationParams(ctx, data, h.Config.To, input); err != nil {
+		return nil, fmt.Errorf("flow %q: %w", h.Config.Name, err)
+	}
+
 	// Dry-run: record what would be written without executing
 	if tc := trace.FromContext(ctx); tc != nil && tc.DryRun {
 		tc.Record(trace.Event{
@@ -2994,6 +3003,10 @@ func (h *FlowHandler) handleDelete(ctx context.Context, input map[string]interfa
 		for key, val := range input {
 			data.Filters[key] = val
 		}
+	}
+
+	if err := h.applyDestinationParams(ctx, data, h.Config.To, input); err != nil {
+		return nil, fmt.Errorf("flow %q: %w", h.Config.Name, err)
 	}
 
 	// Dry-run: record what would be deleted without executing
@@ -3285,12 +3298,8 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 	// Extra parameters the destination declares. The reference documents these
 	// as CEL expressions and maps them to connector.Data.Params, and nothing
 	// ever put them there: a `to` block's params reached no connector at all.
-	if len(destConfig.GetParams()) > 0 {
-		params, err := h.resolveFilterDocument(ctx, destConfig.GetParams(), input)
-		if err != nil {
-			return nil, fmt.Errorf("params: %w", err)
-		}
-		data.Params = params
+	if err := h.applyDestinationParams(ctx, data, destConfig, input); err != nil {
+		return nil, err
 	}
 
 	// The headers this write carries, resolved against the message the same

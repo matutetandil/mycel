@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`params` on a destination was read only when the flow had more than one of them.** `writeToDestination` honoured them; the single-destination paths (create, update, delete) never looked, so the same block worked or did nothing depending on how many places the flow wrote to — a distinction nobody would think to make. Everything documented as a destination param was affected: the sheet of a spreadsheet, the exchange of a publish, `format` and `append` on a file, `upsert` on Mongo. All four write paths now read them through one function.
+
+  `mycel validate` reported the attribute as inert in **both** cases, so the warning was wrong for multi-destination flows and sent people to rewrite config that worked. It is gone rather than corrected: there is nothing left to warn about.
+
+  A value is resolved the way a `query_filter` value is, which the reference now spells out: `"input.sheet"` is evaluated, `":sku"` is that path parameter, and anything else is the literal. A string is only evaluated when it mentions `input.`, so `append = "1 == 1"` is a five-character string and not `true`.
+
+- **Eight tests against a real MongoDB were never run.** The integration runner names the Go tests it runs one by one, and a test left out of the list is not skipped and not reported — it simply never runs, while `go test ./...` passes because it skips itself for want of a server. The new tests were added to the runner, and a parity test now reads both sides and refuses the next one: every test that skips itself when nothing is answering has to be named by a `run_go_tests` pattern.
+
 - **An aspect's `action` did not offer `target` or `operation` in the editor.** Both are read by the parser, and the published aspects example uses `target`, but the schema named only `connector` and `flow` — so completions, `mycel add` and the editor's own checks did not know about them.
 
 - **A scheduled flow crashed the service on its first tick.** A flow triggered by `when = "<cron>"` has no `from` block, so its source config is nil — and the OpenTelemetry work in 3.0.0's line (v2.10.0) opened the flow's tracing span by reading `From.Connector` as a struct field instead of through the nil-safe getter that exists precisely for this. The first tick took the whole process down with a nil dereference. The published `examples/scheduled` reproduces it as written; its schedules are `@every 5m` and daily, which is why nobody watched long enough to see it. Every read of the source config in the flow handler now goes through a getter, and a test reads the handler's own source and fails if a field access comes back — the getters' comment already recorded three earlier crashes of exactly this kind, and field access is what reintroduces them.

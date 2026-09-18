@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/matutetandil/mycel/v3/internal/connector"
@@ -35,5 +36,35 @@ func applyDestinationPolicy(data *connector.Data, to *flow.ToConfig) error {
 		data.TTL = ttl
 	}
 
+	return nil
+}
+
+// applyDestinationParams hands a destination the extra parameters it declares.
+//
+// These are the connector's own vocabulary — the sheet of a spreadsheet, the
+// exchange of a publish, whether a file is appended to — and they were read on
+// exactly one write path. A flow with several destinations honoured them; the
+// same block on a flow with one destination was swept up and ignored, so the
+// attribute worked or did nothing depending on how many places the flow wrote
+// to, which is not a distinction anybody would think to make.
+//
+// Values are resolved the way a filter document is: `input.x` is evaluated,
+// ":name" is the path parameter of that name, and anything else is the literal
+// it looks like.
+func (h *FlowHandler) applyDestinationParams(
+	ctx context.Context,
+	data *connector.Data,
+	to *flow.ToConfig,
+	input map[string]interface{},
+) error {
+	if data == nil || to == nil || len(to.GetParams()) == 0 {
+		return nil
+	}
+
+	params, err := h.resolveFilterDocument(ctx, to.GetParams(), input)
+	if err != nil {
+		return fmt.Errorf("params: %w", err)
+	}
+	data.Params = params
 	return nil
 }
