@@ -605,6 +605,24 @@ func (t *ToConfig) GetParams() map[string]interface{} {
 	return getMapParam(t.ConnectorParams, "params", nil)
 }
 
+// GetConflictKey returns the fields that identify the record this destination
+// writes, written either as one name or as a list.
+func (t *ToConfig) GetConflictKey() []string {
+	return stringOrStrings(t.ConnectorParams, "conflict_key")
+}
+
+// GetOnConflict returns what to do when the destination already holds the
+// record named by conflict_key.
+func (t *ToConfig) GetOnConflict() string {
+	return getStringParam(t.ConnectorParams, "on_conflict", "")
+}
+
+// GetTTL returns how long a written record stays, as a duration string
+// ("30d", "12h"). The destination's store does the expiring.
+func (t *ToConfig) GetTTL() string {
+	return getStringParam(t.ConnectorParams, "ttl", "")
+}
+
 // GetHeaders returns the request headers the destination declares, as
 // written: the values are CEL expressions or constants, evaluated per write.
 func (t *ToConfig) GetHeaders() map[string]interface{} {
@@ -1353,6 +1371,34 @@ func getStringParam(params map[string]interface{}, key string, fallback string) 
 		}
 	}
 	return fallback
+}
+
+// stringOrStrings reads an attribute that may be written as one name or as a
+// list of them: `conflict_key = "sku"` and `conflict_key = ["store", "sku"]`
+// both name the identity of a record, and a composite key is the less common
+// case rather than a different attribute.
+func stringOrStrings(params map[string]interface{}, key string) []string {
+	if params == nil {
+		return nil
+	}
+	switch v := params[key].(type) {
+	case string:
+		if v == "" {
+			return nil
+		}
+		return []string{v}
+	case []string:
+		return v
+	case []interface{}:
+		var out []string
+		for _, item := range v {
+			if s, ok := item.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // getMapParam reads a map from ConnectorParams, falling back to the typed field.

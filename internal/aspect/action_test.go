@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/matutetandil/mycel/v3/internal/connector"
 )
@@ -119,5 +120,60 @@ func TestAnActionSaysWhyItCouldNotRun(t *testing.T) {
 	err = e.executeConnectorAction(ctx, &ActionConfig{Connector: "audit_db"}, record)
 	if err == nil || !strings.Contains(err.Error(), "disk is full") {
 		t.Errorf("a write that failed gave %v, want what the connector said", err)
+	}
+}
+
+// An archive of what arrived is written from an aspect, and "the last payload
+// per SKU, kept for a month" is the whole of what such an aspect wants to say.
+// It says it on the action, and the destination has to receive it: an aspect
+// whose action carried none of this wrote one record per message forever.
+func TestAnActionTellsItsConnectorHowToResolveTheRecord(t *testing.T) {
+	archive := &recordingWriter{name: "archive"}
+	e := executorWithConnectors(t, map[string]connector.Connector{"archive": archive})
+
+	err := e.executeConnectorAction(context.Background(), &ActionConfig{
+		Connector:   "archive",
+		Target:      "payload_archive",
+		ConflictKey: []string{"sku"},
+		OnConflict:  "replace",
+		TTL:         "30d",
+	}, map[string]interface{}{"sku": "ABC-1", "body": "what arrived"})
+	if err != nil {
+		t.Fatalf("action: %v", err)
+	}
+
+	if len(archive.written) != 1 {
+		t.Fatalf("%d writes, want one", len(archive.written))
+	}
+	got := archive.written[0]
+	if len(got.ConflictKey) != 1 || got.ConflictKey[0] != "sku" {
+		t.Errorf("conflict key = %v, want [sku]", got.ConflictKey)
+	}
+	if got.OnConflict != "replace" {
+		t.Errorf("on_conflict = %q, want replace", got.OnConflict)
+	}
+	if got.TTL != 30*24*time.Hour {
+		t.Errorf("ttl = %s, want 720h", got.TTL)
+	}
+}
+
+// A ttl the parser cannot read fails the action rather than meaning "forever".
+func TestAnActionWithATTLNobodyCanReadFails(t *testing.T) {
+	archive := &recordingWriter{name: "archive"}
+	e := executorWithConnectors(t, map[string]connector.Connector{"archive": archive})
+
+	err := e.executeConnectorAction(context.Background(), &ActionConfig{
+		Connector: "archive",
+		Target:    "payload_archive",
+		TTL:       "a month or so",
+	}, map[string]interface{}{"sku": "ABC-1"})
+	if err == nil {
+		t.Fatal("the action accepted a ttl nobody can read, which would have meant no expiry")
+	}
+	if !strings.Contains(err.Error(), "ttl") {
+		t.Errorf("the error does not name the attribute: %v", err)
+	}
+	if len(archive.written) != 0 {
+		t.Error("the record was written without the expiry the aspect asked for")
 	}
 }

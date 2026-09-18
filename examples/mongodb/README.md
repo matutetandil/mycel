@@ -7,6 +7,8 @@ This example demonstrates MongoDB NoSQL operations.
 - Full CRUD operations
 - MongoDB query operators (`$regex`, `$gte`, `$or`, etc.)
 - Bulk updates with `UPDATE_MANY`
+- Last-write-wins per key with `conflict_key` / `on_conflict`
+- Records the store expires on its own with `ttl`
 - ObjectID handling
 - Connection pooling
 
@@ -192,6 +194,35 @@ Expected response (uses `$regex`):
 ```json
 [{"_id": "507f...", "name": "John Doe"}]
 ```
+
+### 5b. Keep the last payload per SKU, for a month
+
+`conflict_key` says which field identifies the record, so the second message about a SKU replaces the first rather than adding a document. `ttl` hands the expiry to Mongo.
+
+```bash
+# Archive a payload, twice for the same SKU
+curl -X POST http://localhost:3000/archive \
+  -H "Content-Type: application/json" \
+  -d '{"sku":"ABC-123","price":10,"stock":5}'
+
+curl -X POST http://localhost:3000/archive \
+  -H "Content-Type: application/json" \
+  -d '{"sku":"ABC-123","price":12,"stock":4}'
+
+# One document, holding the second payload
+curl http://localhost:3000/archive/ABC-123
+```
+
+The answer says which of the two happened, in `outcome`: `inserted` the first time, `replaced` the second.
+
+Expiry is the store's job. On the first write Mycel creates a TTL index and each document carries its own deadline:
+
+```bash
+docker exec -it mongodb mongosh myapp --eval "db.payload_archive.getIndexes()"
+docker exec -it mongodb mongosh myapp --eval "db.payload_archive.find({}, {sku: 1, _mycel_expires_at: 1})"
+```
+
+Mongo's TTL monitor runs about once a minute, so a document disappears shortly after its deadline rather than exactly on it.
 
 ### 6. Verify in MongoDB shell
 

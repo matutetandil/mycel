@@ -9,11 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A destination can say what identifies the record it writes, and how long it stays (MongoDB).** Three attributes on a `to` block or an aspect's `action`: `conflict_key` (one field or several), `on_conflict` (`update`, `replace`, `skip`, `error`) and `ttl` (`"30d"`). "The last payload per SKU, kept for a month" is then what the file says, rather than a filter document, an update document and an upsert param that have to agree — through a `params` attribute that some write paths read and others do not.
+
+  The result reports which case it was in `outcome` (`inserted`, `updated`, `replaced`, `skipped`, `unchanged`), because the affected count cannot tell them apart: an upsert that inserted and one that overwrote a stored record both report one. A payload missing a field `conflict_key` names fails the write rather than identifying every message by `{sku: null}`, which would leave the collection holding exactly one document.
+
+  `on_conflict = "error"` is backed by a unique index, so a duplicate is the store refusing rather than a race between two consumers. `ttl` is enforced by Mongo through a TTL index Mycel creates on the first write, with each document carrying its own deadline in `_mycel_expires_at` — a BSON date, because a TTL index reads nothing else and a `now()` timestamp is a string that would expire nothing, silently. The deadline lives in the document rather than in the index so that lowering a `ttl` takes effect: `expireAfterSeconds` cannot be changed by `createIndex`.
+
+  On a connector that cannot act on them the three are **refused at startup**, naming what to do instead (in SQL, the upsert is a query and retention is a scheduled delete). A `to` block is open, so otherwise they would have been swept into the connector params and ignored — a file describing an archive while the service appended a row per message, forever.
+
 - **`append` on the file connector.** A write replaces the file unless the connector says otherwise, which meant the connector could not keep a log: three requests in, the file held the third. A single write could already ask for it through its params, but nothing reaches those params from a flow's `to` block or from an aspect's `action` — which is exactly where a request log is written from. `append = true` makes every write add to the end of the file, and a single write still overrides it in either direction.
 
   When appending, a structured payload is written as **JSONL** — one compact JSON document per line — rather than the indented document a replacing write produces: indented documents concatenated end to end are not parseable by anything. Text that is already a string keeps its exact bytes, CSV appends a row, and a `.log` file (detected as text) holding a map is written as JSONL too, which is the common case. Rotation stays the filesystem's job.
 
 ### Fixed
+
+- **An aspect's `action` did not offer `target` or `operation` in the editor.** Both are read by the parser, and the published aspects example uses `target`, but the schema named only `connector` and `flow` — so completions, `mycel add` and the editor's own checks did not know about them.
 
 - **A scheduled flow crashed the service on its first tick.** A flow triggered by `when = "<cron>"` has no `from` block, so its source config is nil — and the OpenTelemetry work in 3.0.0's line (v2.10.0) opened the flow's tracing span by reading `From.Connector` as a struct field instead of through the nil-safe getter that exists precisely for this. The first tick took the whole process down with a nil dereference. The published `examples/scheduled` reproduces it as written; its schedules are `@every 5m` and daily, which is why nobody watched long enough to see it. Every read of the source config in the flow handler now goes through a getter, and a test reads the handler's own source and fails if a field access comes back — the getters' comment already recorded three earlier crashes of exactly this kind, and field access is what reintroduces them.
 

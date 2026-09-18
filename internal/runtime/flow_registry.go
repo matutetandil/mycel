@@ -2743,6 +2743,12 @@ func (h *FlowHandler) handleCreate(ctx context.Context, input map[string]interfa
 		data.RawSQL = h.Config.To.GetQuery()
 	}
 
+	// What the destination says about the record itself: its identity, what to
+	// do when the store already holds it, how long it stays.
+	if err := applyDestinationPolicy(data, h.Config.To); err != nil {
+		return nil, fmt.Errorf("flow %q: %w", h.Config.Name, err)
+	}
+
 	// Dry-run: record what would be written without executing
 	if tc := trace.FromContext(ctx); tc != nil && tc.DryRun {
 		tc.Record(trace.Event{
@@ -3336,6 +3342,10 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 	// Set update document for NoSQL
 	if len(destConfig.GetUpdate()) > 0 {
 		data.Update = destConfig.GetUpdate()
+	}
+
+	if err := applyDestinationPolicy(data, destConfig); err != nil {
+		return nil, fmt.Errorf("flow %q: %w", h.Config.Name, err)
 	}
 
 	// Dry-run: record what would be written without executing

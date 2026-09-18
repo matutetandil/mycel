@@ -108,6 +108,89 @@ connector "mongo" {
 | `DELETE` | write | Delete rows |
 | target name (table) | read/write | Auto-detect from flow context |
 
+## The record that is already there (MongoDB)
+
+A destination writing to Mongo can say which fields identify the record it writes and what to do when the collection already holds it, instead of spelling out a filter document, an update document and an upsert param that have to agree:
+
+```hcl
+to {
+  connector    = "archive"
+  target       = "payload_archive"
+  conflict_key = "sku"          # or ["store", "sku"] for a composite key
+  on_conflict  = "replace"
+  ttl          = "30d"
+}
+```
+
+| Attribute | Description |
+|-----------|-------------|
+| `conflict_key` | Field, or list of fields, that identifies the record. Without it every write is a new document. |
+| `on_conflict` | What to do when the record is already stored: `update` (default), `replace`, `skip`, `error` |
+| `ttl` | How long the record stays: `"30d"`, `"12h"`, `"90m"` |
+
+| `on_conflict` | What the store does | When you want it |
+|---------------|--------------------|------------------|
+| `update` | Merges the payload into the stored document; fields it does not mention survive | Messages carry part of the record |
+| `replace` | The new document wins whole; fields it does not mention are gone | Messages carry the whole record — "the last payload per SKU" |
+| `skip` | Keeps what is stored, writes only if the record is new | First value wins |
+| `error` | Fails the write. Backed by a unique index, so it is the store refusing rather than a race between two consumers | A duplicate is a problem to report |
+
+The result says which of those happened, in `outcome`: `inserted`, `updated`, `replaced`, `skipped` or `unchanged`. The affected count cannot tell them apart — an upsert that inserted and one that overwrote a stored record both report one.
+
+A payload that does not carry the fields `conflict_key` names fails the write. Writing it anyway would identify every message by `{sku: null}`, so the collection would hold one document: whichever message arrived last, under no key at all.
+
+### Expiry
+
+`ttl` makes the **store** expire the record; Mycel never deletes anything for it. On the first write to a collection Mycel creates a TTL index (`mycel_ttl`, with `expireAfterSeconds: 0`) and every document it writes carries its own deadline in `_mycel_expires_at`.
+
+Two things follow from that, and both are deliberate:
+
+- **The deadline lives in the document, not in the index.** `expireAfterSeconds` cannot be changed by `createIndex` — it needs `collMod` — so an index built from the configured duration would keep the duration it was first created with, and lowering a `ttl` from a month to a day would go on keeping documents for a month with nothing said.
+- **The deadline is a BSON date.** A TTL index reads nothing else: a timestamp written by `now()` is a string, and a TTL index over a string field expires nothing, silently. This is why the field is Mycel's own rather than one of yours.
+
+Mongo's TTL monitor runs about once a minute, so a document disappears shortly after its deadline rather than exactly on it.
+
+### From an aspect
+
+An archive of what arrived is usually written from an aspect, and the same three attributes work there:
+
+```hcl
+aspect "archive_last_payload" {
+  on   = ["update_sku", "create_sku"]
+  when = "after"
+
+  action {
+    connector    = "archive"
+    target       = "payload_archive"
+    conflict_key = "sku"
+    on_conflict  = "replace"
+    ttl          = "30d"
+
+    transform {
+      sku      = "string(input.sku)"
+      received = "now()"
+      payload  = "input"     # the whole message, headers included
+    }
+  }
+}
+```
+
+### SQL
+
+These three are refused at startup on a SQL destination, because nothing there would act on them: a `to` block is open, so they would be swept into the connector params and ignored — a file saying "the last payload per SKU, kept for a month" while the service appends a row per message, forever.
+
+In SQL, write the upsert as the query it is, and let the database expire the rows:
+
+```hcl
+to {
+  connector = "store"
+  target    = "payload_archive"
+  query     = "INSERT INTO payload_archive (sku, payload, updated_at) VALUES (:sku, :payload, :updated_at) ON CONFLICT (sku) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at"
+}
+```
+
+Retention there is a scheduled `DELETE` (a `when` flow, `pg_cron`, or partitioning by day) rather than an attribute.
+
 ## Transactional writes
 
 To write several statements **atomically** on a single pinned connection (with
