@@ -34,6 +34,7 @@ func (f *Factory) Create(ctx context.Context, config *connector.Config) (connect
 		Format:      getString(config.Properties, "format", "json"),
 		Watch:       getBool(config.Properties, "watch", false),
 		CreateDirs:  getBool(config.Properties, "create_dirs", true),
+		Append:      getBool(config.Properties, "append", false),
 		Permissions: filePermissions(config.Properties, 0o644),
 	}
 

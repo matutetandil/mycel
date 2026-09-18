@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`append` on the file connector.** A write replaces the file unless the connector says otherwise, which meant the connector could not keep a log: three requests in, the file held the third. A single write could already ask for it through its params, but nothing reaches those params from a flow's `to` block or from an aspect's `action` — which is exactly where a request log is written from. `append = true` makes every write add to the end of the file, and a single write still overrides it in either direction.
+
+  When appending, a structured payload is written as **JSONL** — one compact JSON document per line — rather than the indented document a replacing write produces: indented documents concatenated end to end are not parseable by anything. Text that is already a string keeps its exact bytes, CSV appends a row, and a `.log` file (detected as text) holding a map is written as JSONL too, which is the common case. Rotation stays the filesystem's job.
+
 ### Fixed
 
 - **A scheduled flow crashed the service on its first tick.** A flow triggered by `when = "<cron>"` has no `from` block, so its source config is nil — and the OpenTelemetry work in 3.0.0's line (v2.10.0) opened the flow's tracing span by reading `From.Connector` as a struct field instead of through the nil-safe getter that exists precisely for this. The first tick took the whole process down with a nil dereference. The published `examples/scheduled` reproduces it as written; its schedules are `@every 5m` and daily, which is why nobody watched long enough to see it. Every read of the source config in the flow handler now goes through a getter, and a test reads the handler's own source and fails if a field access comes back — the getters' comment already recorded three earlier crashes of exactly this kind, and field access is what reintroduces them.

@@ -94,6 +94,7 @@ func connectorBodySchema() *hcl.BodySchema {
 			{Name: "watch_interval"}, // Polling interval
 			{Name: "create_dirs"},    // Auto-create directories
 			{Name: "permissions"},    // Default file permissions
+			{Name: "append"},         // Add each write to the end of the file (JSON becomes JSONL)
 
 			// S3 connector specific
 			{Name: "bucket"},         // S3 bucket name

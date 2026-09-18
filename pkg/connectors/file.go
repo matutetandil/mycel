@@ -12,6 +12,7 @@ func (FileSchema) ConnectorSchema() schema.Block {
 			{Name: "format", Doc: "File format", Type: schema.TypeString, Values: []string{"json", "csv", "tsv", "yaml", "xlsx"}},
 			{Name: "watch", Doc: "Enable file watching", Type: schema.TypeBool},
 			{Name: "create_dirs", Doc: "Create directories if they do not exist", Type: schema.TypeBool},
+			{Name: "append", Doc: "Add each write to the end of the file instead of replacing it; JSON is then written as JSONL, one compact object per line", Type: schema.TypeBool},
 			{Name: "permissions", Doc: "File permissions (numeric, e.g., 0644)", Type: schema.TypeNumber},
 			{Name: "watch_interval", Doc: "File watch polling interval", Type: schema.TypeString},
 			{Name: "csv_delimiter", Doc: "CSV field delimiter", Type: schema.TypeString},
