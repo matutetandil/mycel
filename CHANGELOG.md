@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **OpenTelemetry 1.44.0 → 1.46.0, for `CVE-2026-81870` (LOW).** The exporter logged its configuration at info level, endpoint URLs included, which puts whatever a collector's URL carries — a token in a query string, an internal hostname — into the service's own logs. Fixed in 1.45.0; the whole family moves together to 1.46.0, which asks for Go 1.25 and so does not touch the toolchain. The published 3.9.0 image reports these three findings and so does 3.8.0's: they were held back with the rest of the OTel minors since 3.7.1, and this takes them.
+
+### Fixed
+
+- **A test suite could report success having run nothing, and another could fail because something else was on its port.** Both come from the same question being asked the wrong way: whether a server is there was answered by opening a socket.
+
+  Opening one says only that *something* accepted the connection. A CI runner had an HTTP server on the port the Redis tests default to, so they ran against it and failed with `can't parse map reply: "HTTP/1.1 400 Bad Request"` — in a job whose only correct behaviour was to skip them. The probe now speaks Redis (a RESP `PING`, since a real server takes an inline command and miniredis does not) and reports what answered when it is not.
+
+  The other direction matters more: when the address comes from `MYCEL_TEST_*` — which is how the integration runner names its services — a server that does not answer now **fails** instead of skipping. A suite that skips itself during the run that exists to exercise it is indistinguishable from one that passed, and the runner counts it as passing. That applies to the Redis, MongoDB, PostgreSQL, MySQL, S3 and SFTP suites.
+
 ## [3.9.0] - 2026-09-18
 
 ### Added

@@ -2,6 +2,8 @@ package redis
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -23,12 +25,10 @@ import (
 func liveRedis(t *testing.T) (host string, port int) {
 	t.Helper()
 
-	address := strings.TrimPrefix(os.Getenv("MYCEL_TEST_REDIS_URL"), "redis://")
+	declared := os.Getenv("MYCEL_TEST_REDIS_URL")
+	address := strings.TrimPrefix(declared, "redis://")
 	if address == "" {
 		address = "127.0.0.1:36379"
-	}
-	if !reachable(address) {
-		t.Skipf("no Redis at %s (the integration stack publishes one)", address)
 	}
 
 	h, p, err := net.SplitHostPort(address)
@@ -36,16 +36,61 @@ func liveRedis(t *testing.T) (host string, port int) {
 		t.Fatalf("MYCEL_TEST_REDIS_URL: %v", err)
 	}
 	n, _ := strconv.Atoi(p)
+
+	if err := redisAnswers(address); err != nil {
+		// Somebody named this address, so nothing answering there is a
+		// failure rather than a reason to quietly run no tests: the
+		// integration runner sets it, and a suite that skips itself in the
+		// run that exists to exercise it is the same as not having written
+		// it.
+		if declared != "" {
+			t.Fatalf("MYCEL_TEST_REDIS_URL names %s and no Redis answers there: %v", address, err)
+		}
+		t.Skipf("no Redis at %s (%v) — the integration stack publishes one", address, err)
+	}
+
 	return h, n
 }
 
-func reachable(address string) bool {
+// redisAnswers reports whether the thing listening at this address is Redis.
+//
+// A dial says only that something accepted a connection, and that is not the
+// same question: a CI runner had something HTTP on the port this defaults to,
+// so the dial succeeded, the client sent RESP and got back
+// `HTTP/1.1 400 Bad Request` — three tests failing in a job that was supposed
+// to skip them, with a message about Redis being unparseable.
+//
+// PING is the cheapest thing Redis answers, sent as RESP rather than as an
+// inline command: a real server takes either, and miniredis — which this
+// package's own probe test runs against — only takes RESP. A server that wants
+// AUTH first replies `-NOAUTH …`, which is still Redis saying so, so any RESP
+// reply counts and anything else does not.
+func redisAnswers(address string) error {
 	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
 	if err != nil {
-		return false
+		return err
 	}
-	_ = conn.Close()
-	return true
+	defer conn.Close()
+
+	if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		return err
+	}
+	if _, err := conn.Write([]byte("*1\r\n$4\r\nPING\r\n")); err != nil {
+		return err
+	}
+
+	reply := make([]byte, 1)
+	if _, err := io.ReadFull(conn, reply); err != nil {
+		return fmt.Errorf("nothing answered a PING: %w", err)
+	}
+	// +PONG, or -NOAUTH / -ERR: the first byte is what makes it RESP.
+	if reply[0] != '+' && reply[0] != '-' {
+		rest := make([]byte, 40)
+		n, _ := conn.Read(rest)
+		return fmt.Errorf("something is listening but it is not Redis: it answered %q",
+			strings.TrimSpace(string(append(reply, rest[:n]...))))
+	}
+	return nil
 }
 
 func subscriber(t *testing.T, channels, patterns []string) *Connector {
