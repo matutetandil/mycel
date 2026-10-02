@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The other direction matters more: when the address comes from `MYCEL_TEST_*` — which is how the integration runner names its services — a server that does not answer now **fails** instead of skipping. A suite that skips itself during the run that exists to exercise it is indistinguishable from one that passed, and the runner counts it as passing. That applies to the Redis, MongoDB, PostgreSQL, MySQL, S3 and SFTP suites.
 
+- **The S3 example's MinIO command stopped resolving, again.** MinIO has now put `quay.io/minio/*` behind authentication as well, weeks after withdrawing the images from Docker Hub, so the `docker run` in `examples/s3` failed with `unauthorized`. It now uses `chainguard/minio`, a build of the same server that ships `mc`. The bucket command beside it was wrong regardless: `mc mb /data/test-bucket` creates a directory on the container's disk, not a bucket; it now goes through an `mc` alias. The integration stack moves to the same image for the same reason.
+
 ## [3.9.0] - 2026-09-18
 
 ### Added
