@@ -138,7 +138,10 @@ func TestAReplicaIsReadFromTheConfiguration(t *testing.T) {
 
 func liveDSN(t *testing.T) (host string, port int) {
 	t.Helper()
-	if os.Getenv("MYCEL_TEST_POSTGRES_DSN") == "" && !reachable("127.0.0.1:55432") {
+	if !reachable("127.0.0.1:55432") {
+		if os.Getenv("MYCEL_TEST_POSTGRES_DSN") != "" {
+			t.Fatal("MYCEL_TEST_POSTGRES_DSN is set and nothing is listening on 127.0.0.1:55432")
+		}
 		t.Skip("no PostgreSQL reachable at 127.0.0.1:55432 (the integration stack publishes it)")
 	}
 	return "127.0.0.1", 55432

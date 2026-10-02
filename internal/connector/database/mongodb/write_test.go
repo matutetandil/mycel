@@ -36,6 +36,12 @@ func liveMongo(t *testing.T) *Connector {
 	defer cancel()
 
 	if err := c.Connect(ctx); err != nil {
+		// Somebody named this server, so nothing answering there is a
+		// failure. Skipping would report a suite that ran no tests as a
+		// passing one, which is what the runner counts.
+		if os.Getenv("MYCEL_TEST_MONGO_URI") != "" {
+			t.Fatalf("MYCEL_TEST_MONGO_URI names a server and it is not answering: %v", err)
+		}
 		t.Skipf("MongoDB is not answering: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Close(context.Background()) })

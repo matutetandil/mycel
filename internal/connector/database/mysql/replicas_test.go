@@ -96,7 +96,10 @@ func TestAReplicaIsReadFromTheConfiguration(t *testing.T) {
 
 func liveMySQL(t *testing.T) (string, int) {
 	t.Helper()
-	if os.Getenv("MYCEL_TEST_MYSQL_DSN") == "" && !reachable("127.0.0.1:33306") {
+	if !reachable("127.0.0.1:33306") {
+		if os.Getenv("MYCEL_TEST_MYSQL_DSN") != "" {
+			t.Fatal("MYCEL_TEST_MYSQL_DSN is set and nothing is listening on 127.0.0.1:33306")
+		}
 		t.Skip("no MySQL reachable at 127.0.0.1:33306 (the integration stack publishes it)")
 	}
 	return "127.0.0.1", 33306

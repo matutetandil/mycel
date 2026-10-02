@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **OpenTelemetry 1.44.0 → 1.46.0, for `CVE-2026-81870` (LOW).** The exporter logged its configuration at info level, endpoint URLs included, which puts whatever a collector's URL carries — a token in a query string, an internal hostname — into the service's own logs. Fixed in 1.45.0; the whole family moves together to 1.46.0, which asks for Go 1.25 and so does not touch the toolchain. The published 3.9.0 image reports these three findings and so does 3.8.0's: they were held back with the rest of the OTel minors since 3.7.1, and this takes them.
+
 ### Added
 
 - **`required = true` on a destination** (#125). A flow with several destinations fails only when all of them fail, and a destination skipped by `when` or by an unchanged dedupe `facet` counts as a success — so a consumer writing to its database and calling two cache services acked a message whose database write had just failed on a lock timeout, with no retry and no dead letter. A required destination decides the outcome: required destinations run first, and if one fails the flow fails with that destination's own error (wrapped, so `error_handling` still classifies it) and the others do not run, so a cache is never evicted for a write that did not happen. Flows that do not use it behave exactly as before.
@@ -20,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A write flow triggered by a source that does not speak in HTTP methods answered `null` once any aspect was configured.** The aspect path read the flow's intent from the source operation alone, so a gRPC method, a SOAP operation or a TCP command was taken for a read and the response was the write's (absent) rows. It now uses the same reading of the intent that dispatched the flow, which also counts a `transaction` as the write it always is.
 - **`mycel validate` printed an arrow pointing at nothing for a destination without a target** — a transaction, or a write given as a query. It now names the connector, and `(transaction)` for a transaction.
 - **The `aspect` reference example used `output` and `ctx` in a condition and a transform**, where both are bound empty, so copied as written it never fired. It now uses `result` and `input`, and the reference says what an aspect can see.
+
+- **A test suite could report success having run nothing, and another could fail because something else was on its port.** Both come from the same question being asked the wrong way: whether a server is there was answered by opening a socket.
+
+  Opening one says only that *something* accepted the connection. A CI runner had an HTTP server on the port the Redis tests default to, so they ran against it and failed with `can't parse map reply: "HTTP/1.1 400 Bad Request"` — in a job whose only correct behaviour was to skip them. The probe now speaks Redis (a RESP `PING`, since a real server takes an inline command and miniredis does not) and reports what answered when it is not.
+
+  The other direction matters more: when the address comes from `MYCEL_TEST_*` — which is how the integration runner names its services — a server that does not answer now **fails** instead of skipping. A suite that skips itself during the run that exists to exercise it is indistinguishable from one that passed, and the runner counts it as passing. That applies to the Redis, MongoDB, PostgreSQL, MySQL, S3 and SFTP suites.
+
+- **The S3 example's MinIO command stopped resolving, again.** MinIO has now put `quay.io/minio/*` behind authentication as well, weeks after withdrawing the images from Docker Hub, so the `docker run` in `examples/s3` failed with `unauthorized`. It now uses `chainguard/minio`, a build of the same server that ships `mc`. The bucket command beside it was wrong regardless: `mc mb /data/test-bucket` creates a directory on the container's disk, not a bucket; it now goes through an `mc` alias. The integration stack moves to the same image for the same reason.
 
 ## [3.9.0] - 2026-09-18
 
