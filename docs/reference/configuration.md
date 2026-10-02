@@ -1459,7 +1459,7 @@ aspect "NAME" {
   when = "after"         # "before", "after", "around", "on_error"
   on   = ["create_*", "update_*"]  # Flow name patterns (glob syntax)
 
-  if = "output.status == 'ok'"     # Optional CEL condition
+  if = "result.affected > 0"       # Optional CEL condition
 
   action {
     connector = "audit_db"          # Target connector (mutually exclusive with "flow")
@@ -1468,12 +1468,14 @@ aspect "NAME" {
     transform {
       flow      = "_flow"
       operation = "_operation"
-      user_id   = "ctx.user_id"
+      user_id   = "input.user_id"
       timestamp = "_timestamp"
     }
   }
 }
 ```
+
+An `after` aspect's `if`, `action`, `invalidate` and `response` see `result.affected`, `result.data` and `result.captured` (what the flow's `transaction` captured, `{}` when nothing). `output` and `ctx` are bound empty in an aspect: the transform output is not available there.
 
 ### Flow invocation from aspects
 
@@ -1497,7 +1499,7 @@ aspect "trigger_notification" {
 
 ### Response enrichment
 
-After aspects can include a `response` block to inject fields into the flow result. Each field is a CEL expression with access to `result.data`, `result.affected`, `input`, `_flow`, and `_operation`:
+After aspects can include a `response` block to inject fields into the flow result. Each field is a CEL expression with access to `result.data`, `result.affected`, `result.captured`, `input`, `_flow`, and `_operation`:
 
 ```hcl
 aspect "v1_deprecation" {

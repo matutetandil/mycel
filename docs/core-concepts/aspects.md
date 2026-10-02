@@ -43,10 +43,60 @@ In aspect action transforms:
 | `_operation` | HTTP method or operation name |
 | `_target` | Target connector/resource |
 | `_timestamp` | Unix timestamp |
-| `result` | Flow result (after/on_error) |
+| `result.affected` | Rows the flow's write affected (after/on_error) |
+| `result.data` | Rows the flow answered with (after/on_error) |
+| `result.captured` | What the flow's `transaction` captured; an empty map when it captured nothing (after/on_error) |
 | `error.message` | Error message string (on_error) |
 | `error.code` | HTTP status code, e.g. 404, 500 (on_error) |
 | `error.type` | Error category: `http`, `timeout`, `connection`, `validation`, `not_found`, `auth`, `flow`, `unknown` (on_error) |
+
+## Reacting to What a Transaction Changed
+
+A [`transaction`](flows.md#transactional-write-transaction) can compute something about the write while it runs: whether a value changed, the id it created. What it captures is `result.captured` to `after` aspects: in the `if` condition, the `action` transform, `invalidate` keys and `response` fields.
+
+That is how a side effect runs only when the write changed something. An `after` aspect runs once the write committed, and its failure never changes what happens to the message:
+
+```hcl
+flow "item_update" {
+  from {
+    connector = "rabbit"
+    operation = "items"
+  }
+
+  to {
+    connector = "db"
+    transaction {
+      exec {
+        query   = "SELECT (COALESCE((SELECT pre_sale FROM item WHERE sku = :sku), -1) <> :incoming) AS changed"
+        params  = { sku = "input.body.sku", incoming = "input.body.pre_sale" }
+        capture = "pre_sale_changed"
+      }
+      exec {
+        query  = "UPDATE item SET pre_sale = :incoming WHERE sku = :sku"
+        params = { sku = "input.body.sku", incoming = "input.body.pre_sale" }
+      }
+    }
+  }
+}
+
+aspect "pre_sale_invalidate" {
+  when = "after"
+  on   = ["item_*"]
+  if   = "has(result.captured.pre_sale_changed) && result.captured.pre_sale_changed == 1"
+
+  action {
+    connector = "products_api"
+    operation = "POST /cache/invalidate"
+    transform {
+      sku = "input.body.sku"
+    }
+  }
+}
+```
+
+- A flow that captured nothing (no transaction at all) sees `result.captured` as `{}`, so the `has(...)` condition is false, not an error.
+- Write the condition for the type your driver returns. SQLite and MySQL answer a comparison as `0`/`1`; PostgreSQL answers `true`/`false` (`result.captured.changed == true`). A comparison between a boolean and a number is an evaluation error, and an aspect whose condition errors does not run.
+- The captured values are also part of the flow's response: `{"affected": 1, "captured": {...}}`.
 
 ## Flow Invocation
 
@@ -95,7 +145,7 @@ aspect "v1_deprecation" {
 ```
 
 The `response` block supports two types of enrichment:
-- **Body fields** — CEL expressions merged into every row of the response. Have access to `result.data`, `result.affected`, `input`, `_flow`, and `_operation`
+- **Body fields** — CEL expressions merged into every row of the response. Have access to `result.data`, `result.affected`, `result.captured`, `input`, `_flow`, and `_operation`
 - **Headers** — key-value pairs set as HTTP headers (or protocol equivalent for gRPC metadata, etc.). Values are literal strings
 
 The `response` block is only valid for `after` aspects. An aspect can have both an `action` and a `response` block — the action runs as a side-effect and the response enriches the output.

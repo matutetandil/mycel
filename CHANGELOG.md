@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`after` aspects see what a transaction captured, as `result.captured`** (#123). A `transaction` can work something out about the write while it runs — whether a stored flag changed, the id it created — and an `after` aspect is the one safe place for a side effect that depends on it: it runs once the write committed, and its failure does not change what happens to the message. The value was computed, returned, and dropped on the way to the aspect, so a cache eviction that should run only when a flag changed had to run on every message or on none. It is now `result.captured` in the aspect's `if`, its `action` transform, its `invalidate` keys and its `response` fields — four places that each built `result` on their own and now share one definition. A flow that captured nothing sees `{}`, so `has(result.captured.x)` is false rather than an evaluation error.
+
+### Fixed
+
+- **A flow with any aspect configured lost what its transaction captured from the response.** Without aspects a transaction answers `{"affected": N, "captured": {...}}`; with one, the answer went through a conversion that kept only the row count.
+- **A write flow triggered by a source that does not speak in HTTP methods answered `null` once any aspect was configured.** The aspect path read the flow's intent from the source operation alone, so a gRPC method, a SOAP operation or a TCP command was taken for a read and the response was the write's (absent) rows. It now uses the same reading of the intent that dispatched the flow, which also counts a `transaction` as the write it always is.
+- **The `aspect` reference example used `output` and `ctx` in a condition and a transform**, where both are bound empty, so copied as written it never fired. It now uses `result` and `input`, and the reference says what an aspect can see.
+
 ## [3.9.0] - 2026-09-18
 
 ### Added

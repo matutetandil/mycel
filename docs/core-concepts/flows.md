@@ -392,6 +392,11 @@ statement, an unresolved `when`/param expression, or a panic — rolls back the
 failed single-statement write. The transaction is also wrapped by `dedupe` and
 `after`/`on_error` aspects as a single unit.
 
+**What it captured leaves the transaction:** the flow answers
+`{"affected": N, "captured": {...}}`, and `after` aspects read the same values as
+`result.captured` — so a side effect can run only when the write changed
+something. See [Reacting to what a transaction changed](aspects.md#reacting-to-what-a-transaction-changed).
+
 **Rules:** the `to` connector must be of type `database`; `transaction` is
 mutually exclusive with `query` / `target` / `operation` / `envelope` in the
 same `to` block (`mycel validate` enforces both). See the

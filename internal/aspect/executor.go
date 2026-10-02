@@ -445,6 +445,32 @@ func buildErrorInfo(err error) map[string]interface{} {
 	return info
 }
 
+// resultBinding is what `result` means to an aspect: the rows the flow
+// affected, the rows it answered with, and what a `transaction` captured.
+//
+// It is built in one place because it used to be built in four — the `if`
+// condition, `action`, `invalidate` and `response` — each with its own copy of
+// the same two fields, and a value the flow produced reached none of them:
+// an `after` aspect that should only run when the write changed something had
+// no way to know, so it ran on every message or not at all.
+//
+// `captured` is always a map, empty when the flow captured nothing, so that
+// `has(result.captured.x)` is false rather than an evaluation error.
+func resultBinding(result *connector.Result) map[string]interface{} {
+	captured := map[string]interface{}{}
+	if result == nil {
+		return map[string]interface{}{"captured": captured}
+	}
+	if c, ok := result.Metadata["captured"].(map[string]interface{}); ok && c != nil {
+		captured = c
+	}
+	return map[string]interface{}{
+		"affected": result.Affected,
+		"data":     result.Rows,
+		"captured": captured,
+	}
+}
+
 // evaluateCondition evaluates the aspect's if condition.
 func (e *Executor) evaluateCondition(ctx context.Context, aspect *Config, input map[string]interface{}, result *connector.Result, flowErr error, drop map[string]interface{}) bool {
 	if aspect.If == "" {
@@ -468,19 +494,15 @@ func (e *Executor) evaluateCondition(ctx context.Context, aspect *Config, input 
 		"step":     map[string]interface{}{},
 	}
 
-	if result != nil {
-		resultMap := map[string]interface{}{
-			"affected": result.Affected,
-		}
-		if len(result.Rows) > 0 {
-			resultMap["data"] = result.Rows
-		}
-		activation["result"] = resultMap
-	} else {
-		// An absent variable is an evaluation error, which reads as false and
-		// is indistinguishable from "did not match" — so bind an empty one.
-		activation["result"] = map[string]interface{}{}
+	// An absent variable is an evaluation error, which reads as false and is
+	// indistinguishable from "did not match" — so `result` is bound even when
+	// there is none. A condition has always seen `data` only when there were
+	// rows, so that `has(result.data)` tells a read from a write.
+	resultMap := resultBinding(result)
+	if result == nil || len(result.Rows) == 0 {
+		delete(resultMap, "data")
 	}
+	activation["result"] = resultMap
 
 	if flowErr != nil {
 		activation["error"] = buildErrorInfo(flowErr)
@@ -562,10 +584,7 @@ func (e *Executor) applyResponseEnrichment(ctx context.Context, asp *Config, inp
 	for k, v := range input {
 		evalInput[k] = v
 	}
-	evalInput["result"] = map[string]interface{}{
-		"affected": result.Affected,
-		"data":     result.Rows,
-	}
+	evalInput["result"] = resultBinding(result)
 
 	// Evaluate each response field (CEL expressions)
 	enriched := make(map[string]interface{})
@@ -633,12 +652,7 @@ func (e *Executor) executeAction(ctx context.Context, action *ActionConfig, inpu
 	for k, v := range input {
 		evalInput[k] = v
 	}
-	if result != nil {
-		evalInput["result"] = map[string]interface{}{
-			"affected": result.Affected,
-			"data":     result.Rows,
-		}
-	}
+	evalInput["result"] = resultBinding(result)
 
 	// Apply transform
 	if action.Transform != nil {
@@ -807,12 +821,7 @@ func (e *Executor) executeInvalidate(ctx context.Context, invalidate *Invalidate
 	for k, v := range input {
 		evalInput[k] = v
 	}
-	if result != nil {
-		evalInput["result"] = map[string]interface{}{
-			"affected": result.Affected,
-			"data":     result.Rows,
-		}
-	}
+	evalInput["result"] = resultBinding(result)
 
 	// Invalidate specific keys
 	for _, keyTemplate := range invalidate.Keys {

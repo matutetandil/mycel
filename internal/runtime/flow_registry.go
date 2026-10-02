@@ -1220,7 +1220,12 @@ func (h *FlowHandler) handleRequestWithAspects(ctx context.Context, input map[st
 // `after` / `on_error` fire once per delivery instead of once per retry
 // attempt.
 func (h *FlowHandler) handleRequestWithAspectsForFlow(ctx context.Context, input map[string]interface{}, flowImpl func() (interface{}, error)) (interface{}, error) {
-	operation := parseOperation(h.Config.From.GetOperation())
+	// The same reading of the flow's intent that dispatched it. Parsing the
+	// source operation alone took every source that does not speak in HTTP
+	// methods — a gRPC method, a SOAP operation, a TCP command — for a read,
+	// so a write flow answered with its (absent) rows: null, as soon as any
+	// aspect was configured.
+	operation := h.resolvedOperation()
 
 	// Create the flow function that the aspect executor will wrap. The
 	// aspect executor passes its own input map (with metadata fields
@@ -1285,10 +1290,14 @@ func (h *FlowHandler) handleRequestWithAspectsForFlow(ctx context.Context, input
 			response = result.Rows
 		}
 	} else {
-		response = map[string]interface{}{
+		written := map[string]interface{}{
 			"affected": result.Affected,
 			"id":       result.LastID,
 		}
+		if captured, ok := result.Metadata["captured"].(map[string]interface{}); ok {
+			written["captured"] = captured
+		}
+		response = written
 	}
 
 	// Propagate response headers from aspect metadata
@@ -1334,6 +1343,12 @@ func (h *FlowHandler) resultToConnectorResult(result interface{}) *connector.Res
 			}
 			if id, ok := v["id"]; ok {
 				res.LastID = id
+			}
+			// What a transaction captured is part of its answer. Dropping it
+			// here left `after` aspects unable to see it, and a client of a
+			// flow with any aspect lost it from the response.
+			if captured, ok := v["captured"].(map[string]interface{}); ok {
+				res.Metadata = map[string]interface{}{"captured": captured}
 			}
 			return res
 		}
@@ -1926,6 +1941,13 @@ func (h *FlowHandler) resolvedOperation() Operation {
 	// `SELECT * FROM heartbeats` on every tick and wrote nothing, reporting
 	// success either way.
 	if operation.Method == "GET" && h.Config.From == nil && h.Config.To != nil {
+		operation.Method = "POST"
+	}
+
+	// A transaction is a write whatever triggered it: it runs its statements
+	// regardless of the source operation, and what it answers is a row count
+	// and what it captured, never rows read.
+	if operation.IsRead() && h.Config.To != nil && h.Config.To.Transaction != nil {
 		operation.Method = "POST"
 	}
 
