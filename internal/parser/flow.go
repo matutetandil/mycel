@@ -570,6 +570,7 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 			{Name: "connector", Required: true},
 			{Name: "when"},
 			{Name: "parallel"},
+			{Name: "required"},
 			{Name: "envelope"},
 			{Name: "facet"},
 		},
@@ -614,6 +615,14 @@ func parseToBlock(block *hcl.Block, ctx *hcl.EvalContext) (*flow.ToConfig, error
 		if val.Type() == cty.Bool {
 			to.Parallel = boolOrFalse(val)
 		}
+	}
+
+	if attr, ok := content.Attributes["required"]; ok {
+		val, diags := attr.Expr.Value(ctx)
+		if diags.HasErrors() || val.Type() != cty.Bool {
+			return nil, fmt.Errorf("to required must be true or false")
+		}
+		to.Required = boolOrFalse(val)
 	}
 
 	// facet ties this destination to a dedupe facet: it is skipped when that

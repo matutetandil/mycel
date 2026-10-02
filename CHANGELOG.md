@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`required = true` on a destination** (#125). A flow with several destinations fails only when all of them fail, and a destination skipped by `when` or by an unchanged dedupe `facet` counts as a success — so a consumer writing to its database and calling two cache services acked a message whose database write had just failed on a lock timeout, with no retry and no dead letter. A required destination decides the outcome: required destinations run first, and if one fails the flow fails with that destination's own error (wrapped, so `error_handling` still classifies it) and the others do not run, so a cache is never evicted for a write that did not happen. Flows that do not use it behave exactly as before.
+
 - **`after` aspects see what a transaction captured, as `result.captured`** (#123). A `transaction` can work something out about the write while it runs — whether a stored flag changed, the id it created — and an `after` aspect is the one safe place for a side effect that depends on it: it runs once the write committed, and its failure does not change what happens to the message. The value was computed, returned, and dropped on the way to the aspect, so a cache eviction that should run only when a flag changed had to run on every message or on none. It is now `result.captured` in the aspect's `if`, its `action` transform, its `invalidate` keys and its `response` fields — four places that each built `result` on their own and now share one definition. A flow that captured nothing sees `{}`, so `has(result.captured.x)` is false rather than an evaluation error.
 
 ### Fixed

@@ -3169,16 +3169,20 @@ func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string
 // writeToAllDestinations performs the writes themselves, reporting each
 // destination separately. It is what dedupe wraps, so the context it receives
 // is the one carrying the facets this message changed.
+//
+// A flow fails only when every destination failed — unless a destination is
+// `required`. Required destinations run first, and if one of them fails the
+// flow fails with its error and the others do not run: with the default rule
+// alone, a write that mattered could fail while a secondary call succeeded
+// (or was skipped, which counts as success), and the message was acked with
+// its main write lost and the secondary effect already applied.
 func (h *FlowHandler) writeToAllDestinations(ctx context.Context, input, basePayload map[string]interface{}, operation Operation) (interface{}, error) {
-	// Determine which destinations should be written in parallel
-	var parallelDests []*flow.ToConfig
-	var sequentialDests []*flow.ToConfig
-
+	var required, others []*flow.ToConfig
 	for _, dest := range h.Config.MultiTo {
-		if dest.Parallel {
-			parallelDests = append(parallelDests, dest)
+		if dest.Required {
+			required = append(required, dest)
 		} else {
-			sequentialDests = append(sequentialDests, dest)
+			others = append(others, dest)
 		}
 	}
 
@@ -3194,43 +3198,10 @@ func (h *FlowHandler) writeToAllDestinations(ctx context.Context, input, basePay
 	// accounted for. Repeats are named by what distinguishes them.
 	labels := destinationLabels(h.Config.MultiTo)
 
-	// Execute parallel destinations concurrently
-	if len(parallelDests) > 0 {
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-
-		for _, destConfig := range parallelDests {
-			wg.Add(1)
-			go func(dc *flow.ToConfig) {
-				defer wg.Done()
-
-				destResult, destErr := h.writeToDestination(ctx, input, basePayload, dc, operation)
-
-				mu.Lock()
-				defer mu.Unlock()
-				if destErr != nil {
-					result.Errors[labels[dc]] = destErr.Error()
-					result.Success = false
-				} else {
-					result.Results[labels[dc]] = destResult
-					result.mergeCaptured(destResult)
-				}
-			}(destConfig)
-		}
-		wg.Wait()
+	if failed := h.writeDestinationGroup(ctx, input, basePayload, operation, required, labels, result); len(failed) > 0 {
+		return nil, failed.err()
 	}
-
-	// Execute sequential destinations one by one
-	for _, destConfig := range sequentialDests {
-		destResult, destErr := h.writeToDestination(ctx, input, basePayload, destConfig, operation)
-		if destErr != nil {
-			result.Errors[labels[destConfig]] = destErr.Error()
-			result.Success = false
-		} else {
-			result.Results[labels[destConfig]] = destResult
-			result.mergeCaptured(destResult)
-		}
-	}
+	h.writeDestinationGroup(ctx, input, basePayload, operation, others, labels, result)
 
 	// If all writes failed, return error
 	if len(result.Results) == 0 && len(result.Errors) > 0 {
@@ -3238,6 +3209,72 @@ func (h *FlowHandler) writeToAllDestinations(ctx context.Context, input, basePay
 	}
 
 	return result, nil
+}
+
+// destinationFailures are the destinations of one group that failed, keyed by
+// their label, with the errors they returned.
+type destinationFailures map[string]error
+
+// err is the flow's error when required destinations failed. Each original
+// error is wrapped rather than flattened to text, so error_handling still
+// classifies it by what it is — a deadlock retried as a deadlock.
+func (f destinationFailures) err() error {
+	labels := make([]string, 0, len(f))
+	for label := range f {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+
+	errs := make([]error, 0, len(labels))
+	for _, label := range labels {
+		errs = append(errs, fmt.Errorf("required destination %q failed: %w", label, f[label]))
+	}
+	return errors.Join(errs...)
+}
+
+// writeDestinationGroup writes one group of destinations into result and
+// returns the ones that failed. Within the group, every parallel destination
+// runs first, concurrently, and the sequential ones follow in declaration
+// order.
+func (h *FlowHandler) writeDestinationGroup(ctx context.Context, input, basePayload map[string]interface{}, operation Operation, dests []*flow.ToConfig, labels map[*flow.ToConfig]string, result *MultiDestResult) destinationFailures {
+	failed := destinationFailures{}
+	var mu sync.Mutex
+	record := func(dc *flow.ToConfig, destResult interface{}, destErr error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if destErr != nil {
+			result.Errors[labels[dc]] = destErr.Error()
+			result.Success = false
+			failed[labels[dc]] = destErr
+			return
+		}
+		result.Results[labels[dc]] = destResult
+		result.mergeCaptured(destResult)
+	}
+
+	var wg sync.WaitGroup
+	for _, destConfig := range dests {
+		if !destConfig.Parallel {
+			continue
+		}
+		wg.Add(1)
+		go func(dc *flow.ToConfig) {
+			defer wg.Done()
+			destResult, destErr := h.writeToDestination(ctx, input, basePayload, dc, operation)
+			record(dc, destResult, destErr)
+		}(destConfig)
+	}
+	wg.Wait()
+
+	for _, destConfig := range dests {
+		if destConfig.Parallel {
+			continue
+		}
+		destResult, destErr := h.writeToDestination(ctx, input, basePayload, destConfig, operation)
+		record(destConfig, destResult, destErr)
+	}
+
+	return failed
 }
 
 // destinationLabels names each destination in the report.

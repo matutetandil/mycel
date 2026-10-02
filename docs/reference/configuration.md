@@ -740,6 +740,7 @@ to {
   params       = { key = "value" }                         # Extra params (e.g., S3 COPY)
   when         = "output.amount > 0"                       # Conditional write
   parallel     = true                                      # Parallel multi-to (default: true)
+  required     = false                                     # Multi-to: this write decides the outcome (default: false)
   envelope     = "product"                                 # Wrap the payload under one root key
   headers      = { Store = "input.store" }                 # Per-request headers (http, graphql client, soap)
 

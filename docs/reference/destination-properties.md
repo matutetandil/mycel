@@ -20,6 +20,7 @@ Available on every `to` block regardless of connector type:
 | `params` | map | — | Extra connector-specific parameters (CEL expressions) |
 | `when` | string | — | CEL condition — only write if true. Context: `input`, `output` |
 | `parallel` | bool | `true` | In multi-to, run this destination in parallel |
+| `required` | bool | `false` | In multi-to, this destination decides the outcome: it runs before the others, and if it fails the flow fails (retry, DLQ, `on_error`) and the others do not run |
 | `transform` | block | — | Per-destination CEL transform (overrides flow-level transform) |
 
 ### Data mapping
