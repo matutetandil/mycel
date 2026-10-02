@@ -22,11 +22,15 @@ import (
 func liveSFTP(t *testing.T) *Connector {
 	t.Helper()
 
-	address := os.Getenv("MYCEL_TEST_SFTP_ADDR")
+	declared := os.Getenv("MYCEL_TEST_SFTP_ADDR")
+	address := declared
 	if address == "" {
 		address = "127.0.0.1:32222"
 	}
 	if !reachable(address) {
+		if declared != "" {
+			t.Fatalf("MYCEL_TEST_SFTP_ADDR names %s and nothing is listening there", address)
+		}
 		t.Skipf("no SFTP server at %s (the integration stack publishes one)", address)
 	}
 

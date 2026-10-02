@@ -381,12 +381,13 @@ services:
   # Object Storage (internal only)
   # ==========================================================================
   minio:
-    # quay.io, not Docker Hub: MinIO withdrew minio/minio and minio/mc from
-    # there, and a pull answers "pull access denied ... repository does not
-    # exist or may require 'docker login'", which reads like a credentials
-    # problem and is a 404. A machine with the old image cached does not
-    # notice; a fresh runner cannot start the stack at all.
-    image: quay.io/minio/minio
+    # Chainguard's build of the MinIO server, which ships `mc` beside it.
+    # MinIO withdrew minio/minio and minio/mc from Docker Hub, and then put
+    # quay.io/minio/* behind authentication too. Both failures read like a
+    # credentials problem ("pull access denied", "unauthorized") and both are
+    # an image that is simply no longer public. A machine with the old image
+    # cached does not notice; a fresh runner cannot start the stack at all.
+    image: chainguard/minio
     # Published for the Go tests of the S3 operations a flow reaches through a
     # step rather than a write — copy, move, presign and the rest.
     ports:
@@ -402,11 +403,12 @@ services:
       retries: 10
 
   minio-init:
-    image: quay.io/minio/mc
+    # The same image, for its `mc`: one image to keep pullable instead of two.
+    image: chainguard/minio
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: /bin/sh
+    entrypoint: /bin/bash
     command: >
       -c "
       mc alias set local http://minio:9000 minioadmin minioadmin &&

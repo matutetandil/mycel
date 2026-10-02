@@ -29,6 +29,10 @@ func liveBucket(t *testing.T) *Connector {
 			t.Skip("no S3-compatible server at 127.0.0.1:39000 (the integration stack publishes MinIO)")
 		}
 		endpoint = "http://127.0.0.1:39000"
+	} else if !reachable(strings.TrimPrefix(strings.TrimPrefix(endpoint, "http://"), "https://")) {
+		// Named, and not there: a failure rather than a suite that reports
+		// success having run nothing.
+		t.Fatalf("MYCEL_TEST_S3_ENDPOINT names %s and nothing is listening there", endpoint)
 	}
 
 	c := New("objects", &Config{

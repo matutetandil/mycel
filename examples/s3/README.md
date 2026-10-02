@@ -110,12 +110,12 @@ docker run -d --name minio \
   -p 9000:9000 -p 9001:9001 \
   -e MINIO_ROOT_USER=minioadmin \
   -e MINIO_ROOT_PASSWORD=minioadmin \
-  quay.io/minio/minio server /data --console-address ":9001"
+  chainguard/minio server /data --console-address ":9001"
 ```
 
 Create a bucket:
 ```bash
-docker exec minio mc mb /data/test-bucket
+docker exec minio bash -c 'mc alias set local http://127.0.0.1:9000 minioadmin minioadmin && mc mb local/test-bucket'
 ```
 
 ### 2. Start the service
