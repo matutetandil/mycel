@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A flow with any aspect configured lost what its transaction captured from the response.** Without aspects a transaction answers `{"affected": N, "captured": {...}}`; with one, the answer went through a conversion that kept only the row count.
 - **A write flow triggered by a source that does not speak in HTTP methods answered `null` once any aspect was configured.** The aspect path read the flow's intent from the source operation alone, so a gRPC method, a SOAP operation or a TCP command was taken for a read and the response was the write's (absent) rows. It now uses the same reading of the intent that dispatched the flow, which also counts a `transaction` as the write it always is.
+- **`mycel validate` printed an arrow pointing at nothing for a destination without a target** — a transaction, or a write given as a query. It now names the connector, and `(transaction)` for a transaction.
 - **The `aspect` reference example used `output` and `ctx` in a condition and a transform**, where both are bound empty, so copied as written it never fired. It now uses `result` and `input`, and the reference says what an aspect can see.
 
 ## [3.9.0] - 2026-09-18

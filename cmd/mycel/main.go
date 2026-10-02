@@ -21,6 +21,7 @@ import (
 	"github.com/matutetandil/mycel/v3/internal/envdefaults"
 	"github.com/matutetandil/mycel/v3/internal/export/asyncapi"
 	"github.com/matutetandil/mycel/v3/internal/export/openapi"
+	"github.com/matutetandil/mycel/v3/internal/flow"
 	"github.com/matutetandil/mycel/v3/internal/logging"
 	"github.com/matutetandil/mycel/v3/internal/parser"
 	"github.com/matutetandil/mycel/v3/internal/runtime"
@@ -656,13 +657,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		if f.From != nil {
 			fromOp = f.From.GetOperation()
 		}
-		toTarget := ""
-		if f.To != nil {
-			toTarget = f.To.GetTarget()
-		} else if len(f.MultiTo) > 0 {
-			toTarget = fmt.Sprintf("%d destinations", len(f.MultiTo))
-		}
-		fmt.Printf("    - %s: %s → %s\n", f.Name, fromOp, toTarget)
+		fmt.Printf("    - %s: %s → %s\n", f.Name, fromOp, flowDestinationSummary(f))
 	}
 
 	fmt.Printf("  Types: %d\n", len(config.Types))
@@ -1023,5 +1018,24 @@ func isDevEnvironment(env string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// flowDestinationSummary is what `mycel validate` prints on the right of a
+// flow's arrow. It printed the destination's target and nothing else, so a
+// destination that names none — a transaction, a write spelled as a query —
+// read as a flow that went nowhere.
+func flowDestinationSummary(f *flow.Config) string {
+	switch {
+	case len(f.MultiTo) > 0:
+		return fmt.Sprintf("%d destinations", len(f.MultiTo))
+	case f.To == nil:
+		return ""
+	case f.To.Transaction != nil:
+		return f.To.Connector + " (transaction)"
+	case f.To.GetTarget() != "":
+		return f.To.GetTarget()
+	default:
+		return f.To.Connector
 	}
 }
