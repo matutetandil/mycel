@@ -189,13 +189,14 @@ type FlowHandler struct {
 	transformerOnce sync.Once
 	transformerErr  error
 
-	// txEvalOnce guards the scoped CEL transformer used by the to{transaction}
-	// executor, which declares `captured` plus each loop variables on top of
-	// the standard scope. Built once per handler (it rebuilds the whole CEL
-	// env) and reused across deliveries.
-	txEvalOnce sync.Once
-	txEval     *transform.CELTransformer
-	txEvalErr  error
+	// txEvals holds the scoped CEL transformer used by each to{transaction}
+	// block, which declares `captured` plus that block's each loop variables
+	// on top of the standard scope. One per block, because a flow with several
+	// destinations can carry more than one transaction and their loop
+	// variables differ. Built on first use (it rebuilds the whole CEL env) and
+	// reused across deliveries.
+	txEvalMu sync.Mutex
+	txEvals  map[*flow.TransactionConfig]*transform.CELTransformer
 }
 
 // FilteredResult is returned when a request is filtered out by the from.filter expression.
@@ -1220,7 +1221,12 @@ func (h *FlowHandler) handleRequestWithAspects(ctx context.Context, input map[st
 // `after` / `on_error` fire once per delivery instead of once per retry
 // attempt.
 func (h *FlowHandler) handleRequestWithAspectsForFlow(ctx context.Context, input map[string]interface{}, flowImpl func() (interface{}, error)) (interface{}, error) {
-	operation := parseOperation(h.Config.From.GetOperation())
+	// The same reading of the flow's intent that dispatched it. Parsing the
+	// source operation alone took every source that does not speak in HTTP
+	// methods — a gRPC method, a SOAP operation, a TCP command — for a read,
+	// so a write flow answered with its (absent) rows: null, as soon as any
+	// aspect was configured.
+	operation := h.resolvedOperation()
 
 	// Create the flow function that the aspect executor will wrap. The
 	// aspect executor passes its own input map (with metadata fields
@@ -1285,10 +1291,14 @@ func (h *FlowHandler) handleRequestWithAspectsForFlow(ctx context.Context, input
 			response = result.Rows
 		}
 	} else {
-		response = map[string]interface{}{
+		written := map[string]interface{}{
 			"affected": result.Affected,
 			"id":       result.LastID,
 		}
+		if captured, ok := result.Metadata["captured"].(map[string]interface{}); ok {
+			written["captured"] = captured
+		}
+		response = written
 	}
 
 	// Propagate response headers from aspect metadata
@@ -1335,9 +1345,27 @@ func (h *FlowHandler) resultToConnectorResult(result interface{}) *connector.Res
 			if id, ok := v["id"]; ok {
 				res.LastID = id
 			}
+			// What a transaction captured is part of its answer. Dropping it
+			// here left `after` aspects unable to see it, and a client of a
+			// flow with any aspect lost it from the response.
+			if captured, ok := v["captured"].(map[string]interface{}); ok {
+				res.Metadata = map[string]interface{}{"captured": captured}
+			}
 			return res
 		}
 		return &connector.Result{Rows: []map[string]interface{}{v}}
+	case *MultiDestResult:
+		// Rendered as the row it is answered with, and what its transaction
+		// destinations captured kept as values rather than read back out of
+		// that rendering, which would have turned every integer into a float.
+		res := &connector.Result{}
+		if row, ok := structToRow(v); ok {
+			res.Rows = []map[string]interface{}{row}
+		}
+		if len(v.Captured) > 0 {
+			res.Metadata = map[string]interface{}{"captured": v.Captured}
+		}
+		return res
 	default:
 		// Anything else — a saga's outcome, a state transition, whatever a
 		// connector chose to answer with. This used to return an empty result,
@@ -1926,6 +1954,13 @@ func (h *FlowHandler) resolvedOperation() Operation {
 	// `SELECT * FROM heartbeats` on every tick and wrote nothing, reporting
 	// success either way.
 	if operation.Method == "GET" && h.Config.From == nil && h.Config.To != nil {
+		operation.Method = "POST"
+	}
+
+	// A transaction is a write whatever triggered it: it runs its statements
+	// regardless of the source operation, and what it answers is a row count
+	// and what it captured, never rows read.
+	if operation.IsRead() && h.Config.To != nil && h.Config.To.Transaction != nil {
 		operation.Method = "POST"
 	}
 
@@ -3076,6 +3111,30 @@ type MultiDestResult struct {
 	Errors map[string]string `json:"errors,omitempty"`
 	// Success indicates if all writes succeeded.
 	Success bool `json:"success"`
+	// Captured is what the flow's transaction destinations captured, merged.
+	// A capture name is used by one of them only (`mycel validate` refuses
+	// the same name in two), so the merge loses nothing.
+	Captured map[string]interface{} `json:"captured,omitempty"`
+}
+
+// mergeCaptured adds what a transaction destination captured to the flow's
+// result, so `after` aspects see it as `result.captured` however many
+// destinations the flow has.
+func (r *MultiDestResult) mergeCaptured(destResult interface{}) {
+	answer, ok := destResult.(map[string]interface{})
+	if !ok {
+		return
+	}
+	captured, ok := answer["captured"].(map[string]interface{})
+	if !ok || len(captured) == 0 {
+		return
+	}
+	if r.Captured == nil {
+		r.Captured = map[string]interface{}{}
+	}
+	for name, value := range captured {
+		r.Captured[name] = value
+	}
 }
 
 // handleMultiDestWrite handles writing to multiple destinations (fan-out pattern).
@@ -3084,11 +3143,14 @@ func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string
 		return nil, fmt.Errorf("no destinations configured")
 	}
 
-	// Apply the main transform first to get the base payload
-	basePayload, err := h.applyTransforms(ctx, input)
+	// Apply the main transform first to get the base payload. What the steps
+	// gathered travels on the context, so a transaction destination can bind
+	// it as `step` the way a lone transaction does.
+	basePayload, steps, err := h.applyTransformsWithSteps(ctx, input)
 	if err != nil {
 		return nil, fmt.Errorf("transform error: %w", err)
 	}
+	ctx = withStepResults(ctx, steps)
 
 	// Remove meta fields that should not be written to destination
 	delete(basePayload, "headers")
@@ -3107,16 +3169,20 @@ func (h *FlowHandler) handleMultiDestWrite(ctx context.Context, input map[string
 // writeToAllDestinations performs the writes themselves, reporting each
 // destination separately. It is what dedupe wraps, so the context it receives
 // is the one carrying the facets this message changed.
+//
+// A flow fails only when every destination failed — unless a destination is
+// `required`. Required destinations run first, and if one of them fails the
+// flow fails with its error and the others do not run: with the default rule
+// alone, a write that mattered could fail while a secondary call succeeded
+// (or was skipped, which counts as success), and the message was acked with
+// its main write lost and the secondary effect already applied.
 func (h *FlowHandler) writeToAllDestinations(ctx context.Context, input, basePayload map[string]interface{}, operation Operation) (interface{}, error) {
-	// Determine which destinations should be written in parallel
-	var parallelDests []*flow.ToConfig
-	var sequentialDests []*flow.ToConfig
-
+	var required, others []*flow.ToConfig
 	for _, dest := range h.Config.MultiTo {
-		if dest.Parallel {
-			parallelDests = append(parallelDests, dest)
+		if dest.Required {
+			required = append(required, dest)
 		} else {
-			sequentialDests = append(sequentialDests, dest)
+			others = append(others, dest)
 		}
 	}
 
@@ -3132,41 +3198,10 @@ func (h *FlowHandler) writeToAllDestinations(ctx context.Context, input, basePay
 	// accounted for. Repeats are named by what distinguishes them.
 	labels := destinationLabels(h.Config.MultiTo)
 
-	// Execute parallel destinations concurrently
-	if len(parallelDests) > 0 {
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-
-		for _, destConfig := range parallelDests {
-			wg.Add(1)
-			go func(dc *flow.ToConfig) {
-				defer wg.Done()
-
-				destResult, destErr := h.writeToDestination(ctx, input, basePayload, dc, operation)
-
-				mu.Lock()
-				defer mu.Unlock()
-				if destErr != nil {
-					result.Errors[labels[dc]] = destErr.Error()
-					result.Success = false
-				} else {
-					result.Results[labels[dc]] = destResult
-				}
-			}(destConfig)
-		}
-		wg.Wait()
+	if failed := h.writeDestinationGroup(ctx, input, basePayload, operation, required, labels, result); len(failed) > 0 {
+		return nil, failed.err()
 	}
-
-	// Execute sequential destinations one by one
-	for _, destConfig := range sequentialDests {
-		destResult, destErr := h.writeToDestination(ctx, input, basePayload, destConfig, operation)
-		if destErr != nil {
-			result.Errors[labels[destConfig]] = destErr.Error()
-			result.Success = false
-		} else {
-			result.Results[labels[destConfig]] = destResult
-		}
-	}
+	h.writeDestinationGroup(ctx, input, basePayload, operation, others, labels, result)
 
 	// If all writes failed, return error
 	if len(result.Results) == 0 && len(result.Errors) > 0 {
@@ -3174,6 +3209,72 @@ func (h *FlowHandler) writeToAllDestinations(ctx context.Context, input, basePay
 	}
 
 	return result, nil
+}
+
+// destinationFailures are the destinations of one group that failed, keyed by
+// their label, with the errors they returned.
+type destinationFailures map[string]error
+
+// err is the flow's error when required destinations failed. Each original
+// error is wrapped rather than flattened to text, so error_handling still
+// classifies it by what it is — a deadlock retried as a deadlock.
+func (f destinationFailures) err() error {
+	labels := make([]string, 0, len(f))
+	for label := range f {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+
+	errs := make([]error, 0, len(labels))
+	for _, label := range labels {
+		errs = append(errs, fmt.Errorf("required destination %q failed: %w", label, f[label]))
+	}
+	return errors.Join(errs...)
+}
+
+// writeDestinationGroup writes one group of destinations into result and
+// returns the ones that failed. Within the group, every parallel destination
+// runs first, concurrently, and the sequential ones follow in declaration
+// order.
+func (h *FlowHandler) writeDestinationGroup(ctx context.Context, input, basePayload map[string]interface{}, operation Operation, dests []*flow.ToConfig, labels map[*flow.ToConfig]string, result *MultiDestResult) destinationFailures {
+	failed := destinationFailures{}
+	var mu sync.Mutex
+	record := func(dc *flow.ToConfig, destResult interface{}, destErr error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if destErr != nil {
+			result.Errors[labels[dc]] = destErr.Error()
+			result.Success = false
+			failed[labels[dc]] = destErr
+			return
+		}
+		result.Results[labels[dc]] = destResult
+		result.mergeCaptured(destResult)
+	}
+
+	var wg sync.WaitGroup
+	for _, destConfig := range dests {
+		if !destConfig.Parallel {
+			continue
+		}
+		wg.Add(1)
+		go func(dc *flow.ToConfig) {
+			defer wg.Done()
+			destResult, destErr := h.writeToDestination(ctx, input, basePayload, dc, operation)
+			record(dc, destResult, destErr)
+		}(destConfig)
+	}
+	wg.Wait()
+
+	for _, destConfig := range dests {
+		if destConfig.Parallel {
+			continue
+		}
+		destResult, destErr := h.writeToDestination(ctx, input, basePayload, destConfig, operation)
+		record(destConfig, destResult, destErr)
+	}
+
+	return failed
 }
 
 // destinationLabels names each destination in the report.
@@ -3249,11 +3350,6 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 		return nil, fmt.Errorf("connector not found: %s: %w", destConfig.Connector, err)
 	}
 
-	writer, ok := destConn.(connector.Writer)
-	if !ok {
-		return nil, fmt.Errorf("connector %s does not support write operations", destConfig.Connector)
-	}
-
 	// Determine payload: use per-destination transform or base payload
 	var payload map[string]interface{}
 	if len(destConfig.Transform) > 0 {
@@ -3284,6 +3380,23 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 		payload = transformedPayload
 	} else {
 		payload = basePayload
+	}
+
+	// A transaction is its own kind of write: its statements say what is
+	// written, so none of what follows (target, operation, params) applies.
+	// It used to fall through to a plain write of the payload, which ran none
+	// of the statements and failed against the database.
+	if destConfig.Transaction != nil {
+		runner, ok := destConn.(connector.TxRunner)
+		if !ok {
+			return nil, fmt.Errorf("flow %q: connector %q does not support transactions (the to connector must be a database connector)", h.Config.Name, destConfig.Connector)
+		}
+		return h.runTransaction(ctx, destConfig.Connector, runner, destConfig.Transaction, input, payload, stepResultsFrom(ctx))
+	}
+
+	writer, ok := destConn.(connector.Writer)
+	if !ok {
+		return nil, fmt.Errorf("connector %s does not support write operations", destConfig.Connector)
 	}
 
 	// Build data for write

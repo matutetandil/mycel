@@ -104,6 +104,7 @@ func ToSchema() Block {
 			{Name: "operation", Doc: "Target operation", Type: TypeString},
 			{Name: "when", Doc: "CEL condition for conditional write", Type: TypeString},
 			{Name: "parallel", Doc: "Write in parallel with other destinations", Type: TypeBool},
+			{Name: "required", Doc: "With several destinations, this one decides the outcome: it runs before the others, and if it fails the flow fails (retry, DLQ, on_error) and the others do not run. Without it, a flow fails only when every destination fails", Type: TypeBool},
 			{Name: "envelope", Doc: "Wrap the outgoing payload under a single root key (Magento webapi / Spring @RequestBody / SOAP-style REST)", Type: TypeString},
 			{Name: "facet", Doc: "Dedupe facet this destination satisfies. Skipped when that facet did not change; the facet is committed only once every destination naming it succeeded. Omit for a destination that always runs", Type: TypeString},
 			{Name: "query", Doc: "SQL query for database writes", Type: TypeString},

@@ -547,6 +547,12 @@ type ToConfig struct {
 	// Default is true. Set to false for sequential writes.
 	Parallel bool
 
+	// Required makes this destination decide the flow's outcome. A flow with
+	// several destinations otherwise fails only when all of them fail; a
+	// required one runs before the others, and if it fails the flow fails and
+	// the others do not run.
+	Required bool
+
 	// Envelope wraps the outgoing payload under a single root key before it
 	// reaches the connector. Required by Magento webapi, Spring's
 	// @RequestBody, and other SOAP-derived REST frameworks that expect

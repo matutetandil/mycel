@@ -392,9 +392,15 @@ statement, an unresolved `when`/param expression, or a panic — rolls back the
 failed single-statement write. The transaction is also wrapped by `dedupe` and
 `after`/`on_error` aspects as a single unit.
 
+**What it captured leaves the transaction:** the flow answers
+`{"affected": N, "captured": {...}}`, and `after` aspects read the same values as
+`result.captured` — so a side effect can run only when the write changed
+something. See [Reacting to what a transaction changed](aspects.md#reacting-to-what-a-transaction-changed).
+
 **Rules:** the `to` connector must be of type `database`; `transaction` is
 mutually exclusive with `query` / `target` / `operation` / `envelope` in the
-same `to` block (`mycel validate` enforces both). See the
+same `to` block (`mycel validate` enforces both). A transaction can also be one
+of [several destinations](#multi-to-fan-out). See the
 [transactional-write example](https://github.com/matutetandil/mycel/tree/main/examples/transactional-write).
 
 ### Multi-to (fan-out)
@@ -447,6 +453,38 @@ to {                          # declared second, parallel by default
 If one destination has to observe what another wrote, mark **both** `parallel = false` and declare them in the order you need. Marking only the later one is the mistake this ordering invites: it still runs last, but only by accident of there being nothing else in its group.
 
 Parallel destinations have no order among themselves. Each is reported separately, so one failing does not hide another's result, and a flow fails only if every destination failed.
+
+**`required`: the write that decides the outcome.** "Fails only if every destination failed" is the wrong rule for a flow with one write that matters and some secondary ones. A destination skipped by its `when` or by an unchanged dedupe `facet` counts as a success, so a failed database write next to a skipped cache call was acked: no retry, no dead letter, the change lost. Mark the main write `required = true`:
+
+```hcl
+flow "item_update" {
+  from {
+    connector = "rabbit"
+    operation = "items"
+  }
+
+  to {
+    connector = "db"
+    target    = "items"
+    required  = true          # if this fails, the message fails
+  }
+
+  to {
+    connector = "products_api"
+    operation = "POST /cache/invalidate"
+    facet     = "pre_sale"
+  }
+}
+```
+
+- Required destinations run **first**, in their own group (parallel ones concurrently, then sequential ones), whatever their position in the file.
+- If one fails, the flow fails with that destination's error, which goes through `error_handling` (retry, dead letter, `on_error`) exactly as a single `to` would. The other destinations **do not run**, so a cache is never evicted for a write that did not happen.
+- If they all succeed, the rest run as usual, and a failure among them is reported without failing the flow.
+- A required destination skipped by its `when` or `facet` had nothing to do, and is not a failure.
+
+When the secondary work should only happen after the write committed and must never affect the message, an [`after` aspect](aspects.md#reacting-to-what-a-transaction-changed) is the other option.
+
+**A transaction can be one of the destinations.** A `to { transaction { } }` among several runs as a transaction like a lone one does: its statements, its rollback on any error (reported as that destination's failure), and its `captured` values, which appear in the answer and as `result.captured` to `after` aspects. When two transaction destinations capture values, they are merged, so each name may be captured by one of them only; `mycel validate` refuses the same name in both.
 
 ### Source Fan-Out (Multiple Flows from Same Source)
 

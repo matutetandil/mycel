@@ -35,64 +35,14 @@ func (h *FlowHandler) handleTransaction(ctx context.Context, input map[string]in
 	if err != nil {
 		return nil, fmt.Errorf("transform error: %w", err)
 	}
-	if steps == nil {
-		steps = map[string]interface{}{}
-	}
 
-	eval, err := h.transactionEvaluator()
-	if err != nil {
-		return nil, err
-	}
-
-	// Dry-run: report intent without touching the database.
+	// A dry run reports intent and touches nothing, dedupe's store included.
 	if tc := trace.FromContext(ctx); tc != nil && tc.DryRun {
-		tc.Record(trace.Event{
-			Stage:  trace.StageWrite,
-			Name:   h.Config.To.Connector,
-			Input:  trace.Snapshot(payload),
-			DryRun: true,
-			Detail: fmt.Sprintf("transaction: %d statement(s)", len(txCfg.Statements)),
-		})
-		return map[string]interface{}{
-			"dry_run":     true,
-			"transaction": true,
-			"connector":   h.Config.To.Connector,
-		}, nil
+		return h.runTransaction(ctx, h.Config.To.Connector, runner, txCfg, input, payload, steps)
 	}
-
-	// captured is shared between the executor and the CEL scope: as each exec
-	// captures a value it becomes visible to later statements' expressions.
-	captured := map[string]interface{}{}
-	var affected int64
 
 	writeResult, writeErr := h.dedupeAwareWrite(ctx, input, payload, func(ctx context.Context) (interface{}, error) {
-		return trace.RecordStage(ctx, trace.StageWrite, h.Config.To.Connector, trace.Snapshot(payload), func() (interface{}, error) {
-			runErr := runner.RunInTx(ctx, func(ops connector.TxOps) error {
-				txCtx, txSpan := tracing.StartSpan(ctx, "transaction")
-				ex := &txExecutor{
-					eval:     eval,
-					ops:      ops,
-					captured: captured,
-					scope: map[string]interface{}{
-						"input":    input,
-						"output":   payload,
-						"step":     steps,
-						"captured": captured,
-					},
-				}
-				a, runErr := ex.run(txCtx, txCfg.Statements)
-				affected = a
-				tracing.End(txSpan, runErr)
-				return runErr
-			})
-			if runErr != nil {
-				return nil, runErr
-			}
-			return &connector.Result{
-				Affected: affected,
-				Metadata: map[string]interface{}{"captured": captured},
-			}, nil
-		})
+		return h.runTransaction(ctx, h.Config.To.Connector, runner, txCfg, input, payload, steps)
 	})
 	if writeErr != nil {
 		return nil, writeErr
@@ -104,38 +54,124 @@ func (h *FlowHandler) handleTransaction(ctx context.Context, input map[string]in
 		return filtered, nil
 	}
 
-	result := writeResult.(*connector.Result)
+	return writeResult, nil
+}
+
+// runTransaction runs one transaction block against its connector: one pinned
+// connection, the ordered statements, commit on success and roll back on any
+// error. It is the write itself, shared by a flow whose only destination is a
+// transaction and by a transaction that is one of several destinations — the
+// second used to be handed to the connector as a plain write, which ignored
+// every statement.
+//
+// It answers {"affected": N, "captured": {...}}, the shape a flow answers
+// with and the one `after` aspects read `result.captured` from.
+func (h *FlowHandler) runTransaction(ctx context.Context, connName string, runner connector.TxRunner, txCfg *flow.TransactionConfig, input, payload, steps map[string]interface{}) (interface{}, error) {
+	if steps == nil {
+		steps = map[string]interface{}{}
+	}
+
+	eval, err := h.transactionEvaluator(txCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Dry-run: report intent without touching the database.
+	if tc := trace.FromContext(ctx); tc != nil && tc.DryRun {
+		tc.Record(trace.Event{
+			Stage:  trace.StageWrite,
+			Name:   connName,
+			Input:  trace.Snapshot(payload),
+			DryRun: true,
+			Detail: fmt.Sprintf("transaction: %d statement(s)", len(txCfg.Statements)),
+		})
+		return map[string]interface{}{
+			"dry_run":     true,
+			"transaction": true,
+			"connector":   connName,
+		}, nil
+	}
+
+	// captured is shared between the executor and the CEL scope: as each exec
+	// captures a value it becomes visible to later statements' expressions.
+	captured := map[string]interface{}{}
+	var affected int64
+
+	_, err = trace.RecordStage(ctx, trace.StageWrite, connName, trace.Snapshot(payload), func() (interface{}, error) {
+		runErr := runner.RunInTx(ctx, func(ops connector.TxOps) error {
+			txCtx, txSpan := tracing.StartSpan(ctx, "transaction")
+			ex := &txExecutor{
+				eval:     eval,
+				ops:      ops,
+				captured: captured,
+				scope: map[string]interface{}{
+					"input":    input,
+					"output":   payload,
+					"step":     steps,
+					"captured": captured,
+				},
+			}
+			a, runErr := ex.run(txCtx, txCfg.Statements)
+			affected = a
+			tracing.End(txSpan, runErr)
+			return runErr
+		})
+		if runErr != nil {
+			return nil, runErr
+		}
+		return &connector.Result{
+			Affected: affected,
+			Metadata: map[string]interface{}{"captured": captured},
+		}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	return map[string]interface{}{
-		"affected": result.Affected,
+		"affected": affected,
 		"captured": captured,
 	}, nil
 }
 
-// transactionEvaluator lazily builds (and caches) the CEL transformer used to
-// evaluate transaction expressions. It extends the standard scope with the
-// `captured` map and one variable per each loop name (plus its <name>_index
-// companion). Built once per handler because constructing a CEL environment
-// rebuilds the full function set.
-func (h *FlowHandler) transactionEvaluator() (*transform.CELTransformer, error) {
-	h.txEvalOnce.Do(func() {
-		opts := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
-		opts = append(opts, cel.Variable("captured", cel.MapType(cel.StringType, cel.DynType)))
+// transactionEvaluator returns (building it on first use) the CEL transformer
+// used to evaluate one transaction block's expressions. It extends the
+// standard scope with the `captured` map and one variable per each loop name
+// (plus its <name>_index companion). Cached per block because constructing a
+// CEL environment rebuilds the full function set, and per block rather than
+// per handler because two transactions in one flow declare different loops.
+func (h *FlowHandler) transactionEvaluator(txCfg *flow.TransactionConfig) (*transform.CELTransformer, error) {
+	h.txEvalMu.Lock()
+	defer h.txEvalMu.Unlock()
 
-		seen := map[string]bool{}
-		for _, name := range h.Config.To.Transaction.EachVarNames() {
-			if seen[name] {
-				continue
-			}
-			seen[name] = true
-			opts = append(opts,
-				cel.Variable(name, cel.DynType),
-				cel.Variable(name+"_index", cel.IntType),
-			)
+	if eval, ok := h.txEvals[txCfg]; ok {
+		return eval, nil
+	}
+
+	opts := transform.CreateWASMFunctionOptions(h.FunctionsRegistry)
+	opts = append(opts, cel.Variable("captured", cel.MapType(cel.StringType, cel.DynType)))
+
+	seen := map[string]bool{}
+	for _, name := range txCfg.EachVarNames() {
+		if seen[name] {
+			continue
 		}
+		seen[name] = true
+		opts = append(opts,
+			cel.Variable(name, cel.DynType),
+			cel.Variable(name+"_index", cel.IntType),
+		)
+	}
 
-		h.txEval, h.txEvalErr = transform.NewCELTransformerWithOptions(opts...)
-	})
-	return h.txEval, h.txEvalErr
+	eval, err := transform.NewCELTransformerWithOptions(opts...)
+	if err != nil {
+		return nil, err
+	}
+	if h.txEvals == nil {
+		h.txEvals = map[*flow.TransactionConfig]*transform.CELTransformer{}
+	}
+	h.txEvals[txCfg] = eval
+	return eval, nil
 }
 
 // txExecutor runs an ordered list of transaction statements against a pinned
