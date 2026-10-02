@@ -44,6 +44,22 @@ func ValidateUniqueInnerNames(config *parser.Configuration) []error {
 			fmt.Sprintf("flow %q", f.Name), "enrich",
 			namesOf(len(f.Enrichments), func(i int) string { return f.Enrichments[i].Name }),
 			"an enrichment's result is stored under its name")...)
+
+		// Within one transaction a name may be captured again on purpose (an
+		// each loop does it per element); across two transaction destinations
+		// the values are merged into one result.captured, so the second would
+		// overwrite the first.
+		var captures []string
+		for _, to := range f.MultiTo {
+			if to != nil {
+				captures = append(captures, to.Transaction.CaptureNames()...)
+			}
+		}
+		errs = append(errs, duplicatesIn(
+			fmt.Sprintf("flow %q", f.Name), "capture",
+			captures,
+			"what the flow's transactions capture is merged into one result.captured, "+
+				"so the second overwrites the first — capture it under a different name in one of them")...)
 	}
 
 	for _, s := range config.Sagas {

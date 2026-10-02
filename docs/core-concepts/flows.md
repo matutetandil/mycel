@@ -399,7 +399,8 @@ something. See [Reacting to what a transaction changed](aspects.md#reacting-to-w
 
 **Rules:** the `to` connector must be of type `database`; `transaction` is
 mutually exclusive with `query` / `target` / `operation` / `envelope` in the
-same `to` block (`mycel validate` enforces both). See the
+same `to` block (`mycel validate` enforces both). A transaction can also be one
+of [several destinations](#multi-to-fan-out). See the
 [transactional-write example](https://github.com/matutetandil/mycel/tree/main/examples/transactional-write).
 
 ### Multi-to (fan-out)
@@ -452,6 +453,8 @@ to {                          # declared second, parallel by default
 If one destination has to observe what another wrote, mark **both** `parallel = false` and declare them in the order you need. Marking only the later one is the mistake this ordering invites: it still runs last, but only by accident of there being nothing else in its group.
 
 Parallel destinations have no order among themselves. Each is reported separately, so one failing does not hide another's result, and a flow fails only if every destination failed.
+
+**A transaction can be one of the destinations.** A `to { transaction { } }` among several runs as a transaction like a lone one does: its statements, its rollback on any error (reported as that destination's failure), and its `captured` values, which appear in the answer and as `result.captured` to `after` aspects. When two transaction destinations capture values, they are merged, so each name may be captured by one of them only; `mycel validate` refuses the same name in both.
 
 ### Source Fan-Out (Multiple Flows from Same Source)
 

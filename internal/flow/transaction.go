@@ -71,6 +71,30 @@ type TxEach struct {
 	Body []TxStatement
 }
 
+// CaptureNames lists the distinct names this transaction captures values
+// under, in first-seen order, including those inside each blocks.
+func (t *TransactionConfig) CaptureNames() []string {
+	if t == nil {
+		return nil
+	}
+	var names []string
+	seen := map[string]bool{}
+	var walk func(stmts []TxStatement)
+	walk = func(stmts []TxStatement) {
+		for _, s := range stmts {
+			switch {
+			case s.Exec != nil && s.Exec.Capture != "" && !seen[s.Exec.Capture]:
+				seen[s.Exec.Capture] = true
+				names = append(names, s.Exec.Capture)
+			case s.Each != nil:
+				walk(s.Each.Body)
+			}
+		}
+	}
+	walk(t.Statements)
+	return names
+}
+
 // EachVarNames returns every each loop variable name declared anywhere in the
 // transaction (recursively), so the runtime can declare them — plus their
 // <name>_index companions — as variables in the scoped CEL environment.
