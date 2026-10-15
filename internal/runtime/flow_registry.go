@@ -1964,7 +1964,25 @@ func (h *FlowHandler) resolvedOperation() Operation {
 		operation.Method = "POST"
 	}
 
+	// Several destinations can only be written to: there is no one place to
+	// read an answer from, and no read path that would try. Every rule above
+	// looks at `To`, which is nil once a flow has more than one `to` (they live
+	// in MultiTo), so a scheduled flow, a gRPC or SOAP source, or a GET with
+	// two destinations stayed a read — and a read with several destinations
+	// fell through to the destination-less answer: the transform came back,
+	// nothing was written, nothing was logged.
+	if operation.IsRead() && len(h.Config.MultiTo) > 0 {
+		operation.Method = "POST"
+	}
+
 	return operation
+}
+
+// hasDestination reports whether the flow writes anywhere. A single `to` is
+// resolved into Dest; several live in MultiTo and leave Dest nil, so Dest alone
+// reads a fan-out flow as one with no destination at all.
+func (h *FlowHandler) hasDestination() bool {
+	return h.Dest != nil || len(h.Config.MultiTo) > 0
 }
 
 // executeFlowCoreInternal contains the actual flow logic.
@@ -2047,9 +2065,14 @@ func (h *FlowHandler) executeFlowCoreInternal(ctx context.Context, input map[str
 	// three things, answer with what they said — skipped every step it
 	// declared and echoed the request back, headers and all. A flow that does
 	// have a destination already runs its steps on the way to writing.
+	//
+	// "No destination" has to count MultiTo: checking Dest alone sent every
+	// flow with a step and several `to` blocks down this path, which runs the
+	// steps and answers — so since 3.0.0 such a flow wrote nothing, answered
+	// 200 (or acked the message) and logged nothing.
 	if transactional {
 		result, err = h.handleTransaction(ctx, input)
-	} else if len(h.Config.Steps) > 0 && (operation.IsRead() || h.Dest == nil) {
+	} else if len(h.Config.Steps) > 0 && (operation.IsRead() || !h.hasDestination()) {
 		var gathered map[string]interface{}
 		result, gathered, err = h.handleStepsFlow(ctx, input)
 		// What the steps gathered travels with the request, so the response
@@ -3491,8 +3514,30 @@ func (h *FlowHandler) writeToDestination(ctx context.Context, input, basePayload
 	// Child span around the connector write so the trace shows downstream calls;
 	// the span context is what the connector (e.g. HTTP) propagates outbound.
 	ctx, span := tracing.StartConnectorSpan(ctx, destConfig.Connector, data.Operation, data.Target)
+	start := time.Now()
 	writeResult, err := meteredWrite(ctx, writer, data)
 	tracing.End(span, err)
+
+	// The write is recorded for `mycel trace` the way a dry run records it.
+	// Only the dry run did, so a real trace of a flow with several
+	// destinations listed no write at all and labelled the flow's answer READ.
+	// Recorded rather than wrapped in RecordStage: parallel destinations run
+	// here concurrently, and a breakpoint pause reads the terminal, which
+	// cannot be shared between them.
+	if tc := trace.FromContext(ctx); tc != nil {
+		name := destConfig.Connector
+		if data.Target != "" {
+			name += ":" + data.Target
+		}
+		tc.Record(trace.Event{
+			Stage:    trace.StageWrite,
+			Name:     name,
+			Input:    trace.Snapshot(data.Payload),
+			Output:   trace.Snapshot(writeResult),
+			Duration: time.Since(start),
+			Error:    err,
+		})
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,19 @@
+# Accepted findings, read by the blocking step of the `deps-scan` CI job.
+# Each entry expires: past its date the finding blocks again on its own, so
+# nothing here outlives the reason it was added. The non-blocking report step
+# in the same job does not read this file and keeps listing them.
+
+# github.com/xuri/excelize/v2 v2.11.0 — malformed-workbook parsing (panics,
+# unbounded CPU and memory). Fixed upstream only on master: v2.11.0 is still
+# the latest tag, and the audit that produced these advisories is ongoing, so
+# a commit pin would have to be chased. Reached only by the file connector
+# reading .xlsx. Take the tag as soon as it is published.
+CVE-2026-107211 exp:2026-12-31
+CVE-2026-107212 exp:2026-12-31
+CVE-2026-107213 exp:2026-12-31
+CVE-2026-107214 exp:2026-12-31
+CVE-2026-107215 exp:2026-12-31
+CVE-2026-107216 exp:2026-12-31
+CVE-2026-107217 exp:2026-12-31
+CVE-2026-107219 exp:2026-12-31
+CVE-2026-107223 exp:2026-12-31
