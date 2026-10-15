@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A flow with a `step` and more than one `to` block wrote nothing** (#129). Since 3.0.0 it ran the step, answered with the transformed payload (HTTP 200, or an ack for a queue message) and never reached a destination, with nothing logged and no error metric. A consumer that looks an id up and then fans out to several writes — an ordinary queue-to-database shape — stopped writing on upgrading from 2.x. With several `to` blocks the destinations live apart from the single-destination slot, and the check for "this flow has no destination", which lets an orchestration flow answering a `POST` run its steps and answer with them, looked only at that slot. The steps still run first, so a destination's `when` and parameters read `step.*` as they did in 2.x.
+
+- **A scheduled flow, a `GET`, a GraphQL query or a gRPC/SOAP source with more than one `to` block wrote nothing either.** Same cause, one step earlier: every rule that decides whether a flow reads or writes looked at the single destination, so these stayed reads, and a read with several destinations fell through to the destination-less answer — the transform came back and nothing was written. Several destinations have nothing to read one answer from, so they are now written to whatever triggered the flow, and the flow answers with the report of the writes.
+
+- **`mycel trace` listed no writes for a flow with several destinations** and labelled its answer `READ`. Each destination's write was recorded only in a dry run; it is now recorded in a real trace too, one `WRITE` per destination.
+
 ## [3.10.0] - 2026-10-02
 
 ### Security

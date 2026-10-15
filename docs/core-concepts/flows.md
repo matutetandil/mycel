@@ -454,6 +454,43 @@ If one destination has to observe what another wrote, mark **both** `parallel = 
 
 Parallel destinations have no order among themselves. Each is reported separately, so one failing does not hide another's result, and a flow fails only if every destination failed.
 
+**Several destinations are always written to**, whatever triggered the flow: a `POST`, a queue message, a `GET`, a gRPC method, a GraphQL query or a schedule. There is no single place to read one answer from, so the flow's answer is the report of the writes (`{"results": {...}, "success": true}`). **`step` blocks run first**, before any destination is decided, so a destination's `when`, its `query` parameters and the transform can all read `step.*`:
+
+```hcl
+flow "update_item" {
+  from {
+    connector = "rabbit"
+    operation = "items"
+  }
+
+  step "lookup" {
+    connector = "db"
+    operation = "query"
+    query     = "SELECT COUNT(*) AS n FROM items WHERE sku = :sku"
+    params    = { sku = "input.body.sku" }
+  }
+
+  transform {
+    sku = "input.body.sku"
+    qty = "input.body.qty"
+    n   = "step.lookup.n"
+  }
+
+  to {
+    connector = "db"
+    when      = "output.n > 0"     # only when the lookup found the item
+    query     = "UPDATE items SET qty = :qty WHERE sku = :sku"
+  }
+
+  to {
+    connector = "db"
+    query     = "INSERT INTO audit (sku) VALUES (:sku)"
+  }
+}
+```
+
+Before 3.10.1 a flow shaped like this ran the step and wrote nothing (and so did a scheduled flow, a `GET` or a non-REST source with several `to` blocks), answering with success. If you run an earlier 3.x with this shape, upgrade.
+
 **`required`: the write that decides the outcome.** "Fails only if every destination failed" is the wrong rule for a flow with one write that matters and some secondary ones. A destination skipped by its `when` or by an unchanged dedupe `facet` counts as a success, so a failed database write next to a skipped cache call was acked: no retry, no dead letter, the change lost. Mark the main write `required = true`:
 
 ```hcl
