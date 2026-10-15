@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`golang.org/x/net` 0.59.0 → 0.61.0, for `CVE-2026-78669` (HIGH).** Three HTTP/2 server defects: a race in the HPACK encoder that crashes the server, a double flow-control refund on server streams, and unbounded CPU from repeated initial-window changes. Reachable: `govulncheck` traces them through the gRPC server's `http2.Framer`. Fixed in 0.60.0; 0.61.0 asks for the same Go 1.26, so the toolchain does not move. It brings `x/crypto` 0.58.0, `x/sys`, `x/text`, `x/sync` and `x/tools` along.
+
+- **Known and accepted until upstream tags a release: nine HIGH findings in `github.com/xuri/excelize/v2` v2.11.0** (`CVE-2026-107211`–`107217`, `107219`, `107223`), all in parsing a malformed workbook — panics, unbounded CPU and memory. They are reachable only by the file connector reading `.xlsx`, so the exposure is a flow that reads spreadsheets from a source you do not control. The fixes exist only on excelize's `master`: v2.11.0 is still its latest tag, and the audit that produced them is still publishing advisories, so a commit pin would have to be chased. The dependency scan accepts them in `.trivyignore` with an expiry date (it blocks again on its own past that date) and keeps listing them in its report step; the tag will be taken in the first release after it is published.
+
 ### Fixed
 
 - **A flow with a `step` and more than one `to` block wrote nothing** (#129). Since 3.0.0 it ran the step, answered with the transformed payload (HTTP 200, or an ack for a queue message) and never reached a destination, with nothing logged and no error metric. A consumer that looks an id up and then fans out to several writes — an ordinary queue-to-database shape — stopped writing on upgrading from 2.x. With several `to` blocks the destinations live apart from the single-destination slot, and the check for "this flow has no destination", which lets an orchestration flow answering a `POST` run its steps and answer with them, looked only at that slot. The steps still run first, so a destination's `when` and parameters read `step.*` as they did in 2.x.

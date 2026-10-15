@@ -71,12 +71,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # Findings accepted in .trivyignore do not block, and every entry there
+      # expires so it blocks again on its own; the report below still lists them.
       - name: Scan dependencies
         run: |
           docker run --rm -v "$PWD":/src aquasec/trivy:latest fs \
             --scanners vuln \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
+            --ignorefile /src/.trivyignore \
             --exit-code 1 \
             /src
 
