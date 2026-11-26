@@ -11,8 +11,8 @@ number is allowed to change.
 
 | Version | Supported |
 |---|---|
-| 3.7.x | Yes |
-| < 3.7 | No |
+| 3.10.x | Yes |
+| < 3.10 | No |
 
 ## Vulnerabilities in dependencies
 
@@ -23,9 +23,22 @@ unrelated work.
 
 A vulnerability reachable from Mycel's own code goes out as a patch release
 with a `Security` section in the changelog, which is what the release notes
-lead with. The published container image is scanned as well, and its report
-is visible on
+lead with.
+
+The published container image keeps being scanned after its release: every
+week the latest release image is scanned the way Artifact Hub scans it, and a
+HIGH or CRITICAL finding with a fix available fails that job. Vulnerabilities
+are published against packages an image already contains, so a release that
+scanned clean on its day does not stay clean. Many of those findings are
+cleared just by rebuilding the image on current Alpine packages and the newest
+Go patch release, and that is reason enough for a patch release. The image's
+report is also visible on
 [Artifact Hub](https://artifacthub.io/packages/helm/mycel/mycel).
+
+`govulncheck` is run alongside the scanner when dependencies are reviewed,
+because the two disagree in both directions: it decides whether a finding is
+reachable from Mycel's code, and it knows advisories the image scanner does
+not report.
 
 ## Reporting a vulnerability
 

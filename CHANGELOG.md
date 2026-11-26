@@ -19,10 +19,18 @@ Everything below was published after 3.10.1 shipped; nothing in this release cha
 - **`github.com/gorilla/websocket` v1.5.3 → the `main` commit `e064f32e3674`** (`GO-2026-6278`, `GHSA-w67g-5rqw-f597`): v1.5.3 generates the client's frame mask key with `math/rand`, so the mask a client applies is predictable. Reachable from the GraphQL subscriptions client and from MQTT over WebSocket. The fix has been on gorilla's `main` since before v1.5.3 was tagged from another branch, and no release has carried it since — the project has had no commits since early 2025. Pinning the commit fixes it for MQTT too, because the module graph takes the highest version required and Paho asks for v1.5.3. Trivy does not report this one; `govulncheck` does. Replacing gorilla in Mycel's own code is planned separately; Paho will keep requiring it regardless.
 - **The image is rebuilt on Go 1.27.4 and current Alpine packages**, which clears `CVE-2026-111943` (`crypto/x509`, HIGH) and the `net/http` findings in the standard library, and in the base image `CVE-2026-123158` (OpenSSH client, CRITICAL), `CVE-2026-107891` (musl, HIGH), four OpenSSL findings and `CVE-2026-4738` (zlib). The Alpine half needed no source change — the build upgrades Alpine packages — so those were waiting for a rebuild; 3.10.1 rebuilt today on `golang:1.26-alpine` would clear the standard-library half as well.
 
+### Added
+
+- **The published image is scanned every week** (`.github/workflows/image-scan.yml`). It scans the latest release image the way Artifact Hub does and fails on a HIGH or CRITICAL finding with a fix, using the same `.trivyignore` as the pull-request scan. Its summary sorts each finding by where the fix comes from: a rebuild (Alpine packages, or the newest Go patch release) or a dependency bump. Until now the image was scanned when it was built and then only by Artifact Hub, so that site's email was how anyone found out about new findings. 3.10.1 shows the gap: 3 critical and 14 high findings, none present on its release day, half of them cleared by a rebuild alone.
+
 ### Changed
 
 - **Go 1.27.** The `go` directive moves from 1.26.0 to 1.27.0 and both images build on `golang:1.27-alpine`, which is why this is a minor release (`docs/versioning.md`). Go 1.26 is still supported upstream until 1.28 ships; this moves now rather than under pressure then. Building from source needs Go 1.27. No Mycel code changed for it. The one runtime default that flips with the directive is `tracebacklabels=1` (goroutine pprof labels appear in panic tracebacks); `encoding/json` now runs on the v2 implementation with the same behaviour, though the text of its error messages can differ.
 - Patch-level updates: `go.mongodb.org/mongo-driver` 1.17.10, `github.com/pkg/sftp` 1.13.13, `github.com/eclipse/paho.mqtt.golang` 1.5.2, `github.com/boombuler/barcode` 1.1.1.
+
+### Fixed
+
+- **`SECURITY.md` named 3.7.x as the supported version** while 3.10.1 was the release, so its table told people on 3.7 they were covered and people on 3.10 they were not. A test now checks the table against the version the binary reports, and every version bump edits both.
 
 ## [3.10.1] - 2026-10-15
 
