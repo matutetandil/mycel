@@ -20,6 +20,7 @@ Everything below was published after 3.10.1 shipped; nothing in this release cha
 
 ### Changed
 
+- **Go 1.27.** The `go` directive moves from 1.26.0 to 1.27.0 and both images build on `golang:1.27-alpine`, which is why this is a minor release (`docs/versioning.md`). Go 1.26 is still supported upstream until 1.28 ships; this moves now rather than under pressure then. Building from source needs Go 1.27. No Mycel code changed for it. The one runtime default that flips with the directive is `tracebacklabels=1` (goroutine pprof labels appear in panic tracebacks); `encoding/json` now runs on the v2 implementation with the same behaviour, though the text of its error messages can differ.
 - Patch-level updates: `go.mongodb.org/mongo-driver` 1.17.10, `github.com/pkg/sftp` 1.13.13, `github.com/eclipse/paho.mqtt.golang` 1.5.2, `github.com/boombuler/barcode` 1.1.1.
 
 ## [3.10.1] - 2026-10-15

@@ -4,7 +4,7 @@ Build and run a REST API backed by a database in 10 minutes.
 
 ## Prerequisites
 
-- Docker (recommended) or Go 1.26+
+- Docker (recommended) or Go 1.27+
 - A terminal
 
 ## Step 1: Create Your Service
@@ -125,7 +125,7 @@ Every `.sql` under `migrations/` is applied, in name order, by `mycel migrate`.
 docker run -v $(pwd):/etc/mycel -p 3000:3000 ghcr.io/matutetandil/mycel
 ```
 
-### From source (requires Go 1.26+)
+### From source (requires Go 1.27+)
 
 ```bash
 go install github.com/matutetandil/mycel/v3/cmd/mycel@latest
