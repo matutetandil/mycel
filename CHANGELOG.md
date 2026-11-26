@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+Everything below was published after 3.10.1 shipped; nothing in this release changes behaviour. Each Go module finding is reachable according to `govulncheck`, which is what puts it here rather than in a routine bump.
+
+- **`github.com/xuri/excelize/v2` v2.11.0 → v2.11.1**, the tag that carries the fixes for the malformed-workbook advisories accepted in 3.10.1 (`CVE-2026-107211`–`107225`: panics, unbounded CPU and memory while reading a `.xlsx`). The nine accepted entries leave `.trivyignore`, which is now empty: the dependency scan has nothing it tolerates.
+- **OpenTelemetry 1.46.0 → 1.47.0** (`CVE-2026-128085`, `CVE-2026-128086`, MEDIUM). A span attribute made of `U+FFFD` runes bypassed the attribute length limit, and a crafted W3C `baggage` header amplified memory allocation while being parsed — the second one on every incoming request a traced flow extracts context from.
+- **`github.com/klauspost/compress` 1.18.0 → 1.20.5** (`CVE-2026-63209`, HIGH, a denial of service; and `CVE-2026-116591`, a panic decoding a two-block frame), both reached through the MongoDB driver's zstd wire compression.
+- **`golang.org/x/net` 0.61.0 → 0.63.0** (`CVE-2026-78661`, HIGH; `CVE-2026-97045`, MEDIUM): quadratic work in `html.Parse`, which the PDF connector runs on the HTML it renders, and an escaping defect in the same package. `x/crypto` moves to 0.59.0 with it.
+- **`github.com/rabbitmq/amqp091-go` 1.13.0 → 1.17.0** (`CVE-2026-107386`, MEDIUM): the 4 KB frame limit before connection tuning was not enforced, so a hostile broker could make the client allocate before limits were negotiated. 1.14–1.17 are hardening releases of the same reader (bounded body pre-allocation, frame size enforced on reconnect, SASL credentials kept across reconnects); `Channel.Qos` is always called with a prefetch size of zero, so the deprecation in 1.17 does not apply.
+- **The image is rebuilt on Go 1.26.11 and current Alpine packages**, which clears `CVE-2026-111943` (`crypto/x509`, HIGH) and the `net/http` findings in the standard library, and in the base image `CVE-2026-123158` (OpenSSH client, CRITICAL), `CVE-2026-107891` (musl, HIGH), four OpenSSL findings and `CVE-2026-4738` (zlib). None of this needed a source change: the build already pulls the latest `golang:1.26-alpine` and upgrades Alpine packages, so these were waiting for a rebuild.
+
+### Changed
+
+- Patch-level updates: `go.mongodb.org/mongo-driver` 1.17.10, `github.com/pkg/sftp` 1.13.13, `github.com/eclipse/paho.mqtt.golang` 1.5.2, `github.com/boombuler/barcode` 1.1.1.
+
 ## [3.10.1] - 2026-10-15
 
 ### Security
