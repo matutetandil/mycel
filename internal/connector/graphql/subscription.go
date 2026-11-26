@@ -9,19 +9,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/gqlerrors"
+	"github.com/matutetandil/mycel/v3/internal/wsconn"
 )
 
 // SubscriptionManager manages GraphQL subscriptions over WebSocket.
 type SubscriptionManager struct {
-	schema   *graphql.Schema
-	logger   *slog.Logger
-	upgrader websocket.Upgrader
-	mu       sync.RWMutex
-	clients  map[*wsClient]bool
-	pubsub   *PubSub
+	schema  *graphql.Schema
+	logger  *slog.Logger
+	mu      sync.RWMutex
+	clients map[*wsClient]bool
+	pubsub  *PubSub
 
 	// defaults fills in the values the schema says a caller may leave out.
 	defaults *defaultFiller
@@ -35,6 +35,7 @@ type SubscriptionManager struct {
 // wsClient represents a WebSocket client connection.
 type wsClient struct {
 	conn             *websocket.Conn
+	idle             *wsconn.Idle
 	manager          *SubscriptionManager
 	subscriptions    map[string]context.CancelFunc
 	mu               sync.Mutex
@@ -113,32 +114,31 @@ func NewSubscriptionManagerWithTimings(schema *graphql.Schema, logger *slog.Logg
 		idleTimeout: idleTimeout,
 		clients:     make(map[*wsClient]bool),
 		pubsub:      NewPubSub(),
-		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
-			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins (configure for production)
-			},
-			Subprotocols: []string{"graphql-transport-ws"},
-		},
 	}
 }
 
 // Handler returns an HTTP handler for WebSocket connections.
 func (m *SubscriptionManager) Handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Upgrade to WebSocket
-		conn, err := m.upgrader.Upgrade(w, r, nil)
+		client := &wsClient{
+			manager:       m,
+			subscriptions: make(map[string]context.CancelFunc),
+		}
+
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+			// Any origin may connect, as it always could (configure for production).
+			InsecureSkipVerify: true,
+			Subprotocols:       []string{"graphql-transport-ws"},
+			// A protocol-level pong is a sign of life like any message.
+			OnPongReceived: func(context.Context, []byte) { client.idle.Touch() },
+		})
 		if err != nil {
 			m.logger.Error("websocket upgrade failed", "error", err)
 			return
 		}
-
-		client := &wsClient{
-			conn:          conn,
-			manager:       m,
-			subscriptions: make(map[string]context.CancelFunc),
-		}
+		client.conn = conn
+		// Started before either pump so both see it.
+		client.idle = wsconn.NewIdle(m.readIdleTimeout(), func() { _ = conn.CloseNow() })
 
 		m.mu.Lock()
 		m.clients[client] = true
@@ -152,33 +152,34 @@ func (m *SubscriptionManager) Handler() http.HandlerFunc {
 	}
 }
 
+// readIdleTimeout is how long a connection may go without a message or a
+// pong before it is dropped.
+func (m *SubscriptionManager) readIdleTimeout() time.Duration {
+	if m.idleTimeout <= 0 {
+		return 60 * time.Second
+	}
+	return m.idleTimeout
+}
+
 // readPump handles incoming messages from the client.
 func (c *wsClient) readPump() {
 	defer func() {
 		c.close()
 	}()
 
-	idleTimeout := c.manager.idleTimeout
-	if idleTimeout <= 0 {
-		idleTimeout = 60 * time.Second
-	}
+	defer c.idle.Stop()
 
 	c.conn.SetReadLimit(512 * 1024) // 512KB max message size
-	_ = c.conn.SetReadDeadline(time.Now().Add(idleTimeout))
-	c.conn.SetPongHandler(func(string) error {
-		return c.conn.SetReadDeadline(time.Now().Add(idleTimeout))
-	})
 
 	for {
-		_, message, err := c.conn.ReadMessage()
+		_, message, err := c.conn.Read(context.Background())
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			if wsconn.UnexpectedClose(err, websocket.StatusGoingAway, websocket.StatusAbnormalClosure) {
 				c.manager.logger.Debug("websocket read error", "error", err)
 			}
 			return
 		}
-
-		_ = c.conn.SetReadDeadline(time.Now().Add(idleTimeout))
+		c.idle.Touch()
 
 		var msg wsMessage
 		if err := json.Unmarshal(message, &msg); err != nil {
@@ -362,8 +363,9 @@ func (c *wsClient) send(msg *wsMessage) {
 		return
 	}
 
-	c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := c.conn.Write(ctx, websocket.MessageText, data); err != nil {
 		c.manager.logger.Debug("failed to send message", "error", err)
 	}
 }
@@ -406,7 +408,7 @@ func (c *wsClient) close() {
 	c.subscriptions = nil
 	c.mu.Unlock()
 
-	c.conn.Close()
+	_ = c.conn.CloseNow()
 
 	c.manager.mu.Lock()
 	delete(c.manager.clients, c)
