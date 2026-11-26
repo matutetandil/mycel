@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+Everything below was published after 3.10.1 shipped; nothing in this release changes behaviour. Each Go module finding is reachable according to `govulncheck`, which is what puts it here rather than in a routine bump.
+
+- **`github.com/xuri/excelize/v2` v2.11.0 → v2.11.1**, the tag that carries the fixes for the malformed-workbook advisories accepted in 3.10.1 (`CVE-2026-107211`–`107225`: panics, unbounded CPU and memory while reading a `.xlsx`). The nine accepted entries leave `.trivyignore`, which is now empty: the dependency scan has nothing it tolerates.
+- **OpenTelemetry 1.46.0 → 1.47.0** (`CVE-2026-128085`, `CVE-2026-128086`, MEDIUM). A span attribute made of `U+FFFD` runes bypassed the attribute length limit, and a crafted W3C `baggage` header amplified memory allocation while being parsed — the second one on every incoming request a traced flow extracts context from.
+- **`github.com/klauspost/compress` 1.18.0 → 1.20.5** (`CVE-2026-63209`, HIGH, a denial of service; and `CVE-2026-116591`, a panic decoding a two-block frame), both reached through the MongoDB driver's zstd wire compression.
+- **`golang.org/x/net` 0.61.0 → 0.63.0** (`CVE-2026-78661`, HIGH; `CVE-2026-97045`, MEDIUM): quadratic work in `html.Parse`, which the PDF connector runs on the HTML it renders, and an escaping defect in the same package. `x/crypto` moves to 0.59.0 with it.
+- **`github.com/rabbitmq/amqp091-go` 1.13.0 → 1.17.0** (`CVE-2026-107386`, MEDIUM): the 4 KB frame limit before connection tuning was not enforced, so a hostile broker could make the client allocate before limits were negotiated. 1.14–1.17 are hardening releases of the same reader (bounded body pre-allocation, frame size enforced on reconnect, SASL credentials kept across reconnects); `Channel.Qos` is always called with a prefetch size of zero, so the deprecation in 1.17 does not apply.
+- **`github.com/gorilla/websocket` v1.5.3 → the `main` commit `e064f32e3674`** (`GO-2026-6278`, `GHSA-w67g-5rqw-f597`): v1.5.3 generates the client's frame mask key with `math/rand`, so the mask a client applies is predictable. Reachable from the GraphQL subscriptions client and from MQTT over WebSocket. The fix has been on gorilla's `main` since before v1.5.3 was tagged from another branch, and no release has carried it since — the project has had no commits since early 2025. Pinning the commit fixes it for MQTT too, because the module graph takes the highest version required and Paho asks for v1.5.3. Trivy does not report this one; `govulncheck` does. Replacing gorilla in Mycel's own code is planned separately; Paho will keep requiring it regardless.
+- **The image is rebuilt on Go 1.27.4 and current Alpine packages**, which clears `CVE-2026-111943` (`crypto/x509`, HIGH) and the `net/http` findings in the standard library, and in the base image `CVE-2026-123158` (OpenSSH client, CRITICAL), `CVE-2026-107891` (musl, HIGH), four OpenSSL findings and `CVE-2026-4738` (zlib). The Alpine half needed no source change — the build upgrades Alpine packages — so those were waiting for a rebuild; 3.10.1 rebuilt today on `golang:1.26-alpine` would clear the standard-library half as well.
+
+### Added
+
+- **The published image is scanned every week** (`.github/workflows/image-scan.yml`). It scans the latest release image the way Artifact Hub does and fails on a HIGH or CRITICAL finding with a fix, using the same `.trivyignore` as the pull-request scan. Its summary sorts each finding by where the fix comes from: a rebuild (Alpine packages, or the newest Go patch release) or a dependency bump. Until now the image was scanned when it was built and then only by Artifact Hub, so that site's email was how anyone found out about new findings. 3.10.1 shows the gap: 3 critical and 14 high findings, none present on its release day, half of them cleared by a rebuild alone.
+
+### Changed
+
+- **Go 1.27.** The `go` directive moves from 1.26.0 to 1.27.0 and both images build on `golang:1.27-alpine`, which is why this is a minor release (`docs/versioning.md`). Go 1.26 is still supported upstream until 1.28 ships; this moves now rather than under pressure then. Building from source needs Go 1.27. No Mycel code changed for it. The one runtime default that flips with the directive is `tracebacklabels=1` (goroutine pprof labels appear in panic tracebacks); `encoding/json` now runs on the v2 implementation with the same behaviour, though the text of its error messages can differ.
+- Patch-level updates: `go.mongodb.org/mongo-driver` 1.17.10, `github.com/pkg/sftp` 1.13.13, `github.com/eclipse/paho.mqtt.golang` 1.5.2, `github.com/boombuler/barcode` 1.1.1.
+
+### Fixed
+
+- **`SECURITY.md` named 3.7.x as the supported version** while 3.10.1 was the release, so its table told people on 3.7 they were covered and people on 3.10 they were not. A test now checks the table against the version the binary reports, and every version bump edits both.
+
 ## [3.10.1] - 2026-10-15
 
 ### Security
