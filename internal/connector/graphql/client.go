@@ -15,7 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 	"github.com/matutetandil/mycel/v3/internal/connector"
 	"github.com/matutetandil/mycel/v3/internal/flow"
 )
@@ -34,10 +35,14 @@ type ClientConnector struct {
 
 	// Subscription client support (implements Starter + RouteRegistrar)
 	handlers map[string]HandlerFunc
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	running  bool
+
+	// selections are the fields each subscription asks the server for, by
+	// operation, as the flow's `selection` declares them.
+	selections map[string]string
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+	running    bool
 }
 
 // NewClient creates a new GraphQL client connector.
@@ -464,7 +469,16 @@ func (c *ClientConnector) Start(ctx context.Context) error {
 			fieldName = strings.TrimPrefix(operation, "Subscription.")
 		}
 
-		query := buildSubscriptionQuery(fieldName)
+		c.mu.RLock()
+		selection := c.selections[operation]
+		c.mu.RUnlock()
+		query, err := SubscriptionQuery(fieldName, selection)
+		if err != nil {
+			// validate refuses this before startup; a configuration built
+			// some other way still must not subscribe to something else.
+			c.logger.Error("subscription not started", "connector", c.name, "operation", operation, "error", err)
+			continue
+		}
 
 		c.wg.Add(1)
 		go func(topic, q string, h HandlerFunc) {
@@ -483,9 +497,15 @@ func (c *ClientConnector) Start(ctx context.Context) error {
 	return nil
 }
 
-// buildSubscriptionQuery generates a subscription query for a field name.
-func buildSubscriptionQuery(fieldName string) string {
-	return fmt.Sprintf("subscription { %s }", fieldName)
+// SetOperationSelection records which fields a subscription asks the server
+// for. The runtime calls it for each flow that declares `selection`.
+func (c *ClientConnector) SetOperationSelection(operation, selection string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.selections == nil {
+		c.selections = make(map[string]string)
+	}
+	c.selections[operation] = selection
 }
 
 // subscribeToTopic connects to the remote GraphQL server via WebSocket,
@@ -554,20 +574,23 @@ func (c *ClientConnector) runSubscription(ctx context.Context, topic, query stri
 		}
 	}
 
-	dialer := websocket.Dialer{
-		HandshakeTimeout: c.config.Timeout,
-		Subprotocols:     []string{"graphql-transport-ws"},
-	}
-
-	conn, _, err := dialer.DialContext(ctx, wsURL, reqHeader)
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{
+		HTTPClient:   subscriptionHTTPClient(c.config.Timeout),
+		HTTPHeader:   reqHeader,
+		Subprotocols: []string{"graphql-transport-ws"},
+	})
 	if err != nil {
 		return fmt.Errorf("websocket dial failed: %w", err)
 	}
-	defer conn.Close()
+	defer conn.CloseNow()
+
+	// Events are as large as the server makes them; nothing capped what was
+	// read before, so nothing does now (the library's own default is 32KB).
+	conn.SetReadLimit(-1)
 
 	// Send connection_init
 	initMsg := wsMessage{Type: msgConnectionInit}
-	if err := conn.WriteJSON(initMsg); err != nil {
+	if err := wsjson.Write(ctx, conn, initMsg); err != nil {
 		return fmt.Errorf("failed to send connection_init: %w", err)
 	}
 
@@ -583,26 +606,35 @@ func (c *ClientConnector) runSubscription(ctx context.Context, topic, query stri
 		Type:    msgSubscribe,
 		Payload: subPayload,
 	}
-	if err := conn.WriteJSON(subMsg); err != nil {
+	if err := wsjson.Write(ctx, conn, subMsg); err != nil {
 		return fmt.Errorf("failed to send subscribe: %w", err)
 	}
 
 	c.logger.Debug("subscription active", "connector", c.name, "topic", topic, "url", wsURL)
 
-	// Read messages
-	for {
+	// On shutdown, unsubscribe cleanly and close. A read blocked waiting for
+	// the next event is ended by the close, so shutting down does not wait
+	// out the read timeout.
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
 		select {
 		case <-ctx.Done():
-			// Send complete to cleanly unsubscribe
-			conn.WriteJSON(wsMessage{ID: "sub-" + topic, Type: msgComplete})
-			return nil
-		default:
+			wctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = wsjson.Write(wctx, conn, wsMessage{ID: "sub-" + topic, Type: msgComplete})
+			cancel()
+			_ = conn.Close(websocket.StatusNormalClosure, "")
+		case <-done:
 		}
+	}()
 
-		conn.SetReadDeadline(time.Now().Add(90 * time.Second))
-
+	// Read messages
+	for {
 		var msg wsMessage
-		if err := conn.ReadJSON(&msg); err != nil {
+		rctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		err := wsjson.Read(rctx, conn, &msg)
+		cancel()
+		if err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -628,12 +660,22 @@ func (c *ClientConnector) runSubscription(ctx context.Context, topic, query stri
 			return fmt.Errorf("server completed subscription")
 
 		case msgPing:
-			conn.WriteJSON(wsMessage{Type: msgPong})
+			_ = wsjson.Write(ctx, conn, wsMessage{Type: msgPong})
 
 		case msgConnectionAck:
 			// Already acked, ignore duplicate
 		}
 	}
+}
+
+// subscriptionHTTPClient makes the handshake request. Its timeout bounds the
+// handshake only. It ignores HTTP(S)_PROXY, as the WebSocket client this
+// replaced did, so a deployment that routed queries through a proxy and
+// subscriptions directly keeps doing exactly that.
+func subscriptionHTTPClient(timeout time.Duration) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	return &http.Client{Timeout: timeout, Transport: transport}
 }
 
 // waitForAck waits for a connection_ack message from the server.
@@ -643,10 +685,11 @@ func (c *ClientConnector) waitForAck(ctx context.Context, conn *websocket.Conn) 
 		timeout = c.config.Subscriptions.ConnectionTimeout
 	}
 
-	conn.SetReadDeadline(time.Now().Add(timeout))
+	rctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
 	var msg wsMessage
-	if err := conn.ReadJSON(&msg); err != nil {
+	if err := wsjson.Read(rctx, conn, &msg); err != nil {
 		return fmt.Errorf("failed to read ack: %w", err)
 	}
 

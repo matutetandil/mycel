@@ -12,6 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sesv2 v1.59.0
 	github.com/aws/aws-sdk-go-v2/service/sns v1.39.10
 	github.com/boombuler/barcode v1.1.1
+	github.com/coder/websocket v1.8.15
 	github.com/eclipse/paho.mqtt.golang v1.5.2
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-pdf/fpdf v0.9.0
@@ -21,7 +22,7 @@ require (
 	github.com/golang/protobuf v1.5.4
 	github.com/google/cel-go v0.29.0
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // main: last tag v1.5.3 lacks the GO-2026-6278 fix; also lifts paho
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // tests (peer impl) + paho (MQTT over WS); main has the GO-2026-6278 fix v1.5.3 lacks
 	github.com/graphql-go/graphql v0.8.1
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/hashicorp/hcl/v2 v2.24.0

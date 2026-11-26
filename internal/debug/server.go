@@ -10,7 +10,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+	"github.com/matutetandil/mycel/v3/internal/wsconn"
 )
 
 // Server is the Mycel Studio Debug Protocol server.
@@ -34,8 +36,6 @@ type Server struct {
 
 	// ready tracks whether a client has completed the setup handshake.
 	ready atomic.Bool
-
-	upgrader websocket.Upgrader
 }
 
 // NewServer creates a new debug protocol server.
@@ -48,11 +48,6 @@ func NewServer(inspector RuntimeInspector, logger *slog.Logger) *Server {
 		stream:    NewEventStream(),
 		logger:    logger,
 		sessions:  make(map[string]*Session),
-		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins for local development
-			},
-		},
 	}
 }
 
@@ -99,12 +94,19 @@ func (s *Server) RegisterHandlers(mux *http.ServeMux) {
 
 // handleWebSocket upgrades HTTP to WebSocket and runs the session loop.
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := s.upgrader.Upgrade(w, r, nil)
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		InsecureSkipVerify: true, // Allow all origins for local development
+	})
 	if err != nil {
 		s.logger.Error("websocket upgrade failed", "error", err)
 		return
 	}
-	defer conn.Close()
+	defer conn.CloseNow()
+
+	// A request carrying a whole flow's breakpoints or an evaluation result
+	// has no natural size, and nothing capped it before; the library's own
+	// default is 32KB.
+	conn.SetReadLimit(-1)
 
 	// Session is created on attach, not on connect
 	var session *Session
@@ -143,7 +145,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	writeJSON := func(v interface{}) error {
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		return conn.WriteJSON(v)
+		return wsjson.Write(context.Background(), conn, v)
 	}
 
 	// Start event forwarding once session exists
@@ -163,9 +165,9 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Read loop
 	for {
-		_, message, err := conn.ReadMessage()
+		_, message, err := conn.Read(context.Background())
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+			if wsconn.UnexpectedClose(err, websocket.StatusGoingAway, websocket.StatusNormalClosure) {
 				s.logger.Warn("websocket read error", "error", err)
 			}
 			return

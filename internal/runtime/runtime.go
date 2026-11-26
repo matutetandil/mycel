@@ -1880,6 +1880,16 @@ func (r *Runtime) registerFlowHandlers(connectorName string, conn connector.Conn
 				}
 			}
 
+			// Which fields a subscription asks the remote server for. Only the
+			// GraphQL client reads it; validate refuses it anywhere else.
+			if sel := handler.Config.From.GetSelection(); sel != "" {
+				if sr, ok := conn.(interface {
+					SetOperationSelection(operation, selection string)
+				}); ok {
+					sr.SetOperationSelection(handler.Config.From.GetOperation(), sel)
+				}
+			}
+
 			// If flow has a return type and connector supports typed args, use RegisterRouteWithArgs
 			if hasArgsSupport && handler.Config.Returns != "" {
 				args := inferArgsFromFlow(handler.Config, r.types)

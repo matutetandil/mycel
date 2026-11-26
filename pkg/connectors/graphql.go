@@ -51,6 +51,7 @@ func (GraphQLSchema) SourceSchema() *schema.Block {
 		Open: true,
 		Attrs: []schema.Attr{
 			{Name: "operation", Doc: "Query.name / Mutation.name / Subscription.name", Type: schema.TypeString, Required: true},
+			{Name: "selection", Doc: "Client driver, Subscription.* only: the fields to ask the remote server for, as GraphQL (e.g. \"{ sku newPrice }\"); needed for any field typed as an object", Type: schema.TypeString},
 		},
 	}
 }

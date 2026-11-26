@@ -1298,7 +1298,6 @@ type Server struct {
     sessions  map[string]*Session  // sessionID → Session
     nextID    atomic.Uint64        // session ID counter
     ready     atomic.Bool          // true after debug.ready handshake
-    upgrader  websocket.Upgrader   // gorilla/websocket
 
     // Callbacks wired by Runtime
     OnClientChange func(hasClients bool)  // 0→1 or 1→0 clients
@@ -1318,7 +1317,7 @@ handleMethod(session, req) *Response  // dispatch to handlers
 ```
 
 The WebSocket handler:
-1. Upgrades HTTP → WebSocket via gorilla/websocket
+1. Upgrades HTTP → WebSocket via coder/websocket (any origin, no message size limit)
 2. Waits for `debug.attach` to create session
 3. Subscribes session to EventStream
 4. Starts goroutine for event forwarding (channel → WebSocket writes)

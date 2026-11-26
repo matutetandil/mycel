@@ -1253,12 +1253,36 @@ func TestClientSubscriptionReconnect(t *testing.T) {
 	client.Close(ctx)
 }
 
-// TestBuildSubscriptionQuery tests the subscription query builder.
+// TestBuildSubscriptionQuery covers the document a subscription client sends.
+// Without a selection a field typed as an object is refused by any server
+// with a schema, so the selection is what makes such a subscription possible;
+// one that would not form a single subscription to that field is refused.
 func TestBuildSubscriptionQuery(t *testing.T) {
-	query := buildSubscriptionQuery("orderUpdated")
-	expected := "subscription { orderUpdated }"
-	if query != expected {
-		t.Errorf("expected %q, got %q", expected, query)
+	ok := []struct{ selection, want string }{
+		{"", "subscription { orderUpdated }"},
+		{"{ id status }", "subscription { orderUpdated { id status } }"},
+		{"id status", "subscription { orderUpdated { id status } }"},
+		{"  id customer { name }  ", "subscription { orderUpdated { id customer { name } } }"},
+	}
+	for _, tc := range ok {
+		got, err := SubscriptionQuery("orderUpdated", tc.selection)
+		if err != nil {
+			t.Errorf("selection %q refused: %v", tc.selection, err)
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("selection %q built %q, want %q", tc.selection, got, tc.want)
+		}
+	}
+
+	for _, bad := range []string{
+		"{ id ",                   // does not parse
+		"{ id } } query { secret", // a second operation
+		"{ id } other { x }",      // a second field
+	} {
+		if q, err := SubscriptionQuery("orderUpdated", bad); err == nil {
+			t.Errorf("selection %q accepted, built %q", bad, q)
+		}
 	}
 }
 

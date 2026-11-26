@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`selection` on a flow fed by a remote GraphQL subscription**: the fields to ask the server for, written as GraphQL (`selection = "{ sku newPrice }"`, braces optional, nested objects as a client writes them). The client used to send `subscription { priceChanged }` with nothing selected, which only a field typed as a scalar or `JSON` can answer. A field typed as an object is what any server with a real schema declares, and the server refused the bare form on every connect: "Field "priceChanged" of type "PriceChange" must have a sub selection". The client then retried for ever while the service reported itself healthy. The published `graphql-subscription-client` example was in that position. It now declares its selections.
+
+  `mycel validate`, and the editor, refuse a selection that does not form a single subscription to that one field (it is parsed, so a second operation or field cannot ride along). They also refuse `selection` anywhere other than a `Subscription.*` source on a client connector, where nothing would read it.
+
+### Changed
+
+- **Mycel's WebSocket code runs on `github.com/coder/websocket` instead of `github.com/gorilla/websocket`.** Gorilla has had no commits since early 2025, and its last tag is missing a fix that has sat on its `main` for more than a year (3.11.0 pinned that commit for this reason). The move covers the `websocket` connector, GraphQL subscriptions in both directions (serving them and subscribing to a remote server), and the debug protocol.
+
+  Nothing a client sees changes, and tests pin each point using a gorilla client or server as the peer. They pass against the old code and the new, and each fails when the piece it covers is removed:
+  - any origin may still connect (the new library refuses cross-origin handshakes by default);
+  - the servers still read messages up to 512KB; the GraphQL client and the debug server still read messages of any size (the new library caps them at 32KB by default);
+  - `ping_interval` / `pong_timeout` and the subscription keep-alive still ping on schedule and drop a client that sends nothing and answers no ping;
+  - subscriptions still negotiate `graphql-transport-ws`;
+  - the subscription client still sends the configured headers and still ignores `HTTP(S)_PROXY`.
+
+  gorilla stays in the dependency graph: Paho's MQTT-over-WebSocket transport requires it, and the tests use it as the peer implementation.
+
+### Fixed
+
+- **A GraphQL subscription client did not unsubscribe when the service shut down or reloaded.** It sent `complete` only if it noticed the cancellation between two events. Nearly all of its time was spent blocked in a 90-second read, so the remote server kept the subscription open, and kept pushing events to a closed reader, until that read timed out. Cancellation now sends `complete` and closes the connection, which also ends the blocked read immediately.
+
+- **The `websocket` connector dropped every quiet client after `pong_timeout`, ping or no ping.** `pong_timeout` is documented as how long to wait for a pong, and it was used as the whole idle window. With the defaults (`ping_interval = "30s"`, `pong_timeout = "10s"`, as in `examples/websocket`), a client with nothing to say was disconnected ten seconds after connecting, before the first ping was ever sent, and again ten seconds after every reconnect. Checked against the published 3.11.0 image with a Node `ws` client: closed with 1006 at 10.0s, no ping received. With pings on, the window is now `ping_interval + pong_timeout`. A client that answers every ping stays connected, and one that stops answering is dropped `pong_timeout` after the ping it ignored. Without pings, `pong_timeout` remains a plain idle timeout. The GraphQL subscription server had already been fixed for the same shape (it widens an idle timeout that is not longer than the keep-alive interval).
+
+- **A flow fed by a remote GraphQL subscription never wrote its events.** The intent of a flow is read off its source operation, and `Subscription.priceChanged` has no HTTP method, so it parsed as a GET. The GraphQL connector is not on the list of event-driven sources, because it also serves queries. So unless the destination named a SQL verb, the flow stayed a read. The published `graphql-subscription-client` example, which stores each price change in `price_history`, ran a `SELECT` with the event as its filter on every event and stored nothing. Checked against the published 3.11.0 image: the events arrive, the flow answers `no such column` from a query, and the table stays empty. A `Subscription.*` source now writes, like a queue consumer; a `Query.*` source is still a read.
+
+- **The startup warning "a read flow with steps does not use its destination" fired for flows that do write.** It decided "read" from the first word of the source operation, while the flow itself is dispatched by the full reading of its intent. So a queue consumer with a `step` and a `to`, the most common consumer shape, was told at every startup that its destination was unused, and so was a transaction behind a GET. The warning now uses the same reading as the dispatch.
+
 ## [3.11.0] - 2026-11-26
 
 ### Security

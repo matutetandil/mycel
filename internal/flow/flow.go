@@ -323,6 +323,15 @@ func (f *FromConfig) GetOperation() string {
 	return getStringParam(f.ConnectorParams, "operation", "")
 }
 
+// GetSelection returns the fields a GraphQL subscription source asks the
+// remote server for (the `selection` attribute), or "".
+func (f *FromConfig) GetSelection() string {
+	if f == nil {
+		return ""
+	}
+	return getStringParam(f.ConnectorParams, "selection", "")
+}
+
 // GetFormat returns the format from ConnectorParams.
 func (f *FromConfig) GetFormat() string {
 	if f == nil {

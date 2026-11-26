@@ -66,6 +66,10 @@ func Checks(config *parser.Configuration, reg *schema.Registry) []Check {
 		// A cache key is a template, and one written as CEL is used verbatim:
 		// every request shares one entry and gets the first record back.
 		{"cache key", ValidateCacheKeys(config)},
+		// A subscription selection that is not one subscription to its field
+		// is refused by the remote server on every connect, retried for ever;
+		// one written where no subscription client reads it does nothing.
+		{"subscription selection", ValidateSubscriptionSelections(config)},
 		// A hook naming a flow that does not exist would otherwise surface as
 		// a line in a log during whatever the hook was meant to catch.
 		{"auth hook", ValidateAuthHooks(config)},

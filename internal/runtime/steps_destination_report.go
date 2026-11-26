@@ -30,7 +30,17 @@ func reportIgnoredDestinations(logger *slog.Logger, flows []*flow.Config, connec
 		if f.From == nil {
 			continue
 		}
-		if !parseOperation(f.From.GetOperation()).IsRead() {
+		// The flow's own reading of its intent, not the source operation's
+		// first word: a queue name or "Subscription.x" parses as a GET, and
+		// a consumer that writes every message was told its destination was
+		// unused.
+		sourceType := ""
+		if connectors != nil {
+			if src, err := connectors.Get(f.From.Connector); err == nil {
+				sourceType = src.Type()
+			}
+		}
+		if !resolveIntent(f, sourceType).IsRead() {
 			continue
 		}
 		// A destination that can only be written to is used: the flow renders

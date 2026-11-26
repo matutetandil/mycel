@@ -1925,19 +1925,35 @@ func (h *FlowHandler) evaluateSyncSequence(ctx context.Context, expr string, inp
 // `operation = "INSERT"` was still treated as a read and refused with
 // "destination connector does not support required operation".
 func (h *FlowHandler) resolvedOperation() Operation {
-	operation := parseOperation(h.Config.From.GetOperation())
+	return resolveIntent(h.Config, h.SourceType)
+}
+
+// resolveIntent is resolvedOperation for a flow that has no handler yet, so
+// anything reasoning about a flow at startup reads its intent the same way
+// the dispatch will. sourceType is the source connector's type.
+func resolveIntent(cfg *flow.Config, sourceType string) Operation {
+	operation := parseOperation(cfg.From.GetOperation())
 
 	// For event-driven sources (MQ consumers, CDC, file watchers), the operation
 	// string is a queue name, table name, or glob pattern — not "METHOD /path".
 	// These flows receive events and write to the destination.
-	if operation.Method == "GET" && isEventDrivenSource(h.SourceType) {
+	if operation.Method == "GET" && isEventDrivenSource(sourceType) {
+		operation.Method = "POST"
+	}
+
+	// A remote GraphQL subscription is an event stream like a queue, but the
+	// GraphQL connector also serves queries, so it cannot go on that list:
+	// the operation says which one this is. "Subscription.x" carries no HTTP
+	// method and parsed as a GET, so a flow storing each event ran a SELECT
+	// with the event as its filter instead, and stored nothing.
+	if operation.Method == "GET" && strings.HasPrefix(cfg.From.GetOperation(), "Subscription.") {
 		operation.Method = "POST"
 	}
 
 	// For non-REST sources (gRPC, SOAP, etc.) where the from.operation doesn't
 	// contain an HTTP method, use to.Operation to determine the write intent.
-	if operation.Method == "GET" && h.Config.To != nil && h.Config.To.GetOperation() != "" {
-		switch strings.ToUpper(h.Config.To.GetOperation()) {
+	if operation.Method == "GET" && cfg.To != nil && cfg.To.GetOperation() != "" {
+		switch strings.ToUpper(cfg.To.GetOperation()) {
 		case "INSERT":
 			operation.Method = "POST"
 		case "UPDATE":
@@ -1953,14 +1969,14 @@ func (h *FlowHandler) resolvedOperation() Operation {
 	// to. Without this the published example that inserts a heartbeat row ran
 	// `SELECT * FROM heartbeats` on every tick and wrote nothing, reporting
 	// success either way.
-	if operation.Method == "GET" && h.Config.From == nil && h.Config.To != nil {
+	if operation.Method == "GET" && cfg.From == nil && cfg.To != nil {
 		operation.Method = "POST"
 	}
 
 	// A transaction is a write whatever triggered it: it runs its statements
 	// regardless of the source operation, and what it answers is a row count
 	// and what it captured, never rows read.
-	if operation.IsRead() && h.Config.To != nil && h.Config.To.Transaction != nil {
+	if operation.IsRead() && cfg.To != nil && cfg.To.Transaction != nil {
 		operation.Method = "POST"
 	}
 
@@ -1971,7 +1987,7 @@ func (h *FlowHandler) resolvedOperation() Operation {
 	// two destinations stayed a read — and a read with several destinations
 	// fell through to the destination-less answer: the transform came back,
 	// nothing was written, nothing was logged.
-	if operation.IsRead() && len(h.Config.MultiTo) > 0 {
+	if operation.IsRead() && len(cfg.MultiTo) > 0 {
 		operation.Method = "POST"
 	}
 
