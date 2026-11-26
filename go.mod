@@ -12,6 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sesv2 v1.59.0
 	github.com/aws/aws-sdk-go-v2/service/sns v1.39.10
 	github.com/boombuler/barcode v1.1.1
+	github.com/coder/websocket v1.8.15
 	github.com/eclipse/paho.mqtt.golang v1.5.2
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-pdf/fpdf v0.9.0

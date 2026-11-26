@@ -5,6 +5,7 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -12,9 +13,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
 	"github.com/matutetandil/mycel/v3/internal/connector"
 	"github.com/matutetandil/mycel/v3/internal/flow"
+	"github.com/matutetandil/mycel/v3/internal/wsconn"
 )
 
 // HandlerFunc is a function that handles a flow request.
@@ -23,6 +26,7 @@ type HandlerFunc func(ctx context.Context, input map[string]interface{}) (interf
 // Client represents a connected WebSocket client.
 type Client struct {
 	conn   *websocket.Conn
+	idle   *wsconn.Idle
 	mu     sync.Mutex
 	rooms  map[string]bool
 	params map[string]interface{}
@@ -47,8 +51,7 @@ type Connector struct {
 	pongTimeout  time.Duration
 	logger       *slog.Logger
 
-	upgrader websocket.Upgrader
-	server   *http.Server
+	server *http.Server
 
 	mu       sync.RWMutex
 	clients  map[*Client]bool
@@ -83,13 +86,6 @@ func New(name string, config *Config, logger *slog.Logger) *Connector {
 		clients:      make(map[*Client]bool),
 		rooms:        make(map[string]map[*Client]bool),
 		handlers:     make(map[string]HandlerFunc),
-		upgrader: websocket.Upgrader{
-			ReadBufferSize:  1024,
-			WriteBufferSize: 1024,
-			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins (configure for production)
-			},
-		},
 	}
 }
 
@@ -265,14 +261,7 @@ func userIDFrom(values map[string]interface{}) string {
 
 // handleWebSocket upgrades HTTP to WebSocket and starts the client read pump.
 func (c *Connector) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := c.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		c.logger.Error("websocket upgrade failed", "error", err)
-		return
-	}
-
 	client := &Client{
-		conn:   conn,
 		rooms:  make(map[string]bool),
 		params: make(map[string]interface{}),
 		// Who this connection belongs to, taken from the address it was
@@ -285,6 +274,19 @@ func (c *Connector) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		// nobody, and answered that it had written one row.
 		userID: r.URL.Query().Get("user_id"),
 	}
+
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		// Any origin may connect, as it always could (configure for production).
+		InsecureSkipVerify: true,
+		// A pong is a sign of life like a message is: it keeps the
+		// connection from being dropped as idle.
+		OnPongReceived: func(context.Context, []byte) { client.idle.Touch() },
+	})
+	if err != nil {
+		c.logger.Error("websocket upgrade failed", "error", err)
+		return
+	}
+	client.conn = conn
 
 	// Everything else on the address is kept as well, so a flow can tell a
 	// connection from a tenant apart from one from a device.
@@ -324,14 +326,10 @@ func (c *Connector) readPump(client *Client) {
 	conn := client.conn
 	conn.SetReadLimit(512 * 1024) // 512KB max message size
 
-	// Configure pong handler for keepalive
-	if c.pongTimeout > 0 {
-		conn.SetReadDeadline(time.Now().Add(c.pongTimeout))
-		conn.SetPongHandler(func(string) error {
-			conn.SetReadDeadline(time.Now().Add(c.pongTimeout))
-			return nil
-		})
-	}
+	// A client that sends nothing and answers no ping for pongTimeout is
+	// dropped. Closing the connection ends the read below.
+	client.idle = wsconn.NewIdle(c.pongTimeout, func() { _ = conn.CloseNow() })
+	defer client.idle.Stop()
 
 	// Start ping ticker
 	if c.pingInterval > 0 {
@@ -339,18 +337,14 @@ func (c *Connector) readPump(client *Client) {
 	}
 
 	for {
-		_, rawMsg, err := conn.ReadMessage()
+		_, rawMsg, err := conn.Read(context.Background())
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure, websocket.CloseAbnormalClosure) {
+			if wsconn.UnexpectedClose(err, websocket.StatusGoingAway, websocket.StatusNormalClosure, websocket.StatusAbnormalClosure) {
 				c.logger.Debug("websocket read error", "error", err)
 			}
 			return
 		}
-
-		// Reset read deadline on message
-		if c.pongTimeout > 0 {
-			conn.SetReadDeadline(time.Now().Add(c.pongTimeout))
-		}
+		client.idle.Touch()
 
 		var msg Message
 		if err := json.Unmarshal(rawMsg, &msg); err != nil {
@@ -369,15 +363,19 @@ func (c *Connector) pingLoop(client *Client) {
 
 	for range ticker.C {
 		client.mu.Lock()
-		if client.closed {
-			client.mu.Unlock()
+		closed := client.closed
+		client.mu.Unlock()
+		if closed {
 			return
 		}
-		client.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		err := client.conn.WriteMessage(websocket.PingMessage, nil)
-		client.mu.Unlock()
 
-		if err != nil {
+		// Ping waits for the pong. One that does not come back in time is
+		// not an error here: dropping a silent client is the idle timer's
+		// job, and the next tick pings again, as it always did.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err := client.conn.Ping(ctx)
+		cancel()
+		if errors.Is(err, net.ErrClosed) {
 			return
 		}
 	}
@@ -527,8 +525,9 @@ func (c *Connector) sendToClient(client *Client, data interface{}) {
 		return
 	}
 
-	client.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := client.conn.WriteJSON(data); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := wsjson.Write(ctx, client.conn, data); err != nil {
 		c.logger.Debug("failed to send to client", "error", err)
 	}
 }
@@ -602,7 +601,7 @@ func (c *Connector) removeClient(client *Client) {
 	delete(c.clients, client)
 	c.mu.Unlock()
 
-	client.conn.Close()
+	_ = client.conn.CloseNow()
 
 	// Notify disconnect handler
 	if handler, ok := c.getHandler("disconnect"); ok {
