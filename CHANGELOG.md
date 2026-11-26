@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`selection` on a flow fed by a remote GraphQL subscription**: the fields to ask the server for, written as GraphQL (`selection = "{ sku newPrice }"`, braces optional, nested objects as a client writes them). The client used to send `subscription { priceChanged }` with nothing selected, which only a field typed as a scalar or `JSON` can answer. A field typed as an object is what any server with a real schema declares, and the server refused the bare form on every connect: "Field "priceChanged" of type "PriceChange" must have a sub selection". The client then retried for ever while the service reported itself healthy. The published `graphql-subscription-client` example was in that position. It now declares its selections.
+
+  `mycel validate`, and the editor, refuse a selection that does not form a single subscription to that one field (it is parsed, so a second operation or field cannot ride along). They also refuse `selection` anywhere other than a `Subscription.*` source on a client connector, where nothing would read it.
+
 ### Changed
 
 - **Mycel's WebSocket code runs on `github.com/coder/websocket` instead of `github.com/gorilla/websocket`.** Gorilla has had no commits since early 2025, and its last tag is missing a fix that has sat on its `main` for more than a year (3.11.0 pinned that commit for this reason). The move covers the `websocket` connector, GraphQL subscriptions in both directions (serving them and subscribing to a remote server), and the debug protocol.

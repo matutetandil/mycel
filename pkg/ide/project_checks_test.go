@@ -85,6 +85,44 @@ flow "get_product" {
 	}
 }
 
+// A subscription selection the remote server would refuse on every connect is
+// underlined on the flow, as validate refuses it.
+func TestABrokenSubscriptionSelectionIsFlaggedInTheEditor(t *testing.T) {
+	e, dir := project(t, map[string]string{
+		"connectors.mycel": projectConnectors + `
+connector "products_api" {
+  type     = "graphql"
+  driver   = "client"
+  endpoint = "http://localhost:4000/graphql"
+  subscriptions {
+    enabled = true
+  }
+}
+`,
+		"flows.mycel": `
+flow "track_prices" {
+  from {
+    connector = "products_api"
+    operation = "Subscription.priceChanged"
+    selection = "{ sku newPrice"
+  }
+  to {
+    connector = "db"
+    target    = "price_history"
+  }
+}
+`})
+	flows := filepath.Join(dir, "flows.mycel")
+
+	d := withMessage(e.Diagnose(flows), "not valid GraphQL")
+	if d == nil {
+		t.Fatalf("the selection validate refuses drew nothing in the editor: %v", messages(e.Diagnose(flows)))
+	}
+	if d.File != flows || d.Range.Start.Line != 2 {
+		t.Errorf("the finding is not on the flow's block: file=%s line=%d", d.File, d.Range.Start.Line)
+	}
+}
+
 func TestHeadersAimedAtADatabaseAreFlaggedInTheEditor(t *testing.T) {
 	e, dir := project(t, map[string]string{
 		"connectors.mycel": projectConnectors,
@@ -250,8 +288,8 @@ func TestEveryRuntimeCheckReachesTheEditor(t *testing.T) {
 	}
 	// Written down so that a new runtime check makes someone decide whether
 	// the editor already has it, rather than the answer being silently "yes".
-	if surfaced != 8 {
-		t.Errorf("%d runtime check kinds reach the editor through the project layer, and this test knows about 8 — "+
+	if surfaced != 9 {
+		t.Errorf("%d runtime check kinds reach the editor through the project layer, and this test knows about 9 — "+
 			"a new check was added: leave it to the project layer and update this number, or add it to coveredPositionally if the editor already reports it", surfaced)
 	}
 }

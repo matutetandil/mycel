@@ -16,6 +16,9 @@ flow "track_price_changes" {
   from {
     connector = "products_api"
     operation = "Subscription.priceChanged"
+    # The fields to ask the remote server for: a field typed as an object
+    # is only answered when the subscription names them.
+    selection = "{ sku oldPrice newPrice changedAt }"
   }
 
   transform {
@@ -38,6 +41,7 @@ flow "track_new_products" {
   from {
     connector = "products_api"
     operation = "Subscription.productCreated"
+    selection = "{ sku name price category createdAt }"
   }
 
   transform {

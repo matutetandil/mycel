@@ -289,6 +289,7 @@ flow "react_to_price_change" {
   from {
     connector = "external_gql"
     operation = "Subscription.priceChanged"
+    selection = "{ sku oldPrice newPrice changedAt }"
   }
   to {
     connector = "db"
@@ -297,7 +298,11 @@ flow "react_to_price_change" {
 }
 ```
 
-The client automatically reconnects with exponential backoff if the connection drops.
+`selection` names the fields to ask the remote server for, written as GraphQL (`{ sku newPrice }`, or without the braces; nested objects as a client writes them). A field typed as an object needs one, which is any field on a server with a real schema: without it the client sends `subscription { priceChanged }`, and the server refuses that. Leave it out only for a field typed as a scalar or `JSON`. `mycel validate` refuses a selection that is not one subscription to that field, and refuses `selection` anywhere other than a `Subscription.*` source on a client connector.
+
+Each event is written to the flow's destination, the way a queue consumer writes each message. The client automatically reconnects with exponential backoff if the connection drops, and unsubscribes (`complete`) when the service shuts down or reloads.
+
+Before 3.12.0 neither half worked. A subscription to an object-typed field was refused on every connect, because there was no way to name its fields. And a flow fed by a subscription was treated as a read, so it ran a query with each event as its filter and stored nothing.
 
 See the [GraphQL connector docs](../connectors/graphql.md) and [federation example](https://github.com/matutetandil/mycel/tree/main/examples/graphql-federation) for complete setup.
 

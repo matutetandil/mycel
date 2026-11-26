@@ -35,10 +35,14 @@ type ClientConnector struct {
 
 	// Subscription client support (implements Starter + RouteRegistrar)
 	handlers map[string]HandlerFunc
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	running  bool
+
+	// selections are the fields each subscription asks the server for, by
+	// operation, as the flow's `selection` declares them.
+	selections map[string]string
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+	running    bool
 }
 
 // NewClient creates a new GraphQL client connector.
@@ -465,7 +469,16 @@ func (c *ClientConnector) Start(ctx context.Context) error {
 			fieldName = strings.TrimPrefix(operation, "Subscription.")
 		}
 
-		query := buildSubscriptionQuery(fieldName)
+		c.mu.RLock()
+		selection := c.selections[operation]
+		c.mu.RUnlock()
+		query, err := SubscriptionQuery(fieldName, selection)
+		if err != nil {
+			// validate refuses this before startup; a configuration built
+			// some other way still must not subscribe to something else.
+			c.logger.Error("subscription not started", "connector", c.name, "operation", operation, "error", err)
+			continue
+		}
 
 		c.wg.Add(1)
 		go func(topic, q string, h HandlerFunc) {
@@ -484,9 +497,15 @@ func (c *ClientConnector) Start(ctx context.Context) error {
 	return nil
 }
 
-// buildSubscriptionQuery generates a subscription query for a field name.
-func buildSubscriptionQuery(fieldName string) string {
-	return fmt.Sprintf("subscription { %s }", fieldName)
+// SetOperationSelection records which fields a subscription asks the server
+// for. The runtime calls it for each flow that declares `selection`.
+func (c *ClientConnector) SetOperationSelection(operation, selection string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.selections == nil {
+		c.selections = make(map[string]string)
+	}
+	c.selections[operation] = selection
 }
 
 // subscribeToTopic connects to the remote GraphQL server via WebSocket,

@@ -18,7 +18,8 @@ import (
 // Three things the move from gorilla to coder/websocket could have changed
 // without any existing test noticing: an event larger than the new library's
 // 32KB default read limit, the headers configured on the connector reaching
-// the handshake, and the client unsubscribing when it shuts down.
+// the handshake, and the client unsubscribing when it shuts down. And the
+// selection a flow declares reaching the subscribe message.
 func TestSubscriptionClientTransport(t *testing.T) {
 	upgrader := gorilla.Upgrader{
 		CheckOrigin:  func(*http.Request) bool { return true },
@@ -26,6 +27,7 @@ func TestSubscriptionClientTransport(t *testing.T) {
 	}
 
 	tenant := make(chan string, 1)
+	sentQuery := make(chan string, 1)
 	sawComplete := make(chan string, 1)
 	blob := strings.Repeat("x", 100*1024)
 
@@ -46,6 +48,9 @@ func TestSubscriptionClientTransport(t *testing.T) {
 			return
 		}
 		subID := msg.ID
+		var sub subscribePayload
+		_ = json.Unmarshal(msg.Payload, &sub)
+		sentQuery <- sub.Query
 
 		payload, _ := json.Marshal(map[string]interface{}{
 			"data": map[string]interface{}{"orderUpdated": map[string]interface{}{"note": blob}},
@@ -82,6 +87,10 @@ func TestSubscriptionClientTransport(t *testing.T) {
 		return nil, nil
 	})
 
+	// What a flow's `selection` becomes: a field typed as an object is only
+	// answered when the subscription names its fields.
+	client.SetOperationSelection("Subscription.orderUpdated", "note")
+
 	ctx := context.Background()
 	if err := client.Connect(ctx); err != nil {
 		t.Fatal(err)
@@ -97,6 +106,15 @@ func TestSubscriptionClientTransport(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("the client never connected")
+	}
+
+	select {
+	case q := <-sentQuery:
+		if q != "subscription { orderUpdated { note } }" {
+			t.Errorf("subscribed with %q, want the flow's selection in it", q)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the client never subscribed")
 	}
 
 	select {

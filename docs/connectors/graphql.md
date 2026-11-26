@@ -55,6 +55,24 @@ connector "external_gql" {
 }
 ```
 
+A flow fed by a remote subscription names the fields it wants with `selection`. A field typed as an object needs one, which is any field on a server with a real schema:
+
+```hcl
+flow "track_prices" {
+  from {
+    connector = "external_gql"
+    operation = "Subscription.priceChanged"
+    selection = "{ sku newPrice }"
+  }
+  to {
+    connector = "db"
+    target    = "price_history"
+  }
+}
+```
+
+Each event is written to the destination, like a queue message. See [Client-Side Subscriptions](../guides/real-time.md#client-side-subscriptions).
+
 A `step`, `to` or `enrich` calling the client can add request headers of its own — `headers = { Store = "input.store" }` — evaluated per request and sent over the connector's `headers` on the same name. See [Headers per request](rest.md#headers-per-request).
 
 ## Operations
