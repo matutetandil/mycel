@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Mycel's WebSocket code runs on `github.com/coder/websocket` instead of `github.com/gorilla/websocket`.** Gorilla has had no commits since early 2025, and its last tag is missing a fix that has sat on its `main` for more than a year (3.11.0 pinned that commit for this reason). The move covers the `websocket` connector, GraphQL subscriptions in both directions (serving them and subscribing to a remote server), and the debug protocol.
+
+  Nothing a client sees changes, and tests pin each point using a gorilla client or server as the peer. They pass against the old code and the new, and each fails when the piece it covers is removed:
+  - any origin may still connect (the new library refuses cross-origin handshakes by default);
+  - the servers still read messages up to 512KB; the GraphQL client and the debug server still read messages of any size (the new library caps them at 32KB by default);
+  - `ping_interval` / `pong_timeout` and the subscription keep-alive still ping on schedule and drop a client that sends nothing and answers no ping;
+  - subscriptions still negotiate `graphql-transport-ws`;
+  - the subscription client still sends the configured headers and still ignores `HTTP(S)_PROXY`.
+
+  gorilla stays in the dependency graph: Paho's MQTT-over-WebSocket transport requires it, and the tests use it as the peer implementation.
+
+### Fixed
+
+- **A GraphQL subscription client did not unsubscribe when the service shut down or reloaded.** It sent `complete` only if it noticed the cancellation between two events. Nearly all of its time was spent blocked in a 90-second read, so the remote server kept the subscription open, and kept pushing events to a closed reader, until that read timed out. Cancellation now sends `complete` and closes the connection, which also ends the blocked read immediately.
+
 ## [3.11.0] - 2026-11-26
 
 ### Security
