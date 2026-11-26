@@ -11,8 +11,8 @@ number is allowed to change.
 
 | Version | Supported |
 |---|---|
-| 3.11.x | Yes |
-| < 3.11 | No |
+| 3.12.x | Yes |
+| < 3.12 | No |
 
 ## Vulnerabilities in dependencies
 
