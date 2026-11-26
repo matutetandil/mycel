@@ -148,3 +148,49 @@ func TestMessagesOver512KBCloseTheConnection(t *testing.T) {
 		t.Fatal("a 600KB message did not close the connection")
 	}
 }
+
+// pong_timeout is how long to wait for a pong, counted from the ping. With the
+// defaults (ping every 30s, pong within 10s) a client with nothing to say was
+// dropped ten seconds after connecting, before the first ping was ever sent,
+// and again ten seconds after every reconnect.
+func TestPongTimeoutShorterThanThePingIntervalKeepsAnAnsweringClient(t *testing.T) {
+	server := newKeepaliveConnector(t, 200*time.Millisecond, 50*time.Millisecond)
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL(server), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	pings := 0
+	ws.SetPingHandler(func(data string) error {
+		pings++
+		return ws.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(time.Second))
+	})
+
+	if lived, closed := readUntilClosed(ws, 900*time.Millisecond); closed {
+		t.Fatalf("a client answering every ping was dropped after %v (%d pings seen)", lived, pings)
+	}
+	if pings < 3 {
+		t.Fatalf("expected a ping every 200ms, got %d in 900ms", pings)
+	}
+}
+
+// And a client that stops answering is still dropped: pong_timeout after the
+// ping it did not answer.
+func TestPongTimeoutShorterThanThePingIntervalStillDropsASilentClient(t *testing.T) {
+	server := newKeepaliveConnector(t, 200*time.Millisecond, 50*time.Millisecond)
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL(server), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	ws.SetPingHandler(func(string) error { return nil }) // never pong
+
+	lived, closed := readUntilClosed(ws, 2*time.Second)
+	if !closed {
+		t.Fatal("a client that answered no ping was never dropped")
+	}
+	if lived < 200*time.Millisecond {
+		t.Fatalf("dropped after %v, before the first ping was even sent", lived)
+	}
+}

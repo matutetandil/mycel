@@ -21,7 +21,7 @@ connector "ws" {
 | `host` | string | `"0.0.0.0"` | Bind address |
 | `path` | string | `"/ws"` | WebSocket endpoint path |
 | `ping_interval` | duration | `"30s"` | How often to ping clients |
-| `pong_timeout` | duration | `"10s"` | How long to wait for a pong |
+| `pong_timeout` | duration | `"10s"` | How long to wait for a pong after each ping. With `ping_interval` set, a client may stay quiet for `ping_interval + pong_timeout`; without it, `pong_timeout` is the idle timeout |
 
 ## Operations
 

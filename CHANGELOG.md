@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **A GraphQL subscription client did not unsubscribe when the service shut down or reloaded.** It sent `complete` only if it noticed the cancellation between two events. Nearly all of its time was spent blocked in a 90-second read, so the remote server kept the subscription open, and kept pushing events to a closed reader, until that read timed out. Cancellation now sends `complete` and closes the connection, which also ends the blocked read immediately.
 
+- **The `websocket` connector dropped every quiet client after `pong_timeout`, ping or no ping.** `pong_timeout` is documented as how long to wait for a pong, and it was used as the whole idle window. With the defaults (`ping_interval = "30s"`, `pong_timeout = "10s"`, as in `examples/websocket`), a client with nothing to say was disconnected ten seconds after connecting, before the first ping was ever sent, and again ten seconds after every reconnect. Checked against the published 3.11.0 image with a Node `ws` client: closed with 1006 at 10.0s, no ping received. With pings on, the window is now `ping_interval + pong_timeout`. A client that answers every ping stays connected, and one that stops answering is dropped `pong_timeout` after the ping it ignored. Without pings, `pong_timeout` remains a plain idle timeout. The GraphQL subscription server had already been fixed for the same shape (it widens an idle timeout that is not longer than the keep-alive interval).
+
 ## [3.11.0] - 2026-11-26
 
 ### Security

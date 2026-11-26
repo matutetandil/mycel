@@ -326,9 +326,9 @@ func (c *Connector) readPump(client *Client) {
 	conn := client.conn
 	conn.SetReadLimit(512 * 1024) // 512KB max message size
 
-	// A client that sends nothing and answers no ping for pongTimeout is
-	// dropped. Closing the connection ends the read below.
-	client.idle = wsconn.NewIdle(c.pongTimeout, func() { _ = conn.CloseNow() })
+	// A client that goes silent is dropped. Closing the connection ends the
+	// read below.
+	client.idle = wsconn.NewIdle(c.idleWindow(), func() { _ = conn.CloseNow() })
 	defer client.idle.Stop()
 
 	// Start ping ticker
@@ -354,6 +354,25 @@ func (c *Connector) readPump(client *Client) {
 
 		c.handleClientMessage(client, &msg)
 	}
+}
+
+// idleWindow is how long a client may go without a message or a pong.
+//
+// pong_timeout is how long to wait for a pong, so with pings on, the window
+// is a ping interval plus that wait: a client that answers every ping is
+// never dropped, and one that stops is dropped pong_timeout after the ping it
+// ignored. Used on its own as the window, a pong_timeout shorter than the
+// ping interval — the defaults are 30s and 10s — dropped every quiet client
+// before the first ping went out. Without pings, pong_timeout is a plain idle
+// timeout.
+func (c *Connector) idleWindow() time.Duration {
+	if c.pongTimeout <= 0 {
+		return 0
+	}
+	if c.pingInterval > 0 {
+		return c.pingInterval + c.pongTimeout
+	}
+	return c.pongTimeout
 }
 
 // pingLoop sends periodic ping frames to the client.
